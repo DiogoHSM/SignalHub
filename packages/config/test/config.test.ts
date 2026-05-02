@@ -13,6 +13,13 @@ describe("loadConfig", () => {
     BOOTSTRAP_ADMIN_PASSWORD: "correct-horse-battery-staple-long-enough",
     GOOGLE_OAUTH_ENABLED: "false"
   };
+  const validGoogleOAuthEnv = {
+    ...validEnv,
+    GOOGLE_OAUTH_ENABLED: "true",
+    GOOGLE_CLIENT_ID: "google-client-id",
+    GOOGLE_CLIENT_SECRET: "google-client-secret",
+    GOOGLE_REDIRECT_URI: "http://localhost:3000/auth/google/callback"
+  };
 
   it("parses required runtime configuration", () => {
     const config = loadConfig({
@@ -49,6 +56,15 @@ describe("loadConfig", () => {
 
     expect(config.googleOAuth.enabled).toBe(false);
     expect(config.googleOAuth.redirectUri).toBe("");
+  });
+
+  it("rejects ports above the TCP port range", () => {
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        PORT: "99999"
+      })
+    ).toThrow();
   });
 
   it("rejects weak secrets outside test", () => {
@@ -94,5 +110,18 @@ describe("loadConfig", () => {
         GOOGLE_OAUTH_ENABLED: "true"
       })
     ).toThrow(/GOOGLE_CLIENT_ID/);
+  });
+
+  it.each([
+    ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID is required when Google OAuth is enabled"],
+    ["GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET is required when Google OAuth is enabled"],
+    ["GOOGLE_REDIRECT_URI", "GOOGLE_REDIRECT_URI is required when Google OAuth is enabled"]
+  ] as const)("requires %s when Google OAuth is enabled", (fieldName, expectedMessage) => {
+    expect(() =>
+      loadConfig({
+        ...validGoogleOAuthEnv,
+        [fieldName]: ""
+      })
+    ).toThrow(expectedMessage);
   });
 });
