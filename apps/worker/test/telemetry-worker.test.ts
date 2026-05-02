@@ -188,7 +188,6 @@ describe("processTelemetryJob", () => {
       projectId: "prj_1",
       environmentId: "env_1",
       payload: {
-        timestamp: "2026-01-01T00:00:00.000Z",
         metadata: {
           headers: {
             authorization: "Bearer secret"
@@ -209,7 +208,7 @@ describe("processTelemetryJob", () => {
         id: "trc_1",
         projectId: "prj_1",
         environmentId: "env_1",
-        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        timestamp: new Date("2026-01-01T00:00:01.000Z"),
         receivedAt: expect.any(Date),
         name: "checkout",
         status: "success",
@@ -233,7 +232,6 @@ describe("processTelemetryJob", () => {
       projectId: "prj_1",
       environmentId: "env_1",
       payload: {
-        timestamp: "2026-01-01T00:00:00.000Z",
         metadata: {
           headers: {
             session_token: "session-secret"
@@ -268,7 +266,7 @@ describe("processTelemetryJob", () => {
         id: "spn_1",
         projectId: "prj_1",
         environmentId: "env_1",
-        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        timestamp: new Date("2026-01-01T00:00:01.000Z"),
         receivedAt: expect.any(Date),
         traceId: "trc_1",
         parentSpanId: "spn_parent",

@@ -54,15 +54,18 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
   console.info(`Received ${signal}, shutting down telemetry worker`);
 
-  await worker.close();
-  await connection.quit();
-  await db.destroy();
+  const results = await Promise.allSettled([worker.close(), connection.quit(), db.destroy()]);
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("Telemetry worker shutdown step failed", result.reason);
+    }
+  }
 }
 
 process.once("SIGINT", (signal) => {
-  void shutdown(signal).then(() => process.exit(0));
+  void shutdown(signal).finally(() => process.exit(0));
 });
 
 process.once("SIGTERM", (signal) => {
-  void shutdown(signal).then(() => process.exit(0));
+  void shutdown(signal).finally(() => process.exit(0));
 });

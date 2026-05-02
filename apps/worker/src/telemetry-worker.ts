@@ -34,7 +34,9 @@ type ParsedEnvelope = {
   metadata: Record<string, unknown>;
 };
 
-function baseInput(job: TelemetryJobPayload, payload: ParsedEnvelope, receivedAt: Date) {
+function baseInput(job: TelemetryJobPayload, payload: ParsedEnvelope, receivedAt: Date, timestampFallback?: string) {
+  const timestamp = payload.timestamp ?? timestampFallback;
+
   return {
     id: job.id,
     projectId: job.projectId,
@@ -43,7 +45,7 @@ function baseInput(job: TelemetryJobPayload, payload: ParsedEnvelope, receivedAt
     userId: payload.user_id,
     sessionId: payload.session_id,
     traceId: payload.trace_id,
-    timestamp: payload.timestamp ? new Date(payload.timestamp) : receivedAt,
+    timestamp: timestamp ? new Date(timestamp) : receivedAt,
     receivedAt,
     source: payload.source,
     release: payload.release,
@@ -101,7 +103,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "trace": {
       const payload = tracePayloadSchema.parse(job.payload);
       await writer.insertTrace({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput(job, payload, receivedAt, payload.started_at),
         name: payload.name,
         status: payload.status,
         startedAt: new Date(payload.started_at),
@@ -114,7 +116,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "span": {
       const payload = spanPayloadSchema.parse(job.payload);
       await writer.insertSpan({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput(job, payload, receivedAt, payload.started_at),
         traceId: payload.trace_id,
         parentSpanId: payload.parent_span_id,
         name: payload.name,
