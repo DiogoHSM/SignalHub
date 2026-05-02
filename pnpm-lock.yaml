@@ -81,7 +81,14 @@ importers:
 
   packages/queues: {}
 
-  packages/telemetry: {}
+  packages/telemetry:
+    dependencies:
+      nanoid:
+        specifier: ^5.1.11
+        version: 5.1.11
+      zod:
+        specifier: ^4.4.2
+        version: 4.4.2
 
 packages:
 
