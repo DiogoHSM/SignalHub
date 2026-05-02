@@ -21,6 +21,10 @@ export type {
 } from "./types.js";
 
 export {
+  createSignalHubClient
+} from "./client.js";
+
+export {
   createErrorSignal,
   createEventSignal,
   createLlmSignal,

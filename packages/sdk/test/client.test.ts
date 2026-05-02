@@ -1,0 +1,340 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createSignalHubClient } from "../src/index.js";
+import type { SignalHubError } from "../src/types.js";
+
+const response = (status: number): Response => new Response(null, { status });
+
+function decodeBody(call: Parameters<typeof fetch>): Record<string, unknown> {
+  return JSON.parse(String(call[1]?.body)) as Record<string, unknown>;
+}
+
+describe("createSignalHubClient", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("rejects missing endpoint and missing api key", () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+
+    expect(() =>
+      createSignalHubClient({ endpoint: "", apiKey: "test_api_key", fetch: fetchImpl })
+    ).toThrow("endpoint is required");
+
+    expect(() =>
+      createSignalHubClient({ endpoint: "https://api.signalhub.test", apiKey: "", fetch: fetchImpl })
+    ).toThrow("apiKey is required");
+  });
+
+  it("track enqueues an event and flush sends it to the normalized endpoint with default context", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test///",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        tenantId: "tenant_1",
+        userId: "user_1",
+        metadata: { plan: "pro" }
+      }
+    });
+
+    client.track("dashboard_created", { charts_count: 3 });
+
+    await expect(client.flush()).resolves.toEqual({
+      sent: 1,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.signalhub.test/v1/events", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test_api_key",
+        "content-type": "application/json"
+      },
+      body: expect.any(String),
+      signal: expect.any(AbortSignal)
+    });
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      name: "dashboard_created",
+      properties: { charts_count: 3 },
+      tenant_id: "tenant_1",
+      user_id: "user_1",
+      metadata: { plan: "pro" }
+    });
+  });
+
+  it("retains retryable failures by default and discards them when requested", async () => {
+    const onError = vi.fn<(error: SignalHubError) => void>();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      onError
+    });
+
+    client.track("first");
+
+    await expect(client.flush()).resolves.toEqual({
+      sent: 0,
+      failed: 1,
+      retained: 1,
+      dropped: 0
+    });
+
+    await expect(client.flush({ discardOnFailure: true })).resolves.toEqual({
+      sent: 0,
+      failed: 1,
+      retained: 0,
+      dropped: 0
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledWith({
+      code: "transient_failure",
+      message: "Signal delivery failed with a retryable error",
+      status: 503,
+      endpoint: "https://api.signalhub.test/v1/events"
+    });
+  });
+
+  it("removes permanent failures and reports status and endpoint", async () => {
+    const onError = vi.fn<(error: SignalHubError) => void>();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(401));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      onError
+    });
+
+    client.track("unauthorized");
+
+    await expect(client.flush()).resolves.toEqual({
+      sent: 0,
+      failed: 1,
+      retained: 0,
+      dropped: 0
+    });
+    await expect(client.flush()).resolves.toEqual({
+      sent: 0,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+
+    expect(onError).toHaveBeenCalledWith({
+      code: "permanent_failure",
+      message: "Signal delivery failed with a permanent error",
+      status: 401,
+      endpoint: "https://api.signalhub.test/v1/events"
+    });
+  });
+
+  it("reports queue overflow and includes the dropped count in flush results", async () => {
+    const onError = vi.fn<(error: SignalHubError) => void>();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxQueueSize: 1,
+      maxRetries: 0,
+      onError
+    });
+
+    client.track("first");
+    client.track("second");
+
+    expect(onError).toHaveBeenCalledWith({
+      code: "queue_overflow",
+      message: "Signal queue capacity exceeded"
+    });
+    await expect(client.flush()).resolves.toEqual({
+      sent: 1,
+      failed: 0,
+      retained: 0,
+      dropped: 1
+    });
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({ name: "second" });
+  });
+
+  it("drops oversized payloads before enqueue, avoids fetch, and reports payload_too_large", async () => {
+    const onError = vi.fn<(error: SignalHubError) => void>();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxSerializedPayloadBytes: 10,
+      maxRetries: 0,
+      onError
+    });
+
+    client.track("oversized", { value: "this string is too large" });
+
+    await expect(client.flush()).resolves.toEqual({
+      sent: 0,
+      failed: 0,
+      retained: 0,
+      dropped: 1
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith({
+      code: "payload_too_large",
+      message: "Signal payload exceeds the configured size limit"
+    });
+  });
+
+  it("identify updates default context and shallow-merges metadata", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        tenantId: "tenant_1",
+        userId: "user_old",
+        metadata: { plan: "free", region: "us" }
+      }
+    });
+
+    client.identify({
+      userId: "user_new",
+      metadata: { plan: "pro", request_id: "req_1" }
+    });
+    client.track("identified");
+    await client.flush();
+
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({
+      tenant_id: "tenant_1",
+      user_id: "user_new",
+      metadata: { plan: "pro", region: "us", request_id: "req_1" }
+    });
+  });
+
+  it("startTrace returns a helper that enqueues a successful trace on end", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-02T12:00:00.000Z"));
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0
+    });
+
+    const activeTrace = client.startTrace("ai.generate_sql", { traceId: "trace_supplied" });
+    vi.setSystemTime(new Date("2026-05-02T12:00:02.500Z"));
+    activeTrace.end();
+    await client.flush();
+
+    expect(activeTrace.traceId).toBe("trace_supplied");
+    expect(activeTrace.startedAt).toEqual(new Date("2026-05-02T12:00:00.000Z"));
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.signalhub.test/v1/traces",
+      expect.objectContaining({ body: expect.any(String) })
+    );
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({
+      name: "ai.generate_sql",
+      status: "success",
+      started_at: "2026-05-02T12:00:00.000Z",
+      ended_at: "2026-05-02T12:00:02.500Z",
+      duration_ms: 2500,
+      trace_id: "trace_supplied"
+    });
+  });
+
+  it("shutdown stops interval flushing and flushes pending items", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      flushIntervalMs: 10,
+      maxRetries: 0
+    });
+
+    client.track("interval_sent");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    await client.shutdown();
+    client.track("after_shutdown");
+    await vi.advanceTimersByTimeAsync(30);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    await expect(client.flush()).resolves.toEqual({
+      sent: 1,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+  });
+
+  it("captureError, llm, trace, and span enqueue to their endpoint paths", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0
+    });
+
+    client.captureError(new Error("broken"));
+    client.llm({ provider: "openai", model: "gpt-5", status: "success" });
+    client.trace({ name: "workflow", status: "success" });
+    client.span({ traceId: "trace_1", name: "step", status: "success" });
+
+    await client.flush();
+
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      "https://api.signalhub.test/v1/errors",
+      "https://api.signalhub.test/v1/llm",
+      "https://api.signalhub.test/v1/traces",
+      "https://api.signalhub.test/v1/spans"
+    ]);
+  });
+
+  it("shares overlapping flush calls with the in-flight promise and avoids duplicate sends", async () => {
+    let resolveFetch: (response: Response) => void = () => undefined;
+    const fetchImpl = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0
+    });
+
+    client.track("one");
+    const firstFlush = client.flush();
+    const secondFlush = client.flush();
+
+    expect(secondFlush).toBe(firstFlush);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    resolveFetch(response(202));
+
+    await expect(firstFlush).resolves.toEqual({
+      sent: 1,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
