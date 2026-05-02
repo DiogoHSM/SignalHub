@@ -53,8 +53,15 @@ describe("sanitizeValue", () => {
       private_key: "secret",
       credential: "secret",
       client_key: "secret",
+      aws_access_key_id: "secret",
+      cloud_access_key: "secret",
+      s3_secret_access_key: "secret",
+      azure_signing_key: "secret",
+      private_signing_key: "secret",
+      gcp_service_account_key: "secret",
       token_count: 42,
-      secretary_name: "visible"
+      secretary_name: "visible",
+      keynote_title: "visible"
     });
 
     expect(sanitized).toEqual({
@@ -77,8 +84,15 @@ describe("sanitizeValue", () => {
       private_key: "[REDACTED]",
       credential: "[REDACTED]",
       client_key: "[REDACTED]",
+      aws_access_key_id: "[REDACTED]",
+      cloud_access_key: "[REDACTED]",
+      s3_secret_access_key: "[REDACTED]",
+      azure_signing_key: "[REDACTED]",
+      private_signing_key: "[REDACTED]",
+      gcp_service_account_key: "[REDACTED]",
       token_count: 42,
-      secretary_name: "visible"
+      secretary_name: "visible",
+      keynote_title: "visible"
     });
   });
 });

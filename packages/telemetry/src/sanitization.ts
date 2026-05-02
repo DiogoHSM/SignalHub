@@ -28,6 +28,13 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 const SENSITIVE_ROOTS = ["authorization", "cookie", "password", "secret"];
+const SENSITIVE_KEY_PATTERNS = [
+  "accesskey",
+  "secretaccesskey",
+  "signingkey",
+  "privatekey",
+  "serviceaccountkey"
+];
 
 function normalizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
@@ -49,6 +56,7 @@ function isSensitiveKey(key: string): boolean {
   return (
     SENSITIVE_KEYS.has(normalizedKey) ||
     matchesSensitiveRoot(normalizedKey) ||
+    SENSITIVE_KEY_PATTERNS.some((pattern) => normalizedKey.includes(pattern)) ||
     normalizedKey.endsWith("token") ||
     normalizedKey.endsWith("secret") ||
     normalizedKey.endsWith("password") ||
