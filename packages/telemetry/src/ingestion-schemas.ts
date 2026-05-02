@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+const SHORT_TEXT_MAX = 256;
+const MEDIUM_TEXT_MAX = 2_000;
+const LONG_TEXT_MAX = 20_000;
+
+const shortTextSchema = z.string().min(1).max(SHORT_TEXT_MAX);
+const mediumTextSchema = z.string().min(1).max(MEDIUM_TEXT_MAX);
+const optionalMediumTextSchema = z.string().max(MEDIUM_TEXT_MAX).optional();
+
 const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
     z.string(),
@@ -17,45 +25,45 @@ const timestampSchema = z.string().datetime();
 
 export const sharedEnvelopeSchema = z.object({
   timestamp: timestampSchema.optional(),
-  tenant_id: z.string().min(1).optional(),
-  user_id: z.string().min(1).optional(),
-  session_id: z.string().min(1).optional(),
-  trace_id: z.string().min(1).optional(),
-  source: z.string().min(1).optional(),
-  release: z.string().min(1).optional(),
+  tenant_id: shortTextSchema.optional(),
+  user_id: shortTextSchema.optional(),
+  session_id: shortTextSchema.optional(),
+  trace_id: shortTextSchema.optional(),
+  source: shortTextSchema.optional(),
+  release: shortTextSchema.optional(),
   metadata: jsonObjectSchema
 });
 
 export const eventPayloadSchema = sharedEnvelopeSchema.extend({
-  name: z.string().min(1),
+  name: shortTextSchema,
   properties: jsonObjectSchema
 });
 
 export const errorPayloadSchema = sharedEnvelopeSchema.extend({
-  message: z.string().min(1),
-  type: z.string().min(1).optional(),
+  message: mediumTextSchema,
+  type: mediumTextSchema.optional(),
   severity: z.enum(["debug", "info", "warning", "error", "critical"]).default("error"),
-  stack: z.string().optional(),
-  fingerprint: z.string().min(1).optional(),
+  stack: z.string().max(LONG_TEXT_MAX).optional(),
+  fingerprint: mediumTextSchema.optional(),
   context: jsonObjectSchema
 });
 
 export const llmCallPayloadSchema = sharedEnvelopeSchema.extend({
-  provider: z.string().min(1),
-  model: z.string().min(1),
-  prompt_name: z.string().min(1).optional(),
+  provider: shortTextSchema,
+  model: shortTextSchema,
+  prompt_name: shortTextSchema.optional(),
   input_tokens: z.number().int().nonnegative().default(0),
   output_tokens: z.number().int().nonnegative().default(0),
   cost_usd: z.number().nonnegative().default(0),
   latency_ms: z.number().int().nonnegative().optional(),
   status: z.enum(["success", "error", "pending"]).default("success"),
-  error: z.string().optional(),
-  input_preview: z.string().optional(),
-  output_preview: z.string().optional()
+  error: optionalMediumTextSchema,
+  input_preview: optionalMediumTextSchema,
+  output_preview: optionalMediumTextSchema
 });
 
 export const tracePayloadSchema = sharedEnvelopeSchema.extend({
-  name: z.string().min(1),
+  name: shortTextSchema,
   status: z.enum(["success", "error", "pending"]).default("pending"),
   started_at: timestampSchema,
   ended_at: timestampSchema.optional(),
@@ -63,9 +71,9 @@ export const tracePayloadSchema = sharedEnvelopeSchema.extend({
 });
 
 export const spanPayloadSchema = sharedEnvelopeSchema.extend({
-  trace_id: z.string().min(1),
-  parent_span_id: z.string().min(1).optional(),
-  name: z.string().min(1),
+  trace_id: shortTextSchema,
+  parent_span_id: shortTextSchema.optional(),
+  name: shortTextSchema,
   status: z.enum(["success", "error", "pending"]).default("pending"),
   started_at: timestampSchema,
   ended_at: timestampSchema.optional(),
