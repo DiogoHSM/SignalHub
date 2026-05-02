@@ -1,5 +1,8 @@
 import type { QueuedSignal } from "./types.js";
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RETRY_DELAY_MS = 30_000;
+
 export type StatusClassification = "success" | "retryable" | "permanent";
 
 export type SendSignalInput = {
@@ -29,15 +32,20 @@ export function classifyStatus(status: number): StatusClassification {
 }
 
 export function createRetryDelay(attempt: number, baseDelayMs: number): number {
-  return baseDelayMs * 2 ** attempt;
+  const normalizedAttempt = normalizeNonNegativeInteger(attempt);
+  const normalizedBaseDelayMs = normalizeNonNegativeNumber(baseDelayMs);
+
+  return Math.min(MAX_RETRY_DELAY_MS, normalizedBaseDelayMs * 2 ** normalizedAttempt);
 }
 
 export async function sendSignal(input: SendSignalInput): Promise<SendSignalResult> {
   const url = `${input.endpoint.replace(/\/+$/, "")}${input.signal.endpointPath}`;
+  const maxRetries = normalizeNonNegativeInteger(input.maxRetries);
+  const requestTimeoutMs = normalizePositiveTimeout(input.requestTimeoutMs);
 
-  for (let attempt = 0; attempt <= input.maxRetries; attempt += 1) {
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), input.requestTimeoutMs);
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
     try {
       const response = await input.fetchImpl(url, {
@@ -60,11 +68,11 @@ export async function sendSignal(input: SendSignalInput): Promise<SendSignalResu
         return { ok: false, retryable: false, status: response.status };
       }
 
-      if (attempt === input.maxRetries) {
+      if (attempt === maxRetries) {
         return { ok: false, retryable: true, status: response.status };
       }
     } catch (error) {
-      if (attempt === input.maxRetries) {
+      if (attempt === maxRetries) {
         return { ok: false, retryable: true, error };
       }
     } finally {
@@ -81,4 +89,28 @@ function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, delayMs);
   });
+}
+
+function normalizeNonNegativeInteger(value: number): number {
+  if (!Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+
+  return Math.floor(value);
+}
+
+function normalizeNonNegativeNumber(value: number): number {
+  if (!Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+
+  return value;
+}
+
+function normalizePositiveTimeout(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  return value;
 }

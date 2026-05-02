@@ -34,10 +34,21 @@ describe("retry status classification", () => {
 });
 
 describe("createRetryDelay", () => {
-  it("uses bounded exponential backoff for normal attempts", () => {
+  it("uses exponential backoff for normal attempts", () => {
     expect(createRetryDelay(0, 250)).toBe(250);
     expect(createRetryDelay(1, 250)).toBe(500);
     expect(createRetryDelay(2, 250)).toBe(1000);
+  });
+
+  it("caps extreme delays and normalizes invalid input", () => {
+    expect(createRetryDelay(20, 250)).toBe(30_000);
+    expect(createRetryDelay(-1, 250)).toBe(250);
+    expect(createRetryDelay(1.9, 250)).toBe(500);
+    expect(createRetryDelay(Number.NaN, 250)).toBe(250);
+    expect(createRetryDelay(Number.POSITIVE_INFINITY, 250)).toBe(250);
+    expect(createRetryDelay(2, -250)).toBe(0);
+    expect(createRetryDelay(2, Number.NaN)).toBe(0);
+    expect(createRetryDelay(2, Number.POSITIVE_INFINITY)).toBe(0);
   });
 });
 
@@ -103,6 +114,62 @@ describe("sendSignal", () => {
     });
 
     expect(result).toEqual({ ok: false, retryable: false, status: 401 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats infinite max retries as zero and attempts once", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));
+
+    const result = await sendSignal({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetchImpl,
+      requestTimeoutMs: 1000,
+      maxRetries: Number.POSITIVE_INFINITY,
+      retryBaseDelayMs: 1,
+      signal
+    });
+
+    expect(result).toEqual({ ok: false, retryable: true, status: 503 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats negative max retries as zero and attempts once", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));
+
+    const result = await sendSignal({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetchImpl,
+      requestTimeoutMs: 1000,
+      maxRetries: -1,
+      retryBaseDelayMs: 1,
+      signal
+    });
+
+    expect(result).toEqual({ ok: false, retryable: true, status: 503 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats timeout-triggered abort as retryable", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    const fetchImpl = vi.fn<typeof fetch>((_url, init) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(abortError), { once: true });
+      });
+    });
+
+    const result = await sendSignal({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetchImpl,
+      requestTimeoutMs: 1,
+      maxRetries: 0,
+      retryBaseDelayMs: 1,
+      signal
+    });
+
+    expect(result).toEqual({ ok: false, retryable: true, error: abortError });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
