@@ -8,5 +8,14 @@
     "dev": "tsx watch src/main.ts",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "@signal-hub/config": "workspace:*",
+    "fastify": "^5.8.5"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
 }
