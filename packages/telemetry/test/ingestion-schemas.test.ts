@@ -71,6 +71,31 @@ describe("ingestion schemas", () => {
     ).toThrow();
   });
 
+  it("rejects oversized nested JSON strings", () => {
+    expect(() =>
+      eventPayloadSchema.parse({
+        name: "x",
+        properties: { huge: "x".repeat(20001) }
+      })
+    ).toThrow();
+
+    expect(() =>
+      errorPayloadSchema.parse({
+        message: "m",
+        context: { huge: "x".repeat(20001) }
+      })
+    ).toThrow();
+
+    expect(() =>
+      spanPayloadSchema.parse({
+        trace_id: "t",
+        name: "n",
+        started_at: "2026-05-02T12:00:00.000Z",
+        input: { huge: "x".repeat(20001) }
+      })
+    ).toThrow();
+  });
+
   it("rejects negative numeric metrics", () => {
     expect(() =>
       llmCallPayloadSchema.parse({

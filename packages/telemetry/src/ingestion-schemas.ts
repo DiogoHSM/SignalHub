@@ -7,10 +7,11 @@ const LONG_TEXT_MAX = 20_000;
 const shortTextSchema = z.string().min(1).max(SHORT_TEXT_MAX);
 const mediumTextSchema = z.string().min(1).max(MEDIUM_TEXT_MAX);
 const optionalMediumTextSchema = z.string().max(MEDIUM_TEXT_MAX).optional();
+const jsonStringSchema = z.string().max(LONG_TEXT_MAX);
 
 const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
-    z.string(),
+    jsonStringSchema,
     z.number(),
     z.boolean(),
     z.null(),

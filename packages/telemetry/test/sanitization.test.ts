@@ -42,6 +42,10 @@ describe("sanitizeValue", () => {
       "set-cookie": "secret",
       password_hash: "secret",
       authToken: "secret",
+      authorizationHeader: "secret",
+      cookieHeader: "secret",
+      passwordValue: "secret",
+      secretValue: "secret",
       token_count: 42,
       secretary_name: "visible"
     });
@@ -55,6 +59,10 @@ describe("sanitizeValue", () => {
       "set-cookie": "[REDACTED]",
       password_hash: "[REDACTED]",
       authToken: "[REDACTED]",
+      authorizationHeader: "[REDACTED]",
+      cookieHeader: "[REDACTED]",
+      passwordValue: "[REDACTED]",
+      secretValue: "[REDACTED]",
       token_count: 42,
       secretary_name: "visible"
     });

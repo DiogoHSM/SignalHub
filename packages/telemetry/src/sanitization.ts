@@ -20,8 +20,20 @@ const SENSITIVE_KEYS = new Set([
   "creditcard"
 ]);
 
+const SENSITIVE_ROOTS = ["authorization", "cookie", "password", "secret"];
+
 function normalizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+}
+
+function matchesSensitiveRoot(normalizedKey: string): boolean {
+  return SENSITIVE_ROOTS.some((root) => {
+    if (root === "secret" && normalizedKey.startsWith("secretary")) {
+      return normalizedKey.endsWith(root);
+    }
+
+    return normalizedKey.startsWith(root) || normalizedKey.endsWith(root);
+  });
 }
 
 function isSensitiveKey(key: string): boolean {
@@ -29,6 +41,7 @@ function isSensitiveKey(key: string): boolean {
 
   return (
     SENSITIVE_KEYS.has(normalizedKey) ||
+    matchesSensitiveRoot(normalizedKey) ||
     normalizedKey.endsWith("token") ||
     normalizedKey.endsWith("secret") ||
     normalizedKey.endsWith("password") ||
