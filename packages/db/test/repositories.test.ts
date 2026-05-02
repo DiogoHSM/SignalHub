@@ -16,11 +16,11 @@ describe("repositories", () => {
       .withUsername("signalhub")
       .withPassword("signalhub")
       .start();
-  });
+  }, 60_000);
 
   afterAll(async () => {
     await container?.stop();
-  });
+  }, 30_000);
 
   it("creates admin resources and queries telemetry", async () => {
     const db = createDb(container.getConnectionUri());
