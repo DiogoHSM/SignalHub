@@ -71,7 +71,11 @@ importers:
 
   apps/worker: {}
 
-  packages/config: {}
+  packages/config:
+    dependencies:
+      zod:
+        specifier: ^4.4.2
+        version: 4.4.2
 
   packages/db: {}
 

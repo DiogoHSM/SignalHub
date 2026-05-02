@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
+const optionalEnvString = z.preprocess(emptyStringToUndefined, z.string().optional());
+const optionalEnvUrl = z.preprocess(emptyStringToUndefined, z.string().url().optional());
+
 const rawConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -13,9 +17,9 @@ const rawConfigSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_REDIRECT_URI: z.string().url().optional()
+  GOOGLE_CLIENT_ID: optionalEnvString,
+  GOOGLE_CLIENT_SECRET: optionalEnvString,
+  GOOGLE_REDIRECT_URI: optionalEnvUrl
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
