@@ -8,5 +8,11 @@
     "dev": "tsx watch src/main.ts",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {}
+  "dependencies": {
+    "bullmq": "^5.76.4",
+    "ioredis": "^5.10.1"
+  },
+  "devDependencies": {
+    "testcontainers": "^11.14.0"
+  }
 }

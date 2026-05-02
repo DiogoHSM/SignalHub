@@ -93,7 +93,18 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
 
-  packages/queues: {}
+  packages/queues:
+    dependencies:
+      bullmq:
+        specifier: ^5.76.4
+        version: 5.76.4
+      ioredis:
+        specifier: ^5.10.1
+        version: 5.10.1
+    devDependencies:
+      testcontainers:
+        specifier: ^11.14.0
+        version: 11.14.0
 
   packages/telemetry:
     dependencies:
