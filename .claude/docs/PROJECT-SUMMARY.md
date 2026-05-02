@@ -4,7 +4,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Current Phase
 
-Phase 1: Telemetry Core.
+Phase 2: SDK Integration.
 
 Implemented capabilities:
 
@@ -15,13 +15,14 @@ Implemented capabilities:
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
 - Health and readiness endpoints.
+- JavaScript SDK and raw HTTP ingestion guide for product integration.
 
-## Out of Scope for Phase 1
+## Out of Scope for Phase 2
 
 - SaaS workspaces, organizations, invites, billing, and enterprise SSO.
 - Full RBAC or per-project permissions.
 - Dashboards and frontend product UI.
-- SDKs.
+- Batch ingestion.
 - ClickHouse and object storage adapters.
 - Stored log telemetry.
 - Automated retention deletion.

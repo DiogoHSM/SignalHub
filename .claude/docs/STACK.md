@@ -30,6 +30,7 @@
 
 - `apps/api`: Fastify application, routes, startup wiring.
 - `apps/worker`: telemetry worker process.
+- `packages/sdk`: TypeScript SDK for sending telemetry to the existing ingestion API.
 - `packages/config`: environment parsing and validation.
 - `packages/db`: Kysely client, schema, migrations, repositories.
 - `packages/queues`: BullMQ queue creation and enqueue helpers.

@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-05-02: Phase 2 SDK sends one request per signal
+
+Decision: The first JavaScript SDK targets the existing single-signal ingestion endpoints and does not add batch ingestion.
+
+Rationale: This keeps Phase 2 installable and compatible with the completed self-hosted core. Buffered client flush and bounded retries improve product integration without changing backend storage or queue contracts.
+
 ## Phase 1 Runtime Shape
 
 Use Fastify API, Redis/BullMQ queueing, a worker process, and Postgres as the source of truth for Phase 1.

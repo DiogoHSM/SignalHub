@@ -15,7 +15,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Project Conventions
 
-- The core runtime is a pnpm TypeScript workspace with `apps/api`, `apps/worker`, and shared packages under `packages/*`.
+- The core runtime is a pnpm TypeScript workspace with `apps/api`, `apps/worker`, `@signal-hub/sdk`, and shared packages under `packages/*`.
 - Use Postgres as the source of truth for Phase 1 operational and typed telemetry data.
 - Use Redis/BullMQ for ingestion queue handoff between API acceptance and worker persistence.
 - Keep ingestion contracts scoped by project and environment API keys.
@@ -28,5 +28,6 @@ Run these checks before considering telemetry-core changes complete:
 ```sh
 pnpm test
 pnpm build
+pnpm --filter @signal-hub/sdk build
 docker compose config
 ```
