@@ -1,0 +1,287 @@
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
+import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
+import type { AuthDependencies } from "./auth.js";
+
+export type QueryFilters = {
+  projectId: string;
+  environmentId: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  traceId?: string;
+  from?: Date;
+  to?: Date;
+  limit: number;
+  cursor?: string;
+};
+
+export type QueryListResult<T = unknown> =
+  | T[]
+  | {
+      data: T[];
+      cursor?: string;
+    };
+
+export type QueryDependencies = {
+  listEvents?: (filters: QueryFilters) => Promise<QueryListResult>;
+  listErrors?: (filters: QueryFilters) => Promise<QueryListResult>;
+  listLlmCalls?: (filters: QueryFilters) => Promise<QueryListResult>;
+  listTraces?: (filters: QueryFilters) => Promise<QueryListResult>;
+  listTraceSpans?: (traceId: string, filters: QueryFilters) => Promise<QueryListResult>;
+  getEventAggregates?: (filters: QueryFilters) => Promise<unknown>;
+  getErrorAggregates?: (filters: QueryFilters) => Promise<unknown>;
+  getLlmAggregates?: (filters: QueryFilters) => Promise<unknown>;
+  getTraceAggregates?: (filters: QueryFilters) => Promise<unknown>;
+};
+
+export type QueryRouteOptions = {
+  auth?: AuthDependencies;
+  query?: QueryDependencies;
+};
+
+const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
+
+type RawQuery = Record<string, unknown>;
+
+function firstString(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    return value[0];
+  }
+
+  return undefined;
+}
+
+function optionalNonEmpty(raw: RawQuery, key: string): string | undefined {
+  const value = firstString(raw[key])?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
+
+function parseRequiredId(raw: RawQuery, key: string): string | undefined {
+  return optionalNonEmpty(raw, key);
+}
+
+function parseLimit(raw: RawQuery): number {
+  const value = optionalNonEmpty(raw, "limit");
+  if (!value) {
+    return 50;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 50;
+  }
+
+  const integer = Math.floor(parsed);
+  if (integer < 1) {
+    return 1;
+  }
+
+  return Math.min(integer, 500);
+}
+
+function parseDate(raw: RawQuery, key: string): Date | undefined | null {
+  const value = optionalNonEmpty(raw, key);
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function parseFilters(query: unknown): QueryFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const from = parseDate(raw, "from");
+  const to = parseDate(raw, "to");
+  if (from === null || to === null) {
+    return undefined;
+  }
+
+  const filters: QueryFilters = {
+    projectId,
+    environmentId,
+    limit: parseLimit(raw)
+  };
+
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const userId = optionalNonEmpty(raw, "user_id");
+  const sessionId = optionalNonEmpty(raw, "session_id");
+  const traceId = optionalNonEmpty(raw, "trace_id");
+  const cursor = optionalNonEmpty(raw, "cursor");
+
+  if (tenantId) {
+    filters.tenantId = tenantId;
+  }
+  if (userId) {
+    filters.userId = userId;
+  }
+  if (sessionId) {
+    filters.sessionId = sessionId;
+  }
+  if (traceId) {
+    filters.traceId = traceId;
+  }
+  if (from) {
+    filters.from = from;
+  }
+  if (to) {
+    filters.to = to;
+  }
+  if (cursor) {
+    filters.cursor = cursor;
+  }
+
+  return filters;
+}
+
+async function requireHumanUser(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  auth: AuthDependencies | undefined
+): Promise<AuthenticatedUser | undefined> {
+  const user = await auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
+  if (!user) {
+    setCurrentUser(request, null);
+    reply.status(401).send({ error: "unauthenticated" });
+    return undefined;
+  }
+
+  setCurrentUser(request, user);
+  return user;
+}
+
+function sendListResult(reply: FastifyReply, result: QueryListResult) {
+  if (Array.isArray(result)) {
+    return reply.send({ data: result });
+  }
+
+  if (result.cursor !== undefined) {
+    return reply.send({ data: result.data, cursor: result.cursor });
+  }
+
+  return reply.send({ data: result.data });
+}
+
+type ListMethod = (filters: QueryFilters) => Promise<QueryListResult>;
+type AggregateMethod = (filters: QueryFilters) => Promise<unknown>;
+
+async function handleListRoute(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: QueryRouteOptions,
+  method: ListMethod | undefined
+) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!method) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return sendListResult(reply, await method(filters));
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleTraceSpansRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listTraceSpans) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = traceParamsSchema.safeParse(request.params);
+  const filters = parseFilters(request.query);
+  if (!params.success || !filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return sendListResult(reply, await options.query.listTraceSpans(params.data.id, filters));
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleAggregateRoute(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: QueryRouteOptions,
+  method: AggregateMethod | undefined
+) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!method) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await method(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
+  app.get("/query/events", (request, reply) =>
+    handleListRoute(request, reply, options, options.query?.listEvents)
+  );
+  app.get("/query/errors", (request, reply) =>
+    handleListRoute(request, reply, options, options.query?.listErrors)
+  );
+  app.get("/query/llm-calls", (request, reply) =>
+    handleListRoute(request, reply, options, options.query?.listLlmCalls)
+  );
+  app.get("/query/traces", (request, reply) =>
+    handleListRoute(request, reply, options, options.query?.listTraces)
+  );
+  app.get("/query/traces/:id/spans", (request, reply) => handleTraceSpansRoute(request, reply, options));
+
+  app.get("/query/aggregates/events", (request, reply) =>
+    handleAggregateRoute(request, reply, options, options.query?.getEventAggregates)
+  );
+  app.get("/query/aggregates/errors", (request, reply) =>
+    handleAggregateRoute(request, reply, options, options.query?.getErrorAggregates)
+  );
+  app.get("/query/aggregates/llm", (request, reply) =>
+    handleAggregateRoute(request, reply, options, options.query?.getLlmAggregates)
+  );
+  app.get("/query/aggregates/traces", (request, reply) =>
+    handleAggregateRoute(request, reply, options, options.query?.getTraceAggregates)
+  );
+}

@@ -11,6 +11,7 @@ import {
 import { registerAuthRoutes, type AuthDependencies } from "./routes/auth.js";
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
+import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
 
 export type BuildAppOptions = {
   readiness: ReadinessCheck;
@@ -18,6 +19,7 @@ export type BuildAppOptions = {
   users?: UserAdministrationDependencies;
   adminResources?: AdminResourceDependencies;
   ingestion?: IngestionDependencies;
+  query?: QueryDependencies;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
@@ -48,6 +50,10 @@ export async function buildApp(options: BuildAppOptions) {
     hashApiKeySecret: options.hashApiKeySecret
   });
   registerIngestionRoutes(app, options.ingestion);
+  registerQueryRoutes(app, {
+    auth: options.auth,
+    query: options.query
+  });
 
   return app;
 }
