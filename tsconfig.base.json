@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@signal-hub/config": ["packages/config/src/index.ts"],
+      "@signal-hub/db": ["packages/db/src/client.ts"],
+      "@signal-hub/db/*": ["packages/db/src/*"],
+      "@signal-hub/queues": ["packages/queues/src/telemetry-queue.ts"],
+      "@signal-hub/telemetry": ["packages/telemetry/src/types.ts"],
+      "@signal-hub/telemetry/*": ["packages/telemetry/src/*"]
+    }
+  }
+}

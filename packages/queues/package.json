@@ -1,0 +1,12 @@
+{
+  "name": "@signal-hub/queues",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {}
+}

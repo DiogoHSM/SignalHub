@@ -1,0 +1,40 @@
+{
+  "name": "signal-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:api": "pnpm --filter @signal-hub/api dev",
+    "dev:worker": "pnpm --filter @signal-hub/worker dev",
+    "lint": "pnpm -r lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "seed:admin": "tsx scripts/seed-admin.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.20.0",
+    "testcontainers": "^11.14.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/session": "^11.1.1",
+    "argon2": "^0.44.0",
+    "bullmq": "^5.76.4",
+    "fastify": "^5.8.5",
+    "ioredis": "^5.10.1",
+    "jose": "^6.2.3",
+    "kysely": "^0.28.16",
+    "nanoid": "^5.1.11",
+    "pg": "^8.20.0",
+    "zod": "^4.4.2"
+  }
+}
