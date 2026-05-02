@@ -138,6 +138,28 @@ describe("createSignalHubClient", () => {
     });
   });
 
+  it("does not reject flush or lose accounting when permanent failure onError throws", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(401));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      onError: () => {
+        throw new Error("observer failed");
+      }
+    });
+
+    client.track("unauthorized");
+
+    await expect(client.flush()).resolves.toEqual({
+      sent: 0,
+      failed: 1,
+      retained: 0,
+      dropped: 0
+    });
+  });
+
   it("reports queue overflow and includes the dropped count in flush results", async () => {
     const onError = vi.fn<(error: SignalHubError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
@@ -164,6 +186,24 @@ describe("createSignalHubClient", () => {
       dropped: 1
     });
     expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({ name: "second" });
+  });
+
+  it("does not throw from track when queue overflow onError throws", () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxQueueSize: 1,
+      maxRetries: 0,
+      onError: () => {
+        throw new Error("observer failed");
+      }
+    });
+
+    client.track("first");
+
+    expect(() => client.track("second")).not.toThrow();
   });
 
   it("drops oversized payloads before enqueue, avoids fetch, and reports payload_too_large", async () => {
@@ -250,6 +290,32 @@ describe("createSignalHubClient", () => {
       ended_at: "2026-05-02T12:00:02.500Z",
       duration_ms: 2500,
       trace_id: "trace_supplied"
+    });
+  });
+
+  it("startTrace end preserves typed trace defaults from start input", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0
+    });
+
+    client
+      .startTrace("ai.generate_sql", {
+        status: "pending",
+        durationMs: 123,
+        timestamp: "2026-05-02T12:00:00.000Z"
+      })
+      .end();
+    await client.flush();
+
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({
+      name: "ai.generate_sql",
+      status: "pending",
+      duration_ms: 123,
+      timestamp: "2026-05-02T12:00:00.000Z"
     });
   });
 
@@ -394,5 +460,49 @@ describe("createSignalHubClient", () => {
       dropped: 0
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("flush waits for an active flush and drains items queued during it", async () => {
+    let resolveFirstFetch: (response: Response) => void = () => undefined;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirstFetch = resolve;
+          })
+      )
+      .mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0
+    });
+
+    client.track("first");
+    const firstFlush = client.flush();
+    client.track("second");
+    const secondFlush = client.flush();
+
+    expect(secondFlush).not.toBe(firstFlush);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    resolveFirstFetch(response(202));
+
+    await expect(secondFlush).resolves.toEqual({
+      sent: 2,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+    await expect(firstFlush).resolves.toEqual({
+      sent: 1,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls.map((call) => decodeBody(call).name)).toEqual(["first", "second"]);
   });
 });

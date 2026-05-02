@@ -61,10 +61,16 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
   let defaultContext = cloneContext(options.defaultContext);
   let localDropped = 0;
   let inFlightFlush: Promise<FlushResult> | undefined;
+  let pendingFlushAfterActive: Promise<FlushResult> | undefined;
+  let queuedDuringActiveFlush = false;
   let interval: ReturnType<typeof setInterval> | undefined;
 
   const reportError = (error: SignalHubError): void => {
-    options.onError?.(error);
+    try {
+      options.onError?.(error);
+    } catch {
+      // User-provided error observers must not break SDK delivery bookkeeping.
+    }
   };
 
   const enqueue = (signal: QueuedSignal): void => {
@@ -82,6 +88,10 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
 
     const result = queue.enqueue({ ...signal, payload });
 
+    if (inFlightFlush && queue.size() > 0) {
+      queuedDuringActiveFlush = true;
+    }
+
     if (result.dropped) {
       reportError({
         code: "queue_overflow",
@@ -92,14 +102,59 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
 
   const flush = (flushOptions?: FlushOptions): Promise<FlushResult> => {
     if (inFlightFlush) {
+      if (queuedDuringActiveFlush) {
+        return flushAfterActiveFlush(flushOptions);
+      }
+
       return inFlightFlush;
     }
 
-    inFlightFlush = flushQueue(flushOptions).finally(() => {
-      inFlightFlush = undefined;
+    return startFlush(flushOptions);
+  };
+
+  const startFlush = (flushOptions?: FlushOptions): Promise<FlushResult> => {
+    queuedDuringActiveFlush = false;
+
+    const activeFlush = flushQueue(flushOptions).finally(() => {
+      if (inFlightFlush === activeFlush) {
+        inFlightFlush = undefined;
+      }
     });
 
-    return inFlightFlush;
+    inFlightFlush = activeFlush;
+    return activeFlush;
+  };
+
+  const flushAfterActiveFlush = (flushOptions?: FlushOptions): Promise<FlushResult> => {
+    if (pendingFlushAfterActive) {
+      return pendingFlushAfterActive;
+    }
+
+    const activeFlush = inFlightFlush;
+
+    if (!activeFlush) {
+      return startFlush(flushOptions);
+    }
+
+    const followUpFlush = activeFlush
+      .then(async (activeResult) => {
+        pendingFlushAfterActive = undefined;
+
+        if (queue.size() === 0) {
+          return activeResult;
+        }
+
+        const pendingResult = await startFlush(flushOptions);
+        return combineFlushResults(activeResult, pendingResult);
+      })
+      .finally(() => {
+        if (pendingFlushAfterActive === followUpFlush) {
+          pendingFlushAfterActive = undefined;
+        }
+      });
+
+    pendingFlushAfterActive = followUpFlush;
+    return followUpFlush;
   };
 
   const flushQueue = async (flushOptions?: FlushOptions): Promise<FlushResult> => {
@@ -198,16 +253,17 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
         traceId,
         startedAt,
         end(endInput?: EndTraceInput, context?: SignalContext): void {
-          const endedAt = endInput?.endedAt ?? new Date();
+          const endedAt = endInput?.endedAt ?? input?.endedAt ?? new Date();
 
           enqueue(
             createTraceSignal(
               {
-                ...endInput,
                 name,
-                status: endInput?.status ?? "success",
+                status: endInput?.status ?? input?.status ?? "success",
                 startedAt,
-                endedAt
+                endedAt,
+                durationMs: endInput?.durationMs ?? input?.durationMs,
+                timestamp: endInput?.timestamp ?? input?.timestamp
               },
               {
                 ...input,
@@ -248,16 +304,15 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
         interval = undefined;
       }
 
-      const activeFlush = inFlightFlush;
+      const firstResult = await flush(shutdownOptions);
 
-      if (!activeFlush) {
-        return flush(shutdownOptions);
+      if (queue.size() === 0) {
+        return firstResult;
       }
 
-      const activeResult = await activeFlush;
       const pendingResult = await flush(shutdownOptions);
 
-      return combineFlushResults(activeResult, pendingResult);
+      return combineFlushResults(firstResult, pendingResult);
     }
   };
 }

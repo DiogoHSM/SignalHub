@@ -45,19 +45,24 @@ export async function sendSignal(input: SendSignalInput): Promise<SendSignalResu
   const requestTimeoutMs = normalizePositiveTimeout(input.requestTimeoutMs);
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const controller = createAbortController();
+    const timeout =
+      controller === undefined ? undefined : setTimeout(() => controller.abort(), requestTimeoutMs);
+    const init: RequestInit = {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${input.apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(input.signal.payload)
+    };
+
+    if (controller !== undefined) {
+      init.signal = controller.signal;
+    }
 
     try {
-      const response = await input.fetchImpl(url, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${input.apiKey}`,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify(input.signal.payload),
-        signal: controller.signal
-      });
+      const response = await input.fetchImpl(url, init);
 
       const classification = classifyStatus(response.status);
 
@@ -77,7 +82,9 @@ export async function sendSignal(input: SendSignalInput): Promise<SendSignalResu
         return { ok: false, retryable: true, error };
       }
     } finally {
-      clearTimeout(timeout);
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
     }
 
     await sleep(createRetryDelay(attempt, input.retryBaseDelayMs));
@@ -90,6 +97,12 @@ function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, delayMs);
   });
+}
+
+function createAbortController(): AbortController | undefined {
+  const AbortControllerImpl = globalThis.AbortController;
+
+  return AbortControllerImpl === undefined ? undefined : new AbortControllerImpl();
 }
 
 function normalizeNonNegativeInteger(value: number): number {

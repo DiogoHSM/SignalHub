@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyStatus, createRetryDelay, sendSignal } from "../src/retry.js";
 import type { QueuedSignal } from "../src/types.js";
 
@@ -9,6 +9,10 @@ const signal: QueuedSignal = {
 };
 
 const response = (status: number): Response => new Response(null, { status });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("retry status classification", () => {
   it("classifies 2xx statuses as success", () => {
@@ -77,6 +81,25 @@ describe("sendSignal", () => {
       body: JSON.stringify(signal.payload),
       signal: expect.any(AbortSignal)
     });
+  });
+
+  it("sends without a signal when AbortController is unavailable", async () => {
+    vi.stubGlobal("AbortController", undefined);
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+
+    const result = await sendSignal({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetchImpl,
+      requestTimeoutMs: 1000,
+      maxRetries: 0,
+      retryBaseDelayMs: 1,
+      signal
+    });
+
+    expect(result).toEqual({ ok: true, status: 202 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty("signal");
   });
 
   it("retries transient failures and returns success when a later attempt succeeds", async () => {
