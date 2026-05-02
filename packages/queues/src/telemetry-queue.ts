@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import { Redis as IORedis } from "ioredis";
+import type { RedisOptions } from "ioredis";
 
 export type TelemetryJobKind = "event" | "error" | "llm" | "trace" | "span";
 
@@ -11,10 +11,15 @@ export type TelemetryJobPayload = {
   payload: Record<string, unknown>;
 };
 
-export function createTelemetryQueue(redisUrl: string): Queue<TelemetryJobPayload> {
-  const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+export type TelemetryQueue = Queue<TelemetryJobPayload, unknown, TelemetryJobKind>;
 
-  return new Queue<TelemetryJobPayload>("telemetry", {
+export function createTelemetryQueue(redisUrl: string): TelemetryQueue {
+  const connection: RedisOptions & { url: string } = {
+    url: redisUrl,
+    maxRetriesPerRequest: null
+  };
+
+  return new Queue<TelemetryJobPayload, unknown, TelemetryJobKind>("telemetry", {
     connection,
     defaultJobOptions: {
       attempts: 5,
@@ -28,6 +33,6 @@ export function createTelemetryQueue(redisUrl: string): Queue<TelemetryJobPayloa
   });
 }
 
-export async function enqueueTelemetryJob(queue: Queue<TelemetryJobPayload>, payload: TelemetryJobPayload) {
+export async function enqueueTelemetryJob(queue: TelemetryQueue, payload: TelemetryJobPayload) {
   return queue.add(payload.kind, payload);
 }

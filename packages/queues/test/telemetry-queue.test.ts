@@ -22,6 +22,7 @@ describe("telemetry queue", () => {
 
   it("enqueues a telemetry event job", async () => {
     const queue = createTelemetryQueue(redisUrl);
+    const client = await queue.client;
     const payload: TelemetryJobPayload = {
       kind: "event",
       id: "evt_1",
@@ -40,8 +41,9 @@ describe("telemetry queue", () => {
         await queue.obliterate({ force: true });
       } finally {
         await queue.close();
-        await queue.disconnect();
       }
     }
+
+    expect(client.status).toBe("end");
   });
 });
