@@ -159,6 +159,21 @@ describe("repositories", () => {
     });
   });
 
+  it("finds active users inserted directly with mixed-case email", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`
+        INSERT INTO users (id, email, password_hash, is_admin)
+        VALUES ('usr_direct_mixed_case', 'DirectMixed@Example.com', 'hash', true)
+      `.execute(db);
+
+      await expect(findUserByEmail(db, "directmixed@example.com")).resolves.toMatchObject({
+        id: "usr_direct_mixed_case"
+      });
+    });
+  });
+
   it("rejects duplicate active users with different email casing", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -198,6 +213,24 @@ describe("repositories", () => {
     });
   });
 
+  it("rejects bootstrap admin seeding for direct mixed-case non-admin users", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`
+        INSERT INTO users (id, email, password_hash, is_admin)
+        VALUES ('usr_bootstrap_mixed_non_admin', 'BootstrapMixed@Example.com', 'hash', false)
+      `.execute(db);
+
+      await expect(
+        seedBootstrapAdmin(db, {
+          email: "bootstrapmixed@example.com",
+          password: "unused"
+        })
+      ).rejects.toThrow("Bootstrap admin email already belongs to a non-admin user");
+    });
+  });
+
   it("rejects duplicate api key prefixes", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -222,6 +255,32 @@ describe("repositories", () => {
           hash: "hash-2"
         })
       ).rejects.toThrow();
+    });
+  });
+
+  it("bounds event listing by default and explicit limits", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Bounded Events API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      for (let index = 0; index < 55; index += 1) {
+        await insertEvent(db, {
+          id: `evt_bounded_${index}`,
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: new Date(Date.UTC(2026, 4, 2, 12, index, 0)),
+          receivedAt: new Date(Date.UTC(2026, 4, 2, 12, index, 1)),
+          name: "bounded_event"
+        });
+      }
+
+      const defaultEvents = await listEvents(db, { projectId: project.id, environmentId: environment.id });
+      expect(defaultEvents).toHaveLength(50);
+
+      const limitedEvents = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 2 });
+      expect(limitedEvents).toHaveLength(2);
     });
   });
 

@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { sql } from "kysely";
 import { loadConfig } from "../packages/config/src/index.js";
 import { createDb } from "../packages/db/src/client.js";
 import type { Db } from "../packages/db/src/client.js";
@@ -12,22 +13,26 @@ export interface BootstrapAdminInput {
 }
 
 export async function seedBootstrapAdmin(db: Db, input: BootstrapAdminInput): Promise<"exists" | "created"> {
-  const existing = await findUserByEmail(db, input.email);
-  if (existing) {
-    if (!existing.isAdmin) {
-      throw new Error("Bootstrap admin email already belongs to a non-admin user");
+  return db.transaction().execute(async (trx) => {
+    await sql`SELECT pg_advisory_xact_lock(927380402914)`.execute(trx);
+
+    const existing = await findUserByEmail(trx, input.email);
+    if (existing) {
+      if (!existing.isAdmin) {
+        throw new Error("Bootstrap admin email already belongs to a non-admin user");
+      }
+      return "exists";
     }
-    return "exists";
-  }
 
-  const passwordHash = await hashPassword(input.password);
-  await createUser(db, {
-    email: input.email,
-    passwordHash,
-    isAdmin: true
+    const passwordHash = await hashPassword(input.password);
+    await createUser(trx, {
+      email: input.email,
+      passwordHash,
+      isAdmin: true
+    });
+
+    return "created";
   });
-
-  return "created";
 }
 
 export async function main(): Promise<void> {

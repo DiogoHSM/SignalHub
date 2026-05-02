@@ -5,6 +5,9 @@ import type { EventsTable } from "../schema.js";
 
 type EventRow = Selectable<EventsTable>;
 
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 500;
+
 export interface TelemetryFilters {
   projectId: string;
   environmentId: string;
@@ -14,6 +17,7 @@ export interface TelemetryFilters {
   traceId?: string;
   from?: Date;
   to?: Date;
+  limit?: number;
 }
 
 export interface EventRecord {
@@ -66,6 +70,11 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+function resolveLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT;
+  return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(limit)));
+}
+
 export async function listEvents(db: Db, filters: TelemetryFilters): Promise<EventRecord[]> {
   let query = db
     .selectFrom("events")
@@ -80,7 +89,7 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Eve
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
 
-  const rows = await query.orderBy("timestamp", "desc").execute();
+  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
   return rows.map(toEvent);
 }
 

@@ -1,9 +1,11 @@
-import type { Selectable } from "kysely";
+import { sql } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
-import type { UsersTable } from "../schema.js";
+import type { Database, UsersTable } from "../schema.js";
 
 type UserRow = Selectable<UsersTable>;
+type UserDb = Db | Transaction<Database>;
 
 export interface User {
   id: string;
@@ -40,7 +42,7 @@ function toUser(row: UserRow): User {
   };
 }
 
-export async function createUser(db: Db, input: CreateUserInput): Promise<User> {
+export async function createUser(db: UserDb, input: CreateUserInput): Promise<User> {
   const row = await db
     .insertInto("users")
     .values({
@@ -56,11 +58,12 @@ export async function createUser(db: Db, input: CreateUserInput): Promise<User> 
   return toUser(row);
 }
 
-export async function findUserByEmail(db: Db, email: string): Promise<User | undefined> {
+export async function findUserByEmail(db: UserDb, email: string): Promise<User | undefined> {
+  const normalizedEmail = normalizeEmail(email);
   const row = await db
     .selectFrom("users")
     .selectAll()
-    .where("email", "=", normalizeEmail(email))
+    .where(sql<string>`lower(email)`, "=", normalizedEmail)
     .where("archived_at", "is", null)
     .executeTakeFirst();
   return row ? toUser(row) : undefined;
