@@ -81,6 +81,9 @@ importers:
       '@signal-hub/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@signal-hub/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
       fastify:
         specifier: ^5.8.5
         version: 5.8.5

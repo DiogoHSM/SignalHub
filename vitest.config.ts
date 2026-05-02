@@ -1,4 +1,7 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
+
+const root = import.meta.dirname;
 
 export default defineConfig({
   test: {
@@ -9,6 +12,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@signal-hub/telemetry/api-keys": resolve(root, "packages/telemetry/src/api-keys.ts"),
       "@signal-hub/config": "/packages/config/src/index.ts",
       "@signal-hub/db": "/packages/db/src/client.ts",
       "@signal-hub/db/": "/packages/db/src/",

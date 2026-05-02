@@ -3,7 +3,11 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { registerRequestContext } from "./plugins/request-context.js";
-import { registerAdminRoutes, type UserAdministrationDependencies } from "./routes/admin.js";
+import {
+  registerAdminRoutes,
+  type AdminResourceDependencies,
+  type UserAdministrationDependencies
+} from "./routes/admin.js";
 import { registerAuthRoutes, type AuthDependencies } from "./routes/auth.js";
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 
@@ -11,6 +15,9 @@ export type BuildAppOptions = {
   readiness: ReadinessCheck;
   auth?: AuthDependencies;
   users?: UserAdministrationDependencies;
+  adminResources?: AdminResourceDependencies;
+  apiKeyPepper?: string;
+  hashApiKeySecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
   corsOrigin?: string | string[];
 };
@@ -33,7 +40,10 @@ export async function buildApp(options: BuildAppOptions) {
   });
   registerAdminRoutes(app, {
     auth: options.auth,
-    users: options.users
+    users: options.users,
+    adminResources: options.adminResources,
+    apiKeyPepper: options.apiKeyPepper,
+    hashApiKeySecret: options.hashApiKeySecret
   });
 
   return app;

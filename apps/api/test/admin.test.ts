@@ -4,6 +4,13 @@ import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
 
+const adminAuth = {
+  login: async () => ({ id: "usr_1", email: "admin@example.com", isAdmin: true }),
+  findSessionUser: async () => ({ id: "usr_1", email: "admin@example.com", isAdmin: true })
+};
+
+const readiness = async () => ({ postgres: true, redis: true });
+
 afterEach(async () => {
   await app?.close();
   app = undefined;
@@ -46,11 +53,8 @@ describe("admin routes", () => {
 
   it("rejects weak admin-created passwords", async () => {
     app = await buildApp({
-      readiness: async () => ({ postgres: true, redis: true }),
-      auth: {
-        login: async () => ({ id: "usr_1", email: "admin@example.com", isAdmin: true }),
-        findSessionUser: async () => ({ id: "usr_1", email: "admin@example.com", isAdmin: true })
-      },
+      readiness,
+      auth: adminAuth,
       users: {
         createUser: async () => ({ id: "usr_2", email: "user@example.com", isAdmin: false })
       }
@@ -63,5 +67,184 @@ describe("admin routes", () => {
     });
 
     expect(response.statusCode).toBe(400);
+  });
+
+  it("creates a project", async () => {
+    const createdProjects: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        projects: {
+          list: async () => [],
+          get: async () => null,
+          create: async (input) => {
+            createdProjects.push(input);
+            return {
+              id: "prj_1",
+              name: input.name,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+              archivedAt: null
+            };
+          },
+          update: async () => null,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects",
+      payload: { name: "SignalHub" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().project).toMatchObject({ id: "prj_1", name: "SignalHub" });
+    expect(createdProjects).toEqual([{ name: "SignalHub" }]);
+  });
+
+  it("creates an environment for a project", async () => {
+    const createdEnvironments: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        environments: {
+          list: async () => [],
+          create: async (input) => {
+            createdEnvironments.push(input);
+            return {
+              id: "env_1",
+              projectId: input.projectId,
+              name: input.name,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+              archivedAt: null
+            };
+          },
+          update: async () => null,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/environments",
+      payload: { name: "Production" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().environment).toMatchObject({
+      id: "env_1",
+      projectId: "prj_1",
+      name: "Production"
+    });
+    expect(createdEnvironments).toEqual([{ projectId: "prj_1", name: "Production" }]);
+  });
+
+  it("returns a one-time API key secret and stores only prefix and hash", async () => {
+    const storedApiKeys: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      apiKeyPepper: "test-pepper",
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async (input) => {
+            storedApiKeys.push(input);
+            return {
+              id: "key_1",
+              projectId: input.projectId,
+              environmentId: input.environmentId,
+              name: input.name,
+              prefix: input.prefix,
+              hash: input.hash,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              revokedAt: null
+            };
+          },
+          revoke: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/api-keys",
+      payload: { environmentId: "env_1", name: "Production ingest" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().apiKey.secret).toMatch(/^sh_/);
+    expect(response.json().apiKey.prefix).toBe(response.json().apiKey.secret.slice(0, 12));
+    expect(storedApiKeys).toHaveLength(1);
+    expect(storedApiKeys[0]).toMatchObject({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Production ingest",
+      prefix: response.json().apiKey.prefix
+    });
+    expect(storedApiKeys[0]).not.toHaveProperty("secret");
+    expect(storedApiKeys[0]).toHaveProperty("hash");
+    expect(response.json().apiKey.hash).toBeUndefined();
+  });
+
+  it("soft archives a project", async () => {
+    const archivedProjectIds: string[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        projects: {
+          list: async () => [],
+          get: async () => null,
+          create: async () => {
+            throw new Error("not used");
+          },
+          update: async () => null,
+          archive: async (id) => {
+            archivedProjectIds.push(id);
+          }
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "DELETE", url: "/admin/projects/prj_1" });
+
+    expect(response.statusCode).toBe(204);
+    expect(archivedProjectIds).toEqual(["prj_1"]);
+  });
+
+  it("revokes an API key", async () => {
+    const revokedApiKeyIds: string[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("not used");
+          },
+          revoke: async (id) => {
+            revokedApiKeyIds.push(id);
+          }
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "DELETE", url: "/admin/api-keys/key_1" });
+
+    expect(response.statusCode).toBe(204);
+    expect(revokedApiKeyIds).toEqual(["key_1"]);
   });
 });

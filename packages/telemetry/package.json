@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/types.ts",
+    "./api-keys": "./src/api-keys.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
