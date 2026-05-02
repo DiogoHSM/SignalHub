@@ -4,9 +4,33 @@ import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-conte
 
 export type AuthUser = AuthenticatedUser;
 
+type CookieOptions = {
+  httpOnly?: boolean;
+  sameSite?: "lax" | "none" | "strict" | boolean;
+  secure?: boolean | "auto";
+  path?: string;
+  maxAge?: number;
+  expires?: Date;
+};
+
+export type CookieCapableRequest = FastifyRequest & {
+  cookies: Record<string, string | undefined>;
+};
+
+export type CookieCapableReply = FastifyReply & {
+  setCookie: (name: string, value: string, options?: CookieOptions) => FastifyReply;
+  clearCookie: (name: string, options?: CookieOptions) => FastifyReply;
+};
+
+export type AuthSessionContext = {
+  request: CookieCapableRequest;
+  reply: CookieCapableReply;
+};
+
 export type AuthDependencies = {
-  login: (email: string, password: string) => Promise<AuthUser | null | undefined>;
-  findSessionUser: (request: FastifyRequest) => Promise<AuthUser | null | undefined>;
+  login: (email: string, password: string, context: AuthSessionContext) => Promise<AuthUser | null | undefined>;
+  findSessionUser: (request: CookieCapableRequest) => Promise<AuthUser | null | undefined>;
+  logout?: (context: AuthSessionContext) => Promise<void>;
 };
 
 export type AuthRouteOptions = {
@@ -19,7 +43,7 @@ const loginBodySchema = z.object({
   password: z.string().min(1)
 });
 
-function authUnavailable() {
+function authUnavailable(): AuthDependencies {
   return {
     login: async () => null,
     findSessionUser: async () => null
@@ -39,7 +63,10 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       return reply.status(400).send({ error: "invalid_login_request" });
     }
 
-    const user = await auth.login(parsed.data.email, parsed.data.password);
+    const user = await auth.login(parsed.data.email, parsed.data.password, {
+      request: request as CookieCapableRequest,
+      reply: reply as CookieCapableReply
+    });
     if (!user) {
       return reply.status(401).send({ error: "invalid_credentials" });
     }
@@ -49,13 +76,17 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
   });
 
   app.post("/auth/logout", async (request, reply) => {
+    await auth.logout?.({
+      request: request as CookieCapableRequest,
+      reply: reply as CookieCapableReply
+    });
     setCurrentUser(request, null);
 
     return reply.send({ ok: true });
   });
 
   app.get("/auth/me", async (request, reply) => {
-    const user = await auth.findSessionUser(request);
+    const user = await auth.findSessionUser(request as CookieCapableRequest);
     if (!user) {
       setCurrentUser(request, null);
       return reply.status(401).send({ error: "unauthenticated" });

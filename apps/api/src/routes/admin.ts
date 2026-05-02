@@ -17,14 +17,14 @@ export type AdminRouteOptions = {
 
 const createUserSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1),
+  password: z.string().trim().min(12).max(256),
   isAdmin: z.boolean().default(false)
 });
 
 const updateUserSchema = z
   .object({
     email: z.string().email().optional(),
-    password: z.string().min(1).optional(),
+    password: z.string().trim().min(12).max(256).optional(),
     isAdmin: z.boolean().optional()
   })
   .refine((input) => Object.keys(input).length > 0, {
@@ -39,7 +39,7 @@ async function requireAdmin(
   reply: FastifyReply,
   auth: AuthDependencies | undefined
 ): Promise<AuthenticatedUser | undefined> {
-  const user = await auth?.findSessionUser(request);
+  const user = await auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
   if (!user) {
     setCurrentUser(request, null);
     reply.status(401).send({ error: "unauthenticated" });

@@ -12,12 +12,16 @@ export type BuildAppOptions = {
   auth?: AuthDependencies;
   users?: UserAdministrationDependencies;
   googleOAuthEnabled?: boolean;
+  corsOrigin?: string | string[];
 };
 
 export async function buildApp(options: BuildAppOptions) {
   const app = Fastify({ logger: false });
 
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: options.corsOrigin ?? false,
+    credentials: options.corsOrigin !== undefined
+  });
   await app.register(cookie);
   await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });
 
