@@ -43,7 +43,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Docker Compose
 
-Docker Compose starts Postgres, Redis, the API, and the telemetry worker. It loads secrets from `.env` and overrides database/cache URLs for the internal Compose network. Postgres and Redis are bound to `127.0.0.1` for local tooling; change `POSTGRES_PORT`, `REDIS_PORT`, and `POSTGRES_PASSWORD` in `.env` before exposing the host.
+Docker Compose starts Postgres, Redis, the API, and the telemetry worker. It loads secrets from `.env` and overrides database/cache URLs for the internal Compose network. For ordinary password rotations, changing `POSTGRES_PASSWORD` is enough. Only set `POSTGRES_PASSWORD_URLENCODED` when the password contains URL-reserved characters. Postgres and Redis are bound to `127.0.0.1` for local tooling; change `POSTGRES_PORT`, `REDIS_PORT`, and `POSTGRES_PASSWORD` in `.env` before exposing the host.
 
 ```sh
 cp .env.example .env

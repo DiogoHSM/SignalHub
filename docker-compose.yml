@@ -37,7 +37,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-signalhub-local-only-change-me}@postgres:5432/signalhub
+      DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-signalhub-local-only-change-me}}@postgres:5432/signalhub
       REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
@@ -56,7 +56,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-signalhub-local-only-change-me}@postgres:5432/signalhub
+      DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-signalhub-local-only-change-me}}@postgres:5432/signalhub
       REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
