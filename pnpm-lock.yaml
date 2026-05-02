@@ -98,7 +98,30 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2(@noble/hashes@1.8.0))(lightningcss@1.30.1)
 
-  apps/worker: {}
+  apps/worker:
+    dependencies:
+      '@signal-hub/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@signal-hub/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@signal-hub/queues':
+        specifier: workspace:*
+        version: link:../../packages/queues
+      '@signal-hub/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+      bullmq:
+        specifier: ^5.76.4
+        version: 5.76.4
+      ioredis:
+        specifier: ^5.10.1
+        version: 5.10.1
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2(@noble/hashes@1.8.0))(lightningcss@1.30.1)
 
   packages/config:
     dependencies:

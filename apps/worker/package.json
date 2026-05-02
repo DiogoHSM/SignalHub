@@ -8,5 +8,15 @@
     "dev": "tsx watch src/main.ts",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@signal-hub/config": "workspace:*",
+    "@signal-hub/db": "workspace:*",
+    "@signal-hub/queues": "workspace:*",
+    "@signal-hub/telemetry": "workspace:*",
+    "bullmq": "^5.76.4",
+    "ioredis": "^5.10.1"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
 }
