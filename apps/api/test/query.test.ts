@@ -207,10 +207,52 @@ describe("query routes", () => {
         filters: {
           projectId: "prj_1",
           environmentId: "env_1",
+          traceId: "trc_1",
           limit: 50
         }
       }
     ]);
+  });
+
+  it("rejects conflicting trace ids for trace span queries", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listTraceSpans: async () => []
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/traces/trc_1/spans?project_id=prj_1&environment_id=env_1&trace_id=trc_2"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("keeps query dependency method context", async () => {
+    const query = {
+      events: [{ id: "evt_1" }],
+      async listEvents() {
+        return this.events;
+      }
+    };
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: [{ id: "evt_1" }] });
   });
 
   it("returns aggregates under data", async () => {

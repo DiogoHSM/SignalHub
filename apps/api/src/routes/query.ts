@@ -177,21 +177,22 @@ function sendListResult(reply: FastifyReply, result: QueryListResult) {
   return reply.send({ data: result.data });
 }
 
-type ListMethod = (filters: QueryFilters) => Promise<QueryListResult>;
-type AggregateMethod = (filters: QueryFilters) => Promise<unknown>;
+type ListRunner = (filters: QueryFilters) => Promise<QueryListResult>;
+type AggregateRunner = (filters: QueryFilters) => Promise<unknown>;
 
 async function handleListRoute(
   request: FastifyRequest,
   reply: FastifyReply,
   options: QueryRouteOptions,
-  method: ListMethod | undefined
+  hasMethod: () => boolean,
+  run: ListRunner
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
     return reply;
   }
 
-  if (!method) {
+  if (!hasMethod()) {
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
@@ -201,7 +202,7 @@ async function handleListRoute(
   }
 
   try {
-    return sendListResult(reply, await method(filters));
+    return sendListResult(reply, await run(filters));
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -222,6 +223,10 @@ async function handleTraceSpansRoute(request: FastifyRequest, reply: FastifyRepl
   if (!params.success || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  if (filters.traceId && filters.traceId !== params.data.id) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+  filters.traceId = params.data.id;
 
   try {
     return sendListResult(reply, await options.query.listTraceSpans(params.data.id, filters));
@@ -234,14 +239,15 @@ async function handleAggregateRoute(
   request: FastifyRequest,
   reply: FastifyReply,
   options: QueryRouteOptions,
-  method: AggregateMethod | undefined
+  hasMethod: () => boolean,
+  run: AggregateRunner
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
     return reply;
   }
 
-  if (!method) {
+  if (!hasMethod()) {
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
@@ -251,7 +257,7 @@ async function handleAggregateRoute(
   }
 
   try {
-    return reply.send({ data: await method(filters) });
+    return reply.send({ data: await run(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -259,29 +265,37 @@ async function handleAggregateRoute(
 
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
   app.get("/query/events", (request, reply) =>
-    handleListRoute(request, reply, options, options.query?.listEvents)
+    handleListRoute(request, reply, options, () => !!options.query?.listEvents, (filters) => options.query!.listEvents!(filters))
   );
   app.get("/query/errors", (request, reply) =>
-    handleListRoute(request, reply, options, options.query?.listErrors)
+    handleListRoute(request, reply, options, () => !!options.query?.listErrors, (filters) => options.query!.listErrors!(filters))
   );
   app.get("/query/llm-calls", (request, reply) =>
-    handleListRoute(request, reply, options, options.query?.listLlmCalls)
+    handleListRoute(request, reply, options, () => !!options.query?.listLlmCalls, (filters) => options.query!.listLlmCalls!(filters))
   );
   app.get("/query/traces", (request, reply) =>
-    handleListRoute(request, reply, options, options.query?.listTraces)
+    handleListRoute(request, reply, options, () => !!options.query?.listTraces, (filters) => options.query!.listTraces!(filters))
   );
   app.get("/query/traces/:id/spans", (request, reply) => handleTraceSpansRoute(request, reply, options));
 
   app.get("/query/aggregates/events", (request, reply) =>
-    handleAggregateRoute(request, reply, options, options.query?.getEventAggregates)
+    handleAggregateRoute(request, reply, options, () => !!options.query?.getEventAggregates, (filters) =>
+      options.query!.getEventAggregates!(filters)
+    )
   );
   app.get("/query/aggregates/errors", (request, reply) =>
-    handleAggregateRoute(request, reply, options, options.query?.getErrorAggregates)
+    handleAggregateRoute(request, reply, options, () => !!options.query?.getErrorAggregates, (filters) =>
+      options.query!.getErrorAggregates!(filters)
+    )
   );
   app.get("/query/aggregates/llm", (request, reply) =>
-    handleAggregateRoute(request, reply, options, options.query?.getLlmAggregates)
+    handleAggregateRoute(request, reply, options, () => !!options.query?.getLlmAggregates, (filters) =>
+      options.query!.getLlmAggregates!(filters)
+    )
   );
   app.get("/query/aggregates/traces", (request, reply) =>
-    handleAggregateRoute(request, reply, options, options.query?.getTraceAggregates)
+    handleAggregateRoute(request, reply, options, () => !!options.query?.getTraceAggregates, (filters) =>
+      options.query!.getTraceAggregates!(filters)
+    )
   );
 }
