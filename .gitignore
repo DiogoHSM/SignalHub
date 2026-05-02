@@ -1,6 +1,9 @@
 .superpowers/
 .worktrees/
-SECRETS.md
 node_modules/
 dist/
 coverage/
+.env
+.env.*
+!.env.example
+/SECRETS.md

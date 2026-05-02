@@ -1,0 +1,91 @@
+# Architecture
+
+SignalHub Phase 1 is a self-hosted operational core with four runtime components:
+
+- Fastify API service.
+- Worker service.
+- Postgres.
+- Redis with BullMQ.
+
+## Request Paths
+
+Ingestion:
+
+1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/llm`, `/v1/traces`, or `/v1/spans`.
+2. API extracts the bearer API key and verifies the stored hash with `API_KEY_PEPPER`.
+3. API validates the JSON payload with Zod.
+4. API generates a signal id, attaches project and environment scope from the API key, enqueues the job, and returns `202 Accepted`.
+5. Worker consumes the job, validates again, recursively sanitizes sensitive values, and writes the typed record into Postgres.
+
+Human operations:
+
+1. Admin seed creates the first admin user.
+2. Humans log in through `/auth/login` and receive a signed cookie.
+3. Admin-only routes manage users, projects, environments, and API keys.
+4. Authenticated users can query raw telemetry and aggregates.
+
+## Storage
+
+Operational tables:
+
+- `users`
+- `projects`
+- `environments`
+- `api_keys`
+
+Telemetry tables:
+
+- `events`
+- `errors`
+- `llm_calls`
+- `traces`
+- `spans`
+
+All telemetry records include project, environment, optional tenant/user/session/trace identifiers, timestamps, source, release, and metadata.
+
+## API Surface
+
+Health:
+
+- `GET /health`
+- `GET /ready`
+
+Auth:
+
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
+- Optional Google OAuth routes when configured.
+
+Admin:
+
+- `/admin/users`
+- `/admin/projects`
+- `/admin/projects/:projectId/environments`
+- `/admin/projects/:projectId/api-keys`
+- `/admin/environments/:id`
+- `/admin/api-keys/:id`
+
+Ingestion:
+
+- `POST /v1/events`
+- `POST /v1/errors`
+- `POST /v1/llm`
+- `POST /v1/traces`
+- `POST /v1/spans`
+
+Query:
+
+- `GET /query/events`
+- `GET /query/errors`
+- `GET /query/llm-calls`
+- `GET /query/traces`
+- `GET /query/traces/:id/spans`
+- `GET /query/aggregates/events`
+- `GET /query/aggregates/errors`
+- `GET /query/aggregates/llm`
+- `GET /query/aggregates/traces`
+
+## Deferred Boundaries
+
+ClickHouse, object storage, SDKs, dashboards, and log storage are intentionally deferred. Phase 1 keeps internal boundaries narrow enough to add those later without changing the ingestion contracts.

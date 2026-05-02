@@ -1,0 +1,32 @@
+# SignalHub Project Context
+
+SignalHub is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. Keep project-facing documentation in English.
+
+## Canonical Docs
+
+- `.claude/docs/PROJECT-SUMMARY.md`: project purpose, current phase, scope, and operator flow.
+- `.claude/docs/ARCHITECTURE.md`: runtime components, request paths, storage, and API surface.
+- `.claude/docs/STACK.md`: language, packages, services, and common commands.
+- `.claude/docs/DEPLOYMENT.md`: local and Compose deployment workflow.
+- `.claude/docs/CONSTRAINTS.md`: technical and product constraints.
+- `.claude/docs/DECISIONS.md`: durable architectural decisions.
+- `.claude/docs/SECRETS.md`: sanitized environment variable documentation only.
+- `.claude/docs/INFRASTRUCTURE.md`: runtime infrastructure and operational checks.
+
+## Project Conventions
+
+- The core runtime is a pnpm TypeScript workspace with `apps/api`, `apps/worker`, and shared packages under `packages/*`.
+- Use Postgres as the source of truth for Phase 1 operational and typed telemetry data.
+- Use Redis/BullMQ for ingestion queue handoff between API acceptance and worker persistence.
+- Keep ingestion contracts scoped by project and environment API keys.
+- Keep root-level `SECRETS.md` and local `.env` files uncommitted.
+
+## Verification
+
+Run these checks before considering telemetry-core changes complete:
+
+```sh
+pnpm test
+pnpm build
+docker compose config
+```

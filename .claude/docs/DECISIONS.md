@@ -1,0 +1,31 @@
+# Decisions
+
+## Phase 1 Runtime Shape
+
+Use Fastify API, Redis/BullMQ queueing, a worker process, and Postgres as the source of truth for Phase 1.
+
+Rationale: this produces an installable telemetry foundation without adding ClickHouse, object storage, or SaaS platform complexity before the core ingestion contract is proven.
+
+## API Keys
+
+Ingestion uses bearer API keys scoped to one project and one environment. API keys are stored hashed and only the prefix is retained for lookup and operator identification.
+
+Rationale: clients should not choose project or environment scope on each request, and leaked database records should not reveal usable ingestion secrets.
+
+## Human Access
+
+Use a bootstrap admin seed plus local email/password login for Phase 1. Admins manage installation resources; authenticated humans can query telemetry.
+
+Rationale: the product needs real operator access but not a SaaS organization model or enterprise identity matrix yet.
+
+## Sanitization Boundary
+
+The worker recursively sanitizes sensitive values before typed persistence.
+
+Rationale: queued ingestion payloads are accepted quickly, while persistence remains responsible for ensuring stored telemetry is safe for operator querying.
+
+## Compose as Primary Install Path
+
+Docker Compose is the primary Phase 1 installation and development path.
+
+Rationale: the stack has only API, worker, Postgres, and Redis, and Compose gives operators a reproducible local/self-hosted deployment without extra infrastructure.
