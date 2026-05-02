@@ -11,7 +11,7 @@
 - Fastify 5.
 - Zod for payload and configuration validation.
 - `@fastify/cookie` for signed human session transport.
-- Optional Google OAuth configuration is represented in config, disabled by default.
+- Google OAuth configuration keys are reserved for future support; Phase 1 auth is local email/password only.
 
 ## Data and Queue
 

@@ -35,10 +35,12 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | Email for the first admin account. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | At least 32 characters outside tests. Used by the admin seed script. |
-| `GOOGLE_OAUTH_ENABLED` | No | `false` by default. Google OAuth is inert unless explicitly enabled. |
-| `GOOGLE_CLIENT_ID` | If OAuth enabled | Google OAuth client ID. |
-| `GOOGLE_CLIENT_SECRET` | If OAuth enabled | Google OAuth client secret. |
-| `GOOGLE_REDIRECT_URI` | If OAuth enabled | OAuth callback URL, usually `http://localhost:3000/auth/google/callback` locally. |
+| `GOOGLE_OAUTH_ENABLED` | No | Reserved for future Google OAuth support. Keep `false` in Phase 1. |
+| `GOOGLE_CLIENT_ID` | Future OAuth only | Reserved Google OAuth client ID setting. |
+| `GOOGLE_CLIENT_SECRET` | Future OAuth only | Reserved Google OAuth client secret setting. |
+| `GOOGLE_REDIRECT_URI` | Future OAuth only | Reserved OAuth callback URL setting. |
+
+Google OAuth is not implemented in Phase 1. Keep it disabled; the `/auth/google` routes are placeholders.
 
 Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operator notes. The committed `.claude/docs/SECRETS.md` contains sanitized variable names and safe examples only.
 

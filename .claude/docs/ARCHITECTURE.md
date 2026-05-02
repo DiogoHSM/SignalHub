@@ -55,7 +55,7 @@ Auth:
 - `POST /auth/login`
 - `POST /auth/logout`
 - `GET /auth/me`
-- Optional Google OAuth routes when configured.
+- Placeholder Google OAuth routes; Google sign-in is not implemented in Phase 1.
 
 Admin:
 
