@@ -1,0 +1,234 @@
+import type {
+  ErrorInput,
+  EventInput,
+  LlmInput,
+  QueuedSignal,
+  SignalContext,
+  SignalMetadata,
+  SpanInput,
+  TraceInput
+} from "./types.js";
+
+export type EnvelopePayload = {
+  timestamp?: string;
+  tenant_id?: string;
+  user_id?: string;
+  session_id?: string;
+  trace_id?: string;
+  source?: string;
+  release?: string;
+  metadata: SignalMetadata;
+};
+
+export function serializeDate(value: Date | string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+export function mergeContext(
+  defaultContext?: SignalContext,
+  context?: SignalContext & EventInput
+): EnvelopePayload {
+  const merged: EnvelopePayload = {
+    metadata: {
+      ...(defaultContext?.metadata ?? {}),
+      ...(context?.metadata ?? {})
+    }
+  };
+
+  assignDefined(merged, "timestamp", serializeDate(context?.timestamp));
+  assignDefined(merged, "tenant_id", context?.tenantId ?? defaultContext?.tenantId);
+  assignDefined(merged, "user_id", context?.userId ?? defaultContext?.userId);
+  assignDefined(merged, "session_id", context?.sessionId ?? defaultContext?.sessionId);
+  assignDefined(merged, "trace_id", context?.traceId ?? defaultContext?.traceId);
+  assignDefined(merged, "source", context?.source ?? defaultContext?.source);
+  assignDefined(merged, "release", context?.release ?? defaultContext?.release);
+
+  return merged;
+}
+
+export function createEventSignal(
+  name: string,
+  properties: SignalMetadata = {},
+  context?: SignalContext & EventInput,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  return {
+    kind: "event",
+    endpointPath: "/v1/events",
+    payload: {
+      ...mergeContext(defaultContext, context),
+      name,
+      properties
+    }
+  };
+}
+
+export function createErrorSignal(
+  error: unknown,
+  input?: ErrorInput,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const extracted = extractError(error);
+  const payload = {
+    ...mergeContext(defaultContext, input),
+    message: extracted.message,
+    severity: input?.severity ?? "error",
+    context: input?.context ?? {}
+  };
+
+  assignDefined(payload, "type", extracted.type);
+  assignDefined(payload, "stack", extracted.stack);
+  assignDefined(payload, "fingerprint", input?.fingerprint);
+
+  return {
+    kind: "error",
+    endpointPath: "/v1/errors",
+    payload
+  };
+}
+
+export function createLlmSignal(
+  input: LlmInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    provider: input.provider,
+    model: input.model
+  };
+
+  assignDefined(payload, "prompt_name", input.promptName);
+  assignDefined(payload, "input_tokens", input.inputTokens);
+  assignDefined(payload, "output_tokens", input.outputTokens);
+  assignDefined(payload, "cost_usd", input.costUsd);
+  assignDefined(payload, "latency_ms", input.latencyMs);
+  assignDefined(payload, "status", input.status);
+  assignDefined(payload, "error", input.error);
+  assignDefined(payload, "input_preview", input.inputPreview);
+  assignDefined(payload, "output_preview", input.outputPreview);
+
+  return {
+    kind: "llm",
+    endpointPath: "/v1/llm",
+    payload
+  };
+}
+
+export function createTraceSignal(
+  input: TraceInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const startedAt = input.startedAt ?? new Date();
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    name: input.name,
+    status: input.status ?? "pending",
+    started_at: serializeDate(startedAt)
+  };
+
+  assignDefined(payload, "ended_at", serializeDate(input.endedAt));
+  assignDefined(payload, "duration_ms", input.durationMs ?? computeDurationMs(startedAt, input.endedAt));
+
+  return {
+    kind: "trace",
+    endpointPath: "/v1/traces",
+    payload
+  };
+}
+
+export function createSpanSignal(
+  input: SpanInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const startedAt = input.startedAt ?? new Date();
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    trace_id: input.traceId,
+    name: input.name,
+    status: input.status ?? "pending",
+    started_at: serializeDate(startedAt)
+  };
+
+  assignDefined(payload, "parent_span_id", input.parentSpanId);
+  assignDefined(payload, "ended_at", serializeDate(input.endedAt));
+  assignDefined(payload, "duration_ms", input.durationMs ?? computeDurationMs(startedAt, input.endedAt));
+  assignDefined(payload, "input", input.input);
+  assignDefined(payload, "output", input.output);
+  assignDefined(payload, "error", input.error);
+  assignDefined(payload, "cost_usd", input.costUsd);
+
+  return {
+    kind: "span",
+    endpointPath: "/v1/spans",
+    payload
+  };
+}
+
+function assignDefined(
+  payload: Record<string, unknown>,
+  key: string,
+  value: unknown | undefined
+): void {
+  if (value !== undefined) {
+    payload[key] = value;
+  }
+}
+
+function computeDurationMs(
+  startedAt: Date | string | undefined,
+  endedAt: Date | string | undefined
+): number | undefined {
+  if (startedAt === undefined || endedAt === undefined) {
+    return undefined;
+  }
+
+  const startedAtMs = toEpochMs(startedAt);
+  const endedAtMs = toEpochMs(endedAt);
+
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.round(endedAtMs - startedAtMs));
+}
+
+function toEpochMs(value: Date | string): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
+function extractError(error: unknown): { message: string; type?: string; stack?: string } {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      type: error.name,
+      stack: error.stack
+    };
+  }
+
+  if (typeof error === "string") {
+    return { message: error };
+  }
+
+  return { message: stringifyUnknown(error) };
+}
+
+function stringifyUnknown(value: unknown): string {
+  try {
+    const serialized = JSON.stringify(value);
+
+    if (serialized !== undefined) {
+      return serialized;
+    }
+  } catch {
+    // Fall through to String(value) for circular or otherwise unserializable values.
+  }
+
+  return String(value);
+}

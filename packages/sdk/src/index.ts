@@ -19,3 +19,13 @@ export type {
   StartTraceInput,
   TraceInput
 } from "./types.js";
+
+export {
+  createErrorSignal,
+  createEventSignal,
+  createLlmSignal,
+  createSpanSignal,
+  createTraceSignal,
+  mergeContext,
+  serializeDate
+} from "./mapping.js";
