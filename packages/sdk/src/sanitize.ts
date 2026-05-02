@@ -9,6 +9,7 @@ export type PayloadSizeResult = {
 
 const DEFAULT_MAX_STRING_LENGTH = 20_000;
 const REDACTED = "[REDACTED]";
+const CIRCULAR = "[Circular]";
 
 const SENSITIVE_KEYS = new Set([
   "password",
@@ -74,7 +75,8 @@ function isSensitiveKey(key: string): boolean {
     normalizedKey.endsWith("password") ||
     normalizedKey.includes("apikey") ||
     normalizedKey.includes("secretkey") ||
-    normalizedKey.includes("privatekey")
+    normalizedKey.includes("privatekey") ||
+    normalizedKey.includes("passwordhash")
   );
 }
 
@@ -93,23 +95,41 @@ function redactPreviewText(value: string): string {
   );
 }
 
-function sanitizeValue(value: unknown, options: Required<SanitizeOptions>, key?: string): unknown {
+function sanitizeValue(
+  value: unknown,
+  options: Required<SanitizeOptions>,
+  key?: string,
+  activeObjects = new WeakSet<object>()
+): unknown {
   if (typeof value === "string") {
     const truncated = truncateString(value, options.maxStringLength);
     return key !== undefined && isPreviewKey(key) ? redactPreviewText(truncated) : truncated;
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeValue(item, options));
+    if (activeObjects.has(value)) {
+      return CIRCULAR;
+    }
+
+    activeObjects.add(value);
+    const output = value.map((item) => sanitizeValue(item, options, undefined, activeObjects));
+    activeObjects.delete(value);
+    return output;
   }
 
   if (value && typeof value === "object") {
+    if (activeObjects.has(value)) {
+      return CIRCULAR;
+    }
+
+    activeObjects.add(value);
     const output: Record<string, unknown> = {};
     for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
       output[nestedKey] = isSensitiveKey(nestedKey)
         ? REDACTED
-        : sanitizeValue(nestedValue, options, nestedKey);
+        : sanitizeValue(nestedValue, options, nestedKey, activeObjects);
     }
+    activeObjects.delete(value);
     return output;
   }
 
@@ -126,11 +146,27 @@ export function sanitizePayload<T extends Record<string, unknown>>(
 }
 
 export function enforcePayloadSize(payload: Record<string, unknown>, maxBytes: number): PayloadSizeResult {
-  const serialized = JSON.stringify(payload);
-  const bytes = Buffer.byteLength(serialized, "utf8");
+  const serialized = safeStringify(payload);
+
+  if (serialized === undefined) {
+    return {
+      ok: false,
+      bytes: Number.POSITIVE_INFINITY
+    };
+  }
+
+  const bytes = new TextEncoder().encode(serialized).byteLength;
 
   return {
     ok: bytes <= maxBytes,
     bytes
   };
+}
+
+function safeStringify(payload: unknown): string | undefined {
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return undefined;
+  }
 }

@@ -47,11 +47,64 @@ describe("sanitizePayload", () => {
       message: "xxxx"
     });
   });
+
+  it("replaces circular object references with a stable placeholder", () => {
+    const payload: Record<string, unknown> = {
+      message: "visible"
+    };
+    payload.self = payload;
+
+    expect(sanitizePayload(payload)).toEqual({
+      message: "visible",
+      self: "[Circular]"
+    });
+  });
+
+  it("replaces circular array references and redacts nested sensitive keys inside arrays", () => {
+    const items: unknown[] = [{ apiKey: "key_123", visible: "keep" }];
+    items.push(items);
+
+    expect(sanitizePayload({ items })).toEqual({
+      items: [{ apiKey: "[REDACTED]", visible: "keep" }, "[Circular]"]
+    });
+  });
+
+  it("redacts password hash key variants", () => {
+    expect(
+      sanitizePayload({
+        user_password_hash: "hash_1",
+        previousPasswordHash: "hash_2",
+        visible: "keep"
+      })
+    ).toEqual({
+      user_password_hash: "[REDACTED]",
+      previousPasswordHash: "[REDACTED]",
+      visible: "keep"
+    });
+  });
 });
 
 describe("enforcePayloadSize", () => {
   it("reports serialized payload byte size and whether it is under the limit", () => {
     expect(enforcePayloadSize({ message: "abcdef" }, 10)).toEqual({ ok: false, bytes: 20 });
     expect(enforcePayloadSize({ message: "abc" }, 100)).toEqual({ ok: true, bytes: 17 });
+  });
+
+  it("fails closed for circular payloads, BigInt values, and unserializable top-level values", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    expect(enforcePayloadSize(circular, 100)).toEqual({
+      ok: false,
+      bytes: Number.POSITIVE_INFINITY
+    });
+    expect(enforcePayloadSize({ value: 1n } as Record<string, unknown>, 100)).toEqual({
+      ok: false,
+      bytes: Number.POSITIVE_INFINITY
+    });
+    expect(enforcePayloadSize(undefined as unknown as Record<string, unknown>, 100)).toEqual({
+      ok: false,
+      bytes: Number.POSITIVE_INFINITY
+    });
   });
 });
