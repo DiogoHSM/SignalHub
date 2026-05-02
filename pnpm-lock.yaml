@@ -81,6 +81,9 @@ importers:
       '@signal-hub/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@signal-hub/queues':
+        specifier: workspace:*
+        version: link:../../packages/queues
       '@signal-hub/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
