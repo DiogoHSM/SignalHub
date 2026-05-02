@@ -28,6 +28,8 @@ export default defineConfig({
       "@signal-hub/db": resolve(root, "packages/db/src/client.ts"),
       "@signal-hub/db/": resolve(root, "packages/db/src/"),
       "@signal-hub/queues": resolve(root, "packages/queues/src/telemetry-queue.ts"),
+      "@signal-hub/sdk": resolve(root, "packages/sdk/src/index.ts"),
+      "@signal-hub/sdk/": resolve(root, "packages/sdk/src/"),
       "@signal-hub/telemetry": resolve(root, "packages/telemetry/src/types.ts"),
       "@signal-hub/telemetry/": resolve(root, "packages/telemetry/src/"),
       "@signal-hub/worker": resolve(root, "apps/worker/src/telemetry-worker.ts")

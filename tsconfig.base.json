@@ -16,6 +16,8 @@
       "@signal-hub/db": ["packages/db/src/client.ts"],
       "@signal-hub/db/*": ["packages/db/src/*"],
       "@signal-hub/queues": ["packages/queues/src/telemetry-queue.ts"],
+      "@signal-hub/sdk": ["packages/sdk/src/index.ts"],
+      "@signal-hub/sdk/*": ["packages/sdk/src/*"],
       "@signal-hub/telemetry": ["packages/telemetry/src/types.ts"],
       "@signal-hub/telemetry/*": ["packages/telemetry/src/*"],
       "@signal-hub/worker": ["apps/worker/src/telemetry-worker.ts"]
