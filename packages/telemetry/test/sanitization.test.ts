@@ -46,6 +46,13 @@ describe("sanitizeValue", () => {
       cookieHeader: "secret",
       passwordValue: "secret",
       secretValue: "secret",
+      aws_secret_access_key: "secret",
+      secret_access_key: "secret",
+      access_key: "secret",
+      access_key_id: "secret",
+      private_key: "secret",
+      credential: "secret",
+      client_key: "secret",
       token_count: 42,
       secretary_name: "visible"
     });
@@ -63,6 +70,13 @@ describe("sanitizeValue", () => {
       cookieHeader: "[REDACTED]",
       passwordValue: "[REDACTED]",
       secretValue: "[REDACTED]",
+      aws_secret_access_key: "[REDACTED]",
+      secret_access_key: "[REDACTED]",
+      access_key: "[REDACTED]",
+      access_key_id: "[REDACTED]",
+      private_key: "[REDACTED]",
+      credential: "[REDACTED]",
+      client_key: "[REDACTED]",
       token_count: 42,
       secretary_name: "visible"
     });

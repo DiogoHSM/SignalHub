@@ -15,6 +15,13 @@ const SENSITIVE_KEYS = new Set([
   "cookie",
   "setcookie",
   "secret",
+  "secretaccesskey",
+  "awssecretaccesskey",
+  "accesskey",
+  "accesskeyid",
+  "privatekey",
+  "credential",
+  "clientkey",
   "apikey",
   "cpf",
   "creditcard"
