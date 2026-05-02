@@ -253,7 +253,7 @@ describe("createSignalHubClient", () => {
     });
   });
 
-  it("shutdown stops interval flushing and flushes pending items", async () => {
+  it("shutdown flushes pending items directly and stops interval flushing", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
     const client = createSignalHubClient({
@@ -264,11 +264,17 @@ describe("createSignalHubClient", () => {
       maxRetries: 0
     });
 
-    client.track("interval_sent");
-    await vi.advanceTimersByTimeAsync(10);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    client.track("shutdown_sent");
 
-    await client.shutdown();
+    await expect(client.shutdown()).resolves.toEqual({
+      sent: 1,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({ name: "shutdown_sent" });
+
     client.track("after_shutdown");
     await vi.advanceTimersByTimeAsync(30);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -279,6 +285,58 @@ describe("createSignalHubClient", () => {
       retained: 0,
       dropped: 0
     });
+  });
+
+  it("shutdown waits for an in-flight flush and drains items queued during it", async () => {
+    let resolveFirstFetch: (response: Response) => void = () => undefined;
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirstFetch = resolve;
+          })
+      )
+      .mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      flushIntervalMs: 10,
+      maxRetries: 0
+    });
+
+    client.track("first");
+    const flushPromise = client.flush();
+    client.track("second");
+
+    const shutdownPromise = client.shutdown();
+    let shutdownResolved = false;
+    void shutdownPromise.then(() => {
+      shutdownResolved = true;
+    });
+
+    await Promise.resolve();
+    expect(shutdownResolved).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    resolveFirstFetch(response(202));
+
+    await expect(shutdownPromise).resolves.toEqual({
+      sent: 2,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+    await expect(flushPromise).resolves.toEqual({
+      sent: 1,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls.map((call) => decodeBody(call).name)).toEqual(["first", "second"]);
   });
 
   it("captureError, llm, trace, and span enqueue to their endpoint paths", async () => {

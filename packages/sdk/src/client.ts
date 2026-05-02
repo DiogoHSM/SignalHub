@@ -242,13 +242,22 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
 
     flush,
 
-    shutdown(shutdownOptions?: FlushOptions): Promise<FlushResult> {
+    async shutdown(shutdownOptions?: FlushOptions): Promise<FlushResult> {
       if (interval !== undefined) {
         clearInterval(interval);
         interval = undefined;
       }
 
-      return flush(shutdownOptions);
+      const activeFlush = inFlightFlush;
+
+      if (!activeFlush) {
+        return flush(shutdownOptions);
+      }
+
+      const activeResult = await activeFlush;
+      const pendingResult = await flush(shutdownOptions);
+
+      return combineFlushResults(activeResult, pendingResult);
     }
   };
 }
@@ -274,4 +283,13 @@ function toDate(value: Date | string | undefined): Date {
 
 function signalEndpoint(endpoint: string, signal: QueuedSignal): string {
   return `${endpoint}${signal.endpointPath}`;
+}
+
+function combineFlushResults(first: FlushResult, second: FlushResult): FlushResult {
+  return {
+    sent: first.sent + second.sent,
+    failed: first.failed + second.failed,
+    retained: first.retained + second.retained,
+    dropped: first.dropped + second.dropped
+  };
 }
