@@ -10,6 +10,15 @@ describe("API keys", () => {
     expect(apiKey.prefix).toBe(apiKey.secret.slice(0, 12));
     expect(hash).not.toContain(apiKey.secret);
     await expect(verifyApiKey(hash, apiKey.secret, "pepper-value")).resolves.toBe(true);
+    await expect(verifyApiKey(hash, apiKey.secret, "wrong-pepper")).resolves.toBe(false);
     await expect(verifyApiKey(hash, "sh_wrong", "pepper-value")).resolves.toBe(false);
+  });
+
+  it("creates API keys with the expected shape", () => {
+    const apiKey = createApiKey();
+
+    expect(apiKey.secret).toHaveLength(43);
+    expect(apiKey.prefix).toHaveLength(12);
+    expect(apiKey.secret).toMatch(/^sh_[0-9a-zA-Z]{40}$/);
   });
 });

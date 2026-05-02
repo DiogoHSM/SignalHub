@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { customAlphabet } from "nanoid";
 
 const apiKeyId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", 40);
@@ -21,6 +21,13 @@ export async function hashApiKey(secret: string, pepper: string): Promise<string
 }
 
 export async function verifyApiKey(hash: string, secret: string, pepper: string): Promise<boolean> {
-  const candidate = await hashApiKey(secret, pepper);
-  return candidate === hash;
+  const candidateHash = await hashApiKey(secret, pepper);
+  const expected = Buffer.from(hash, "hex");
+  const candidate = Buffer.from(candidateHash, "hex");
+
+  if (expected.length !== candidate.length) {
+    return false;
+  }
+
+  return timingSafeEqual(expected, candidate);
 }
