@@ -16,7 +16,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
    cp .env.example .env
    ```
 
-2. Edit `.env` and replace `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` with strong values. If you change `POSTGRES_PASSWORD`, update the password segment in `DATABASE_URL` to match.
+2. Edit `.env` and replace `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` with strong values. If `POSTGRES_PASSWORD` contains URL-reserved characters, set `POSTGRES_PASSWORD_URLENCODED` and the password segment in `DATABASE_URL` to the URL-encoded form of the same password.
 
 3. Install dependencies:
 
