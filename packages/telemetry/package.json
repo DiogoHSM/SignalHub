@@ -9,6 +9,7 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "argon2": "^0.44.0",
     "nanoid": "^5.1.11",
     "zod": "^4.4.2"
   }

@@ -83,6 +83,9 @@ importers:
 
   packages/telemetry:
     dependencies:
+      argon2:
+        specifier: ^0.44.0
+        version: 0.44.0
       nanoid:
         specifier: ^5.1.11
         version: 5.1.11
