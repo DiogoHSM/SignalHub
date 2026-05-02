@@ -1,6 +1,7 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb } from "../src/client.js";
+import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { createProject, createEnvironment, createApiKeyRecord } from "../src/repositories/admin.js";
 import { createUser, findUserByEmail } from "../src/repositories/users.js";
@@ -22,72 +23,163 @@ describe("repositories", () => {
     await container?.stop();
   }, 30_000);
 
-  it("creates admin resources and queries telemetry", async () => {
+  async function withDb<T>(run: (db: Db) => Promise<T>): Promise<T> {
     const db = createDb(container.getConnectionUri());
-    await migrate(db);
+    try {
+      return await run(db);
+    } finally {
+      await db.destroy();
+    }
+  }
 
-    const user = await createUser(db, {
-      email: "admin@example.com",
-      passwordHash: "hash",
-      isAdmin: true
+  it("runs migrations idempotently", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await migrate(db);
     });
-    const foundUser = await findUserByEmail(db, "admin@example.com");
-    expect(foundUser?.id).toBe(user.id);
+  });
 
-    const project = await createProject(db, { name: "Demo API" });
-    const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
-    const apiKey = await createApiKeyRecord(db, {
-      projectId: project.id,
-      environmentId: environment.id,
-      name: "prod key",
-      prefix: "sh_abc123456",
-      hash: "hash"
+  it("creates admin resources and queries telemetry", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const user = await createUser(db, {
+        email: "admin@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const foundUser = await findUserByEmail(db, "admin@example.com");
+      expect(foundUser?.id).toBe(user.id);
+
+      const project = await createProject(db, { name: "Demo API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const apiKey = await createApiKeyRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "prod key",
+        prefix: "sh_abc123456",
+        hash: "hash"
+      });
+
+      expect(apiKey.revokedAt).toBeNull();
+
+      await insertEvent(db, {
+        id: "evt_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-02T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T12:00:01.000Z"),
+        name: "dashboard_created",
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "session_1",
+        traceId: "trace_1",
+        source: "web",
+        release: "1.0.0",
+        metadata: { plan: "pro" },
+        properties: { charts_count: 6 }
+      });
+
+      await insertLlmCall(db, {
+        id: "llm_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-02T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T12:00:01.000Z"),
+        tenantId: "tenant_1",
+        userId: "user_1",
+        provider: "openai",
+        model: "gpt-5.5",
+        promptName: "generate_sql",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.030000",
+        status: "success"
+      });
+
+      const events = await listEvents(db, { projectId: project.id, environmentId: environment.id });
+      expect(events).toHaveLength(1);
+      expect(events[0].name).toBe("dashboard_created");
+
+      const llm = await getLlmAggregates(db, { projectId: project.id, environmentId: environment.id });
+      expect(llm.totalCalls).toBe(1);
+      expect(llm.totalInputTokens).toBe(100);
     });
+  });
 
-    expect(apiKey.revokedAt).toBeNull();
+  it("rejects telemetry whose environment belongs to another project", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
 
-    await insertEvent(db, {
-      id: "evt_1",
-      projectId: project.id,
-      environmentId: environment.id,
-      timestamp: new Date("2026-05-02T12:00:00.000Z"),
-      receivedAt: new Date("2026-05-02T12:00:01.000Z"),
-      name: "dashboard_created",
-      tenantId: "tenant_1",
-      userId: "user_1",
-      sessionId: "session_1",
-      traceId: "trace_1",
-      source: "web",
-      release: "1.0.0",
-      metadata: { plan: "pro" },
-      properties: { charts_count: 6 }
+      const firstProject = await createProject(db, { name: "Cross Project A" });
+      const secondProject = await createProject(db, { name: "Cross Project B" });
+      await createEnvironment(db, { projectId: firstProject.id, name: "production" });
+      const secondEnvironment = await createEnvironment(db, { projectId: secondProject.id, name: "production" });
+
+      await expect(
+        insertEvent(db, {
+          id: "evt_cross_project",
+          projectId: firstProject.id,
+          environmentId: secondEnvironment.id,
+          timestamp: new Date("2026-05-02T12:00:00.000Z"),
+          receivedAt: new Date("2026-05-02T12:00:01.000Z"),
+          name: "invalid_cross_project_event"
+        })
+      ).rejects.toThrow();
     });
+  });
 
-    await insertLlmCall(db, {
-      id: "llm_1",
-      projectId: project.id,
-      environmentId: environment.id,
-      timestamp: new Date("2026-05-02T12:00:00.000Z"),
-      receivedAt: new Date("2026-05-02T12:00:01.000Z"),
-      tenantId: "tenant_1",
-      userId: "user_1",
-      provider: "openai",
-      model: "gpt-5.5",
-      promptName: "generate_sql",
-      inputTokens: 100,
-      outputTokens: 50,
-      costUsd: "0.030000",
-      status: "success"
+  it("does not find archived users by email", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const user = await createUser(db, {
+        email: "archived@example.com",
+        passwordHash: "hash",
+        isAdmin: false
+      });
+
+      await db
+        .updateTable("users")
+        .set({ archived_at: new Date("2026-05-02T12:00:00.000Z") })
+        .where("id", "=", user.id)
+        .execute();
+
+      await expect(findUserByEmail(db, "archived@example.com")).resolves.toBeUndefined();
+      await expect(
+        createUser(db, {
+          email: "archived@example.com",
+          passwordHash: "new-hash",
+          isAdmin: false
+        })
+      ).resolves.toMatchObject({ email: "archived@example.com" });
     });
+  });
 
-    const events = await listEvents(db, { projectId: project.id, environmentId: environment.id });
-    expect(events).toHaveLength(1);
-    expect(events[0].name).toBe("dashboard_created");
+  it("rejects duplicate api key prefixes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
 
-    const llm = await getLlmAggregates(db, { projectId: project.id, environmentId: environment.id });
-    expect(llm.totalCalls).toBe(1);
-    expect(llm.totalInputTokens).toBe(100);
+      const project = await createProject(db, { name: "Duplicate Prefix API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
 
-    await db.destroy();
+      await createApiKeyRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "first key",
+        prefix: "sh_duplicate",
+        hash: "hash-1"
+      });
+
+      await expect(
+        createApiKeyRecord(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          name: "second key",
+          prefix: "sh_duplicate",
+          hash: "hash-2"
+        })
+      ).rejects.toThrow();
+    });
   });
 });

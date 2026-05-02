@@ -12,7 +12,7 @@ try {
 
   const existing = await findUserByEmail(db, config.bootstrapAdmin.email);
   if (existing) {
-    console.log("Bootstrap admin already exists");
+    console.log("Active bootstrap admin already exists");
   } else {
     const passwordHash = await hashPassword(config.bootstrapAdmin.password);
     await createUser(db, {

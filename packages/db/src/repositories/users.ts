@@ -53,6 +53,11 @@ export async function createUser(db: Db, input: CreateUserInput): Promise<User> 
 }
 
 export async function findUserByEmail(db: Db, email: string): Promise<User | undefined> {
-  const row = await db.selectFrom("users").selectAll().where("email", "=", email).executeTakeFirst();
+  const row = await db
+    .selectFrom("users")
+    .selectAll()
+    .where("email", "=", email)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
   return row ? toUser(row) : undefined;
 }

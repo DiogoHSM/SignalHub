@@ -9,6 +9,8 @@ export async function migrate(db: Db): Promise<void> {
   const migrationSql = await readFile(migrationUrl, "utf8");
 
   await db.transaction().execute(async (trx) => {
+    await sql`SELECT pg_advisory_xact_lock(927380402913)`.execute(trx);
+
     await sql`
       CREATE TABLE IF NOT EXISTS _migrations (
         name text PRIMARY KEY,
