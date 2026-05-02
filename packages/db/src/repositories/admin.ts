@@ -214,9 +214,17 @@ export async function listApiKeys(db: Db, projectId: string): Promise<ApiKeyReco
 export async function findApiKeyByPrefix(db: Db, prefix: string): Promise<ApiKeyRecord | undefined> {
   const row = await db
     .selectFrom("api_keys")
-    .selectAll()
-    .where("prefix", "=", prefix)
-    .where("revoked_at", "is", null)
+    .innerJoin("projects", "projects.id", "api_keys.project_id")
+    .innerJoin("environments", (join) =>
+      join
+        .onRef("environments.project_id", "=", "api_keys.project_id")
+        .onRef("environments.id", "=", "api_keys.environment_id")
+    )
+    .selectAll("api_keys")
+    .where("api_keys.prefix", "=", prefix)
+    .where("api_keys.revoked_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
     .executeTakeFirst();
 
   return row ? toApiKeyRecord(row) : undefined;

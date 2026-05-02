@@ -16,7 +16,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
    cp .env.example .env
    ```
 
-2. Edit `.env` and replace `SESSION_SECRET`, `API_KEY_PEPPER`, and `BOOTSTRAP_ADMIN_PASSWORD` with strong values of at least 32 characters.
+2. Edit `.env` and replace `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` with strong values. If you change `POSTGRES_PASSWORD`, update the password segment in `DATABASE_URL` to match.
 
 3. Install dependencies:
 
@@ -27,6 +27,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 4. Start Postgres and Redis, then run migrations and seed the first admin:
 
    ```sh
+   docker compose up -d postgres redis
    pnpm db:migrate
    pnpm seed:admin
    ```
@@ -42,7 +43,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Docker Compose
 
-Docker Compose starts Postgres, Redis, the API, and the telemetry worker. It loads secrets from `.env` and overrides database/cache URLs for the internal Compose network.
+Docker Compose starts Postgres, Redis, the API, and the telemetry worker. It loads secrets from `.env` and overrides database/cache URLs for the internal Compose network. Postgres and Redis are bound to `127.0.0.1` for local tooling; change `POSTGRES_PORT`, `REDIS_PORT`, and `POSTGRES_PASSWORD` in `.env` before exposing the host.
 
 ```sh
 cp .env.example .env

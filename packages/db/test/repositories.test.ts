@@ -177,6 +177,33 @@ describe("repositories", () => {
       });
       await expect(listApiKeys(db, project.id)).resolves.toEqual([expect.objectContaining({ id: apiKey.id })]);
       await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toMatchObject({ id: apiKey.id });
+
+      const archivedProject = await createProject(db, { name: "Archived Key Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      await createApiKeyRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "archived project key",
+        prefix: "sh_archproj1",
+        hash: "archived-project-hash"
+      });
+      await archiveProject(db, archivedProject.id);
+      await expect(findApiKeyByPrefix(db, "sh_archproj1")).resolves.toBeUndefined();
+
+      const archivedEnvironment = await createEnvironment(db, { projectId: project.id, name: "archived-env" });
+      await createApiKeyRecord(db, {
+        projectId: project.id,
+        environmentId: archivedEnvironment.id,
+        name: "archived environment key",
+        prefix: "sh_archenv12",
+        hash: "archived-environment-hash"
+      });
+      await archiveEnvironment(db, archivedEnvironment.id);
+      await expect(findApiKeyByPrefix(db, "sh_archenv12")).resolves.toBeUndefined();
+
       await revokeApiKey(db, apiKey.id);
       await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toBeUndefined();
 
