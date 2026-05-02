@@ -5,7 +5,11 @@
   "type": "module",
   "exports": {
     ".": "./src/types.ts",
-    "./api-keys": "./src/api-keys.ts"
+    "./api-keys": "./src/api-keys.ts",
+    "./auth": "./src/auth.ts",
+    "./ids": "./src/ids.ts",
+    "./ingestion-schemas": "./src/ingestion-schemas.ts",
+    "./sanitization": "./src/sanitization.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",

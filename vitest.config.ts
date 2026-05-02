@@ -13,6 +13,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@signal-hub/telemetry/api-keys": resolve(root, "packages/telemetry/src/api-keys.ts"),
+      "@signal-hub/telemetry/auth": resolve(root, "packages/telemetry/src/auth.ts"),
+      "@signal-hub/telemetry/ids": resolve(root, "packages/telemetry/src/ids.ts"),
+      "@signal-hub/telemetry/ingestion-schemas": resolve(root, "packages/telemetry/src/ingestion-schemas.ts"),
+      "@signal-hub/telemetry/sanitization": resolve(root, "packages/telemetry/src/sanitization.ts"),
       "@signal-hub/config": "/packages/config/src/index.ts",
       "@signal-hub/db": "/packages/db/src/client.ts",
       "@signal-hub/db/": "/packages/db/src/",
