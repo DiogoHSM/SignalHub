@@ -10,7 +10,7 @@ export type SignalQueue = {
 };
 
 export function createSignalQueue(maxSize: number): SignalQueue {
-  const capacity = Math.max(0, Math.floor(maxSize));
+  const capacity = Number.isFinite(maxSize) ? Math.max(0, Math.floor(maxSize)) : 0;
   const items: QueuedSignal[] = [];
   let droppedCount = 0;
 
