@@ -39,11 +39,12 @@ export type EventInput = {
   timestamp?: Date | string;
 };
 
-export type ErrorInput = {
+export type ErrorInput = SignalContext &
+  EventInput & {
   severity?: ErrorSeverity;
   fingerprint?: string;
   context?: SignalMetadata;
-} & SignalContext;
+};
 
 export type LlmInput = {
   provider: string;
