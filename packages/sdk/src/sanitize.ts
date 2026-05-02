@@ -7,7 +7,10 @@ export type PayloadSizeResult = {
   bytes: number;
 };
 
-const DEFAULT_MAX_STRING_LENGTH = 20_000;
+const SHORT_TEXT_MAX_LENGTH = 256;
+const MEDIUM_TEXT_MAX_LENGTH = 2_000;
+const LONG_TEXT_MAX_LENGTH = 20_000;
+const DEFAULT_MAX_STRING_LENGTH = LONG_TEXT_MAX_LENGTH;
 const REDACTED = "[REDACTED]";
 const CIRCULAR = "[Circular]";
 
@@ -40,6 +43,21 @@ const SENSITIVE_KEY_PATTERNS = [
   "serviceaccountkey"
 ];
 const PREVIEW_KEYS = new Set(["inputpreview", "outputpreview", "stack", "message", "error"]);
+const SHORT_TEXT_KEYS = new Set([
+  "tenantid",
+  "userid",
+  "sessionid",
+  "traceid",
+  "parentspanid",
+  "source",
+  "release",
+  "name",
+  "provider",
+  "model",
+  "promptname"
+]);
+const MEDIUM_TEXT_KEYS = new Set(["message", "type", "fingerprint", "inputpreview", "outputpreview", "error"]);
+const LONG_TEXT_KEYS = new Set(["stack"]);
 const PREVIEW_CREDENTIAL_PATTERNS: Array<[RegExp, string]> = [
   [/\b(authorization)\s*[:=]\s*Bearer\s+[^\s,;'"})\]]+/gi, "$1: [REDACTED]"],
   [/\b(password)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1=[REDACTED]"],
@@ -84,8 +102,30 @@ function isPreviewKey(key: string): boolean {
   return PREVIEW_KEYS.has(normalizeKey(key));
 }
 
-function truncateString(value: string, maxStringLength: number): string {
-  return value.length > maxStringLength ? value.slice(0, maxStringLength) : value;
+function schemaMaxStringLength(key: string | undefined, depth: number): number {
+  if (key === undefined || depth !== 1) {
+    return DEFAULT_MAX_STRING_LENGTH;
+  }
+
+  const normalizedKey = normalizeKey(key);
+  if (SHORT_TEXT_KEYS.has(normalizedKey)) {
+    return SHORT_TEXT_MAX_LENGTH;
+  }
+
+  if (MEDIUM_TEXT_KEYS.has(normalizedKey)) {
+    return MEDIUM_TEXT_MAX_LENGTH;
+  }
+
+  if (LONG_TEXT_KEYS.has(normalizedKey)) {
+    return LONG_TEXT_MAX_LENGTH;
+  }
+
+  return DEFAULT_MAX_STRING_LENGTH;
+}
+
+function truncateString(value: string, maxStringLength: number, key: string | undefined, depth: number): string {
+  const limit = Math.min(maxStringLength, schemaMaxStringLength(key, depth));
+  return value.length > limit ? value.slice(0, limit) : value;
 }
 
 function redactPreviewText(value: string): string {
@@ -99,10 +139,11 @@ function sanitizeValue(
   value: unknown,
   options: Required<SanitizeOptions>,
   key?: string,
+  depth = 0,
   activeObjects = new WeakSet<object>()
 ): unknown {
   if (typeof value === "string") {
-    const truncated = truncateString(value, options.maxStringLength);
+    const truncated = truncateString(value, options.maxStringLength, key, depth);
     return key !== undefined && isPreviewKey(key) ? redactPreviewText(truncated) : truncated;
   }
 
@@ -112,7 +153,7 @@ function sanitizeValue(
     }
 
     activeObjects.add(value);
-    const output = value.map((item) => sanitizeValue(item, options, undefined, activeObjects));
+    const output = value.map((item) => sanitizeValue(item, options, undefined, depth + 1, activeObjects));
     activeObjects.delete(value);
     return output;
   }
@@ -127,7 +168,7 @@ function sanitizeValue(
     for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
       output[nestedKey] = isSensitiveKey(nestedKey)
         ? REDACTED
-        : sanitizeValue(nestedValue, options, nestedKey, activeObjects);
+        : sanitizeValue(nestedValue, options, nestedKey, depth + 1, activeObjects);
     }
     activeObjects.delete(value);
     return output;

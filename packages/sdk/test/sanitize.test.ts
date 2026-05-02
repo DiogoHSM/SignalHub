@@ -48,6 +48,28 @@ describe("sanitizePayload", () => {
     });
   });
 
+  it("truncates root ingestion fields to schema limits", () => {
+    const sanitized = sanitizePayload({
+      name: "n".repeat(300),
+      provider: "p".repeat(300),
+      message: "m".repeat(2_500),
+      input_preview: "i".repeat(2_500),
+      stack: "s".repeat(21_000),
+      metadata: {
+        name: "nested names are JSON values and keep the generic limit"
+      }
+    });
+
+    expect(sanitized.name).toHaveLength(256);
+    expect(sanitized.provider).toHaveLength(256);
+    expect(sanitized.message).toHaveLength(2_000);
+    expect(sanitized.input_preview).toHaveLength(2_000);
+    expect(sanitized.stack).toHaveLength(20_000);
+    expect((sanitized.metadata as Record<string, string>).name).toBe(
+      "nested names are JSON values and keep the generic limit"
+    );
+  });
+
   it("replaces circular object references with a stable placeholder", () => {
     const payload: Record<string, unknown> = {
       message: "visible"
