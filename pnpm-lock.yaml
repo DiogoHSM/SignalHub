@@ -84,6 +84,9 @@ importers:
       fastify:
         specifier: ^5.8.5
         version: 5.8.5
+      zod:
+        specifier: ^4.4.2
+        version: 4.4.2
     devDependencies:
       vitest:
         specifier: ^2.1.8
