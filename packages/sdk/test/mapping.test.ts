@@ -126,6 +126,22 @@ describe("payload mapping", () => {
     });
   });
 
+  it("uses a stable fallback for thrown values that cannot be serialized or stringified", () => {
+    const thrownValue: Record<PropertyKey, unknown> = {};
+    thrownValue.self = thrownValue;
+    thrownValue[Symbol.toPrimitive] = () => {
+      throw new Error("Cannot convert to primitive");
+    };
+
+    expect(() => createErrorSignal(thrownValue)).not.toThrow();
+    expect(createErrorSignal(thrownValue).payload).toMatchObject({
+      message: "[Unserializable thrown value]",
+      severity: "error",
+      context: {},
+      metadata: {}
+    });
+  });
+
   it("converts camelCase LLM fields to Phase 1 snake_case payload fields", () => {
     expect(
       createLlmSignal(

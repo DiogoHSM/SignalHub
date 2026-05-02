@@ -9,6 +9,8 @@ import type {
   TraceInput
 } from "./types.js";
 
+const UNSERIALIZABLE_THROWN_VALUE_MESSAGE = "[Unserializable thrown value]";
+
 export type EnvelopePayload = {
   timestamp?: string;
   tenant_id?: string;
@@ -230,5 +232,9 @@ function stringifyUnknown(value: unknown): string {
     // Fall through to String(value) for circular or otherwise unserializable values.
   }
 
-  return String(value);
+  try {
+    return String(value);
+  } catch {
+    return UNSERIALIZABLE_THROWN_VALUE_MESSAGE;
+  }
 }
