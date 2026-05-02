@@ -56,6 +56,14 @@ All signal types can include the shared envelope fields below.
 
 `metadata` must be a JSON object. Avoid sending secrets, tokens, cookies, raw private data, or other values that should not be stored in telemetry.
 
+## Limits
+
+- Timestamps must be ISO datetime strings.
+- Short text fields such as shared IDs, `source`, `release`, `name`, `provider`, and `model` can be up to 256 characters.
+- Medium text fields such as error messages, fingerprints, and LLM previews can be up to 2,000 characters.
+- Stack traces and nested JSON string values can be up to 20,000 characters.
+- Object fields such as `metadata`, `properties`, and `context` must be JSON objects.
+
 ## Events
 
 Required fields:
@@ -236,9 +244,9 @@ curl -i https://signalhub.example.com/v1/spans \
 | `202` | Payload accepted after validation and enqueueing. | Do not retry. |
 | `400` | Invalid JSON or payload fields. | Do not retry without changing the payload. |
 | `401` | Missing or invalid API key. | Do not retry without changing credentials. |
-| `403` | Credentials are not allowed to ingest this signal. | Do not retry without changing credentials or access. |
 | `408` | Request timeout. | Retry with bounded exponential backoff. |
 | `429` | Rate limited. | Retry with bounded exponential backoff. |
 | `500-599` | Server-side or dependency failure. | Retry with bounded exponential backoff. |
 
 Also retry network failures, connection resets, and DNS or TLS failures with bounded exponential backoff. Cap retry count and total retry time so telemetry cannot block the product workflow indefinitely.
+Do not retry `400` or `401` responses without changing the payload or credentials.
