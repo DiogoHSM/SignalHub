@@ -2,29 +2,25 @@ import { GenericContainer, Wait } from "testcontainers";
 import { afterAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
-import { processTelemetryJob, type TelemetryWriter } from "../../worker/src/telemetry-worker.js";
-import {
-  createApiKey,
-  hashApiKey,
-  verifyApiKey as verifyTelemetryApiKey
-} from "../../../packages/telemetry/src/api-keys.js";
-import { createDb, type Db } from "../../../packages/db/src/client.js";
-import { migrate } from "../../../packages/db/src/migrate.js";
+import { processTelemetryJob, type TelemetryWriter } from "@signal-hub/worker";
+import { createApiKey, hashApiKey, verifyApiKey as verifyTelemetryApiKey } from "@signal-hub/telemetry/api-keys";
+import { createDb, type Db } from "@signal-hub/db";
+import { migrate } from "@signal-hub/db/migrate.js";
 import {
   createApiKeyRecord,
   createEnvironment,
   createProject,
   findApiKeyByPrefix
-} from "../../../packages/db/src/repositories/admin.js";
-import { listEvents } from "../../../packages/db/src/repositories/telemetry-query.js";
+} from "@signal-hub/db/repositories/admin.js";
+import { listEvents } from "@signal-hub/db/repositories/telemetry-query.js";
 import {
   insertError,
   insertEvent,
   insertLlmCall,
   insertSpan,
   insertTrace
-} from "../../../packages/db/src/repositories/telemetry-writes.js";
-import { createTelemetryQueue, enqueueTelemetryJob } from "../../../packages/queues/src/telemetry-queue.js";
+} from "@signal-hub/db/repositories/telemetry-writes.js";
+import { createTelemetryQueue, enqueueTelemetryJob } from "@signal-hub/queues";
 
 let postgresContainer: Awaited<ReturnType<GenericContainer["start"]>> | undefined;
 let redisContainer: Awaited<ReturnType<GenericContainer["start"]>> | undefined;
