@@ -20,7 +20,9 @@ import {
   archiveUser,
   createUser,
   findUserByEmail,
+  findUserByGoogleSubject,
   findUserById,
+  linkGoogleSubject,
   listUsers,
   updateUser
 } from "@signal-hub/db/repositories/users.js";
@@ -41,8 +43,9 @@ import { verifyApiKey } from "@signal-hub/telemetry/api-keys";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Redis } from "ioredis";
 import { sql } from "kysely";
+import { z } from "zod";
 import { buildApp } from "./app.js";
-import type { AuthDependencies, AuthUser } from "./routes/auth.js";
+import type { AuthDependencies, AuthSessionContext, AuthUser, CookieCapableReply } from "./routes/auth.js";
 
 const sessionCookieName = "signalhub_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
@@ -114,6 +117,15 @@ function toAuthUser(user: { id: string; email: string; isAdmin: boolean }): Auth
   };
 }
 
+const googleTokenResponseSchema = z.object({
+  access_token: z.string().min(1)
+});
+const googleUserInfoSchema = z.object({
+  sub: z.string().min(1),
+  email: z.string().email(),
+  email_verified: z.boolean()
+});
+
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
 await migrate(db);
@@ -122,6 +134,90 @@ const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null
 });
 const telemetryQueue = createTelemetryQueue(config.redisUrl);
+
+function setSessionCookie(reply: CookieCapableReply, userId: string): void {
+  const sessionToken = createSessionToken(
+    {
+      userId,
+      exp: Math.floor(Date.now() / 1000) + sessionMaxAgeSeconds
+    },
+    config.sessionSecret
+  );
+  reply.setCookie(sessionCookieName, sessionToken, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: config.nodeEnv === "production",
+    path: "/",
+    maxAge: sessionMaxAgeSeconds
+  });
+}
+
+function createGoogleAuthorizationUrl(state: string): string {
+  const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  url.searchParams.set("client_id", config.googleOAuth.clientId);
+  url.searchParams.set("redirect_uri", config.googleOAuth.redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "openid email profile");
+  url.searchParams.set("state", state);
+  url.searchParams.set("prompt", "select_account");
+
+  return url.toString();
+}
+
+async function fetchGoogleUserInfo(code: string): Promise<z.infer<typeof googleUserInfoSchema>> {
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.googleOAuth.clientId,
+      client_secret: config.googleOAuth.clientSecret,
+      redirect_uri: config.googleOAuth.redirectUri,
+      grant_type: "authorization_code",
+      code
+    })
+  });
+  if (!tokenResponse.ok) {
+    throw new Error("google_token_exchange_failed");
+  }
+
+  const token = googleTokenResponseSchema.parse(await tokenResponse.json());
+  const userInfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: { authorization: `Bearer ${token.access_token}` }
+  });
+  if (!userInfoResponse.ok) {
+    throw new Error("google_userinfo_failed");
+  }
+
+  return googleUserInfoSchema.parse(await userInfoResponse.json());
+}
+
+async function completeGoogleOAuth(code: string, _state: string, { reply }: AuthSessionContext): Promise<AuthUser | null> {
+  const profile = await fetchGoogleUserInfo(code);
+  if (!profile.email_verified) {
+    return null;
+  }
+
+  const existingBySubject = await findUserByGoogleSubject(db, profile.sub);
+  if (existingBySubject) {
+    setSessionCookie(reply, existingBySubject.id);
+    return toAuthUser(existingBySubject);
+  }
+
+  const existingByEmail = await findUserByEmail(db, profile.email);
+  if (!existingByEmail || (existingByEmail.googleSubject && existingByEmail.googleSubject !== profile.sub)) {
+    return null;
+  }
+
+  const linkedUser = existingByEmail.googleSubject
+    ? existingByEmail
+    : await linkGoogleSubject(db, existingByEmail.id, profile.sub);
+  if (!linkedUser) {
+    return null;
+  }
+
+  setSessionCookie(reply, linkedUser.id);
+  return toAuthUser(linkedUser);
+}
 
 const auth: AuthDependencies = {
   login: async (email, password, { reply }) => {
@@ -135,20 +231,7 @@ const auth: AuthDependencies = {
       return null;
     }
 
-    const sessionToken = createSessionToken(
-      {
-        userId: user.id,
-        exp: Math.floor(Date.now() / 1000) + sessionMaxAgeSeconds
-      },
-      config.sessionSecret
-    );
-    reply.setCookie(sessionCookieName, sessionToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: config.nodeEnv === "production",
-      path: "/",
-      maxAge: sessionMaxAgeSeconds
-    });
+    setSessionCookie(reply, user.id);
 
     return toAuthUser(user);
   },
@@ -168,7 +251,13 @@ const auth: AuthDependencies = {
   },
   logout: async ({ reply }) => {
     reply.clearCookie(sessionCookieName, { path: "/" });
-  }
+  },
+  googleOAuth: config.googleOAuth.enabled
+    ? {
+        createAuthorizationUrl: createGoogleAuthorizationUrl,
+        complete: completeGoogleOAuth
+      }
+    : undefined
 };
 
 const app = await buildApp({

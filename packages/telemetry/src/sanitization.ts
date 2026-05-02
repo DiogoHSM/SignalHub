@@ -35,6 +35,14 @@ const SENSITIVE_KEY_PATTERNS = [
   "privatekey",
   "serviceaccountkey"
 ];
+const PREVIEW_CREDENTIAL_PATTERNS: Array<[RegExp, string]> = [
+  [/\b(authorization)\s*[:=]\s*Bearer\s+[^\s,;'"})\]]+/gi, "$1: [REDACTED]"],
+  [/\b(password)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1=[REDACTED]"],
+  [/\b(access[_-]?token)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1=[REDACTED]"],
+  [/\b(refresh[_-]?token)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1=[REDACTED]"],
+  [/\b(api[_-]?key)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1: [REDACTED]"],
+  [/\b(secret)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1=[REDACTED]"]
+];
 
 function normalizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
@@ -80,4 +88,15 @@ export function sanitizeValue(value: unknown): SanitizedValue {
   }
 
   return value as SanitizedValue;
+}
+
+export function sanitizePreviewText(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return PREVIEW_CREDENTIAL_PATTERNS.reduce(
+    (sanitized, [pattern, replacement]) => sanitized.replace(pattern, replacement),
+    value
+  );
 }

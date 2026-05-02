@@ -11,7 +11,7 @@
 - Fastify 5.
 - Zod for payload and configuration validation.
 - `@fastify/cookie` for signed human session transport.
-- Google OAuth configuration keys are reserved for future support; Phase 1 auth is local email/password only.
+- Optional Google OAuth uses Google authorization-code flow through Node `fetch` and links only existing local users.
 
 ## Data and Queue
 

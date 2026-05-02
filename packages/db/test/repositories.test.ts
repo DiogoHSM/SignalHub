@@ -5,6 +5,7 @@ import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
+import { insertDeadLetterJob } from "../src/repositories/dead-letter.js";
 import {
   archiveEnvironment,
   archiveProject,
@@ -20,7 +21,16 @@ import {
   updateEnvironment,
   updateProject
 } from "../src/repositories/admin.js";
-import { archiveUser, createUser, findUserByEmail, findUserById, listUsers, updateUser } from "../src/repositories/users.js";
+import {
+  archiveUser,
+  createUser,
+  findUserByEmail,
+  findUserByGoogleSubject,
+  findUserById,
+  linkGoogleSubject,
+  listUsers,
+  updateUser
+} from "../src/repositories/users.js";
 import { insertError, insertEvent, insertLlmCall, insertSpan, insertTrace } from "../src/repositories/telemetry-writes.js";
 import {
   getErrorAggregates,
@@ -134,6 +144,28 @@ describe("repositories", () => {
     });
   });
 
+  it("inserts dead letter jobs with sanitized details", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const job = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { metadata: { authorization: "[REDACTED]" } },
+        errorMessage: "authorization: [REDACTED]"
+      });
+
+      expect(job).toMatchObject({
+        id: expect.stringMatching(/^dlj_/),
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { metadata: { authorization: "[REDACTED]" } },
+        errorMessage: "authorization: [REDACTED]",
+        createdAt: expect.any(Date)
+      });
+    });
+  });
+
   it("supports runtime admin resource and user management helpers", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -211,6 +243,56 @@ describe("repositories", () => {
       await expect(listEnvironments(db, project.id)).resolves.toEqual([]);
       await archiveProject(db, project.id);
       await expect(getProject(db, project.id)).resolves.toBeUndefined();
+    });
+  });
+
+  it("rejects new environments and API keys under archived scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Active Scope Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const archivedProject = await createProject(db, { name: "Archived Scope Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+
+      await archiveProject(db, archivedProject.id);
+      await expect(createEnvironment(db, { projectId: archivedProject.id, name: "staging" })).rejects.toThrow(
+        "active_project_not_found"
+      );
+      await expect(
+        createApiKeyRecord(db, {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "archived project key",
+          prefix: "sh_rejectp1",
+          hash: "hash"
+        })
+      ).rejects.toThrow("active_api_key_scope_not_found");
+
+      const archivedEnvironment = await createEnvironment(db, { projectId: project.id, name: "archived" });
+      await archiveEnvironment(db, archivedEnvironment.id);
+      await expect(
+        createApiKeyRecord(db, {
+          projectId: project.id,
+          environmentId: archivedEnvironment.id,
+          name: "archived environment key",
+          prefix: "sh_rejecte1",
+          hash: "hash"
+        })
+      ).rejects.toThrow("active_api_key_scope_not_found");
+
+      await expect(
+        createApiKeyRecord(db, {
+          projectId: archivedProject.id,
+          environmentId: environment.id,
+          name: "cross project key",
+          prefix: "sh_rejectx1",
+          hash: "hash"
+        })
+      ).rejects.toThrow("active_api_key_scope_not_found");
     });
   });
 
@@ -335,6 +417,30 @@ describe("repositories", () => {
       await expect(findUserByEmail(db, "directmixed@example.com")).resolves.toMatchObject({
         id: "usr_direct_mixed_case"
       });
+    });
+  });
+
+  it("links and finds users by Google subject", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const user = await createUser(db, {
+        email: "google-user@example.com",
+        passwordHash: "hash",
+        isAdmin: false
+      });
+
+      await expect(linkGoogleSubject(db, user.id, "google-subject-1")).resolves.toMatchObject({
+        id: user.id,
+        googleSubject: "google-subject-1"
+      });
+      await expect(findUserByGoogleSubject(db, "google-subject-1")).resolves.toMatchObject({
+        id: user.id,
+        email: "google-user@example.com"
+      });
+
+      await archiveUser(db, user.id);
+      await expect(findUserByGoogleSubject(db, "google-subject-1")).resolves.toBeUndefined();
     });
   });
 

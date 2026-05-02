@@ -147,6 +147,32 @@ describe("admin routes", () => {
     expect(createdEnvironments).toEqual([{ projectId: "prj_1", name: "Production" }]);
   });
 
+  it("returns 404 when environment creation targets an inactive project scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        environments: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("active_project_not_found");
+          },
+          update: async () => null,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_archived/environments",
+      payload: { name: "Production" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "project_not_found" });
+  });
+
   it("returns a one-time API key secret and stores only prefix and hash", async () => {
     const storedApiKeys: unknown[] = [];
 
@@ -194,6 +220,32 @@ describe("admin routes", () => {
     expect(storedApiKeys[0]).not.toHaveProperty("secret");
     expect(storedApiKeys[0]).toHaveProperty("hash");
     expect(response.json().apiKey.hash).toBeUndefined();
+  });
+
+  it("returns 404 when API key creation targets an inactive project or environment scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      apiKeyPepper: "test-pepper",
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("active_api_key_scope_not_found");
+          },
+          revoke: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_archived/api-keys",
+      payload: { environmentId: "env_archived", name: "Production ingest" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "api_key_scope_not_found" });
   });
 
   it("soft archives a project", async () => {

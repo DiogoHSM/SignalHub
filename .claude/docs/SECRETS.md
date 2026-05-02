@@ -18,10 +18,10 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | `admin@example.com` | Email used by `pnpm seed:admin`. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Initial admin login password. |
-| `GOOGLE_OAUTH_ENABLED` | No | `false` | Reserved for future Google OAuth support. Keep `false` in Phase 1. |
-| `GOOGLE_CLIENT_ID` | Future OAuth only | `example-client-id.apps.googleusercontent.com` | Reserved Google OAuth client ID setting. |
-| `GOOGLE_CLIENT_SECRET` | Future OAuth only | `example-client-secret` | Reserved Google OAuth client secret setting. |
-| `GOOGLE_REDIRECT_URI` | Future OAuth only | `http://localhost:3000/auth/google/callback` | Reserved OAuth callback URL setting. |
+| `GOOGLE_OAUTH_ENABLED` | No | `false` | Enables Google OAuth when set to `true` and all Google settings are present. |
+| `GOOGLE_CLIENT_ID` | If OAuth enabled | `example-client-id.apps.googleusercontent.com` | Google OAuth client ID. |
+| `GOOGLE_CLIENT_SECRET` | If OAuth enabled | `example-client-secret` | Google OAuth client secret. |
+| `GOOGLE_REDIRECT_URI` | If OAuth enabled | `http://localhost:3000/auth/google/callback` | OAuth callback URL. |
 
 Operational rules:
 

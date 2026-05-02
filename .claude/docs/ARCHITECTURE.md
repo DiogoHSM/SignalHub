@@ -55,7 +55,8 @@ Auth:
 - `POST /auth/login`
 - `POST /auth/logout`
 - `GET /auth/me`
-- Placeholder Google OAuth routes; Google sign-in is not implemented in Phase 1.
+- `GET /auth/google`
+- `GET /auth/google/callback` when Google OAuth is enabled. Google sign-in only links and logs in existing local users with verified Google email addresses.
 
 Admin:
 

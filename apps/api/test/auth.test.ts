@@ -73,4 +73,99 @@ describe("auth routes", () => {
     expect(logoutCalled).toBe(true);
     expect(response.headers["set-cookie"]).toContain("signalhub_session=;");
   });
+
+  it("keeps Google OAuth inert when disabled", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      googleOAuthEnabled: false
+    });
+
+    const response = await app.inject({ method: "GET", url: "/auth/google" });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "google_oauth_disabled" });
+  });
+
+  it("redirects to Google OAuth with a state cookie when enabled", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      googleOAuthEnabled: true,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null,
+        googleOAuth: {
+          createAuthorizationUrl: (state) => `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
+          complete: async () => null
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/auth/google" });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toMatch(/^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?state=/);
+    expect(response.headers["set-cookie"]).toContain("signalhub_oauth_state=");
+  });
+
+  it("rejects Google OAuth callbacks with invalid state", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      googleOAuthEnabled: true,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null,
+        googleOAuth: {
+          createAuthorizationUrl: (state) => `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
+          complete: async () => ({ id: "usr_google", email: "user@example.com", isAdmin: false })
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/auth/google/callback?code=abc&state=wrong",
+      headers: { cookie: "signalhub_oauth_state=expected" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_oauth_state" });
+  });
+
+  it("completes Google OAuth callbacks through the auth dependency", async () => {
+    const completed: Array<{ code: string; state: string }> = [];
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      googleOAuthEnabled: true,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null,
+        googleOAuth: {
+          createAuthorizationUrl: (state) => `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
+          complete: async (code, state, { reply }) => {
+            completed.push({ code, state });
+            reply.setCookie("signalhub_session", "google-session", { httpOnly: true, sameSite: "lax" });
+            return { id: "usr_google", email: "user@example.com", isAdmin: false };
+          }
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/auth/google/callback?code=abc&state=expected",
+      headers: { cookie: "signalhub_oauth_state=expected" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      user: { id: "usr_google", email: "user@example.com", isAdmin: false }
+    });
+    expect(completed).toEqual([{ code: "abc", state: "expected" }]);
+    expect(response.headers["set-cookie"]).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("signalhub_session=google-session"),
+        expect.stringContaining("signalhub_oauth_state=;")
+      ])
+    );
+  });
 });

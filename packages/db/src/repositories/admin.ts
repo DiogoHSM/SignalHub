@@ -130,6 +130,16 @@ export async function createEnvironment(
   db: Db,
   input: { projectId: string; name: string }
 ): Promise<Environment> {
+  const activeProject = await db
+    .selectFrom("projects")
+    .select("id")
+    .where("id", "=", input.projectId)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
+  if (!activeProject) {
+    throw new Error("active_project_not_found");
+  }
+
   const row = await db
     .insertInto("environments")
     .values({
@@ -184,6 +194,19 @@ export async function createApiKeyRecord(
   db: Db,
   input: { projectId: string; environmentId: string; name: string; prefix: string; hash: string }
 ): Promise<ApiKeyRecord> {
+  const activeScope = await db
+    .selectFrom("projects")
+    .innerJoin("environments", "environments.project_id", "projects.id")
+    .select("environments.id")
+    .where("projects.id", "=", input.projectId)
+    .where("environments.id", "=", input.environmentId)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
+    .executeTakeFirst();
+  if (!activeScope) {
+    throw new Error("active_api_key_scope_not_found");
+  }
+
   const row = await db
     .insertInto("api_keys")
     .values({

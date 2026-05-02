@@ -149,6 +149,10 @@ async function hashAdminApiKeySecret(secret: string, options: AdminRouteOptions)
   return undefined;
 }
 
+function isKnownAdminResourceError(error: unknown, message: string): boolean {
+  return error instanceof Error && error.message === message;
+}
+
 async function requireAdmin(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -394,10 +398,19 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_environment_request" });
     }
 
-    const environment = await options.adminResources.environments.create({
-      projectId: params.data.projectId,
-      ...parsed.data
-    });
+    let environment: AdminEnvironment;
+    try {
+      environment = await options.adminResources.environments.create({
+        projectId: params.data.projectId,
+        ...parsed.data
+      });
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_project_not_found")) {
+        return reply.status(404).send({ error: "project_not_found" });
+      }
+      throw error;
+    }
+
     return reply.status(201).send({ environment });
   });
 
@@ -493,13 +506,21 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(501).send({ error: "api_key_hashing_unavailable" });
     }
 
-    const apiKey = await options.adminResources.apiKeys.create({
-      projectId: params.data.projectId,
-      environmentId: parsed.data.environmentId,
-      name: parsed.data.name,
-      prefix: generatedApiKey.prefix,
-      hash
-    });
+    let apiKey: AdminApiKey;
+    try {
+      apiKey = await options.adminResources.apiKeys.create({
+        projectId: params.data.projectId,
+        environmentId: parsed.data.environmentId,
+        name: parsed.data.name,
+        prefix: generatedApiKey.prefix,
+        hash
+      });
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_api_key_scope_not_found")) {
+        return reply.status(404).send({ error: "api_key_scope_not_found" });
+      }
+      throw error;
+    }
 
     return reply.status(201).send({
       apiKey: {

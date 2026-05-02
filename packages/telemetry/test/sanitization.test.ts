@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeValue } from "../src/sanitization.js";
+import { sanitizePreviewText, sanitizeValue } from "../src/sanitization.js";
 
 describe("sanitizeValue", () => {
   it("recursively masks sensitive object keys", () => {
@@ -94,5 +94,21 @@ describe("sanitizeValue", () => {
       secretary_name: "visible",
       keynote_title: "visible"
     });
+  });
+});
+
+describe("sanitizePreviewText", () => {
+  it("masks credential patterns inside plain preview strings", () => {
+    expect(
+      sanitizePreviewText(
+        "headers authorization: Bearer sh_secret password=super-secret access_token=tok_123 api_key: key_123"
+      )
+    ).toBe("headers authorization: [REDACTED] password=[REDACTED] access_token=[REDACTED] api_key: [REDACTED]");
+  });
+
+  it("preserves ordinary preview text", () => {
+    expect(sanitizePreviewText("Summarize dashboard metrics for paid users")).toBe(
+      "Summarize dashboard metrics for paid users"
+    );
   });
 });

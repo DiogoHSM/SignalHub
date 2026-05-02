@@ -97,6 +97,17 @@ export async function findUserByEmail(db: UserDb, email: string): Promise<User |
   return row ? toUser(row) : undefined;
 }
 
+export async function findUserByGoogleSubject(db: UserDb, googleSubject: string): Promise<User | undefined> {
+  const row = await db
+    .selectFrom("users")
+    .selectAll()
+    .where("google_subject", "=", googleSubject)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
+
+  return row ? toUser(row) : undefined;
+}
+
 export async function updateUser(db: UserDb, id: string, input: UpdateUserInput): Promise<User | undefined> {
   const changes: {
     email?: string;
@@ -114,6 +125,21 @@ export async function updateUser(db: UserDb, id: string, input: UpdateUserInput)
   const row = await db
     .updateTable("users")
     .set(changes)
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toUser(row) : undefined;
+}
+
+export async function linkGoogleSubject(db: UserDb, id: string, googleSubject: string): Promise<User | undefined> {
+  const row = await db
+    .updateTable("users")
+    .set({
+      google_subject: googleSubject,
+      updated_at: new Date()
+    })
     .where("id", "=", id)
     .where("archived_at", "is", null)
     .returningAll()

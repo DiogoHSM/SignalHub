@@ -10,7 +10,8 @@ import {
   insertSpan,
   insertTrace
 } from "@signal-hub/db/repositories/telemetry-writes.js";
-import { processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
+import { insertDeadLetterJob } from "@signal-hub/db/repositories/dead-letter.js";
+import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
 
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
@@ -40,6 +41,26 @@ worker.on("completed", (job) => {
 
 worker.on("failed", (job, error) => {
   console.error(`Telemetry job ${job?.id ?? "unknown"} failed`, error);
+  if (!job) {
+    return;
+  }
+
+  const configuredAttempts = typeof job.opts.attempts === "number" ? job.opts.attempts : 1;
+  if (job.attemptsMade < configuredAttempts) {
+    return;
+  }
+
+  void insertDeadLetterJob(
+    db,
+    buildDeadLetterJobInput({
+      queueName: job.queueName,
+      jobName: job.name,
+      payload: job.data,
+      error
+    })
+  ).catch((deadLetterError: unknown) => {
+    console.error(`Failed to record dead-letter job ${job.id ?? "unknown"}`, deadLetterError);
+  });
 });
 
 worker.on("error", (error) => {

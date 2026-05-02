@@ -6,7 +6,8 @@ import {
   spanPayloadSchema,
   tracePayloadSchema
 } from "@signal-hub/telemetry/ingestion-schemas";
-import { sanitizeValue } from "@signal-hub/telemetry/sanitization";
+import { sanitizePreviewText, sanitizeValue } from "@signal-hub/telemetry/sanitization";
+import type { InsertDeadLetterJobInput } from "@signal-hub/db/repositories/dead-letter.js";
 import type {
   InsertErrorInput,
   InsertEventInput,
@@ -22,6 +23,22 @@ export type TelemetryWriter = {
   insertTrace(input: InsertTraceInput): Promise<void>;
   insertSpan(input: InsertSpanInput): Promise<void>;
 };
+
+export function buildDeadLetterJobInput(input: {
+  queueName: string;
+  jobName: string;
+  payload: unknown;
+  error: unknown;
+}): InsertDeadLetterJobInput {
+  const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
+
+  return {
+    queueName: input.queueName,
+    jobName: input.jobName,
+    payload: sanitizeValue(input.payload),
+    errorMessage: sanitizePreviewText(errorMessage) ?? "unknown_error"
+  };
+}
 
 type ParsedEnvelope = {
   timestamp?: string;
@@ -93,9 +110,9 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         costUsd: String(payload.cost_usd),
         latencyMs: payload.latency_ms,
         status: payload.status,
-        error: sanitizeValue(payload.error) as string | undefined,
-        inputPreview: sanitizeValue(payload.input_preview) as string | undefined,
-        outputPreview: sanitizeValue(payload.output_preview) as string | undefined
+        error: sanitizePreviewText(payload.error),
+        inputPreview: sanitizePreviewText(payload.input_preview),
+        outputPreview: sanitizePreviewText(payload.output_preview)
       });
       return;
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
-import { processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
+import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
 
 function createWriter(): TelemetryWriter {
   return {
@@ -145,9 +145,9 @@ describe("processTelemetryJob", () => {
         cost_usd: 0.42,
         latency_ms: 1234,
         status: "error",
-        error: "provider rejected request",
-        input_preview: "user prompt",
-        output_preview: "model output"
+        error: "provider rejected request authorization: Bearer provider-token",
+        input_preview: "user prompt authorization: Bearer provider-token",
+        output_preview: "model output password=provider-secret"
       }
     };
 
@@ -168,9 +168,9 @@ describe("processTelemetryJob", () => {
         costUsd: "0.42",
         latencyMs: 1234,
         status: "error",
-        error: "provider rejected request",
-        inputPreview: "user prompt",
-        outputPreview: "model output",
+        error: "provider rejected request authorization: [REDACTED]",
+        inputPreview: "user prompt authorization: [REDACTED]",
+        outputPreview: "model output password=[REDACTED]",
         metadata: {
           request: {
             secret_access_key: "[REDACTED]"
@@ -294,5 +294,37 @@ describe("processTelemetryJob", () => {
         }
       })
     );
+  });
+});
+
+describe("buildDeadLetterJobInput", () => {
+  it("sanitizes failed job payloads and error messages", () => {
+    expect(
+      buildDeadLetterJobInput({
+        queueName: "telemetry",
+        jobName: "event",
+        payload: {
+          kind: "event",
+          payload: {
+            metadata: {
+              authorization: "Bearer token"
+            }
+          }
+        },
+        error: new Error("authorization: Bearer worker-token")
+      })
+    ).toEqual({
+      queueName: "telemetry",
+      jobName: "event",
+      payload: {
+        kind: "event",
+        payload: {
+          metadata: {
+            authorization: "[REDACTED]"
+          }
+        }
+      },
+      errorMessage: "authorization: [REDACTED]"
+    });
   });
 });
