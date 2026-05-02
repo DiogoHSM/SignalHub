@@ -25,6 +25,12 @@ export interface CreateUserInput {
   googleSubject?: string;
 }
 
+export interface UpdateUserInput {
+  email?: string;
+  passwordHash?: string;
+  isAdmin?: boolean;
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -58,6 +64,28 @@ export async function createUser(db: UserDb, input: CreateUserInput): Promise<Us
   return toUser(row);
 }
 
+export async function listUsers(db: UserDb): Promise<User[]> {
+  const rows = await db
+    .selectFrom("users")
+    .selectAll()
+    .where("archived_at", "is", null)
+    .orderBy("created_at", "asc")
+    .execute();
+
+  return rows.map(toUser);
+}
+
+export async function findUserById(db: UserDb, id: string): Promise<User | undefined> {
+  const row = await db
+    .selectFrom("users")
+    .selectAll()
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
+
+  return row ? toUser(row) : undefined;
+}
+
 export async function findUserByEmail(db: UserDb, email: string): Promise<User | undefined> {
   const normalizedEmail = normalizeEmail(email);
   const row = await db
@@ -67,4 +95,39 @@ export async function findUserByEmail(db: UserDb, email: string): Promise<User |
     .where("archived_at", "is", null)
     .executeTakeFirst();
   return row ? toUser(row) : undefined;
+}
+
+export async function updateUser(db: UserDb, id: string, input: UpdateUserInput): Promise<User | undefined> {
+  const changes: {
+    email?: string;
+    password_hash?: string;
+    is_admin?: boolean;
+    updated_at: Date;
+  } = {
+    updated_at: new Date()
+  };
+
+  if (input.email !== undefined) changes.email = normalizeEmail(input.email);
+  if (input.passwordHash !== undefined) changes.password_hash = input.passwordHash;
+  if (input.isAdmin !== undefined) changes.is_admin = input.isAdmin;
+
+  const row = await db
+    .updateTable("users")
+    .set(changes)
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toUser(row) : undefined;
+}
+
+export async function archiveUser(db: UserDb, id: string): Promise<void> {
+  const now = new Date();
+  await db
+    .updateTable("users")
+    .set({ archived_at: now, updated_at: now })
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .execute();
 }

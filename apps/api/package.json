@@ -13,9 +13,12 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/rate-limit": "^10.3.0",
     "@signal-hub/config": "workspace:*",
+    "@signal-hub/db": "workspace:*",
     "@signal-hub/queues": "workspace:*",
     "@signal-hub/telemetry": "workspace:*",
     "fastify": "^5.8.5",
+    "ioredis": "^5.10.1",
+    "kysely": "^0.28.16",
     "zod": "^4.4.2"
   },
   "devDependencies": {

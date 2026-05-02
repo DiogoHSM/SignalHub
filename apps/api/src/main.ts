@@ -1,9 +1,288 @@
 import { loadConfig } from "@signal-hub/config";
+import { createDb } from "@signal-hub/db";
+import { migrate } from "@signal-hub/db/migrate.js";
+import {
+  archiveEnvironment,
+  archiveProject,
+  createApiKeyRecord,
+  createEnvironment,
+  createProject,
+  findApiKeyByPrefix,
+  getProject,
+  listApiKeys,
+  listEnvironments,
+  listProjects,
+  revokeApiKey,
+  updateEnvironment,
+  updateProject
+} from "@signal-hub/db/repositories/admin.js";
+import {
+  archiveUser,
+  createUser,
+  findUserByEmail,
+  findUserById,
+  listUsers,
+  updateUser
+} from "@signal-hub/db/repositories/users.js";
+import {
+  getErrorAggregates,
+  getEventAggregates,
+  getLlmAggregates,
+  getTraceAggregates,
+  listErrors,
+  listEvents,
+  listLlmCalls,
+  listTraceSpans,
+  listTraces
+} from "@signal-hub/db/repositories/telemetry-query.js";
+import { createTelemetryQueue, enqueueTelemetryJob } from "@signal-hub/queues";
+import { hashPassword, verifyPassword } from "@signal-hub/telemetry/auth";
+import { verifyApiKey } from "@signal-hub/telemetry/api-keys";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { Redis } from "ioredis";
+import { sql } from "kysely";
 import { buildApp } from "./app.js";
+import type { AuthDependencies, AuthUser } from "./routes/auth.js";
+
+const sessionCookieName = "signalhub_session";
+const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
+
+type SessionPayload = {
+  userId: string;
+  exp: number;
+};
+
+function encodeBase64Url(value: string): string {
+  return Buffer.from(value).toString("base64url");
+}
+
+function signSessionPayload(payload: string, secret: string): string {
+  return createHmac("sha256", secret).update(payload).digest("base64url");
+}
+
+function timingSafeStringEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function createSessionToken(payload: SessionPayload, secret: string): string {
+  const encodedPayload = encodeBase64Url(JSON.stringify(payload));
+  return `${encodedPayload}.${signSessionPayload(encodedPayload, secret)}`;
+}
+
+function parseSessionToken(token: string, secret: string): SessionPayload | undefined {
+  const tokenParts = token.split(".");
+  if (tokenParts.length !== 2) {
+    return undefined;
+  }
+
+  const [encodedPayload, signature] = tokenParts;
+  if (!encodedPayload || !signature) {
+    return undefined;
+  }
+
+  const expectedSignature = signSessionPayload(encodedPayload, secret);
+  if (!timingSafeStringEqual(signature, expectedSignature)) {
+    return undefined;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<SessionPayload>;
+    if (typeof payload.userId !== "string" || typeof payload.exp !== "number") {
+      return undefined;
+    }
+    if (payload.exp <= Math.floor(Date.now() / 1000)) {
+      return undefined;
+    }
+
+    return payload as SessionPayload;
+  } catch {
+    return undefined;
+  }
+}
+
+function toAuthUser(user: { id: string; email: string; isAdmin: boolean }): AuthUser {
+  return {
+    id: user.id,
+    email: user.email,
+    isAdmin: user.isAdmin
+  };
+}
 
 const config = loadConfig();
+const db = createDb(config.databaseUrl);
+await migrate(db);
+
+const redis = new Redis(config.redisUrl, {
+  maxRetriesPerRequest: null
+});
+const telemetryQueue = createTelemetryQueue(config.redisUrl);
+
+const auth: AuthDependencies = {
+  login: async (email, password, { reply }) => {
+    const user = await findUserByEmail(db, email);
+    if (!user?.passwordHash) {
+      return null;
+    }
+
+    const validPassword = await verifyPassword(user.passwordHash, password);
+    if (!validPassword) {
+      return null;
+    }
+
+    const sessionToken = createSessionToken(
+      {
+        userId: user.id,
+        exp: Math.floor(Date.now() / 1000) + sessionMaxAgeSeconds
+      },
+      config.sessionSecret
+    );
+    reply.setCookie(sessionCookieName, sessionToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: config.nodeEnv === "production",
+      path: "/",
+      maxAge: sessionMaxAgeSeconds
+    });
+
+    return toAuthUser(user);
+  },
+  findSessionUser: async (request) => {
+    const token = request.cookies[sessionCookieName];
+    if (!token) {
+      return null;
+    }
+
+    const session = parseSessionToken(token, config.sessionSecret);
+    if (!session) {
+      return null;
+    }
+
+    const user = await findUserById(db, session.userId);
+    return user ? toAuthUser(user) : null;
+  },
+  logout: async ({ reply }) => {
+    reply.clearCookie(sessionCookieName, { path: "/" });
+  }
+};
+
 const app = await buildApp({
-  readiness: async () => ({ postgres: true, redis: true })
+  readiness: async () => {
+    const [postgres, redisReady] = await Promise.all([
+      sql`select 1`.execute(db).then(
+        () => true,
+        () => false
+      ),
+      redis.ping().then(
+        (value) => value === "PONG",
+        () => false
+      )
+    ]);
+
+    return { postgres, redis: redisReady };
+  },
+  auth,
+  users: {
+    listUsers: async () => (await listUsers(db)).map(toAuthUser),
+    createUser: async (input) =>
+      toAuthUser(
+        await createUser(db, {
+          email: input.email,
+          passwordHash: await hashPassword(input.password),
+          isAdmin: input.isAdmin
+        })
+      ),
+    updateUser: async (id, input) => {
+      const user = await updateUser(db, id, {
+        email: input.email,
+        passwordHash: input.password ? await hashPassword(input.password) : undefined,
+        isAdmin: input.isAdmin
+      });
+      return user ? toAuthUser(user) : null;
+    },
+    archiveUser: (id) => archiveUser(db, id)
+  },
+  adminResources: {
+    projects: {
+      list: () => listProjects(db),
+      get: (id) => getProject(db, id),
+      create: (input) => createProject(db, input),
+      update: (id, input) => updateProject(db, id, input),
+      archive: (id) => archiveProject(db, id)
+    },
+    environments: {
+      list: (projectId) => listEnvironments(db, projectId),
+      create: (input) => createEnvironment(db, input),
+      update: (id, input) => updateEnvironment(db, id, input),
+      archive: (id) => archiveEnvironment(db, id)
+    },
+    apiKeys: {
+      list: (projectId) => listApiKeys(db, projectId),
+      create: (input) => createApiKeyRecord(db, input),
+      revoke: (id) => revokeApiKey(db, id)
+    }
+  },
+  ingestion: {
+    verifyApiKey: async (secret) => {
+      const apiKey = await findApiKeyByPrefix(db, secret.slice(0, 12));
+      if (!apiKey) {
+        return null;
+      }
+
+      const valid = await verifyApiKey(apiKey.hash, secret, config.apiKeyPepper);
+      return valid
+        ? {
+            projectId: apiKey.projectId,
+            environmentId: apiKey.environmentId
+          }
+        : null;
+    },
+    enqueue: async (job) => {
+      await enqueueTelemetryJob(telemetryQueue, job);
+    }
+  },
+  query: {
+    listEvents: (filters) => listEvents(db, filters),
+    listErrors: (filters) => listErrors(db, filters),
+    listLlmCalls: (filters) => listLlmCalls(db, filters),
+    listTraces: (filters) => listTraces(db, filters),
+    listTraceSpans: (_traceId, filters) => listTraceSpans(db, filters),
+    getEventAggregates: (filters) => getEventAggregates(db, filters),
+    getErrorAggregates: (filters) => getErrorAggregates(db, filters),
+    getLlmAggregates: (filters) => getLlmAggregates(db, filters),
+    getTraceAggregates: (filters) => getTraceAggregates(db, filters)
+  },
+  apiKeyPepper: config.apiKeyPepper,
+  googleOAuthEnabled: config.googleOAuth.enabled
 });
 
 await app.listen({ port: config.port, host: "0.0.0.0" });
+
+let shuttingDown = false;
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.info(`Received ${signal}, shutting down API`);
+
+  const results = await Promise.allSettled([app.close(), telemetryQueue.close(), redis.quit(), db.destroy()]);
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("API shutdown step failed", result.reason);
+    }
+  }
+}
+
+process.once("SIGINT", (signal) => {
+  void shutdown(signal).finally(() => process.exit(0));
+});
+
+process.once("SIGTERM", (signal) => {
+  void shutdown(signal).finally(() => process.exit(0));
+});

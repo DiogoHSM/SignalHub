@@ -79,6 +79,53 @@ export async function createProject(db: Db, input: { name: string }): Promise<Pr
   return toProject(row);
 }
 
+export async function listProjects(db: Db): Promise<Project[]> {
+  const rows = await db
+    .selectFrom("projects")
+    .selectAll()
+    .where("archived_at", "is", null)
+    .orderBy("created_at", "asc")
+    .execute();
+
+  return rows.map(toProject);
+}
+
+export async function getProject(db: Db, id: string): Promise<Project | undefined> {
+  const row = await db
+    .selectFrom("projects")
+    .selectAll()
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
+
+  return row ? toProject(row) : undefined;
+}
+
+export async function updateProject(db: Db, id: string, input: { name?: string }): Promise<Project | undefined> {
+  const row = await db
+    .updateTable("projects")
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      updated_at: new Date()
+    })
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toProject(row) : undefined;
+}
+
+export async function archiveProject(db: Db, id: string): Promise<void> {
+  const now = new Date();
+  await db
+    .updateTable("projects")
+    .set({ archived_at: now, updated_at: now })
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .execute();
+}
+
 export async function createEnvironment(
   db: Db,
   input: { projectId: string; name: string }
@@ -94,6 +141,43 @@ export async function createEnvironment(
     .executeTakeFirstOrThrow();
 
   return toEnvironment(row);
+}
+
+export async function listEnvironments(db: Db, projectId: string): Promise<Environment[]> {
+  const rows = await db
+    .selectFrom("environments")
+    .selectAll()
+    .where("project_id", "=", projectId)
+    .where("archived_at", "is", null)
+    .orderBy("created_at", "asc")
+    .execute();
+
+  return rows.map(toEnvironment);
+}
+
+export async function updateEnvironment(db: Db, id: string, input: { name?: string }): Promise<Environment | undefined> {
+  const row = await db
+    .updateTable("environments")
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      updated_at: new Date()
+    })
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toEnvironment(row) : undefined;
+}
+
+export async function archiveEnvironment(db: Db, id: string): Promise<void> {
+  const now = new Date();
+  await db
+    .updateTable("environments")
+    .set({ archived_at: now, updated_at: now })
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .execute();
 }
 
 export async function createApiKeyRecord(
@@ -114,4 +198,35 @@ export async function createApiKeyRecord(
     .executeTakeFirstOrThrow();
 
   return toApiKeyRecord(row);
+}
+
+export async function listApiKeys(db: Db, projectId: string): Promise<ApiKeyRecord[]> {
+  const rows = await db
+    .selectFrom("api_keys")
+    .selectAll()
+    .where("project_id", "=", projectId)
+    .orderBy("created_at", "asc")
+    .execute();
+
+  return rows.map(toApiKeyRecord);
+}
+
+export async function findApiKeyByPrefix(db: Db, prefix: string): Promise<ApiKeyRecord | undefined> {
+  const row = await db
+    .selectFrom("api_keys")
+    .selectAll()
+    .where("prefix", "=", prefix)
+    .where("revoked_at", "is", null)
+    .executeTakeFirst();
+
+  return row ? toApiKeyRecord(row) : undefined;
+}
+
+export async function revokeApiKey(db: Db, id: string): Promise<void> {
+  await db
+    .updateTable("api_keys")
+    .set({ revoked_at: new Date() })
+    .where("id", "=", id)
+    .where("revoked_at", "is", null)
+    .execute();
 }

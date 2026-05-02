@@ -5,10 +5,34 @@ import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
-import { createProject, createEnvironment, createApiKeyRecord } from "../src/repositories/admin.js";
-import { createUser, findUserByEmail } from "../src/repositories/users.js";
-import { insertEvent, insertLlmCall } from "../src/repositories/telemetry-writes.js";
-import { listEvents, getLlmAggregates } from "../src/repositories/telemetry-query.js";
+import {
+  archiveEnvironment,
+  archiveProject,
+  createApiKeyRecord,
+  createEnvironment,
+  createProject,
+  findApiKeyByPrefix,
+  getProject,
+  listApiKeys,
+  listEnvironments,
+  listProjects,
+  revokeApiKey,
+  updateEnvironment,
+  updateProject
+} from "../src/repositories/admin.js";
+import { archiveUser, createUser, findUserByEmail, findUserById, listUsers, updateUser } from "../src/repositories/users.js";
+import { insertError, insertEvent, insertLlmCall, insertSpan, insertTrace } from "../src/repositories/telemetry-writes.js";
+import {
+  getErrorAggregates,
+  getEventAggregates,
+  getLlmAggregates,
+  getTraceAggregates,
+  listErrors,
+  listEvents,
+  listLlmCalls,
+  listTraceSpans,
+  listTraces
+} from "../src/repositories/telemetry-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 
@@ -107,6 +131,119 @@ describe("repositories", () => {
       const llm = await getLlmAggregates(db, { projectId: project.id, environmentId: environment.id });
       expect(llm.totalCalls).toBe(1);
       expect(llm.totalInputTokens).toBe(100);
+    });
+  });
+
+  it("supports runtime admin resource and user management helpers", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const user = await createUser(db, {
+        email: "runtime-user@example.com",
+        passwordHash: "hash",
+        isAdmin: false
+      });
+      await expect(findUserById(db, user.id)).resolves.toMatchObject({ id: user.id });
+      await expect(listUsers(db)).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: user.id })]));
+      await expect(updateUser(db, user.id, { email: "Runtime-Renamed@example.com", isAdmin: true })).resolves.toMatchObject({
+        id: user.id,
+        email: "runtime-renamed@example.com",
+        isAdmin: true
+      });
+      await archiveUser(db, user.id);
+      await expect(findUserById(db, user.id)).resolves.toBeUndefined();
+
+      const project = await createProject(db, { name: "Runtime Project" });
+      await expect(listProjects(db)).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id: project.id })]));
+      await expect(getProject(db, project.id)).resolves.toMatchObject({ id: project.id });
+      await expect(updateProject(db, project.id, { name: "Runtime Project Updated" })).resolves.toMatchObject({
+        id: project.id,
+        name: "Runtime Project Updated"
+      });
+
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await expect(listEnvironments(db, project.id)).resolves.toEqual([expect.objectContaining({ id: environment.id })]);
+      await expect(updateEnvironment(db, environment.id, { name: "staging" })).resolves.toMatchObject({
+        id: environment.id,
+        name: "staging"
+      });
+
+      const apiKey = await createApiKeyRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "runtime key",
+        prefix: "sh_runtime12",
+        hash: "runtime-hash"
+      });
+      await expect(listApiKeys(db, project.id)).resolves.toEqual([expect.objectContaining({ id: apiKey.id })]);
+      await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toMatchObject({ id: apiKey.id });
+      await revokeApiKey(db, apiKey.id);
+      await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toBeUndefined();
+
+      await archiveEnvironment(db, environment.id);
+      await expect(listEnvironments(db, project.id)).resolves.toEqual([]);
+      await archiveProject(db, project.id);
+      await expect(getProject(db, project.id)).resolves.toBeUndefined();
+    });
+  });
+
+  it("supports runtime telemetry list and aggregate helpers", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Runtime Telemetry" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_runtime",
+        userId: "user_runtime",
+        sessionId: "session_runtime",
+        traceId: "trace_runtime",
+        timestamp: new Date("2026-05-02T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_runtime", name: "runtime.event" });
+      await insertError(db, { ...base, id: "err_runtime", message: "Runtime failed", severity: "error" });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_runtime",
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 3,
+        outputTokens: 4,
+        costUsd: "0.010000",
+        status: "success"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_runtime",
+        name: "runtime trace",
+        status: "ok",
+        startedAt: new Date("2026-05-02T12:00:00.000Z"),
+        durationMs: 20
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_runtime",
+        traceId: "trace_runtime",
+        name: "runtime span",
+        status: "ok",
+        startedAt: new Date("2026-05-02T12:00:00.000Z"),
+        durationMs: 10
+      });
+
+      const filters = { projectId: project.id, environmentId: environment.id, traceId: "trace_runtime" };
+      await expect(listEvents(db, filters)).resolves.toEqual([expect.objectContaining({ id: "evt_runtime" })]);
+      await expect(listErrors(db, filters)).resolves.toEqual([expect.objectContaining({ id: "err_runtime" })]);
+      await expect(listLlmCalls(db, filters)).resolves.toEqual([expect.objectContaining({ id: "llm_runtime" })]);
+      await expect(listTraces(db, filters)).resolves.toEqual([expect.objectContaining({ id: "trc_runtime" })]);
+      await expect(listTraceSpans(db, filters)).resolves.toEqual([expect.objectContaining({ id: "spn_runtime" })]);
+      await expect(getEventAggregates(db, filters)).resolves.toMatchObject({ total: 1 });
+      await expect(getErrorAggregates(db, filters)).resolves.toMatchObject({ total: 1, open: 1 });
+      await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({ totalCalls: 1, totalInputTokens: 3 });
+      await expect(getTraceAggregates(db, filters)).resolves.toMatchObject({ total: 1, averageDurationMs: 20 });
     });
   });
 
