@@ -169,6 +169,7 @@ export interface DeadLetterJobsTable {
 
 export interface MigrationsTable {
   name: string;
+  checksum: string;
   applied_at: Timestamp;
 }
 

@@ -23,6 +23,10 @@ export interface CreateUserInput {
   googleSubject?: string;
 }
 
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 function toUser(row: UserRow): User {
   return {
     id: row.id,
@@ -41,7 +45,7 @@ export async function createUser(db: Db, input: CreateUserInput): Promise<User> 
     .insertInto("users")
     .values({
       id: createId("usr"),
-      email: input.email,
+      email: normalizeEmail(input.email),
       password_hash: input.passwordHash,
       google_subject: input.googleSubject ?? null,
       is_admin: input.isAdmin
@@ -56,7 +60,7 @@ export async function findUserByEmail(db: Db, email: string): Promise<User | und
   const row = await db
     .selectFrom("users")
     .selectAll()
-    .where("email", "=", email)
+    .where("email", "=", normalizeEmail(email))
     .where("archived_at", "is", null)
     .executeTakeFirst();
   return row ? toUser(row) : undefined;

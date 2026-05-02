@@ -1,5 +1,7 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
@@ -44,12 +46,13 @@ describe("repositories", () => {
       await migrate(db);
 
       const user = await createUser(db, {
-        email: "admin@example.com",
+        email: "Admin@Example.com",
         passwordHash: "hash",
         isAdmin: true
       });
       const foundUser = await findUserByEmail(db, "admin@example.com");
       expect(foundUser?.id).toBe(user.id);
+      expect(foundUser?.email).toBe("admin@example.com");
 
       const project = await createProject(db, { name: "Demo API" });
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
@@ -156,6 +159,45 @@ describe("repositories", () => {
     });
   });
 
+  it("rejects duplicate active users with different email casing", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await createUser(db, {
+        email: "Case-Dupe@Example.com",
+        passwordHash: "hash",
+        isAdmin: false
+      });
+
+      await expect(
+        createUser(db, {
+          email: "case-dupe@example.com",
+          passwordHash: "hash",
+          isAdmin: false
+        })
+      ).rejects.toThrow();
+    });
+  });
+
+  it("rejects bootstrap admin seeding when active email belongs to a non-admin user", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await createUser(db, {
+        email: "bootstrap@example.com",
+        passwordHash: "hash",
+        isAdmin: false
+      });
+
+      await expect(
+        seedBootstrapAdmin(db, {
+          email: "bootstrap@example.com",
+          password: "unused"
+        })
+      ).rejects.toThrow("Bootstrap admin email already belongs to a non-admin user");
+    });
+  });
+
   it("rejects duplicate api key prefixes", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -180,6 +222,17 @@ describe("repositories", () => {
           hash: "hash-2"
         })
       ).rejects.toThrow();
+    });
+  });
+
+  it("detects migration checksum mismatches", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`ALTER TABLE _migrations ADD COLUMN IF NOT EXISTS checksum text NOT NULL DEFAULT 'wrong'`.execute(db);
+      await sql`UPDATE _migrations SET checksum = 'wrong' WHERE name = '0001_initial.sql'`.execute(db);
+
+      await expect(migrate(db)).rejects.toThrow("Migration 0001_initial.sql checksum mismatch");
     });
   });
 });

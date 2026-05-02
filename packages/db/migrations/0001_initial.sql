@@ -11,7 +11,7 @@ CREATE TABLE users (
   archived_at timestamptz
 );
 
-CREATE UNIQUE INDEX users_active_email_idx ON users(email) WHERE archived_at IS NULL;
+CREATE UNIQUE INDEX users_active_email_idx ON users(lower(email)) WHERE archived_at IS NULL;
 CREATE UNIQUE INDEX users_active_google_subject_idx ON users(google_subject) WHERE google_subject IS NOT NULL AND archived_at IS NULL;
 
 CREATE TABLE projects (
