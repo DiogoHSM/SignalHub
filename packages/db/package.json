@@ -8,5 +8,12 @@
     "dev": "tsx watch src/main.ts",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {}
+  "dependencies": {
+    "kysely": "^0.28.16",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^11.14.0",
+    "@types/pg": "^8.20.0"
+  }
 }
