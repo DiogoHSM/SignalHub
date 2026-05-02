@@ -151,6 +151,27 @@ describe("sendSignal", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("clamps large finite max retries to a hard cap", async () => {
+    let attempts = 0;
+    const fetchImpl = vi.fn<typeof fetch>(() => {
+      attempts += 1;
+      return Promise.resolve(attempts > 11 ? response(400) : response(503));
+    });
+
+    const result = await sendSignal({
+      endpoint: "https://api.signalhub.test",
+      apiKey: "test_api_key",
+      fetchImpl,
+      requestTimeoutMs: 1000,
+      maxRetries: 1_000_000,
+      retryBaseDelayMs: 0,
+      signal
+    });
+
+    expect(result).toEqual({ ok: false, retryable: true, status: 503 });
+    expect(fetchImpl).toHaveBeenCalledTimes(11);
+  });
+
   it("treats timeout-triggered abort as retryable", async () => {
     const abortError = new DOMException("The operation was aborted.", "AbortError");
     const fetchImpl = vi.fn<typeof fetch>((_url, init) => {

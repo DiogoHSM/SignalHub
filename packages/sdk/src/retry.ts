@@ -1,6 +1,7 @@
 import type { QueuedSignal } from "./types.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RETRIES = 10;
 const MAX_RETRY_DELAY_MS = 30_000;
 
 export type StatusClassification = "success" | "retryable" | "permanent";
@@ -40,7 +41,7 @@ export function createRetryDelay(attempt: number, baseDelayMs: number): number {
 
 export async function sendSignal(input: SendSignalInput): Promise<SendSignalResult> {
   const url = `${input.endpoint.replace(/\/+$/, "")}${input.signal.endpointPath}`;
-  const maxRetries = normalizeNonNegativeInteger(input.maxRetries);
+  const maxRetries = normalizeRetryCount(input.maxRetries);
   const requestTimeoutMs = normalizePositiveTimeout(input.requestTimeoutMs);
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -97,6 +98,10 @@ function normalizeNonNegativeInteger(value: number): number {
   }
 
   return Math.floor(value);
+}
+
+function normalizeRetryCount(value: number): number {
+  return Math.min(MAX_RETRIES, normalizeNonNegativeInteger(value));
 }
 
 function normalizeNonNegativeNumber(value: number): number {
