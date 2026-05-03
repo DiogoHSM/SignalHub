@@ -90,3 +90,9 @@ Query:
 ## Deferred Boundaries
 
 ClickHouse, object storage, SDKs, dashboards, and log storage are intentionally deferred. Phase 1 keeps internal boundaries narrow enough to add those later without changing the ingestion contracts.
+
+## Integration Console
+
+`apps/console` contains the Vite + React + TypeScript browser console.
+
+The API exposes `GET /console/config` for non-secret browser configuration and serves built console assets from `/console` in production. The console uses existing session authentication, admin routes, and query routes.

@@ -63,3 +63,9 @@ pnpm test
 pnpm build
 docker compose config
 ```
+
+## Console Deployment
+
+Production builds include `apps/console/dist`. The API serves the console at `/console` and exposes non-secret runtime config at `/console/config`.
+
+Local development can run the API with `pnpm dev:api` and the console with `pnpm dev:console`.

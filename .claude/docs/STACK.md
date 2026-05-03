@@ -44,3 +44,9 @@
 - `pnpm seed:admin`: seed bootstrap admin.
 - `pnpm test`: run Vitest.
 - `pnpm build`: build all workspace packages.
+
+## Console Stack
+
+- Vite + React + TypeScript for `apps/console`.
+- Testing Library + jsdom for browser component tests.
+- `@fastify/static` for production console asset delivery from the API.

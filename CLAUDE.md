@@ -12,6 +12,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 - `.claude/docs/DECISIONS.md`: durable architectural decisions.
 - `.claude/docs/SECRETS.md`: sanitized environment variable documentation only.
 - `.claude/docs/INFRASTRUCTURE.md`: runtime infrastructure and operational checks.
+- `.claude/docs/UI-UX.md`: console UX principles and visual conventions.
 
 ## Project Conventions
 
@@ -19,6 +20,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 - Use Postgres as the source of truth for Phase 1 operational and typed telemetry data.
 - Use Redis/BullMQ for ingestion queue handoff between API acceptance and worker persistence.
 - Keep ingestion contracts scoped by project and environment API keys.
+- Keep the admin console in `apps/console` and serve its production build from the API at `/console`.
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
 
 ## Verification
