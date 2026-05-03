@@ -1,7 +1,10 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
+import type { CreatedApiKey } from "../api/types";
 import type { Environment } from "../api/types";
 import { ConsoleShell } from "./ConsoleShell";
 
@@ -137,6 +140,63 @@ describe("ConsoleShell", () => {
 
     await waitFor(() => expect(api.createEnvironment).toHaveBeenCalledWith("prj_1", { name: "Staging" }));
     expect(await screen.findByRole("button", { name: "Staging" })).toBeInTheDocument();
+  });
+
+  it("hides a one-time secret and uses snippet placeholders immediately after switching projects", async () => {
+    const createdKey: CreatedApiKey = {
+      id: "key_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Browser key",
+      prefix: "sh_live_1234",
+      secret: "sh_secret_value",
+      createdAt: "",
+      revokedAt: null
+    };
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [
+          { id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null },
+          { id: "prj_2", name: "Beta App", createdAt: "", updatedAt: "", archivedAt: null }
+        ]
+      }),
+      listEnvironments: vi.fn((projectId: string) =>
+        Promise.resolve({
+          environments:
+            projectId === "prj_1"
+              ? [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+              : [{ id: "env_2", projectId: "prj_2", name: "Preview", createdAt: "", updatedAt: "", archivedAt: null }]
+        })
+      ),
+      createApiKey: vi.fn().mockResolvedValue({ apiKey: createdKey })
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      flushSync(() => {
+        root.render(<ConsoleShell client={api} />);
+      });
+
+      await act(async () => {});
+      expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+      await userEvent.type(screen.getByLabelText("New API key name"), "Browser key");
+      await userEvent.click(screen.getByRole("button", { name: "Create key" }));
+
+      expect(await screen.findByText("sh_secret_value")).toBeInTheDocument();
+
+      flushSync(() => {
+        screen.getByRole("button", { name: "Beta App" }).click();
+      });
+
+      expect(screen.queryByText(/sh_secret_value/)).not.toBeInTheDocument();
+      expect(screen.getAllByText(/SIGNAL_HUB_API_KEY/)).toHaveLength(3);
+    } finally {
+      root.unmount();
+      container.remove();
+    }
   });
 
   it("does not apply a created environment after switching projects before the response resolves", async () => {

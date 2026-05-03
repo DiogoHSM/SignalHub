@@ -140,6 +140,12 @@ select {
   padding: 24px;
 }
 
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+  gap: 16px;
+}
+
 .workspace-header h1 {
   margin: 0;
   font-size: 26px;
@@ -168,6 +174,12 @@ select {
 .panel-header h2 {
   margin: 0;
   font-size: 16px;
+}
+
+.muted-text {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .button-row {
@@ -219,6 +231,111 @@ select {
   font-weight: 700;
 }
 
+.compact-form button:disabled,
+.inline-form button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.key-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.key-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.key-list-item div {
+  display: grid;
+  gap: 3px;
+}
+
+.key-list-item strong {
+  font-size: 14px;
+}
+
+.key-list-item span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.key-list-item code,
+.secret-callout code,
+.snippet-card code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.key-list-item code {
+  color: #334155;
+  font-size: 12px;
+}
+
+.secret-callout {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  padding: 10px;
+}
+
+.secret-callout strong {
+  font-size: 13px;
+}
+
+.secret-callout code {
+  overflow-wrap: anywhere;
+  color: #1e3a8a;
+  font-size: 13px;
+}
+
+.snippet-panel {
+  grid-column: 1 / -1;
+}
+
+.snippet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.snippet-card {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.snippet-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.snippet-card pre {
+  overflow-x: auto;
+  margin: 0;
+  border-radius: 6px;
+  background: #0f172a;
+  padding: 12px;
+}
+
+.snippet-card code {
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
 @media (max-width: 720px) {
   .console-layout {
     grid-template-columns: 1fr;
@@ -230,6 +347,11 @@ select {
   }
 
   .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-grid,
+  .snippet-grid {
     grid-template-columns: 1fr;
   }
 }

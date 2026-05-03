@@ -1,20 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
+import { ApiKeyPanel } from "./ApiKeyPanel";
 import { EnvironmentSelector } from "./EnvironmentSelector";
 import { ProjectSwitcher } from "./ProjectSwitcher";
+import { SnippetPanel } from "./SnippetPanel";
+
+type LatestSecret = {
+  secret: string;
+  projectId: string;
+  environmentId: string;
+};
 
 export function ConsoleShell({ client }: { client: ApiClient }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
+  const [latestSecret, setLatestSecret] = useState<LatestSecret | undefined>();
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [loadedEnvironmentProjectId, setLoadedEnvironmentProjectId] = useState<string | undefined>();
   const activeProjectIdRef = useRef<string | undefined>(undefined);
   const activeEnvironmentRef = useRef<Environment | undefined>(undefined);
   const environmentsRef = useRef<Environment[]>([]);
   const isEnvironmentCreationDisabled = !activeProject || loadedEnvironmentProjectId !== activeProject.id;
+  const scopedLatestSecret =
+    latestSecret && latestSecret.projectId === activeProject?.id && latestSecret.environmentId === activeEnvironment?.id
+      ? latestSecret.secret
+      : undefined;
 
   useEffect(() => {
     activeProjectIdRef.current = activeProject?.id;
@@ -23,6 +36,10 @@ export function ConsoleShell({ client }: { client: ApiClient }) {
   useEffect(() => {
     activeEnvironmentRef.current = activeEnvironment;
   }, [activeEnvironment]);
+
+  useEffect(() => {
+    setLatestSecret(undefined);
+  }, [activeProject?.id, activeEnvironment?.id]);
 
   useEffect(() => {
     environmentsRef.current = environments;
@@ -107,6 +124,15 @@ export function ConsoleShell({ client }: { client: ApiClient }) {
     setActiveProject(project);
   }
 
+  function storeLatestSecret(secret: string) {
+    if (!activeProject || !activeEnvironment) return;
+    setLatestSecret({
+      secret,
+      projectId: activeProject.id,
+      environmentId: activeEnvironment.id
+    });
+  }
+
   async function createProject(name: string) {
     if (isLoadingProjects) return;
 
@@ -153,13 +179,22 @@ export function ConsoleShell({ client }: { client: ApiClient }) {
             <p>{activeEnvironment ? `Environment: ${activeEnvironment.name}` : "Create an environment to continue setup."}</p>
           </div>
         </header>
-        <EnvironmentSelector
-          activeEnvironmentId={activeEnvironment?.id}
-          disabled={isEnvironmentCreationDisabled}
-          environments={environments}
-          onCreate={createEnvironment}
-          onSelect={setActiveEnvironment}
-        />
+        <div className="workspace-grid">
+          <EnvironmentSelector
+            activeEnvironmentId={activeEnvironment?.id}
+            disabled={isEnvironmentCreationDisabled}
+            environments={environments}
+            onCreate={createEnvironment}
+            onSelect={setActiveEnvironment}
+          />
+          <ApiKeyPanel
+            client={client}
+            environmentId={activeEnvironment?.id}
+            onSecretCreated={storeLatestSecret}
+            projectId={activeProject?.id}
+          />
+          <SnippetPanel environmentId={activeEnvironment?.id} latestSecret={scopedLatestSecret} projectId={activeProject?.id} />
+        </div>
       </section>
     </main>
   );
