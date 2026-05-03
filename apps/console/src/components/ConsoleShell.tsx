@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
 import { ApiKeyPanel } from "./ApiKeyPanel";
+import { ConnectionCheck } from "./ConnectionCheck";
 import { EnvironmentSelector } from "./EnvironmentSelector";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SnippetPanel } from "./SnippetPanel";
+import { UserAdminPanel } from "./UserAdminPanel";
 
 type LatestSecret = {
   secret: string;
@@ -194,6 +196,10 @@ export function ConsoleShell({ client }: { client: ApiClient }) {
             projectId={activeProject?.id}
           />
           <SnippetPanel environmentId={activeEnvironment?.id} latestSecret={scopedLatestSecret} projectId={activeProject?.id} />
+        </div>
+        <div className="workspace-grid">
+          <ConnectionCheck client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+          <UserAdminPanel client={client} />
         </div>
       </section>
     </main>
