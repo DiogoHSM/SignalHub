@@ -6,8 +6,9 @@ const root = import.meta.dirname;
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["apps/**/*.test.ts", "packages/**/*.test.ts"],
-    passWithNoTests: true,
+    environmentMatchGlobs: [["apps/console/**/*.test.tsx", "jsdom"]],
+    include: ["apps/**/*.test.ts", "apps/**/*.test.tsx", "packages/**/*.test.ts"],
+    setupFiles: ["apps/console/src/test/setup.ts"],
     testTimeout: 30_000
   },
   resolve: {

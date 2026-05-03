@@ -6,6 +6,8 @@
   "packageManager": "pnpm@9.15.4",
   "scripts": {
     "build": "pnpm -r build",
+    "dev:console": "pnpm --filter @signal-hub/console dev",
+    "build:console": "pnpm --filter @signal-hub/console build",
     "dev:api": "pnpm --filter @signal-hub/api dev",
     "dev:worker": "pnpm --filter @signal-hub/worker dev",
     "lint": "pnpm -r lint",
@@ -17,6 +19,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/pg": "^8.20.0",
+    "jsdom": "^25.0.1",
     "testcontainers": "^11.14.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
