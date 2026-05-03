@@ -83,3 +83,153 @@ select {
   color: #b91c1c;
   font-size: 13px;
 }
+
+.console-layout {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+
+.project-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-right: 1px solid #d7dde7;
+  background: #fff;
+  padding: 18px;
+}
+
+.section-label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.project-list {
+  display: grid;
+  gap: 6px;
+}
+
+.nav-item,
+.pill {
+  min-height: 36px;
+  border: 1px solid #d7dde7;
+  border-radius: 6px;
+  background: #fff;
+  color: #111827;
+  cursor: pointer;
+  text-align: left;
+}
+
+.nav-item {
+  padding: 8px 10px;
+}
+
+.nav-item.active,
+.pill.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+.workspace {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 24px;
+}
+
+.workspace-header h1 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.workspace-header p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.panel {
+  border: 1px solid #d7dde7;
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill {
+  padding: 7px 10px;
+}
+
+.compact-form,
+.inline-form {
+  display: grid;
+  gap: 8px;
+}
+
+.inline-form {
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.compact-form label,
+.inline-form label {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compact-form input,
+.inline-form input {
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+
+.compact-form button,
+.inline-form button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .console-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .project-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #d7dde7;
+  }
+
+  .inline-form {
+    grid-template-columns: 1fr;
+  }
+}

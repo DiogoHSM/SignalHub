@@ -9,11 +9,15 @@ const { apiClient } = vi.hoisted(() => ({
     getMe: vi.fn().mockResolvedValue({ user: { id: "usr_1", email: "admin@example.com", isAdmin: true } }),
     login: vi.fn(),
     logout: vi.fn(),
-    listProjects: vi.fn(),
+    listProjects: vi.fn().mockResolvedValue({
+      projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+    }),
     createProject: vi.fn(),
     updateProject: vi.fn(),
     archiveProject: vi.fn(),
-    listEnvironments: vi.fn(),
+    listEnvironments: vi.fn().mockResolvedValue({
+      environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+    }),
     createEnvironment: vi.fn(),
     updateEnvironment: vi.fn(),
     archiveEnvironment: vi.fn(),
@@ -36,10 +40,10 @@ vi.mock("./api/client", () => ({
 }));
 
 describe("App", () => {
-  it("renders the authenticated console scaffold", async () => {
+  it("renders the authenticated console workspace", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "SignalHub Console" })).toBeInTheDocument();
-    expect(screen.getByText("Authenticated console ready.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Acme App" })).toBeInTheDocument();
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
   });
 });
