@@ -41,6 +41,7 @@ import { createTelemetryQueue, enqueueTelemetryJob } from "@signal-hub/queues";
 import { hashPassword, verifyPassword } from "@signal-hub/telemetry/auth";
 import { verifyApiKey } from "@signal-hub/telemetry/api-keys";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { Redis } from "ioredis";
 import { sql } from "kysely";
 import { z } from "zod";
@@ -347,7 +348,13 @@ const app = await buildApp({
     getTraceAggregates: (filters) => getTraceAggregates(db, filters)
   },
   apiKeyPepper: config.apiKeyPepper,
-  googleOAuthEnabled: config.googleOAuth.enabled
+  googleOAuthEnabled: config.googleOAuth.enabled,
+  console: {
+    enabled: config.nodeEnv === "production",
+    apiBasePath: "/",
+    assetsDir:
+      config.nodeEnv === "production" ? fileURLToPath(new URL("../../console/dist/", import.meta.url)) : undefined
+  }
 });
 
 await app.listen({ port: config.port, host: "0.0.0.0" });
