@@ -11,6 +11,7 @@ export function UserAdminPanel({ client }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | undefined>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,22 +34,28 @@ export function UserAdminPanel({ client }: Props) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
+
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !password) return;
 
+    const temporaryPassword = password;
+    setPassword("");
     setError(undefined);
+    setIsSubmitting(true);
 
     try {
       const { user } = await client.createUser({
         email: trimmedEmail,
-        password,
+        password: temporaryPassword,
         isAdmin: false
       });
       setUsers((current) => [...current, user]);
       setEmail("");
-      setPassword("");
     } catch {
       setError("Could not create user.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -79,7 +86,9 @@ export function UserAdminPanel({ client }: Props) {
           Temporary password
           <input onChange={(event) => setPassword(event.target.value)} type="password" value={password} />
         </label>
-        <button type="submit">Create user</button>
+        <button disabled={isSubmitting} type="submit">
+          Create user
+        </button>
       </form>
     </section>
   );

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -36,6 +36,14 @@ function client(overrides: Partial<ApiClient>): ApiClient {
 afterEach(() => {
   cleanup();
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
 
 describe("UserAdminPanel", () => {
   it("lists users", async () => {
@@ -79,5 +87,46 @@ describe("UserAdminPanel", () => {
     expect(await screen.findByText("new@example.com")).toBeInTheDocument();
     expect(screen.getByLabelText("New user email")).toHaveValue("");
     expect(screen.getByLabelText("Temporary password")).toHaveValue("");
+  });
+
+  it("clears the temporary password when user creation fails", async () => {
+    const api = client({
+      createUser: vi.fn().mockRejectedValue(new Error("create failed"))
+    });
+
+    render(<UserAdminPanel client={api} />);
+
+    await userEvent.type(screen.getByLabelText("New user email"), "new@example.com");
+    await userEvent.type(screen.getByLabelText("Temporary password"), "temporary-password");
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+
+    expect(await screen.findByText("Could not create user.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Temporary password")).toHaveValue("");
+  });
+
+  it("prevents duplicate submits while creation is in flight", async () => {
+    const createUser = deferred<{ user: { id: string; email: string; isAdmin: boolean } }>();
+    const api = client({
+      createUser: vi.fn().mockReturnValue(createUser.promise)
+    });
+
+    render(<UserAdminPanel client={api} />);
+
+    await userEvent.type(screen.getByLabelText("New user email"), "new@example.com");
+    await userEvent.type(screen.getByLabelText("Temporary password"), "temporary-password");
+    await userEvent.click(screen.getByRole("button", { name: "Create user" }));
+
+    const submitButton = screen.getByRole("button", { name: "Create user" });
+    expect(submitButton).toBeDisabled();
+    await userEvent.click(submitButton);
+
+    expect(api.createUser).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      createUser.resolve({ user: { id: "usr_3", email: "new@example.com", isAdmin: false } });
+      await createUser.promise;
+    });
+
+    expect(submitButton).toBeEnabled();
   });
 });
