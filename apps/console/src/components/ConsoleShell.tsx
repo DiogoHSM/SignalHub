@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
+import { InvestigationWorkspace } from "./InvestigationWorkspace";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SetupWorkspace } from "./SetupWorkspace";
 
@@ -195,12 +196,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
           />
         </div>
         <div hidden={activeMode !== "investigate"}>
-          <div className="panel">
-            <div className="panel-header">
-              <h2>Investigate</h2>
-            </div>
-            <p className="muted-text">Events investigation will be available in this section.</p>
-          </div>
+          <InvestigationWorkspace client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
         </div>
       </section>
     </main>
