@@ -341,6 +341,31 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
   });
 
+  it("preserves in-progress setup form state across mode switches while hiding inactive setup controls", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByRole("textbox", { name: "New environment name" }), "Staging");
+    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+
+    expect(screen.queryByRole("textbox", { name: "New environment name" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "New environment name", hidden: true })).toHaveValue("Staging");
+
+    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+
+    expect(screen.getByRole("textbox", { name: "New environment name" })).toHaveValue("Staging");
+  });
+
   it("selects the first environment each time the active project changes", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({

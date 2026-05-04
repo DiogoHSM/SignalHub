@@ -180,7 +180,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
           </div>
           <ConsoleModeTabs activeMode={activeMode} onChange={setActiveMode} />
         </header>
-        {activeMode === "setup" ? (
+        <div hidden={activeMode !== "setup"}>
           <SetupWorkspace
             activeEnvironment={activeEnvironment}
             activeProjectId={activeProject?.id}
@@ -193,14 +193,15 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
             onSecretCreated={storeLatestSecret}
             onSelectEnvironment={setActiveEnvironment}
           />
-        ) : (
+        </div>
+        <div hidden={activeMode !== "investigate"}>
           <div className="panel">
             <div className="panel-header">
               <h2>Investigate</h2>
             </div>
             <p className="muted-text">Events investigation will be available in this section.</p>
           </div>
-        )}
+        </div>
       </section>
     </main>
   );
