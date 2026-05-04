@@ -20,7 +20,7 @@ Implemented capabilities:
 - Health and readiness endpoints.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 
-## Out of Scope for Phase 2
+## Out of Scope for Phase 3
 
 - SaaS workspaces, organizations, invites, billing, and enterprise SSO.
 - Full RBAC or per-project permissions.
