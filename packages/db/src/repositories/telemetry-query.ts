@@ -19,6 +19,7 @@ export interface TelemetryFilters {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  eventName?: string;
   from?: Date;
   to?: Date;
   limit?: number;
@@ -296,6 +297,7 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Eve
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+  if (filters.eventName) query = query.where("name", "=", filters.eventName);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
 

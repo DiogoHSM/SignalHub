@@ -356,6 +356,28 @@ describe("repositories", () => {
     });
   });
 
+  it("filters events by exact event name", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Named Events API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-04T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_named_1", name: "checkout.started" });
+      await insertEvent(db, { ...base, id: "evt_named_2", name: "checkout.completed" });
+
+      await expect(
+        listEvents(db, { projectId: project.id, environmentId: environment.id, eventName: "checkout.started" })
+      ).resolves.toEqual([expect.objectContaining({ id: "evt_named_1", name: "checkout.started" })]);
+    });
+  });
+
   it("rejects telemetry whose environment belongs to another project", async () => {
     await withDb(async (db) => {
       await migrate(db);

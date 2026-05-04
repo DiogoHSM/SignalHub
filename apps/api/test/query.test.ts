@@ -123,6 +123,36 @@ describe("query routes", () => {
     expect(limits).toEqual([50, 1, 500]);
   });
 
+  it("parses event_name for event queries", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEvents: async (filters) => {
+          receivedFilters.push(filters);
+          return [];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1&event_name=checkout.started"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        eventName: "checkout.started",
+        limit: 50
+      }
+    ]);
+  });
+
   it("converts optional filter query params to camelCase values", async () => {
     const receivedFilters: unknown[] = [];
 

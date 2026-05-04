@@ -10,6 +10,7 @@ export type QueryFilters = {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  eventName?: string;
   from?: Date;
   to?: Date;
   limit: number;
@@ -122,6 +123,7 @@ function parseFilters(query: unknown): QueryFilters | undefined {
   const userId = optionalNonEmpty(raw, "user_id");
   const sessionId = optionalNonEmpty(raw, "session_id");
   const traceId = optionalNonEmpty(raw, "trace_id");
+  const eventName = optionalNonEmpty(raw, "event_name");
   const cursor = optionalNonEmpty(raw, "cursor");
 
   if (tenantId) {
@@ -135,6 +137,9 @@ function parseFilters(query: unknown): QueryFilters | undefined {
   }
   if (traceId) {
     filters.traceId = traceId;
+  }
+  if (eventName) {
+    filters.eventName = eventName;
   }
   if (from) {
     filters.from = from;
