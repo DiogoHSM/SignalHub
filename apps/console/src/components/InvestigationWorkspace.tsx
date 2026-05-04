@@ -20,7 +20,7 @@ export function InvestigationWorkspace({ client, projectId, environmentId }: Pro
         <div className="panel-header">
           <h2>Investigate</h2>
         </div>
-        <p className="muted-text">Select a project and environment in Setup to investigate events.</p>
+        <p className="muted-text">Select a project and environment in Setup to investigate telemetry.</p>
       </section>
     );
   }

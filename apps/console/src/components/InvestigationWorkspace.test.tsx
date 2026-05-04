@@ -41,7 +41,7 @@ describe("InvestigationWorkspace", () => {
   it("requires a project and environment", () => {
     render(<InvestigationWorkspace client={client({})} />);
 
-    expect(screen.getByText("Select a project and environment in Setup to investigate events.")).toBeInTheDocument();
+    expect(screen.getByText("Select a project and environment in Setup to investigate telemetry.")).toBeInTheDocument();
   });
 
   it("renders the events investigation view when scope exists", async () => {

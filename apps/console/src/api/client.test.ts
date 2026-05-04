@@ -118,6 +118,25 @@ describe("createApiClient", () => {
     );
   });
 
+  it("does not encode error-only filters for event queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listEvents({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      eventName: "checkout.started",
+      severity: "critical",
+      status: "open",
+      fingerprint: "fp_1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events?project_id=prj_1&environment_id=env_1&event_name=checkout.started",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes error query filters", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);

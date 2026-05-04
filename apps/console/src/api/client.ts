@@ -114,7 +114,7 @@ function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
-function queryPath(route: string, filters: QueryFilters): string {
+function queryPath(route: string, filters: QueryFilters, options: { includeErrorFilters?: boolean } = {}): string {
   const params = new URLSearchParams();
   params.set("project_id", filters.projectId);
   params.set("environment_id", filters.environmentId);
@@ -124,9 +124,11 @@ function queryPath(route: string, filters: QueryFilters): string {
   if (filters.sessionId) params.set("session_id", filters.sessionId);
   if (filters.traceId) params.set("trace_id", filters.traceId);
   if (filters.eventName) params.set("event_name", filters.eventName);
-  if (filters.severity) params.set("severity", filters.severity);
-  if (filters.status) params.set("status", filters.status);
-  if (filters.fingerprint) params.set("fingerprint", filters.fingerprint);
+  if (options.includeErrorFilters) {
+    if (filters.severity) params.set("severity", filters.severity);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.fingerprint) params.set("fingerprint", filters.fingerprint);
+  }
   if (filters.from) params.set("from", filters.from instanceof Date ? filters.from.toISOString() : filters.from);
   if (filters.to) params.set("to", filters.to instanceof Date ? filters.to.toISOString() : filters.to);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
@@ -173,7 +175,8 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
       }),
     revokeApiKey: (id) => request<void>(path(apiBasePath, `/admin/api-keys/${encodePathSegment(id)}`), { method: "DELETE" }),
     listEvents: (filters) => request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters))),
-    listErrors: (filters) => request<QueryListResponse<ErrorRecord>>(path(apiBasePath, queryPath("/query/errors", filters))),
+    listErrors: (filters) =>
+      request<QueryListResponse<ErrorRecord>>(path(apiBasePath, queryPath("/query/errors", filters, { includeErrorFilters: true }))),
     getEventAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
     getErrorAggregates: (filters) =>

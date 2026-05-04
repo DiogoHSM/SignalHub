@@ -102,7 +102,7 @@ function parseDate(raw: RawQuery, key: string): Date | undefined | null {
   return date;
 }
 
-function parseFilters(query: unknown): QueryFilters | undefined {
+function parseFilters(query: unknown, options: { includeErrorFilters?: boolean } = {}): QueryFilters | undefined {
   const raw = (query ?? {}) as RawQuery;
   const projectId = parseRequiredId(raw, "project_id");
   const environmentId = parseRequiredId(raw, "environment_id");
@@ -127,9 +127,6 @@ function parseFilters(query: unknown): QueryFilters | undefined {
   const sessionId = optionalNonEmpty(raw, "session_id");
   const traceId = optionalNonEmpty(raw, "trace_id");
   const eventName = optionalNonEmpty(raw, "event_name");
-  const severity = optionalNonEmpty(raw, "severity");
-  const status = optionalNonEmpty(raw, "status");
-  const fingerprint = optionalNonEmpty(raw, "fingerprint");
   const cursor = optionalNonEmpty(raw, "cursor");
 
   if (tenantId) {
@@ -147,14 +144,20 @@ function parseFilters(query: unknown): QueryFilters | undefined {
   if (eventName) {
     filters.eventName = eventName;
   }
-  if (severity) {
-    filters.severity = severity;
-  }
-  if (status) {
-    filters.status = status;
-  }
-  if (fingerprint) {
-    filters.fingerprint = fingerprint;
+  if (options.includeErrorFilters) {
+    const severity = optionalNonEmpty(raw, "severity");
+    const status = optionalNonEmpty(raw, "status");
+    const fingerprint = optionalNonEmpty(raw, "fingerprint");
+
+    if (severity) {
+      filters.severity = severity;
+    }
+    if (status) {
+      filters.status = status;
+    }
+    if (fingerprint) {
+      filters.fingerprint = fingerprint;
+    }
   }
   if (from) {
     filters.from = from;
@@ -205,7 +208,8 @@ async function handleListRoute(
   reply: FastifyReply,
   options: QueryRouteOptions,
   hasMethod: () => boolean,
-  run: ListRunner
+  run: ListRunner,
+  filterOptions?: { includeErrorFilters?: boolean }
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -216,7 +220,7 @@ async function handleListRoute(
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseFilters(request.query);
+  const filters = parseFilters(request.query, filterOptions);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
@@ -288,7 +292,14 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     handleListRoute(request, reply, options, () => !!options.query?.listEvents, (filters) => options.query!.listEvents!(filters))
   );
   app.get("/query/errors", (request, reply) =>
-    handleListRoute(request, reply, options, () => !!options.query?.listErrors, (filters) => options.query!.listErrors!(filters))
+    handleListRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.listErrors,
+      (filters) => options.query!.listErrors!(filters),
+      { includeErrorFilters: true }
+    )
   );
   app.get("/query/llm-calls", (request, reply) =>
     handleListRoute(request, reply, options, () => !!options.query?.listLlmCalls, (filters) => options.query!.listLlmCalls!(filters))
