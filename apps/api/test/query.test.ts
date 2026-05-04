@@ -258,6 +258,38 @@ describe("query routes", () => {
     ]);
   });
 
+  it("ignores event_name for error queries", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listErrors: async (filters) => {
+          receivedFilters.push(filters);
+          return [];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/errors?project_id=prj_1&environment_id=env_1" +
+        "&event_name=checkout.started&severity=critical"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        severity: "critical",
+        limit: 50
+      }
+    ]);
+  });
+
   it("rejects invalid date filters", async () => {
     app = await buildApp({
       readiness,

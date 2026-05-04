@@ -102,7 +102,10 @@ function parseDate(raw: RawQuery, key: string): Date | undefined | null {
   return date;
 }
 
-function parseFilters(query: unknown, options: { includeErrorFilters?: boolean } = {}): QueryFilters | undefined {
+function parseFilters(
+  query: unknown,
+  options: { includeEventName?: boolean; includeErrorFilters?: boolean } = {}
+): QueryFilters | undefined {
   const raw = (query ?? {}) as RawQuery;
   const projectId = parseRequiredId(raw, "project_id");
   const environmentId = parseRequiredId(raw, "environment_id");
@@ -141,7 +144,7 @@ function parseFilters(query: unknown, options: { includeErrorFilters?: boolean }
   if (traceId) {
     filters.traceId = traceId;
   }
-  if (eventName) {
+  if (options.includeEventName && eventName) {
     filters.eventName = eventName;
   }
   if (options.includeErrorFilters) {
@@ -209,7 +212,7 @@ async function handleListRoute(
   options: QueryRouteOptions,
   hasMethod: () => boolean,
   run: ListRunner,
-  filterOptions?: { includeErrorFilters?: boolean }
+  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean }
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -264,7 +267,8 @@ async function handleAggregateRoute(
   reply: FastifyReply,
   options: QueryRouteOptions,
   hasMethod: () => boolean,
-  run: AggregateRunner
+  run: AggregateRunner,
+  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean }
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -275,7 +279,7 @@ async function handleAggregateRoute(
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseFilters(request.query);
+  const filters = parseFilters(request.query, filterOptions);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
@@ -289,7 +293,14 @@ async function handleAggregateRoute(
 
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
   app.get("/query/events", (request, reply) =>
-    handleListRoute(request, reply, options, () => !!options.query?.listEvents, (filters) => options.query!.listEvents!(filters))
+    handleListRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.listEvents,
+      (filters) => options.query!.listEvents!(filters),
+      { includeEventName: true }
+    )
   );
   app.get("/query/errors", (request, reply) =>
     handleListRoute(
@@ -310,8 +321,13 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/traces/:id/spans", (request, reply) => handleTraceSpansRoute(request, reply, options));
 
   app.get("/query/aggregates/events", (request, reply) =>
-    handleAggregateRoute(request, reply, options, () => !!options.query?.getEventAggregates, (filters) =>
-      options.query!.getEventAggregates!(filters)
+    handleAggregateRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.getEventAggregates,
+      (filters) => options.query!.getEventAggregates!(filters),
+      { includeEventName: true }
     )
   );
   app.get("/query/aggregates/errors", (request, reply) =>

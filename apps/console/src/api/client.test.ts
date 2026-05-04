@@ -154,4 +154,21 @@ describe("createApiClient", () => {
       expect.objectContaining({ method: "GET" })
     );
   });
+
+  it("does not encode event name for error queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listErrors({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      eventName: "checkout.started",
+      severity: "critical"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/errors?project_id=prj_1&environment_id=env_1&severity=critical",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
 });

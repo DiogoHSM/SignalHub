@@ -114,7 +114,11 @@ function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
-function queryPath(route: string, filters: QueryFilters, options: { includeErrorFilters?: boolean } = {}): string {
+function queryPath(
+  route: string,
+  filters: QueryFilters,
+  options: { includeEventName?: boolean; includeErrorFilters?: boolean } = {}
+): string {
   const params = new URLSearchParams();
   params.set("project_id", filters.projectId);
   params.set("environment_id", filters.environmentId);
@@ -123,7 +127,7 @@ function queryPath(route: string, filters: QueryFilters, options: { includeError
   if (filters.userId) params.set("user_id", filters.userId);
   if (filters.sessionId) params.set("session_id", filters.sessionId);
   if (filters.traceId) params.set("trace_id", filters.traceId);
-  if (filters.eventName) params.set("event_name", filters.eventName);
+  if (options.includeEventName && filters.eventName) params.set("event_name", filters.eventName);
   if (options.includeErrorFilters) {
     if (filters.severity) params.set("severity", filters.severity);
     if (filters.status) params.set("status", filters.status);
@@ -174,11 +178,14 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
         body: input
       }),
     revokeApiKey: (id) => request<void>(path(apiBasePath, `/admin/api-keys/${encodePathSegment(id)}`), { method: "DELETE" }),
-    listEvents: (filters) => request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters))),
+    listEvents: (filters) =>
+      request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters, { includeEventName: true }))),
     listErrors: (filters) =>
       request<QueryListResponse<ErrorRecord>>(path(apiBasePath, queryPath("/query/errors", filters, { includeErrorFilters: true }))),
     getEventAggregates: (filters) =>
-      request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
+      request<AggregateResponse<unknown>>(
+        path(apiBasePath, queryPath("/query/aggregates/events", filters, { includeEventName: true }))
+      ),
     getErrorAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
     listUsers: () => request<{ users: User[] }>(path(apiBasePath, "/admin/users")),
