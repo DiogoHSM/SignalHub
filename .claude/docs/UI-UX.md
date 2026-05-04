@@ -16,3 +16,7 @@ SignalHub includes an admin-only Integration Console.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.
 - Missing project/environment state should point operators back to Setup.
+- Keep Events and Errors as peer tabs inside `Investigate`.
+- Errors use the same list/detail drawer pattern as Events.
+- Error rows should prioritize severity, status, message, and trace/session context.
+- Error details should show stack, context JSON, metadata JSON, and immutable identifiers.
