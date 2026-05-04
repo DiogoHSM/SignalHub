@@ -75,6 +75,7 @@ describe("EventInvestigationPanel", () => {
     render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
     expect(await screen.findByText("checkout.started")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /checkout.started/ })).toHaveTextContent("trace_1");
     expect(api.listEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
 
@@ -129,7 +130,7 @@ describe("EventInvestigationPanel", () => {
     await userEvent.click(await screen.findByRole("button", { name: /checkout.started/ }));
 
     expect(screen.getByRole("heading", { name: "checkout.started" })).toBeInTheDocument();
-    expect(screen.getByText("trace_1")).toBeInTheDocument();
+    expect(screen.getAllByText("trace_1")).toHaveLength(2);
   });
 
   it("shows unavailable state and retries after query failure", async () => {

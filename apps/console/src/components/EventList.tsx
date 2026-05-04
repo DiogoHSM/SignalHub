@@ -14,6 +14,10 @@ function label(value: string | null): string {
   return value ?? "none";
 }
 
+function contextLabel(event: EventRecord): string {
+  return event.traceId ?? event.sessionId ?? "none";
+}
+
 export function EventList({ events, selectedEventId, onSelect }: Props) {
   return (
     <div className="event-list" aria-label="Events">
@@ -32,6 +36,7 @@ export function EventList({ events, selectedEventId, onSelect }: Props) {
           <span>{formatTimestamp(event.timestamp)}</span>
           <span>{label(event.userId)}</span>
           <span>{label(event.tenantId)}</span>
+          <span>{contextLabel(event)}</span>
         </button>
       ))}
     </div>

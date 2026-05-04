@@ -35,6 +35,10 @@ export function EventDetailDrawer({ event }: Props) {
         <dd>
           <code>{event.id}</code>
         </dd>
+        <dt>Project</dt>
+        <dd>{event.projectId}</dd>
+        <dt>Environment</dt>
+        <dd>{event.environmentId}</dd>
         <dt>Timestamp</dt>
         <dd>{formatTimestamp(event.timestamp)}</dd>
         <dt>Received</dt>

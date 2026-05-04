@@ -494,7 +494,7 @@ select {
 
 .event-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.5fr) minmax(150px, 1fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr);
+  grid-template-columns: minmax(180px, 1.5fr) minmax(150px, 1fr) repeat(3, minmax(110px, 0.8fr));
   align-items: center;
   gap: 10px;
   border: 1px solid #e2e8f0;

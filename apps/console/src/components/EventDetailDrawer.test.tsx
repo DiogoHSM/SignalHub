@@ -29,6 +29,8 @@ describe("EventDetailDrawer", () => {
     render(<EventDetailDrawer event={event} />);
 
     expect(screen.getByRole("heading", { name: "checkout.started" })).toBeInTheDocument();
+    expect(screen.getByText("prj_1")).toBeInTheDocument();
+    expect(screen.getByText("env_1")).toBeInTheDocument();
     expect(screen.getByText("tenant_1")).toBeInTheDocument();
     expect(screen.getByText("trace_1")).toBeInTheDocument();
     expect(screen.getByText(/"cart_value": 120/)).toBeInTheDocument();

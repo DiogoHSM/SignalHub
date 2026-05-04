@@ -196,7 +196,9 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
           />
         </div>
         <div hidden={activeMode !== "investigate"}>
-          <InvestigationWorkspace client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+          {activeMode === "investigate" ? (
+            <InvestigationWorkspace client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+          ) : null}
         </div>
       </section>
     </main>
