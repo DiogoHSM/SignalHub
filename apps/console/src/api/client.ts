@@ -9,6 +9,8 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  SpanRecord,
+  TraceRecord,
   User
 } from "./types";
 
@@ -42,6 +44,8 @@ export type ApiClient = {
   revokeApiKey: (id: string) => Promise<void>;
   listEvents: (filters: QueryFilters) => Promise<QueryListResponse<EventRecord>>;
   listErrors: (filters: QueryFilters) => Promise<QueryListResponse<ErrorRecord>>;
+  listTraces: (filters: QueryFilters) => Promise<QueryListResponse<TraceRecord>>;
+  listTraceSpans: (traceId: string, filters: QueryFilters) => Promise<QueryListResponse<SpanRecord>>;
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   listUsers: () => Promise<{ users: User[] }>;
@@ -182,6 +186,11 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
       request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters, { includeEventName: true }))),
     listErrors: (filters) =>
       request<QueryListResponse<ErrorRecord>>(path(apiBasePath, queryPath("/query/errors", filters, { includeErrorFilters: true }))),
+    listTraces: (filters) => request<QueryListResponse<TraceRecord>>(path(apiBasePath, queryPath("/query/traces", filters))),
+    listTraceSpans: (traceId, filters) =>
+      request<QueryListResponse<SpanRecord>>(
+        path(apiBasePath, queryPath(`/query/traces/${encodePathSegment(traceId)}/spans`, filters))
+      ),
     getEventAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
     getErrorAggregates: (filters) =>

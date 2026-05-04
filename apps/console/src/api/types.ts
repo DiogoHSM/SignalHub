@@ -74,6 +74,51 @@ export type ErrorRecord = {
   context: unknown;
 };
 
+export type TraceRecord = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  timestamp: string;
+  receivedAt: string;
+  source: string | null;
+  release: string | null;
+  metadata: unknown;
+  name: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+};
+
+export type SpanRecord = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string;
+  timestamp: string;
+  receivedAt: string;
+  source: string | null;
+  release: string | null;
+  metadata: unknown;
+  parentSpanId: string | null;
+  name: string;
+  status: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  input: unknown | null;
+  output: unknown | null;
+  error: unknown | null;
+  costUsd: string | null;
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;

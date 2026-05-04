@@ -23,6 +23,8 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     revokeApiKey: vi.fn(),
     listEvents: vi.fn(),
     listErrors: vi.fn(),
+    listTraces: vi.fn().mockResolvedValue({ data: [] }),
+    listTraceSpans: vi.fn().mockResolvedValue({ data: [] }),
     getEventAggregates: vi.fn(),
     getErrorAggregates: vi.fn(),
     listUsers: vi.fn(),

@@ -102,6 +102,43 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes trace query filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listTraces({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      traceId: "trace_1",
+      tenantId: "tenant_1",
+      userId: "user_1",
+      sessionId: "session_1",
+      from: "2026-05-04T12:00:00.000Z",
+      to: "2026-05-04T13:00:00.000Z",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/traces?project_id=prj_1&environment_id=env_1&tenant_id=tenant_1&user_id=user_1&session_id=session_1&trace_id=trace_1&from=2026-05-04T12%3A00%3A00.000Z&to=2026-05-04T13%3A00%3A00.000Z&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes trace span query path and scope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listTraceSpans("trace/1", {
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/traces/trace%2F1/spans?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes event name query filter", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);
