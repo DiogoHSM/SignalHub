@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
-import { ApiKeyPanel } from "./ApiKeyPanel";
-import { ConnectionCheck } from "./ConnectionCheck";
-import { EnvironmentSelector } from "./EnvironmentSelector";
+import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
 import { ProjectSwitcher } from "./ProjectSwitcher";
-import { SnippetPanel } from "./SnippetPanel";
-import { UserAdminPanel } from "./UserAdminPanel";
+import { SetupWorkspace } from "./SetupWorkspace";
 
 type LatestSecret = {
   secret: string;
@@ -19,6 +16,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
+  const [activeMode, setActiveMode] = useState<ConsoleMode>("setup");
   const [latestSecret, setLatestSecret] = useState<LatestSecret | undefined>();
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [loadedEnvironmentProjectId, setLoadedEnvironmentProjectId] = useState<string | undefined>();
@@ -180,32 +178,29 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
             <h1>{activeProject?.name ?? "No project selected"}</h1>
             <p>{activeEnvironment ? `Environment: ${activeEnvironment.name}` : "Create an environment to continue setup."}</p>
           </div>
+          <ConsoleModeTabs activeMode={activeMode} onChange={setActiveMode} />
         </header>
-        <div className="workspace-grid">
-          <EnvironmentSelector
-            activeEnvironmentId={activeEnvironment?.id}
-            disabled={isEnvironmentCreationDisabled}
-            environments={environments}
-            onCreate={createEnvironment}
-            onSelect={setActiveEnvironment}
-          />
-          <ApiKeyPanel
-            client={client}
-            environmentId={activeEnvironment?.id}
-            onSecretCreated={storeLatestSecret}
-            projectId={activeProject?.id}
-          />
-          <SnippetPanel
+        {activeMode === "setup" ? (
+          <SetupWorkspace
+            activeEnvironment={activeEnvironment}
+            activeProjectId={activeProject?.id}
             apiEndpoint={apiEndpoint}
-            environmentId={activeEnvironment?.id}
+            client={client}
+            environments={environments}
+            isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
             latestSecret={scopedLatestSecret}
-            projectId={activeProject?.id}
+            onCreateEnvironment={createEnvironment}
+            onSecretCreated={storeLatestSecret}
+            onSelectEnvironment={setActiveEnvironment}
           />
-        </div>
-        <div className="workspace-grid">
-          <ConnectionCheck client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
-          <UserAdminPanel client={client} />
-        </div>
+        ) : (
+          <div className="panel">
+            <div className="panel-header">
+              <h2>Investigate</h2>
+            </div>
+            <p className="muted-text">Events investigation will be available in this section.</p>
+          </div>
+        )}
       </section>
     </main>
   );

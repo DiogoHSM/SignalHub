@@ -319,6 +319,28 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("button", { name: "Create project" })).toBeEnabled();
   });
 
+  it("switches between setup and investigate modes without losing active environment", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    expect(screen.getByRole("heading", { name: "Investigate" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    expect(screen.getByText("Environment: Production")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
+  });
+
   it("selects the first environment each time the active project changes", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({

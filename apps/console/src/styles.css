@@ -146,6 +146,13 @@ select {
   gap: 16px;
 }
 
+.workspace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .workspace-header h1 {
   margin: 0;
   font-size: 26px;
@@ -186,6 +193,31 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.mode-tabs {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid #d7dde7;
+  border-radius: 6px;
+  background: #fff;
+  padding: 4px;
+}
+
+.mode-tabs button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.mode-tabs button[aria-pressed="true"] {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .pill {
@@ -381,6 +413,11 @@ select {
 
   .inline-form {
     grid-template-columns: 1fr;
+  }
+
+  .workspace-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .workspace-grid,
