@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ApiClient } from "../api/client";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
+import { TraceInvestigationPanel } from "./TraceInvestigationPanel";
 
 type Props = {
   client: ApiClient;
@@ -9,7 +10,7 @@ type Props = {
   environmentId?: string;
 };
 
-type InvestigationTab = "events" | "errors";
+type InvestigationTab = "events" | "errors" | "traces";
 
 export function InvestigationWorkspace({ client, projectId, environmentId }: Props) {
   const [activeTab, setActiveTab] = useState<InvestigationTab>("events");
@@ -37,7 +38,7 @@ export function InvestigationWorkspace({ client, projectId, environmentId }: Pro
         <button aria-pressed={activeTab === "errors"} onClick={() => setActiveTab("errors")} type="button">
           Errors
         </button>
-        <button disabled type="button">
+        <button aria-pressed={activeTab === "traces"} onClick={() => setActiveTab("traces")} type="button">
           Traces
         </button>
         <button disabled type="button">
@@ -46,6 +47,7 @@ export function InvestigationWorkspace({ client, projectId, environmentId }: Pro
       </nav>
       {activeTab === "events" ? <EventInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
       {activeTab === "errors" ? <ErrorInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
+      {activeTab === "traces" ? <TraceInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
     </section>
   );
 }

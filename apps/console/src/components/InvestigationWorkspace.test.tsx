@@ -54,26 +54,29 @@ describe("InvestigationWorkspace", () => {
     expect(await screen.findByText("No events found")).toBeInTheDocument();
   });
 
-  it("switches between events and errors investigation views", async () => {
+  it("switches between events errors and traces investigation views", async () => {
     const api = client({
       listEvents: vi.fn().mockResolvedValue({ data: [] }),
-      listErrors: vi.fn().mockResolvedValue({ data: [] })
+      listErrors: vi.fn().mockResolvedValue({ data: [] }),
+      listTraces: vi.fn().mockResolvedValue({ data: [] }),
+      listTraceSpans: vi.fn().mockResolvedValue({ data: [] })
     });
 
     render(<InvestigationWorkspace client={api} environmentId="env_1" projectId="prj_1" />);
 
     expect(screen.getByRole("button", { name: "Events" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Traces" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Traces" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "LLM" })).toBeDisabled();
     expect(await screen.findByText("No events found")).toBeInTheDocument();
-    expect(api.listErrors).not.toHaveBeenCalled();
+    expect(api.listTraces).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Errors" }));
+    await userEvent.click(screen.getByRole("button", { name: "Traces" }));
 
     expect(screen.getByRole("button", { name: "Events" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "true");
-    expect(await screen.findByText("No errors found")).toBeInTheDocument();
-    expect(api.listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+    expect(screen.getByRole("button", { name: "Traces" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByText("No traces found")).toBeInTheDocument();
+    expect(api.listTraces).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+    expect(api.listTraceSpans).not.toHaveBeenCalled();
   });
 });

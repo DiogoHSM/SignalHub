@@ -517,6 +517,15 @@ select {
     repeat(3, minmax(110px, 0.7fr));
 }
 
+.trace-row {
+  grid-template-columns:
+    minmax(220px, 1.5fr)
+    minmax(90px, 0.55fr)
+    minmax(90px, 0.55fr)
+    minmax(150px, 1fr)
+    repeat(2, minmax(110px, 0.7fr));
+}
+
 .event-row[aria-pressed="true"] {
   border-color: #2563eb;
   background: #eff6ff;
@@ -576,6 +585,11 @@ select {
   font-size: 13px;
 }
 
+.json-section h4 {
+  margin: 0;
+  font-size: 12px;
+}
+
 .json-section pre {
   overflow-x: auto;
   margin: 0;
@@ -589,6 +603,24 @@ select {
   font-size: 12px;
   line-height: 1.5;
   white-space: pre;
+}
+
+.span-timeline {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.span-row {
+  border: 1px solid #d7dde7;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.span-row header {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
 }
 
 @media (max-width: 720px) {

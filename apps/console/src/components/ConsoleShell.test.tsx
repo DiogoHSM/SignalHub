@@ -419,6 +419,33 @@ describe("ConsoleShell", () => {
     await waitFor(() => expect(listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
   });
 
+  it("does not query investigation traces until the traces tab is opened", async () => {
+    const listTraces = vi.fn().mockResolvedValue({ data: [] });
+    const listTraceSpans = vi.fn().mockResolvedValue({ data: [] });
+    const api = client({
+      listTraces,
+      listTraceSpans,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+
+    expect(listTraces).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Traces" }));
+
+    await waitFor(() => expect(listTraces).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
+    expect(listTraceSpans).not.toHaveBeenCalled();
+  });
+
   it("selects the first environment each time the active project changes", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
