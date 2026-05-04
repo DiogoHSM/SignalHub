@@ -321,13 +321,8 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/traces/:id/spans", (request, reply) => handleTraceSpansRoute(request, reply, options));
 
   app.get("/query/aggregates/events", (request, reply) =>
-    handleAggregateRoute(
-      request,
-      reply,
-      options,
-      () => !!options.query?.getEventAggregates,
-      (filters) => options.query!.getEventAggregates!(filters),
-      { includeEventName: true }
+    handleAggregateRoute(request, reply, options, () => !!options.query?.getEventAggregates, (filters) =>
+      options.query!.getEventAggregates!(filters)
     )
   );
   app.get("/query/aggregates/errors", (request, reply) =>

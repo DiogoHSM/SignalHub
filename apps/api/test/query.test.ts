@@ -401,6 +401,35 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ data: { total: 2, byName: { "account.created": 2 } } });
   });
 
+  it("does not forward event_name for event aggregate queries", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventAggregates: async (filters) => {
+          receivedFilters.push(filters);
+          return { total: 2 };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/aggregates/events?project_id=prj_1&environment_id=env_1&event_name=checkout.started"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        limit: 50
+      }
+    ]);
+  });
+
   it("returns 501 when a query dependency method is missing", async () => {
     app = await buildApp({
       readiness,

@@ -183,9 +183,7 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
     listErrors: (filters) =>
       request<QueryListResponse<ErrorRecord>>(path(apiBasePath, queryPath("/query/errors", filters, { includeErrorFilters: true }))),
     getEventAggregates: (filters) =>
-      request<AggregateResponse<unknown>>(
-        path(apiBasePath, queryPath("/query/aggregates/events", filters, { includeEventName: true }))
-      ),
+      request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
     getErrorAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
     listUsers: () => request<{ users: User[] }>(path(apiBasePath, "/admin/users")),
