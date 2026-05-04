@@ -96,3 +96,9 @@ ClickHouse, object storage, SDKs, dashboards, and log storage are intentionally 
 `apps/console` contains the Vite + React + TypeScript browser console.
 
 The API exposes `GET /console/config` for non-secret browser configuration and serves built console assets from `/console` in production. The console uses existing session authentication, admin routes, and query routes.
+
+## Events Investigation
+
+The console includes a read-only `Investigate` mode for Events. It uses the existing human-session query route `GET /query/events` and keeps project/environment scope tied to the active console selection.
+
+The Events query supports exact `event_name` filtering in addition to project, environment, tenant, user, session, trace, date range, and limit filters. The first investigation slice does not mutate telemetry data and does not add new storage tables.

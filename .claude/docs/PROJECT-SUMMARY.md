@@ -4,16 +4,18 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Current Phase
 
-Phase 2: SDK Integration.
+Phase 3: Operational Console.
 
 Implemented capabilities:
 
 - Bootstrap admin seed and local email/password login.
 - Admin APIs for users, projects, environments, and ingestion API keys.
+- Admin Integration Console for setup and API key generation.
 - API-key authenticated ingestion for events, errors, LLM calls, traces, and spans.
 - Redis/BullMQ queueing between API acceptance and worker persistence.
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
+- Read-only Events investigation workspace with exact event-name filtering.
 - Health and readiness endpoints.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 
