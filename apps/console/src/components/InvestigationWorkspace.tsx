@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { ApiClient } from "../api/client";
+import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
 type Props = {
@@ -7,7 +9,11 @@ type Props = {
   environmentId?: string;
 };
 
+type InvestigationTab = "events" | "errors";
+
 export function InvestigationWorkspace({ client, projectId, environmentId }: Props) {
+  const [activeTab, setActiveTab] = useState<InvestigationTab>("events");
+
   if (!projectId || !environmentId) {
     return (
       <section className="panel">
@@ -25,10 +31,10 @@ export function InvestigationWorkspace({ client, projectId, environmentId }: Pro
         <h2>Investigate</h2>
       </div>
       <nav className="investigation-tabs" aria-label="Investigation views">
-        <button aria-pressed="true" type="button">
+        <button aria-pressed={activeTab === "events"} onClick={() => setActiveTab("events")} type="button">
           Events
         </button>
-        <button disabled type="button">
+        <button aria-pressed={activeTab === "errors"} onClick={() => setActiveTab("errors")} type="button">
           Errors
         </button>
         <button disabled type="button">
@@ -38,7 +44,8 @@ export function InvestigationWorkspace({ client, projectId, environmentId }: Pro
           LLM
         </button>
       </nav>
-      <EventInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} />
+      {activeTab === "events" ? <EventInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
+      {activeTab === "errors" ? <ErrorInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
     </section>
   );
 }

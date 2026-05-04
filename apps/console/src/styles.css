@@ -490,6 +490,7 @@ select {
 .event-list {
   display: grid;
   gap: 6px;
+  overflow-x: auto;
 }
 
 .event-row {
@@ -504,6 +505,16 @@ select {
   cursor: pointer;
   padding: 10px;
   text-align: left;
+}
+
+.error-row {
+  grid-template-columns:
+    minmax(220px, 1.5fr)
+    minmax(90px, 0.55fr)
+    minmax(90px, 0.55fr)
+    minmax(130px, 0.9fr)
+    minmax(150px, 1fr)
+    repeat(3, minmax(110px, 0.7fr));
 }
 
 .event-row[aria-pressed="true"] {

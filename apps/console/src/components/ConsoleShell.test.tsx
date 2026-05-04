@@ -389,6 +389,34 @@ describe("ConsoleShell", () => {
     await waitFor(() => expect(listEvents.mock.calls.some(([filters]) => filters.limit === 50)).toBe(true));
   });
 
+  it("does not query investigation errors until the errors tab is opened", async () => {
+    const listErrors = vi.fn().mockResolvedValue({ data: [] });
+    const api = client({
+      listErrors,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await waitFor(() => expect(listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" }));
+    expect(listErrors.mock.calls.some(([filters]) => filters.limit === 50)).toBe(false);
+    listErrors.mockClear();
+
+    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+
+    expect(listErrors).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Errors" }));
+
+    await waitFor(() => expect(listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
+  });
+
   it("selects the first environment each time the active project changes", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
