@@ -378,6 +378,71 @@ describe("repositories", () => {
     });
   });
 
+  it("filters errors by exact severity status and fingerprint", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Filtered Errors API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-04T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertError(db, {
+        ...base,
+        id: "err_filtered_1",
+        message: "Checkout fetch failed",
+        severity: "critical",
+        status: "open",
+        fingerprint: "fp_checkout_fetch"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_filtered_2",
+        message: "Checkout fetch failed",
+        severity: "warning",
+        status: "open",
+        fingerprint: "fp_checkout_fetch"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_filtered_3",
+        message: "Checkout fetch failed",
+        severity: "critical",
+        status: "resolved",
+        fingerprint: "fp_checkout_fetch"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_filtered_4",
+        message: "Other error",
+        severity: "critical",
+        status: "open",
+        fingerprint: "fp_other"
+      });
+
+      await expect(
+        listErrors(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          severity: "critical",
+          status: "open",
+          fingerprint: "fp_checkout_fetch"
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: "err_filtered_1",
+          severity: "critical",
+          status: "open",
+          fingerprint: "fp_checkout_fetch"
+        })
+      ]);
+    });
+  });
+
   it("rejects telemetry whose environment belongs to another project", async () => {
     await withDb(async (db) => {
       await migrate(db);

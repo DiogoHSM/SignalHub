@@ -11,6 +11,9 @@ export type QueryFilters = {
   sessionId?: string;
   traceId?: string;
   eventName?: string;
+  severity?: string;
+  status?: string;
+  fingerprint?: string;
   from?: Date;
   to?: Date;
   limit: number;
@@ -124,6 +127,9 @@ function parseFilters(query: unknown): QueryFilters | undefined {
   const sessionId = optionalNonEmpty(raw, "session_id");
   const traceId = optionalNonEmpty(raw, "trace_id");
   const eventName = optionalNonEmpty(raw, "event_name");
+  const severity = optionalNonEmpty(raw, "severity");
+  const status = optionalNonEmpty(raw, "status");
+  const fingerprint = optionalNonEmpty(raw, "fingerprint");
   const cursor = optionalNonEmpty(raw, "cursor");
 
   if (tenantId) {
@@ -140,6 +146,15 @@ function parseFilters(query: unknown): QueryFilters | undefined {
   }
   if (eventName) {
     filters.eventName = eventName;
+  }
+  if (severity) {
+    filters.severity = severity;
+  }
+  if (status) {
+    filters.status = status;
+  }
+  if (fingerprint) {
+    filters.fingerprint = fingerprint;
   }
   if (from) {
     filters.from = from;

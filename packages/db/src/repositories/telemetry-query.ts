@@ -20,6 +20,9 @@ export interface TelemetryFilters {
   sessionId?: string;
   traceId?: string;
   eventName?: string;
+  severity?: string;
+  status?: string;
+  fingerprint?: string;
   from?: Date;
   to?: Date;
   limit?: number;
@@ -316,6 +319,9 @@ export async function listErrors(db: Db, filters: TelemetryFilters): Promise<Err
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+  if (filters.severity) query = query.where("severity", "=", filters.severity);
+  if (filters.status) query = query.where("status", "=", filters.status);
+  if (filters.fingerprint) query = query.where("fingerprint", "=", filters.fingerprint);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
 
