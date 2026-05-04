@@ -16,7 +16,7 @@ function label(value: string | null): string {
 
 export function EventList({ events, selectedEventId, onSelect }: Props) {
   return (
-    <div className="event-list" role="list" aria-label="Events">
+    <div className="event-list" aria-label="Events">
       {events.map((event) => (
         <button
           aria-pressed={event.id === selectedEventId}
