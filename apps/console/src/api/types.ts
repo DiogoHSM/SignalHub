@@ -52,6 +52,28 @@ export type EventRecord = {
   properties: unknown;
 };
 
+export type ErrorRecord = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  timestamp: string;
+  receivedAt: string;
+  source: string | null;
+  release: string | null;
+  metadata: unknown;
+  message: string;
+  type: string | null;
+  severity: string;
+  stack: string | null;
+  status: string;
+  fingerprint: string | null;
+  context: unknown;
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
@@ -75,6 +97,9 @@ export type QueryFilters = {
   sessionId?: string;
   traceId?: string;
   eventName?: string;
+  severity?: string;
+  status?: string;
+  fingerprint?: string;
   from?: Date | string;
   to?: Date | string;
   limit?: number;

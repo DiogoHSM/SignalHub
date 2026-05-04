@@ -117,4 +117,22 @@ describe("createApiClient", () => {
       expect.objectContaining({ method: "GET" })
     );
   });
+
+  it("encodes error query filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listErrors({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      severity: "critical",
+      status: "open",
+      fingerprint: "fp_checkout_fetch"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/errors?project_id=prj_1&environment_id=env_1&severity=critical&status=open&fingerprint=fp_checkout_fetch",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
 });
