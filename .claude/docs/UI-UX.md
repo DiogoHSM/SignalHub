@@ -20,3 +20,7 @@ SignalHub includes an admin-only Integration Console.
 - Errors use the same list/detail drawer pattern as Events.
 - Error rows should prioritize severity, status, message, and trace/session context.
 - Error details should show stack, context JSON, metadata JSON, and immutable identifiers.
+- Keep Traces as a peer tab with Events and Errors inside `Investigate`.
+- Traces use the same filter/list/detail pattern, with spans loaded only after trace selection.
+- Trace rows should prioritize name, status, duration, started time, user, tenant, and trace id.
+- Span details should remain a dense ordered list before adding graphical timelines.

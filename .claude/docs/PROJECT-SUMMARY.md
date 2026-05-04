@@ -17,6 +17,7 @@ Implemented capabilities:
 - Human-session query endpoints for raw records and aggregates.
 - Read-only Events investigation workspace with exact event-name filtering.
 - Read-only Errors investigation workspace with exact severity, status, and fingerprint filtering.
+- Read-only Traces investigation workspace with lazy ordered span details.
 - Health and readiness endpoints.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 

@@ -104,3 +104,5 @@ The console includes a read-only `Investigate` mode for Events. It uses the exis
 The Events query supports exact `event_name` filtering in addition to project, environment, tenant, user, session, trace, date range, and limit filters. The first investigation slice does not mutate telemetry data and does not add new storage tables.
 
 The console also includes a read-only Errors view for raw error occurrences. It uses `GET /query/errors` with exact `severity`, `status`, and `fingerprint` filters in addition to project, environment, tenant, user, session, trace, date range, and limit filters. This slice does not group errors, mutate status, or add storage tables.
+
+The console also includes a read-only Traces view for raw traces and ordered spans. It uses `GET /query/traces` for trace rows and `GET /query/traces/:id/spans` for spans loaded after selecting a trace. This slice does not add cross-signal timelines, trace mutation, charts, storage tables, or ingestion routes.
