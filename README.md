@@ -33,6 +33,8 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `POSTGRES_PASSWORD_URLENCODED` | Sometimes | URL-encoded copy of `POSTGRES_PASSWORD` when it contains URL-reserved characters. |
 | `SESSION_SECRET` | Yes | At least 32 characters outside tests. Signs human session cookies. |
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
+| `CONSOLE_ENABLED` | No | Enables the built Integration Console from the API. Compose sets this to `true`. |
+| `SIGNALHUB_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://signalhub.example.com`. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | Email for the first admin account. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | At least 32 characters outside tests. Used by the admin seed script. |
 | `GOOGLE_OAUTH_ENABLED` | No | Enables Google OAuth when set to `true` and all Google settings are present. |
@@ -100,6 +102,8 @@ docker compose up -d postgres redis
 docker compose run --rm api pnpm seed:admin
 docker compose up --build
 ```
+
+The API container serves the Integration Console at `http://localhost:3000/console`. Set `SIGNALHUB_PUBLIC_ENDPOINT` to the externally reachable API origin before deploying behind a domain, HTTPS reverse proxy, or non-default port so generated snippets point at the correct endpoint.
 
 Compose binds Postgres and Redis to `127.0.0.1` for local tooling. Change `POSTGRES_PORT`, `REDIS_PORT`, and secrets in `.env` before exposing services or reusing the stack outside local development.
 

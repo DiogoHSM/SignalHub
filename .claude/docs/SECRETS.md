@@ -16,6 +16,8 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `REDIS_PORT` | No | `6379` | Host port for Compose Redis binding. |
 | `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used to sign human session cookies. |
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
+| `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
+| `SIGNALHUB_PUBLIC_ENDPOINT` | No | `https://signalhub.example.com` | Public API origin used in console snippets. Defaults to the browser origin when blank. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | `admin@example.com` | Email used by `pnpm seed:admin`. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Initial admin login password. |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enables Google OAuth when set to `true` and all Google settings are present. |

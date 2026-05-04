@@ -40,6 +40,8 @@
 
 - `pnpm dev:api`: start API in development mode.
 - `pnpm dev:worker`: start worker in development mode.
+- `pnpm start:api`: start API without the development watcher.
+- `pnpm start:worker`: start worker without the development watcher.
 - `pnpm db:migrate`: run database migrations.
 - `pnpm seed:admin`: seed bootstrap admin.
 - `pnpm test`: run Vitest.

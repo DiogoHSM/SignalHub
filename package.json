@@ -10,6 +10,8 @@
     "build:console": "pnpm --filter @signal-hub/console build",
     "dev:api": "pnpm --filter @signal-hub/api dev",
     "dev:worker": "pnpm --filter @signal-hub/worker dev",
+    "start:api": "pnpm --filter @signal-hub/api start",
+    "start:worker": "pnpm --filter @signal-hub/worker start",
     "lint": "pnpm -r lint",
     "test": "vitest run",
     "test:watch": "vitest",

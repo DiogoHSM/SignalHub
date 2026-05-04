@@ -3,8 +3,37 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./api/client";
 import { App } from "./App";
 
-const { apiClient } = vi.hoisted(() => ({
-  apiClient: {
+const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() => {
+  const bootstrapClient = {
+    getConsoleConfig: vi.fn().mockResolvedValue({
+      apiBasePath: "/api",
+      apiEndpoint: "https://signalhub.example.com",
+      googleOAuthEnabled: false
+    }),
+    getMe: vi.fn(),
+    login: vi.fn(),
+    logout: vi.fn(),
+    listProjects: vi.fn(),
+    createProject: vi.fn(),
+    updateProject: vi.fn(),
+    archiveProject: vi.fn(),
+    listEnvironments: vi.fn(),
+    createEnvironment: vi.fn(),
+    updateEnvironment: vi.fn(),
+    archiveEnvironment: vi.fn(),
+    listApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    listEvents: vi.fn(),
+    listErrors: vi.fn(),
+    getEventAggregates: vi.fn(),
+    getErrorAggregates: vi.fn(),
+    listUsers: vi.fn(),
+    createUser: vi.fn(),
+    updateUser: vi.fn(),
+    archiveUser: vi.fn()
+  } satisfies ApiClient;
+  const operationalClient = {
     getConsoleConfig: vi.fn(),
     getMe: vi.fn().mockResolvedValue({ user: { id: "usr_1", email: "admin@example.com", isAdmin: true } }),
     login: vi.fn(),
@@ -32,11 +61,24 @@ const { apiClient } = vi.hoisted(() => ({
     createUser: vi.fn(),
     updateUser: vi.fn(),
     archiveUser: vi.fn()
-  } satisfies ApiClient
-}));
+  } satisfies ApiClient;
+  const createApiClient = vi.fn((apiBasePath?: string) => (apiBasePath === "/api" ? operationalClient : bootstrapClient));
+
+  return { bootstrapClient, operationalClient, createApiClient };
+});
 
 vi.mock("./api/client", () => ({
-  createApiClient: () => apiClient
+  ApiError: class ApiError extends Error {
+    readonly status: number;
+    readonly code: string;
+
+    constructor(status: number, code: string) {
+      super(code);
+      this.status = status;
+      this.code = code;
+    }
+  },
+  createApiClient
 }));
 
 describe("App", () => {
@@ -45,5 +87,9 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Acme App" })).toBeInTheDocument();
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    expect(createApiClient).toHaveBeenNthCalledWith(1);
+    expect(createApiClient).toHaveBeenNthCalledWith(2, "/api");
+    expect(operationalClient.getMe).toHaveBeenCalled();
+    expect(screen.getAllByText(/https:\/\/signalhub.example.com/)).toHaveLength(3);
   });
 });

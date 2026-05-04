@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/main.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

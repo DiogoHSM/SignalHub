@@ -38,6 +38,18 @@ describe("loadConfig", () => {
     expect(config.googleOAuth.enabled).toBe(false);
   });
 
+  it("enables console serving explicitly outside production", () => {
+    const config = loadConfig({
+      ...validEnv,
+      NODE_ENV: "development",
+      CONSOLE_ENABLED: "true",
+      SIGNALHUB_PUBLIC_ENDPOINT: "https://signalhub.example.com"
+    });
+
+    expect(config.console.enabled).toBe(true);
+    expect(config.console.publicEndpoint).toBe("https://signalhub.example.com");
+  });
+
   it("allows blank Google OAuth settings when disabled", () => {
     const config = loadConfig({
       NODE_ENV: "test",

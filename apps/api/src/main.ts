@@ -350,10 +350,11 @@ const app = await buildApp({
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,
   console: {
-    enabled: config.nodeEnv === "production",
+    enabled: config.console.enabled,
     apiBasePath: "/",
+    apiEndpoint: config.console.publicEndpoint,
     assetsDir:
-      config.nodeEnv === "production" ? fileURLToPath(new URL("../../console/dist/", import.meta.url)) : undefined
+      config.console.enabled ? fileURLToPath(new URL("../../console/dist/", import.meta.url)) : undefined
   }
 });
 

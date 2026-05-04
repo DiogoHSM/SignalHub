@@ -5,6 +5,7 @@ import { join } from "node:path";
 export type ConsoleRouteOptions = {
   enabled: boolean;
   apiBasePath: string;
+  apiEndpoint: string;
   assetsDir?: string;
   googleOAuthEnabled: boolean;
 };
@@ -13,6 +14,7 @@ export async function registerConsoleRoutes(app: FastifyInstance, options: Conso
   app.get("/console/config", async (_request, reply) =>
     reply.send({
       apiBasePath: options.apiBasePath,
+      apiEndpoint: options.apiEndpoint,
       googleOAuthEnabled: options.googleOAuthEnabled
     })
   );

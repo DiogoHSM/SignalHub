@@ -32,13 +32,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: pnpm dev:api
+    command: pnpm start:api
     env_file:
       - path: .env
         required: false
     environment:
+      CONSOLE_ENABLED: "true"
       DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-signalhub-local-only-change-me}}@postgres:5432/signalhub
       REDIS_URL: redis://redis:6379
+      SIGNALHUB_PUBLIC_ENDPOINT: ${SIGNALHUB_PUBLIC_ENDPOINT:-http://localhost:3000}
     ports:
       - "3000:3000"
     depends_on:
@@ -51,7 +53,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: pnpm dev:worker
+    command: pnpm start:worker
     env_file:
       - path: .env
         required: false

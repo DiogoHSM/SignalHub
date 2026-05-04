@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/main.ts",
     "test": "vitest run --root ../.. apps/worker/test/telemetry-worker.test.ts"
   },
   "dependencies": {

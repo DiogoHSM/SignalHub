@@ -8,15 +8,22 @@ afterEach(() => {
 
 describe("SnippetPanel", () => {
   it("renders SDK and HTTP snippets with key scope context", () => {
-    render(<SnippetPanel environmentId="env_1" latestSecret="sh_secret_value" projectId="prj_1" />);
+    render(
+      <SnippetPanel
+        apiEndpoint="https://signalhub.example.com"
+        environmentId="env_1"
+        latestSecret="sh_secret_value"
+        projectId="prj_1"
+      />
+    );
 
     expect(screen.getByRole("heading", { name: "Snippets" })).toBeInTheDocument();
     expect(screen.getByText("SDK")).toBeInTheDocument();
     expect(screen.getByText("HTTP")).toBeInTheDocument();
     expect(screen.getByText("Environment")).toBeInTheDocument();
     expect(screen.getByText(/createSignalHubClient/)).toBeInTheDocument();
-    expect(screen.getAllByText(/http:\/\/localhost:3000/)).toHaveLength(3);
-    expect(screen.getByText(/SIGNAL_HUB_ENDPOINT=http:\/\/localhost:3000/)).toBeInTheDocument();
+    expect(screen.getAllByText(/https:\/\/signalhub.example.com/)).toHaveLength(3);
+    expect(screen.getByText(/SIGNAL_HUB_ENDPOINT=https:\/\/signalhub.example.com/)).toBeInTheDocument();
     expect(screen.getByText(/SIGNAL_HUB_PROJECT_ID=prj_1/)).toBeInTheDocument();
     expect(screen.getByText(/SIGNAL_HUB_ENVIRONMENT_ID=env_1/)).toBeInTheDocument();
     expect(screen.getByText(/\/v1\/events/)).toBeInTheDocument();

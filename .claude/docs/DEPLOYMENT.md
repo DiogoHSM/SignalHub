@@ -66,6 +66,8 @@ docker compose config
 
 ## Console Deployment
 
-Production builds include `apps/console/dist`. The API serves the console at `/console` and exposes non-secret runtime config at `/console/config`.
+Production builds include `apps/console/dist`. The API serves the console at `/console` when `CONSOLE_ENABLED=true` or `NODE_ENV=production`, and exposes non-secret runtime config at `/console/config`.
+
+Set `SIGNALHUB_PUBLIC_ENDPOINT` to the externally reachable API origin when SignalHub runs behind a domain, HTTPS reverse proxy, or non-default port. The console uses that value in SDK, HTTP, and environment snippets.
 
 Local development can run the API with `pnpm dev:api` and the console with `pnpm dev:console`.

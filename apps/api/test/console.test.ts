@@ -21,7 +21,8 @@ describe("console routes", () => {
       googleOAuthEnabled: true,
       console: {
         enabled: false,
-        apiBasePath: "/"
+        apiBasePath: "/",
+        apiEndpoint: "https://signalhub.example.com"
       }
     });
 
@@ -30,6 +31,7 @@ describe("console routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       apiBasePath: "/",
+      apiEndpoint: "https://signalhub.example.com",
       googleOAuthEnabled: true
     });
   });
@@ -46,6 +48,7 @@ describe("console routes", () => {
       console: {
         enabled: true,
         apiBasePath: "/",
+        apiEndpoint: "",
         assetsDir: dir
       }
     });
@@ -76,7 +79,8 @@ describe("console routes", () => {
       googleOAuthEnabled: false,
       console: {
         enabled: false,
-        apiBasePath: "/"
+        apiBasePath: "/",
+        apiEndpoint: ""
       }
     });
 

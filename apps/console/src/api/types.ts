@@ -37,6 +37,7 @@ export type CreatedApiKey = ApiKey & {
 
 export type ConsoleConfig = {
   apiBasePath: string;
+  apiEndpoint: string;
   googleOAuthEnabled: boolean;
 };
 

@@ -19,7 +19,12 @@ const rawConfigSchema = z.object({
     .transform((value) => value === "true"),
   GOOGLE_CLIENT_ID: optionalEnvString,
   GOOGLE_CLIENT_SECRET: optionalEnvString,
-  GOOGLE_REDIRECT_URI: optionalEnvUrl
+  GOOGLE_REDIRECT_URI: optionalEnvUrl,
+  CONSOLE_ENABLED: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === "true")),
+  SIGNALHUB_PUBLIC_ENDPOINT: optionalEnvUrl
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -59,6 +64,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       clientId: parsed.GOOGLE_CLIENT_ID ?? "",
       clientSecret: parsed.GOOGLE_CLIENT_SECRET ?? "",
       redirectUri: parsed.GOOGLE_REDIRECT_URI ?? ""
+    },
+    console: {
+      enabled: parsed.CONSOLE_ENABLED ?? (parsed.NODE_ENV === "production"),
+      publicEndpoint: parsed.SIGNALHUB_PUBLIC_ENDPOINT ?? ""
     }
   };
 }

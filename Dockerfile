@@ -13,4 +13,4 @@ COPY tsconfig.base.json vitest.config.ts ./
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @signal-hub/console build
 
-CMD ["pnpm", "dev:api"]
+CMD ["pnpm", "start:api"]

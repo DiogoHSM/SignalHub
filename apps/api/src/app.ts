@@ -47,6 +47,7 @@ export async function buildApp(options: BuildAppOptions) {
   await registerConsoleRoutes(app, {
     enabled: options.console?.enabled ?? false,
     apiBasePath: options.console?.apiBasePath ?? "/",
+    apiEndpoint: options.console?.apiEndpoint ?? "",
     assetsDir: options.console?.assetsDir,
     googleOAuthEnabled: options.googleOAuthEnabled ?? false
   });

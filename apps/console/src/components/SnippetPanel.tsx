@@ -2,11 +2,19 @@ type Props = {
   projectId?: string;
   environmentId?: string;
   latestSecret?: string;
+  apiEndpoint?: string;
 };
 
-const endpoint = "http://localhost:3000";
+function resolveEndpoint(apiEndpoint?: string): string {
+  if (apiEndpoint) {
+    return apiEndpoint.replace(/\/$/, "");
+  }
 
-export function SnippetPanel({ projectId, environmentId, latestSecret }: Props) {
+  return window.location.origin;
+}
+
+export function SnippetPanel({ projectId, environmentId, latestSecret, apiEndpoint }: Props) {
+  const endpoint = resolveEndpoint(apiEndpoint);
   const apiKey = latestSecret ?? "SIGNAL_HUB_API_KEY";
   const safeProjectId = projectId ?? "PROJECT_ID";
   const safeEnvironmentId = environmentId ?? "ENVIRONMENT_ID";

@@ -14,7 +14,7 @@ type LatestSecret = {
   environmentId: string;
 };
 
-export function ConsoleShell({ client }: { client: ApiClient }) {
+export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEndpoint?: string }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
@@ -195,7 +195,12 @@ export function ConsoleShell({ client }: { client: ApiClient }) {
             onSecretCreated={storeLatestSecret}
             projectId={activeProject?.id}
           />
-          <SnippetPanel environmentId={activeEnvironment?.id} latestSecret={scopedLatestSecret} projectId={activeProject?.id} />
+          <SnippetPanel
+            apiEndpoint={apiEndpoint}
+            environmentId={activeEnvironment?.id}
+            latestSecret={scopedLatestSecret}
+            projectId={activeProject?.id}
+          />
         </div>
         <div className="workspace-grid">
           <ConnectionCheck client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
