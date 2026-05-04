@@ -35,6 +35,23 @@ export type CreatedApiKey = ApiKey & {
   secret: string;
 };
 
+export type EventRecord = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  timestamp: string;
+  receivedAt: string;
+  source: string | null;
+  release: string | null;
+  metadata: unknown;
+  name: string;
+  properties: unknown;
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
@@ -57,6 +74,7 @@ export type QueryFilters = {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  eventName?: string;
   from?: Date | string;
   to?: Date | string;
   limit?: number;

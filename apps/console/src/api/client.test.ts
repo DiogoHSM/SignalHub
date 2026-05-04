@@ -101,4 +101,20 @@ describe("createApiClient", () => {
       expect.objectContaining({ method: "GET" })
     );
   });
+
+  it("encodes event name query filter", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listEvents({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      eventName: "checkout.started"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events?project_id=prj_1&environment_id=env_1&event_name=checkout.started",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
 });

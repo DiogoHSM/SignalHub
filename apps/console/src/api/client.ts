@@ -4,6 +4,7 @@ import type {
   ConsoleConfig,
   CreatedApiKey,
   Environment,
+  EventRecord,
   Project,
   QueryFilters,
   QueryListResponse,
@@ -38,7 +39,7 @@ export type ApiClient = {
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   revokeApiKey: (id: string) => Promise<void>;
-  listEvents: (filters: QueryFilters) => Promise<QueryListResponse<unknown>>;
+  listEvents: (filters: QueryFilters) => Promise<QueryListResponse<EventRecord>>;
   listErrors: (filters: QueryFilters) => Promise<QueryListResponse<unknown>>;
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
@@ -121,6 +122,7 @@ function queryPath(route: string, filters: QueryFilters): string {
   if (filters.userId) params.set("user_id", filters.userId);
   if (filters.sessionId) params.set("session_id", filters.sessionId);
   if (filters.traceId) params.set("trace_id", filters.traceId);
+  if (filters.eventName) params.set("event_name", filters.eventName);
   if (filters.from) params.set("from", filters.from instanceof Date ? filters.from.toISOString() : filters.from);
   if (filters.to) params.set("to", filters.to instanceof Date ? filters.to.toISOString() : filters.to);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
@@ -166,7 +168,7 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
         body: input
       }),
     revokeApiKey: (id) => request<void>(path(apiBasePath, `/admin/api-keys/${encodePathSegment(id)}`), { method: "DELETE" }),
-    listEvents: (filters) => request<QueryListResponse<unknown>>(path(apiBasePath, queryPath("/query/events", filters))),
+    listEvents: (filters) => request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters))),
     listErrors: (filters) => request<QueryListResponse<unknown>>(path(apiBasePath, queryPath("/query/errors", filters))),
     getEventAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
