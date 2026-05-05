@@ -82,6 +82,7 @@ Query:
 - `GET /query/llm-calls`
 - `GET /query/traces`
 - `GET /query/traces/:id/spans`
+- `GET /query/overview`
 - `GET /query/aggregates/events`
 - `GET /query/aggregates/errors`
 - `GET /query/aggregates/llm`
@@ -108,3 +109,9 @@ The console also includes a read-only Errors view for raw error occurrences. It 
 The console also includes a read-only Traces view for raw traces and ordered spans. It uses `GET /query/traces` for trace rows and `GET /query/traces/:id/spans` for spans loaded after selecting a trace. This slice does not add cross-signal timelines, trace mutation, charts, storage tables, or ingestion routes.
 
 The console also includes a read-only LLM view for raw AI calls and compact aggregate totals. It uses `GET /query/llm-calls` for call rows and `GET /query/aggregates/llm` for total calls, input tokens, output tokens, and total cost. This slice supports exact `provider`, `model`, `prompt_name`, and `status` filters and does not add charts, grouping, mutation, cross-signal timelines, storage tables, or ingestion routes.
+
+## Overview Console
+
+The console includes a read-only `Overview` mode for the selected project and environment. It uses `GET /query/overview` to load KPIs, UTC-bucketed mini trends, top lists, and recent important signals for `24h`, `7d`, or `30d` windows.
+
+Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; recent signals remain read-only summaries without exact-record deep links.

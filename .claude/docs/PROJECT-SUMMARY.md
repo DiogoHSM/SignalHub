@@ -15,6 +15,7 @@ Implemented capabilities:
 - Redis/BullMQ queueing between API acceptance and worker persistence.
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
+- Read-only Overview dashboard for project/environment KPIs, trends, top lists, and recent important signals.
 - Read-only Events investigation workspace with exact event-name filtering.
 - Read-only Errors investigation workspace with exact severity, status, and fingerprint filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.
@@ -26,7 +27,7 @@ Implemented capabilities:
 
 - SaaS workspaces, organizations, invites, billing, and enterprise SSO.
 - Full RBAC or per-project permissions.
-- Dashboards and frontend product UI.
+- End-user product UI outside the operational console.
 - Batch ingestion.
 - ClickHouse and object storage adapters.
 - Stored log telemetry.

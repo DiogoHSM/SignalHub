@@ -11,7 +11,12 @@ SignalHub includes an admin-only Integration Console.
 
 ## Investigation UX
 
-- Keep `Setup` and `Investigate` as separate top-level console modes.
+- Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
+- Overview is the first operational summary surface for the selected project/environment.
+- Overview loads only while active and preserves its layout shape while loading.
+- Overview window controls support `24h`, `7d`, and `30d`.
+- Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency.
+- Overview top-list rows can drill into Investigate with seeded exact filters; recent signals stay read-only.
 - Investigation views are operational, dense, and read-only by default.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.
