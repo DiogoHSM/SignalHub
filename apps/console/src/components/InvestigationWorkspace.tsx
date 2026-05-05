@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
+import { EntitiesInvestigationPanel } from "./EntitiesInvestigationPanel";
 import type { ErrorFilterValues } from "./ErrorFilters";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
 import type { EventFilterValues } from "./EventFilters";
@@ -16,12 +17,13 @@ type Props = {
   initialFilters?: InvestigationInitialFilters;
 };
 
-export type InvestigationTab = "events" | "errors" | "traces" | "llm";
+export type InvestigationTab = "events" | "errors" | "traces" | "llm" | "entities";
 
 export type InvestigationInitialFilters = {
   events?: Partial<EventFilterValues>;
   errors?: Partial<ErrorFilterValues>;
   llm?: Partial<LlmFilterValues>;
+  entities?: { tenantId?: string };
 };
 
 export function InvestigationWorkspace({ client, projectId, environmentId, initialTab, initialFilters }: Props) {
@@ -60,6 +62,9 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
         <button aria-pressed={activeTab === "llm"} onClick={() => setActiveTab("llm")} type="button">
           LLM
         </button>
+        <button aria-pressed={activeTab === "entities"} onClick={() => setActiveTab("entities")} type="button">
+          Entities
+        </button>
       </nav>
       {activeTab === "events" ? (
         <EventInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.events} projectId={projectId} />
@@ -70,6 +75,14 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
       {activeTab === "traces" ? <TraceInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
       {activeTab === "llm" ? (
         <LlmInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.llm} projectId={projectId} />
+      ) : null}
+      {activeTab === "entities" ? (
+        <EntitiesInvestigationPanel
+          client={client}
+          environmentId={environmentId}
+          initialTenantId={initialFilters?.entities?.tenantId}
+          projectId={projectId}
+        />
       ) : null}
     </section>
   );

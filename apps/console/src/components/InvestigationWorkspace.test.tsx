@@ -75,6 +75,7 @@ describe("InvestigationWorkspace", () => {
     expect(screen.getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Traces" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "LLM" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Entities" })).toHaveAttribute("aria-pressed", "false");
     expect(await screen.findByText("No events found")).toBeInTheDocument();
     expect(api.listLlmCalls).not.toHaveBeenCalled();
     expect(api.getLlmAggregates).not.toHaveBeenCalled();
@@ -86,6 +87,21 @@ describe("InvestigationWorkspace", () => {
     expect(await screen.findByText("No LLM calls found")).toBeInTheDocument();
     expect(api.listLlmCalls).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
     expect(api.getLlmAggregates).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+  });
+
+  it("shows the entities tab and loads it lazily", async () => {
+    const listEntityTenants = vi.fn().mockResolvedValue({ data: { tenants: [] } });
+    const api = client({ listEntityTenants });
+
+    render(<InvestigationWorkspace client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(screen.getByRole("button", { name: "Entities" })).toHaveAttribute("aria-pressed", "false");
+    expect(listEntityTenants).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Entities" }));
+
+    expect(await screen.findByText("No tenant activity in this window.")).toBeInTheDocument();
+    expect(listEntityTenants).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 50 });
   });
 
   it("opens the requested investigation tab with initial filters", async () => {
