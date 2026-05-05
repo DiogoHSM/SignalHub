@@ -18,6 +18,7 @@ Implemented capabilities:
 - Read-only Events investigation workspace with exact event-name filtering.
 - Read-only Errors investigation workspace with exact severity, status, and fingerprint filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.
+- Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Health and readiness endpoints.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 

@@ -106,3 +106,5 @@ The Events query supports exact `event_name` filtering in addition to project, e
 The console also includes a read-only Errors view for raw error occurrences. It uses `GET /query/errors` with exact `severity`, `status`, and `fingerprint` filters in addition to project, environment, tenant, user, session, trace, date range, and limit filters. This slice does not group errors, mutate status, or add storage tables.
 
 The console also includes a read-only Traces view for raw traces and ordered spans. It uses `GET /query/traces` for trace rows and `GET /query/traces/:id/spans` for spans loaded after selecting a trace. This slice does not add cross-signal timelines, trace mutation, charts, storage tables, or ingestion routes.
+
+The console also includes a read-only LLM view for raw AI calls and compact aggregate totals. It uses `GET /query/llm-calls` for call rows and `GET /query/aggregates/llm` for total calls, input tokens, output tokens, and total cost. This slice supports exact `provider`, `model`, `prompt_name`, and `status` filters and does not add charts, grouping, mutation, cross-signal timelines, storage tables, or ingestion routes.

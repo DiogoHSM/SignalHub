@@ -24,3 +24,7 @@ SignalHub includes an admin-only Integration Console.
 - Traces use the same filter/list/detail pattern, with spans loaded only after trace selection.
 - Trace rows should prioritize name, status, duration, started time, user, tenant, and trace id.
 - Span details should remain a dense ordered list before adding graphical timelines.
+- Keep LLM as a peer tab with Events, Errors, and Traces inside `Investigate`.
+- LLM uses the same filter/list/detail pattern, with a compact aggregate strip for calls, tokens, and total cost.
+- LLM rows should prioritize provider/model, prompt, status, cost, tokens, latency, time, user, and tenant.
+- LLM details should show immutable identifiers, cost and token fields, previews, error text, and metadata JSON.
