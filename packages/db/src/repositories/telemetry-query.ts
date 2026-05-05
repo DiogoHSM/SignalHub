@@ -67,6 +67,104 @@ export interface TraceAggregates extends CountAggregate {
   averageDurationMs: number;
 }
 
+export type OverviewWindow = "24h" | "7d" | "30d";
+export type OverviewTrendBucket = "hour" | "day";
+
+export interface OverviewFilters {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  now?: Date;
+}
+
+export type OverviewRecentError = {
+  id: string;
+  timestamp: string;
+  message: string;
+  type: string | null;
+  severity: string;
+  status: string;
+  tenantId: string | null;
+  userId: string | null;
+  traceId: string | null;
+};
+
+export type OverviewRecentTrace = {
+  id: string;
+  timestamp: string;
+  name: string;
+  status: string;
+  durationMs: number | null;
+  tenantId: string | null;
+  userId: string | null;
+};
+
+export type OverviewRecentLlmCall = {
+  id: string;
+  timestamp: string;
+  provider: string;
+  model: string;
+  promptName: string | null;
+  status: string;
+  costUsd: string;
+  tenantId: string | null;
+  userId: string | null;
+  traceId: string | null;
+};
+
+export type OverviewResponse = {
+  window: OverviewWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+    bucket: OverviewTrendBucket;
+  };
+  kpis: {
+    events: number;
+    activeUsers: number;
+    activeTenants: number;
+    errors: number;
+    openErrors: number;
+    traces: number;
+    failedTraces: number;
+    averageTraceDurationMs: number;
+    p95TraceDurationMs: number | null;
+    llmCalls: number;
+    failedLlmCalls: number;
+    llmInputTokens: number;
+    llmOutputTokens: number;
+    llmCostUsd: string;
+  };
+  trends: {
+    usage: Array<{ bucketStart: string; events: number; traces: number; llmCalls: number }>;
+    errors: Array<{ bucketStart: string; errors: number; openErrors: number; severeErrors: number }>;
+    latency: Array<{ bucketStart: string; averageTraceDurationMs: number; p95TraceDurationMs: number | null }>;
+    aiCost: Array<{ bucketStart: string; llmCostUsd: string; llmCalls: number }>;
+  };
+  top: {
+    events: Array<{ name: string; total: number }>;
+    tenantsByUsage: Array<{ tenantId: string; total: number }>;
+    tenantsByErrors: Array<{ tenantId: string; total: number }>;
+    tenantsByLlmCalls: Array<{ tenantId: string; total: number }>;
+    tenantsByLlmCost: Array<{ tenantId: string; totalCostUsd: string }>;
+    llmProviders: Array<{ provider: string; total: number; totalCostUsd: string }>;
+    llmModels: Array<{ model: string; total: number; totalCostUsd: string }>;
+    llmPrompts: Array<{ promptName: string; total: number; totalCostUsd: string }>;
+    errorSeverity: Array<{ severity: string; total: number }>;
+    errorStatus: Array<{ status: string; total: number }>;
+  };
+  recent: {
+    errors: OverviewRecentError[];
+    failedTraces: OverviewRecentTrace[];
+    failedLlmCalls: OverviewRecentLlmCall[];
+  };
+};
+
 function toEvent(row: EventRow): EventRecord {
   return {
     id: row.id,
@@ -285,6 +383,59 @@ function toNumber(value: unknown): number {
   if (typeof value === "bigint") return Number(value);
   if (typeof value === "string") return Number(value);
   return 0;
+}
+
+function toDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function toIso(value: Date | string): string {
+  return toDate(value).toISOString();
+}
+
+function resolveOverviewRange(window: OverviewWindow, now = new Date()) {
+  const to = now;
+  const from = new Date(to);
+  if (window === "24h") {
+    from.setHours(from.getHours() - 24);
+    return { from, to, bucket: "hour" as const };
+  }
+  if (window === "7d") {
+    from.setDate(from.getDate() - 7);
+    return { from, to, bucket: "day" as const };
+  }
+  from.setDate(from.getDate() - 30);
+  return { from, to, bucket: "day" as const };
+}
+
+function bucketStep(bucket: OverviewTrendBucket): number {
+  return bucket === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+}
+
+function startOfBucket(date: Date, bucket: OverviewTrendBucket): Date {
+  const next = new Date(date);
+  next.setUTCMinutes(0, 0, 0);
+  if (bucket === "day") {
+    next.setUTCHours(0, 0, 0, 0);
+  }
+  return next;
+}
+
+function makeBucketStarts(from: Date, to: Date, bucket: OverviewTrendBucket): string[] {
+  const starts: string[] = [];
+  const step = bucketStep(bucket);
+  let current = startOfBucket(from, bucket);
+  while (current <= to) {
+    starts.push(current.toISOString());
+    current = new Date(current.getTime() + step);
+  }
+  return starts;
+}
+
+function bucketExpression(bucket: OverviewTrendBucket, column = "timestamp") {
+  return bucket === "hour"
+    ? sql<Date>`date_trunc('hour', ${sql.ref(column)})`
+    : sql<Date>`date_trunc('day', ${sql.ref(column)})`;
 }
 
 function resolveLimit(limit: number | undefined): number {
@@ -513,5 +664,516 @@ export async function getTraceAggregates(db: Db, filters: TelemetryFilters): Pro
   return {
     total: toNumber(row.total),
     averageDurationMs: toNumber(row.average_duration_ms)
+  };
+}
+
+export async function getOverview(db: Db, filters: OverviewFilters): Promise<OverviewResponse> {
+  const { from, to, bucket } = resolveOverviewRange(filters.window, filters.now);
+  const bucketExpr = bucketExpression(bucket);
+  const bucketStarts = makeBucketStarts(from, to, bucket);
+
+  const kpiRows = await sql<{
+    events: unknown;
+    active_users: unknown;
+    active_tenants: unknown;
+    errors: unknown;
+    open_errors: unknown;
+    traces: unknown;
+    failed_traces: unknown;
+    average_trace_duration_ms: unknown;
+    p95_trace_duration_ms: unknown;
+    llm_calls: unknown;
+    failed_llm_calls: unknown;
+    llm_input_tokens: unknown;
+    llm_output_tokens: unknown;
+    llm_cost_usd: string;
+  }>`
+    with scoped_events as (
+      select user_id, tenant_id
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    scoped_errors as (
+      select user_id, tenant_id, status
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    scoped_traces as (
+      select user_id, tenant_id, status, duration_ms
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    scoped_llm_calls as (
+      select user_id, tenant_id, status, input_tokens, output_tokens, cost_usd
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    identities as (
+      select user_id, tenant_id from scoped_events
+      union all select user_id, tenant_id from scoped_errors
+      union all select user_id, tenant_id from scoped_traces
+      union all select user_id, tenant_id from scoped_llm_calls
+    )
+    select
+      (select count(*) from scoped_events) as events,
+      (select count(distinct user_id) from identities where user_id is not null) as active_users,
+      (select count(distinct tenant_id) from identities where tenant_id is not null) as active_tenants,
+      (select count(*) from scoped_errors) as errors,
+      (select count(*) from scoped_errors where status = 'open') as open_errors,
+      (select count(*) from scoped_traces) as traces,
+      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
+      (select coalesce(avg(duration_ms), 0) from scoped_traces) as average_trace_duration_ms,
+      (select percentile_cont(0.95) within group (order by duration_ms) from scoped_traces where duration_ms is not null) as p95_trace_duration_ms,
+      (select count(*) from scoped_llm_calls) as llm_calls,
+      (select count(*) from scoped_llm_calls where status <> 'success') as failed_llm_calls,
+      (select coalesce(sum(input_tokens), 0) from scoped_llm_calls) as llm_input_tokens,
+      (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
+      (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
+  `.execute(db);
+  const kpiRow = kpiRows.rows[0];
+
+  const usageTrendRows = await sql<{
+    bucket_start: Date | string;
+    events: unknown;
+    traces: unknown;
+    llm_calls: unknown;
+  }>`
+    with usage_rows as (
+      select ${bucketExpr} as bucket_start, count(*) as events, 0::bigint as traces, 0::bigint as llm_calls
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      group by bucket_start
+      union all
+      select ${bucketExpr} as bucket_start, 0::bigint as events, count(*) as traces, 0::bigint as llm_calls
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      group by bucket_start
+      union all
+      select ${bucketExpr} as bucket_start, 0::bigint as events, 0::bigint as traces, count(*) as llm_calls
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      group by bucket_start
+    )
+    select bucket_start, sum(events) as events, sum(traces) as traces, sum(llm_calls) as llm_calls
+    from usage_rows
+    group by bucket_start
+  `.execute(db);
+
+  const errorTrendRows = await sql<{
+    bucket_start: Date | string;
+    errors: unknown;
+    open_errors: unknown;
+    severe_errors: unknown;
+  }>`
+    select
+      ${bucketExpr} as bucket_start,
+      count(*) as errors,
+      count(*) filter (where status = 'open') as open_errors,
+      count(*) filter (where severity in ('critical', 'error')) as severe_errors
+    from errors
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by bucket_start
+  `.execute(db);
+
+  const latencyTrendRows = await sql<{
+    bucket_start: Date | string;
+    average_trace_duration_ms: unknown;
+    p95_trace_duration_ms: unknown;
+  }>`
+    select
+      ${bucketExpr} as bucket_start,
+      coalesce(avg(duration_ms), 0) as average_trace_duration_ms,
+      percentile_cont(0.95) within group (order by duration_ms) as p95_trace_duration_ms
+    from traces
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by bucket_start
+  `.execute(db);
+
+  const aiCostTrendRows = await sql<{
+    bucket_start: Date | string;
+    llm_cost_usd: string;
+    llm_calls: unknown;
+  }>`
+    select
+      ${bucketExpr} as bucket_start,
+      coalesce(sum(cost_usd), 0)::text as llm_cost_usd,
+      count(*) as llm_calls
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by bucket_start
+  `.execute(db);
+
+  const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const latencyByBucket = new Map(latencyTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const aiCostByBucket = new Map(aiCostTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+
+  const topEventsRows = await sql<{ name: string; total: unknown }>`
+    select name, count(*) as total
+    from events
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by name
+    order by total desc, name asc
+    limit 5
+  `.execute(db);
+
+  const tenantsByUsageRows = await sql<{ tenant_id: string; total: unknown }>`
+    with usage_rows as (
+      select tenant_id from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select tenant_id from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select tenant_id from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select tenant_id from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    )
+    select tenant_id, count(*) as total
+    from usage_rows
+    where tenant_id is not null
+    group by tenant_id
+    order by total desc, tenant_id asc
+    limit 5
+  `.execute(db);
+
+  const tenantsByErrorsRows = await sql<{ tenant_id: string; total: unknown }>`
+    select tenant_id, count(*) as total
+    from errors
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and tenant_id is not null
+    group by tenant_id
+    order by total desc, tenant_id asc
+    limit 5
+  `.execute(db);
+
+  const tenantsByLlmCallsRows = await sql<{ tenant_id: string; total: unknown }>`
+    select tenant_id, count(*) as total
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and tenant_id is not null
+    group by tenant_id
+    order by total desc, tenant_id asc
+    limit 5
+  `.execute(db);
+
+  const tenantsByLlmCostRows = await sql<{ tenant_id: string; total_cost_usd: string }>`
+    select tenant_id, coalesce(sum(cost_usd), 0)::text as total_cost_usd
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and tenant_id is not null
+    group by tenant_id
+    order by sum(cost_usd) desc, tenant_id asc
+    limit 5
+  `.execute(db);
+
+  const llmProvidersRows = await sql<{ provider: string; total: unknown; total_cost_usd: string }>`
+    select provider, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by provider
+    order by total desc, sum(cost_usd) desc, provider asc
+    limit 5
+  `.execute(db);
+
+  const llmModelsRows = await sql<{ model: string; total: unknown; total_cost_usd: string }>`
+    select model, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by model
+    order by total desc, sum(cost_usd) desc, model asc
+    limit 5
+  `.execute(db);
+
+  const llmPromptsRows = await sql<{ prompt_name: string; total: unknown; total_cost_usd: string }>`
+    select prompt_name, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and prompt_name is not null
+    group by prompt_name
+    order by total desc, sum(cost_usd) desc, prompt_name asc
+    limit 5
+  `.execute(db);
+
+  const errorSeverityRows = await sql<{ severity: string; total: unknown }>`
+    select severity, count(*) as total
+    from errors
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by severity
+    order by total desc, severity asc
+    limit 5
+  `.execute(db);
+
+  const errorStatusRows = await sql<{ status: string; total: unknown }>`
+    select status, count(*) as total
+    from errors
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by status
+    order by total desc, status asc
+    limit 5
+  `.execute(db);
+
+  const recentErrorRows = await sql<{
+    id: string;
+    timestamp: Date | string;
+    message: string;
+    type: string | null;
+    severity: string;
+    status: string;
+    tenant_id: string | null;
+    user_id: string | null;
+    trace_id: string | null;
+  }>`
+    select id, timestamp, message, type, severity, status, tenant_id, user_id, trace_id
+    from errors
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    order by timestamp desc, id asc
+    limit 5
+  `.execute(db);
+
+  const recentFailedTraceRows = await sql<{
+    id: string;
+    timestamp: Date | string;
+    name: string;
+    status: string;
+    duration_ms: number | null;
+    tenant_id: string | null;
+    user_id: string | null;
+  }>`
+    select id, timestamp, name, status, duration_ms, tenant_id, user_id
+    from traces
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and status <> 'success'
+    order by timestamp desc, id asc
+    limit 5
+  `.execute(db);
+
+  const recentFailedLlmCallRows = await sql<{
+    id: string;
+    timestamp: Date | string;
+    provider: string;
+    model: string;
+    prompt_name: string | null;
+    status: string;
+    cost_usd: string;
+    tenant_id: string | null;
+    user_id: string | null;
+    trace_id: string | null;
+  }>`
+    select id, timestamp, provider, model, prompt_name, status, cost_usd::text as cost_usd, tenant_id, user_id, trace_id
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and status <> 'success'
+    order by timestamp desc, id asc
+    limit 5
+  `.execute(db);
+
+  const trends: OverviewResponse["trends"] = {
+    usage: bucketStarts.map((bucketStart) => {
+      const row = usageByBucket.get(bucketStart);
+      return {
+        bucketStart,
+        events: toNumber(row?.events),
+        traces: toNumber(row?.traces),
+        llmCalls: toNumber(row?.llm_calls)
+      };
+    }),
+    errors: bucketStarts.map((bucketStart) => {
+      const row = errorsByBucket.get(bucketStart);
+      return {
+        bucketStart,
+        errors: toNumber(row?.errors),
+        openErrors: toNumber(row?.open_errors),
+        severeErrors: toNumber(row?.severe_errors)
+      };
+    }),
+    latency: bucketStarts.map((bucketStart) => {
+      const row = latencyByBucket.get(bucketStart);
+      return {
+        bucketStart,
+        averageTraceDurationMs: toNumber(row?.average_trace_duration_ms),
+        p95TraceDurationMs: row?.p95_trace_duration_ms == null ? null : toNumber(row.p95_trace_duration_ms)
+      };
+    }),
+    aiCost: bucketStarts.map((bucketStart) => {
+      const row = aiCostByBucket.get(bucketStart);
+      return {
+        bucketStart,
+        llmCostUsd: row?.llm_cost_usd ?? "0",
+        llmCalls: toNumber(row?.llm_calls)
+      };
+    })
+  };
+
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      bucket
+    },
+    kpis: {
+      events: toNumber(kpiRow.events),
+      activeUsers: toNumber(kpiRow.active_users),
+      activeTenants: toNumber(kpiRow.active_tenants),
+      errors: toNumber(kpiRow.errors),
+      openErrors: toNumber(kpiRow.open_errors),
+      traces: toNumber(kpiRow.traces),
+      failedTraces: toNumber(kpiRow.failed_traces),
+      averageTraceDurationMs: toNumber(kpiRow.average_trace_duration_ms),
+      p95TraceDurationMs: kpiRow.p95_trace_duration_ms == null ? null : toNumber(kpiRow.p95_trace_duration_ms),
+      llmCalls: toNumber(kpiRow.llm_calls),
+      failedLlmCalls: toNumber(kpiRow.failed_llm_calls),
+      llmInputTokens: toNumber(kpiRow.llm_input_tokens),
+      llmOutputTokens: toNumber(kpiRow.llm_output_tokens),
+      llmCostUsd: kpiRow.llm_cost_usd
+    },
+    trends,
+    top: {
+      events: topEventsRows.rows.map((row) => ({ name: row.name, total: toNumber(row.total) })),
+      tenantsByUsage: tenantsByUsageRows.rows.map((row) => ({ tenantId: row.tenant_id, total: toNumber(row.total) })),
+      tenantsByErrors: tenantsByErrorsRows.rows.map((row) => ({ tenantId: row.tenant_id, total: toNumber(row.total) })),
+      tenantsByLlmCalls: tenantsByLlmCallsRows.rows.map((row) => ({ tenantId: row.tenant_id, total: toNumber(row.total) })),
+      tenantsByLlmCost: tenantsByLlmCostRows.rows.map((row) => ({
+        tenantId: row.tenant_id,
+        totalCostUsd: row.total_cost_usd
+      })),
+      llmProviders: llmProvidersRows.rows.map((row) => ({
+        provider: row.provider,
+        total: toNumber(row.total),
+        totalCostUsd: row.total_cost_usd
+      })),
+      llmModels: llmModelsRows.rows.map((row) => ({
+        model: row.model,
+        total: toNumber(row.total),
+        totalCostUsd: row.total_cost_usd
+      })),
+      llmPrompts: llmPromptsRows.rows.map((row) => ({
+        promptName: row.prompt_name,
+        total: toNumber(row.total),
+        totalCostUsd: row.total_cost_usd
+      })),
+      errorSeverity: errorSeverityRows.rows.map((row) => ({ severity: row.severity, total: toNumber(row.total) })),
+      errorStatus: errorStatusRows.rows.map((row) => ({ status: row.status, total: toNumber(row.total) }))
+    },
+    recent: {
+      errors: recentErrorRows.rows.map((row) => ({
+        id: row.id,
+        timestamp: toIso(row.timestamp),
+        message: row.message,
+        type: row.type,
+        severity: row.severity,
+        status: row.status,
+        tenantId: row.tenant_id,
+        userId: row.user_id,
+        traceId: row.trace_id
+      })),
+      failedTraces: recentFailedTraceRows.rows.map((row) => ({
+        id: row.id,
+        timestamp: toIso(row.timestamp),
+        name: row.name,
+        status: row.status,
+        durationMs: row.duration_ms,
+        tenantId: row.tenant_id,
+        userId: row.user_id
+      })),
+      failedLlmCalls: recentFailedLlmCallRows.rows.map((row) => ({
+        id: row.id,
+        timestamp: toIso(row.timestamp),
+        provider: row.provider,
+        model: row.model,
+        promptName: row.prompt_name,
+        status: row.status,
+        costUsd: row.cost_usd,
+        tenantId: row.tenant_id,
+        userId: row.user_id,
+        traceId: row.trace_id
+      }))
+    }
   };
 }

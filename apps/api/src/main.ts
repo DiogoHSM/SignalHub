@@ -30,6 +30,7 @@ import {
   getErrorAggregates,
   getEventAggregates,
   getLlmAggregates,
+  getOverview,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -345,6 +346,7 @@ const app = await buildApp({
     getEventAggregates: (filters) => getEventAggregates(db, filters),
     getErrorAggregates: (filters) => getErrorAggregates(db, filters),
     getLlmAggregates: (filters) => getLlmAggregates(db, filters),
+    getOverview: (filters) => getOverview(db, filters),
     getTraceAggregates: (filters) => getTraceAggregates(db, filters)
   },
   apiKeyPepper: config.apiKeyPepper,

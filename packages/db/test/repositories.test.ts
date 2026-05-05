@@ -36,6 +36,7 @@ import {
   getErrorAggregates,
   getEventAggregates,
   getLlmAggregates,
+  getOverview,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -426,6 +427,212 @@ describe("repositories", () => {
         totalOutputTokens: 20,
         totalCostUsd: "0.250000"
       });
+    });
+  });
+
+  it("builds overview metrics trends top lists and recent signals", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Overview Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherProject = await createProject(db, { name: "Other Project" });
+      const otherEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const inWindow = new Date("2026-05-05T10:00:00.000Z");
+      const olderInWindow = new Date("2026-05-05T09:00:00.000Z");
+      const outsideWindow = new Date("2026-05-03T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt,
+        source: "api",
+        release: "1.0.0"
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_overview_1",
+        name: "dashboard_created",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        sessionId: "session_a",
+        traceId: "trace_success",
+        timestamp: inWindow
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_overview_2",
+        name: "dashboard_created",
+        tenantId: "tenant_a",
+        userId: "user_b",
+        sessionId: "session_b",
+        traceId: "trace_failed",
+        timestamp: inWindow
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_overview_3",
+        name: "chat_started",
+        tenantId: "tenant_b",
+        userId: "user_c",
+        sessionId: "session_c",
+        traceId: "trace_llm",
+        timestamp: olderInWindow
+      });
+      await insertEvent(db, {
+        projectId: otherProject.id,
+        environmentId: otherEnvironment.id,
+        id: "evt_other_scope",
+        name: "dashboard_created",
+        timestamp: inWindow,
+        receivedAt
+      });
+      await insertEvent(db, { ...base, id: "evt_old", name: "old_event", timestamp: outsideWindow, receivedAt });
+
+      await insertError(db, {
+        ...base,
+        id: "err_recent",
+        message: "Checkout failed",
+        type: "CheckoutError",
+        severity: "critical",
+        status: "open",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        traceId: "trace_failed",
+        timestamp: inWindow
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_warning",
+        message: "Slow response",
+        severity: "warning",
+        status: "resolved",
+        tenantId: "tenant_b",
+        userId: "user_c",
+        timestamp: olderInWindow
+      });
+
+      await insertTrace(db, {
+        ...base,
+        id: "trc_success",
+        name: "Generate dashboard",
+        status: "success",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        traceId: "trace_success",
+        timestamp: inWindow,
+        startedAt: inWindow,
+        durationMs: 100
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_failed",
+        name: "Checkout",
+        status: "error",
+        tenantId: "tenant_b",
+        userId: "user_c",
+        traceId: "trace_failed",
+        timestamp: olderInWindow,
+        startedAt: olderInWindow,
+        durationMs: 300
+      });
+
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_success",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "generate_sql",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.300000",
+        latencyMs: 1200,
+        status: "success",
+        tenantId: "tenant_a",
+        userId: "user_b",
+        traceId: "trace_llm",
+        timestamp: inWindow
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_failed",
+        provider: "anthropic",
+        model: "claude",
+        promptName: "summarize_error",
+        inputTokens: 20,
+        outputTokens: 10,
+        costUsd: "0.100000",
+        latencyMs: 900,
+        status: "error",
+        error: "provider_error",
+        tenantId: "tenant_b",
+        userId: "user_c",
+        traceId: "trace_failed",
+        timestamp: olderInWindow
+      });
+
+      const overview = await getOverview(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(overview.scope).toEqual({ projectId: project.id, environmentId: environment.id });
+      expect(overview.window).toBe("24h");
+      expect(overview.range.bucket).toBe("hour");
+      expect(overview.kpis).toMatchObject({
+        events: 3,
+        activeUsers: 3,
+        activeTenants: 2,
+        errors: 2,
+        openErrors: 1,
+        traces: 2,
+        failedTraces: 1,
+        averageTraceDurationMs: 200,
+        p95TraceDurationMs: expect.any(Number),
+        llmCalls: 2,
+        failedLlmCalls: 1,
+        llmInputTokens: 120,
+        llmOutputTokens: 60,
+        llmCostUsd: "0.400000"
+      });
+      expect(overview.top.events).toEqual([
+        { name: "dashboard_created", total: 2 },
+        { name: "chat_started", total: 1 }
+      ]);
+      expect(overview.top.tenantsByUsage[0]).toEqual({ tenantId: "tenant_a", total: 5 });
+      expect(overview.top.tenantsByErrors).toEqual([
+        { tenantId: "tenant_a", total: 1 },
+        { tenantId: "tenant_b", total: 1 }
+      ]);
+      expect(overview.top.tenantsByLlmCost).toEqual([
+        { tenantId: "tenant_a", totalCostUsd: "0.300000" },
+        { tenantId: "tenant_b", totalCostUsd: "0.100000" }
+      ]);
+      expect(overview.top.llmModels).toEqual([
+        { model: "gpt-5", total: 1, totalCostUsd: "0.300000" },
+        { model: "claude", total: 1, totalCostUsd: "0.100000" }
+      ]);
+      expect(overview.top.errorStatus).toEqual([
+        { status: "open", total: 1 },
+        { status: "resolved", total: 1 }
+      ]);
+      expect(overview.recent.errors).toEqual([
+        expect.objectContaining({ id: "err_recent", message: "Checkout failed", severity: "critical", status: "open" }),
+        expect.objectContaining({ id: "err_warning", message: "Slow response", severity: "warning", status: "resolved" })
+      ]);
+      expect(overview.recent.failedTraces).toEqual([expect.objectContaining({ id: "trc_failed", status: "error" })]);
+      expect(overview.recent.failedLlmCalls).toEqual([expect.objectContaining({ id: "llm_failed", status: "error" })]);
+      expect(overview.trends.usage).toHaveLength(25);
+      expect(overview.trends.errors).toHaveLength(25);
+      expect(overview.trends.latency).toHaveLength(25);
+      expect(overview.trends.aiCost).toHaveLength(25);
+      expect(overview.trends.usage.map((bucket) => bucket.bucketStart)).toEqual(
+        overview.trends.aiCost.map((bucket) => bucket.bucketStart)
+      );
     });
   });
 
