@@ -245,6 +245,44 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes entity tenant list queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { tenants: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listEntityTenants({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      search: "tenant_1",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/entities/tenants?project_id=prj_1&environment_id=env_1&window=7d&search=tenant_1&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes entity tenant detail queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { timeline: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getEntityTenantDetail("tenant/one", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "24h",
+      userId: "user_1",
+      signalType: "llm",
+      limit: 10,
+      cursor: "cursor_1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/entities/tenants/tenant%2Fone?project_id=prj_1&environment_id=env_1&window=24h&user_id=user_1&signal_type=llm&limit=10&cursor=cursor_1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("does not encode investigation filters for overview queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: overviewResponse() }));
     vi.stubGlobal("fetch", fetchMock);

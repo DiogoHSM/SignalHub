@@ -252,6 +252,126 @@ export type OverviewResponse = {
   };
 };
 
+export type EntityWindow = "24h" | "7d" | "30d";
+
+export type EntitySignalType = "event" | "error" | "trace" | "llm";
+
+export type TenantSummary = {
+  tenantId: string | null;
+  label: string;
+  isUnassigned: boolean;
+  impactScore: number;
+  lastSeenAt: string | null;
+  events: number;
+  errors: number;
+  openErrors: number;
+  severeErrors: number;
+  traces: number;
+  failedTraces: number;
+  llmCalls: number;
+  failedLlmCalls: number;
+  llmCostUsd: string;
+  activeUsers: number;
+  activeSessions: number;
+};
+
+export type TenantListQuery = {
+  projectId: string;
+  environmentId: string;
+  window: EntityWindow;
+  search?: string;
+  limit?: number;
+};
+
+export type TenantDetailQuery = {
+  projectId: string;
+  environmentId: string;
+  window: EntityWindow;
+  userId?: string;
+  signalType?: EntitySignalType;
+  limit?: number;
+  cursor?: string;
+};
+
+export type TenantTopUser = {
+  userId: string;
+  events: number;
+  errors: number;
+  traces: number;
+  llmCalls: number;
+  llmCostUsd: string;
+  lastSeenAt: string;
+};
+
+export type TenantTimelineRow =
+  | {
+      type: "event";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      eventName: string;
+    }
+  | {
+      type: "error";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      severity: string;
+      status: string;
+      message: string;
+    }
+  | {
+      type: "trace";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      status: string;
+      durationMs: number | null;
+      name: string;
+    }
+  | {
+      type: "llm";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      provider: string;
+      model: string;
+      promptName: string | null;
+      status: string;
+      costUsd: string;
+    };
+
+export type TenantListResponse = {
+  window: EntityWindow;
+  generatedAt: string;
+  scope: { projectId: string; environmentId: string };
+  range: { from: string; to: string };
+  tenants: TenantSummary[];
+};
+
+export type TenantDetailResponse = {
+  window: EntityWindow;
+  generatedAt: string;
+  scope: { projectId: string; environmentId: string };
+  range: { from: string; to: string };
+  tenant: TenantSummary;
+  topUsers: TenantTopUser[];
+  timeline: TenantTimelineRow[];
+  cursor?: string;
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
