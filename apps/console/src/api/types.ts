@@ -119,6 +119,39 @@ export type SpanRecord = {
   costUsd: string | null;
 };
 
+export type LlmCallRecord = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  timestamp: string;
+  receivedAt: string;
+  source: string | null;
+  release: string | null;
+  metadata: unknown;
+  provider: string;
+  model: string;
+  promptName: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: string;
+  latencyMs: number | null;
+  status: string;
+  error: string | null;
+  inputPreview: string | null;
+  outputPreview: string | null;
+};
+
+export type LlmAggregates = {
+  totalCalls: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: string;
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
@@ -145,6 +178,9 @@ export type QueryFilters = {
   severity?: string;
   status?: string;
   fingerprint?: string;
+  provider?: string;
+  model?: string;
+  promptName?: string;
   from?: Date | string;
   to?: Date | string;
   limit?: number;

@@ -139,6 +139,75 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes LLM call query filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listLlmCalls({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      provider: "openai",
+      model: "gpt-5",
+      promptName: "generate_sql",
+      status: "success",
+      tenantId: "tenant_1",
+      userId: "user_1",
+      sessionId: "session_1",
+      traceId: "trace_1",
+      from: "2026-05-05T12:00:00.000Z",
+      to: "2026-05-05T13:00:00.000Z",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/llm-calls?project_id=prj_1&environment_id=env_1&tenant_id=tenant_1&user_id=user_1&session_id=session_1&trace_id=trace_1&provider=openai&model=gpt-5&prompt_name=generate_sql&status=success&from=2026-05-05T12%3A00%3A00.000Z&to=2026-05-05T13%3A00%3A00.000Z&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes LLM aggregate filters without list-only limit", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { data: { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: "0" } })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getLlmAggregates({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      provider: "openai",
+      model: "gpt-5",
+      promptName: "generate_sql",
+      status: "success",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/aggregates/llm?project_id=prj_1&environment_id=env_1&provider=openai&model=gpt-5&prompt_name=generate_sql&status=success",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("does not encode LLM-specific filters for trace queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listTraces({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      provider: "openai",
+      model: "gpt-5",
+      promptName: "generate_sql",
+      status: "success"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/traces?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes event name query filter", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);

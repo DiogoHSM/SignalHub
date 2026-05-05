@@ -51,6 +51,8 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     listErrors: vi.fn().mockResolvedValue({ data: [] }),
     listTraces: vi.fn().mockResolvedValue({ data: [] }),
     listTraceSpans: vi.fn().mockResolvedValue({ data: [] }),
+    listLlmCalls: vi.fn().mockResolvedValue({ data: [] }),
+    getLlmAggregates: vi.fn().mockResolvedValue({ data: { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: "0" } }),
     getEventAggregates: vi.fn(),
     getErrorAggregates: vi.fn(),
     listUsers: vi.fn(),

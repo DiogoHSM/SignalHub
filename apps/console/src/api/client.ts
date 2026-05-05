@@ -6,6 +6,8 @@ import type {
   Environment,
   ErrorRecord,
   EventRecord,
+  LlmAggregates,
+  LlmCallRecord,
   Project,
   QueryFilters,
   QueryListResponse,
@@ -46,6 +48,8 @@ export type ApiClient = {
   listErrors: (filters: QueryFilters) => Promise<QueryListResponse<ErrorRecord>>;
   listTraces: (filters: QueryFilters) => Promise<QueryListResponse<TraceRecord>>;
   listTraceSpans: (traceId: string, filters: QueryFilters) => Promise<QueryListResponse<SpanRecord>>;
+  listLlmCalls: (filters: QueryFilters) => Promise<QueryListResponse<LlmCallRecord>>;
+  getLlmAggregates: (filters: QueryFilters) => Promise<AggregateResponse<LlmAggregates>>;
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   listUsers: () => Promise<{ users: User[] }>;
@@ -121,7 +125,7 @@ function encodePathSegment(value: string): string {
 function queryPath(
   route: string,
   filters: QueryFilters,
-  options: { includeEventName?: boolean; includeErrorFilters?: boolean } = {}
+  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeLimit?: boolean } = {}
 ): string {
   const params = new URLSearchParams();
   params.set("project_id", filters.projectId);
@@ -137,9 +141,15 @@ function queryPath(
     if (filters.status) params.set("status", filters.status);
     if (filters.fingerprint) params.set("fingerprint", filters.fingerprint);
   }
+  if (options.includeLlmFilters) {
+    if (filters.provider) params.set("provider", filters.provider);
+    if (filters.model) params.set("model", filters.model);
+    if (filters.promptName) params.set("prompt_name", filters.promptName);
+    if (filters.status) params.set("status", filters.status);
+  }
   if (filters.from) params.set("from", filters.from instanceof Date ? filters.from.toISOString() : filters.from);
   if (filters.to) params.set("to", filters.to instanceof Date ? filters.to.toISOString() : filters.to);
-  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  if (filters.limit !== undefined && options.includeLimit !== false) params.set("limit", String(filters.limit));
   if (filters.cursor) params.set("cursor", filters.cursor);
 
   return `${route}?${params.toString()}`;
@@ -190,6 +200,12 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
     listTraceSpans: (traceId, filters) =>
       request<QueryListResponse<SpanRecord>>(
         path(apiBasePath, queryPath(`/query/traces/${encodePathSegment(traceId)}/spans`, filters))
+      ),
+    listLlmCalls: (filters) =>
+      request<QueryListResponse<LlmCallRecord>>(path(apiBasePath, queryPath("/query/llm-calls", filters, { includeLlmFilters: true }))),
+    getLlmAggregates: (filters) =>
+      request<AggregateResponse<LlmAggregates>>(
+        path(apiBasePath, queryPath("/query/aggregates/llm", filters, { includeLlmFilters: true, includeLimit: false }))
       ),
     getEventAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
