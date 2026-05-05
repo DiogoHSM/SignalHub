@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ApiClient } from "../api/client";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
+import { LlmInvestigationPanel } from "./LlmInvestigationPanel";
 import { TraceInvestigationPanel } from "./TraceInvestigationPanel";
 
 type Props = {
@@ -10,7 +11,7 @@ type Props = {
   environmentId?: string;
 };
 
-type InvestigationTab = "events" | "errors" | "traces";
+type InvestigationTab = "events" | "errors" | "traces" | "llm";
 
 export function InvestigationWorkspace({ client, projectId, environmentId }: Props) {
   const [activeTab, setActiveTab] = useState<InvestigationTab>("events");
@@ -41,13 +42,14 @@ export function InvestigationWorkspace({ client, projectId, environmentId }: Pro
         <button aria-pressed={activeTab === "traces"} onClick={() => setActiveTab("traces")} type="button">
           Traces
         </button>
-        <button disabled type="button">
+        <button aria-pressed={activeTab === "llm"} onClick={() => setActiveTab("llm")} type="button">
           LLM
         </button>
       </nav>
       {activeTab === "events" ? <EventInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
       {activeTab === "errors" ? <ErrorInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
       {activeTab === "traces" ? <TraceInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
+      {activeTab === "llm" ? <LlmInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
     </section>
   );
 }

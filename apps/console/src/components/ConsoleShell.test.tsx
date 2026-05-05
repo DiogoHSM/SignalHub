@@ -448,6 +448,36 @@ describe("ConsoleShell", () => {
     expect(listTraceSpans).not.toHaveBeenCalled();
   });
 
+  it("does not query investigation LLM calls until the LLM tab is opened", async () => {
+    const listLlmCalls = vi.fn().mockResolvedValue({ data: [] });
+    const getLlmAggregates = vi.fn().mockResolvedValue({
+      data: { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: "0" }
+    });
+    const api = client({
+      listLlmCalls,
+      getLlmAggregates,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+
+    expect(listLlmCalls).not.toHaveBeenCalled();
+    expect(getLlmAggregates).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "LLM" }));
+
+    await waitFor(() => expect(listLlmCalls).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
+    expect(getLlmAggregates).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+  });
+
   it("selects the first environment each time the active project changes", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({

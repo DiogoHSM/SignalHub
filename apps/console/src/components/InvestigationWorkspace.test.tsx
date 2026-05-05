@@ -56,12 +56,14 @@ describe("InvestigationWorkspace", () => {
     expect(await screen.findByText("No events found")).toBeInTheDocument();
   });
 
-  it("switches between events errors and traces investigation views", async () => {
+  it("switches between events errors traces and llm investigation views", async () => {
     const api = client({
       listEvents: vi.fn().mockResolvedValue({ data: [] }),
       listErrors: vi.fn().mockResolvedValue({ data: [] }),
       listTraces: vi.fn().mockResolvedValue({ data: [] }),
-      listTraceSpans: vi.fn().mockResolvedValue({ data: [] })
+      listTraceSpans: vi.fn().mockResolvedValue({ data: [] }),
+      listLlmCalls: vi.fn().mockResolvedValue({ data: [] }),
+      getLlmAggregates: vi.fn().mockResolvedValue({ data: { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: "0" } })
     });
 
     render(<InvestigationWorkspace client={api} environmentId="env_1" projectId="prj_1" />);
@@ -69,16 +71,17 @@ describe("InvestigationWorkspace", () => {
     expect(screen.getByRole("button", { name: "Events" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Traces" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "LLM" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "LLM" })).toHaveAttribute("aria-pressed", "false");
     expect(await screen.findByText("No events found")).toBeInTheDocument();
-    expect(api.listTraces).not.toHaveBeenCalled();
+    expect(api.listLlmCalls).not.toHaveBeenCalled();
+    expect(api.getLlmAggregates).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Traces" }));
+    await userEvent.click(screen.getByRole("button", { name: "LLM" }));
 
     expect(screen.getByRole("button", { name: "Events" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Traces" })).toHaveAttribute("aria-pressed", "true");
-    expect(await screen.findByText("No traces found")).toBeInTheDocument();
-    expect(api.listTraces).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
-    expect(api.listTraceSpans).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "LLM" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByText("No LLM calls found")).toBeInTheDocument();
+    expect(api.listLlmCalls).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+    expect(api.getLlmAggregates).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
 });
