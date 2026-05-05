@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, createApiClient } from "./client";
+import type { OverviewQuery } from "./types";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -18,13 +19,12 @@ function overviewResponse() {
     generatedAt: "2026-05-05T12:00:00.000Z",
     scope: { projectId: "prj_1", environmentId: "env_1" },
     range: { from: "2026-05-04T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z", bucket: "hour" },
-    totals: {
+    kpis: {
       events: 0,
       activeUsers: 0,
       activeTenants: 0,
       errors: 0,
       openErrors: 0,
-      severeErrors: 0,
       traces: 0,
       failedTraces: 0,
       averageTraceDurationMs: 0,
@@ -48,7 +48,7 @@ function overviewResponse() {
       errorSeverity: [],
       errorStatus: []
     },
-    recentSignals: { errors: [], failedTraces: [], failedLlmCalls: [] }
+    recent: { errors: [], failedTraces: [], failedLlmCalls: [] }
   };
 }
 
@@ -249,14 +249,16 @@ describe("createApiClient", () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: overviewResponse() }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await createApiClient().getOverview({
+    const queryWithUnsupportedFilters: OverviewQuery & { tenantId: string; status: string; eventName: string } = {
       projectId: "prj_1",
       environmentId: "env_1",
       window: "24h",
       tenantId: "tenant_1",
       status: "open",
       eventName: "checkout.started"
-    });
+    };
+
+    await createApiClient().getOverview(queryWithUnsupportedFilters);
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/query/overview?project_id=prj_1&environment_id=env_1&window=24h",

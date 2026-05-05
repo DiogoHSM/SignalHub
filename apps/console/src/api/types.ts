@@ -162,9 +162,6 @@ export type OverviewQuery = {
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
-  tenantId?: string;
-  eventName?: string;
-  status?: string;
 };
 
 export type OverviewRecentError = {
@@ -214,13 +211,12 @@ export type OverviewResponse = {
     to: string;
     bucket: OverviewTrendBucket;
   };
-  totals: {
+  kpis: {
     events: number;
     activeUsers: number;
     activeTenants: number;
     errors: number;
     openErrors: number;
-    severeErrors: number;
     traces: number;
     failedTraces: number;
     averageTraceDurationMs: number;
@@ -249,7 +245,7 @@ export type OverviewResponse = {
     errorSeverity: Array<{ severity: OverviewErrorSeverity; total: number }>;
     errorStatus: Array<{ status: string; total: number }>;
   };
-  recentSignals: {
+  recent: {
     errors: OverviewRecentError[];
     failedTraces: OverviewRecentTrace[];
     failedLlmCalls: OverviewRecentLlmCall[];
