@@ -416,7 +416,6 @@ async function queryEntityTopUsers(
         and environment_id = ${filters.environmentId}
         and tenant_id = ${tenantId}
         and user_id is not null
-        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
         and timestamp >= ${from}
         and timestamp <= ${to}
       union all
@@ -427,7 +426,6 @@ async function queryEntityTopUsers(
         and environment_id = ${filters.environmentId}
         and tenant_id = ${tenantId}
         and user_id is not null
-        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
         and timestamp >= ${from}
         and timestamp <= ${to}
       union all
@@ -438,7 +436,6 @@ async function queryEntityTopUsers(
         and environment_id = ${filters.environmentId}
         and tenant_id = ${tenantId}
         and user_id is not null
-        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
         and timestamp >= ${from}
         and timestamp <= ${to}
       union all
@@ -449,7 +446,6 @@ async function queryEntityTopUsers(
         and environment_id = ${filters.environmentId}
         and tenant_id = ${tenantId}
         and user_id is not null
-        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
         and timestamp >= ${from}
         and timestamp <= ${to}
     ),

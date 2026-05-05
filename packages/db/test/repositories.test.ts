@@ -943,6 +943,40 @@ describe("repositories", () => {
         userId: "user_2",
         sessionId: "session_2"
       });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_detail_same_time",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:59:01.000Z"),
+        name: "same.timestamp.event"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_detail_same_time",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:59:01.000Z"),
+        message: "Same timestamp error",
+        severity: "warning"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_detail_same_time",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:59:01.000Z"),
+        name: "same timestamp trace",
+        status: "success",
+        startedAt: new Date("2026-05-05T11:59:00.000Z")
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_detail_same_time",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:59:01.000Z"),
+        provider: "anthropic",
+        model: "claude-4",
+        costUsd: "0.100000",
+        status: "success"
+      });
 
       const detail = await getEntityTenantDetail(db, "tenant_detail", {
         projectId: project.id,
@@ -968,8 +1002,25 @@ describe("repositories", () => {
           lastSeenAt: "2026-05-05T11:56:00.000Z"
         })
       ]);
-      expect(detail.timeline.map((row) => row.id)).toEqual(["llm_detail_1", "trc_detail_1", "err_detail_1", "evt_detail_1"]);
+      expect(detail.timeline.map((row) => row.id)).toEqual([
+        "err_detail_same_time",
+        "evt_detail_same_time",
+        "llm_detail_same_time",
+        "trc_detail_same_time",
+        "llm_detail_1",
+        "trc_detail_1",
+        "err_detail_1",
+        "evt_detail_1"
+      ]);
       expect(detail.timeline).toEqual([
+        expect.objectContaining({
+          type: "error",
+          label: "Same timestamp error",
+          message: "Same timestamp error"
+        }),
+        expect.objectContaining({ type: "event", label: "same.timestamp.event", eventName: "same.timestamp.event" }),
+        expect.objectContaining({ type: "llm", label: "anthropic / claude-4", provider: "anthropic", model: "claude-4" }),
+        expect.objectContaining({ type: "trace", label: "same timestamp trace", name: "same timestamp trace" }),
         expect.objectContaining({
           type: "llm",
           label: "openai / gpt-5",
@@ -1008,8 +1059,9 @@ describe("repositories", () => {
 
       for (const [id, minute, userId] of [
         ["evt_cursor_1", "55", "user_cursor"],
-        ["evt_cursor_2", "54", "user_cursor"],
-        ["evt_cursor_3", "53", "other_user"]
+        ["evt_cursor_2", "55", "user_cursor"],
+        ["evt_cursor_3", "55", "user_cursor"],
+        ["evt_cursor_other_user", "54", "other_user"]
       ] as const) {
         await insertEvent(db, {
           id,
@@ -1037,6 +1089,7 @@ describe("repositories", () => {
 
       expect(firstPage.timeline.map((row) => row.id)).toEqual(["evt_cursor_1"]);
       expect(firstPage.cursor).toEqual(expect.any(String));
+      expect(firstPage.topUsers.map((user) => user.userId)).toEqual(["user_cursor", "other_user"]);
 
       const secondPage = await getEntityTenantDetail(db, "tenant_cursor", {
         projectId: project.id,
@@ -1044,12 +1097,12 @@ describe("repositories", () => {
         window: "7d",
         userId: "user_cursor",
         signalType: "event",
-        limit: 10,
+        limit: 2,
         cursor: decodeEntityCursorForTest(firstPage.cursor!),
         now
       });
 
-      expect(secondPage.timeline.map((row) => row.id)).toEqual(["evt_cursor_2"]);
+      expect(secondPage.timeline.map((row) => row.id)).toEqual(["evt_cursor_2", "evt_cursor_3"]);
       expect(secondPage.cursor).toBeUndefined();
     });
   });
