@@ -434,8 +434,8 @@ function makeBucketStarts(from: Date, to: Date, bucket: OverviewTrendBucket): st
 
 function bucketExpression(bucket: OverviewTrendBucket, column = "timestamp") {
   return bucket === "hour"
-    ? sql<Date>`date_trunc('hour', ${sql.ref(column)})`
-    : sql<Date>`date_trunc('day', ${sql.ref(column)})`;
+    ? sql<string>`to_char(date_trunc('hour', ${sql.ref(column)} at time zone 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+    : sql<string>`to_char(date_trunc('day', ${sql.ref(column)} at time zone 'UTC'), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 }
 
 function resolveLimit(limit: number | undefined): number {

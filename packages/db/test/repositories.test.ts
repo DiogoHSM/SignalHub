@@ -636,6 +636,104 @@ describe("repositories", () => {
     });
   });
 
+  it("buckets overview trends in UTC when the database session timezone is not UTC", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`set timezone to 'America/Sao_Paulo'`.execute(db);
+
+      const project = await createProject(db, { name: "Overview UTC Buckets" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const timestamp = new Date("2026-05-05T00:30:00.000Z");
+      const receivedAt = new Date("2026-05-05T00:30:01.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_utc",
+        userId: "user_utc",
+        sessionId: "session_utc",
+        traceId: "trace_utc",
+        timestamp,
+        receivedAt
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_utc_bucket",
+        name: "utc_bucket_event"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_utc_bucket",
+        message: "UTC bucket error",
+        severity: "critical",
+        status: "open"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_utc_bucket",
+        name: "UTC bucket trace",
+        status: "success",
+        startedAt: timestamp,
+        durationMs: 120
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_utc_bucket",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "utc_bucket",
+        inputTokens: 10,
+        outputTokens: 20,
+        costUsd: "0.010000",
+        status: "success"
+      });
+
+      const overview = await getOverview(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now: new Date("2026-05-05T02:00:00.000Z")
+      });
+
+      const usageBucket = overview.trends.usage.find(
+        (bucket) => bucket.bucketStart === "2026-05-05T00:00:00.000Z"
+      );
+      expect(usageBucket).toEqual({
+        bucketStart: "2026-05-05T00:00:00.000Z",
+        events: 1,
+        traces: 1,
+        llmCalls: 1
+      });
+      expect(overview.trends.errors.find((bucket) => bucket.bucketStart === "2026-05-05T00:00:00.000Z")).toMatchObject({
+        errors: 1,
+        openErrors: 1,
+        severeErrors: 1
+      });
+      expect(overview.trends.latency.find((bucket) => bucket.bucketStart === "2026-05-05T00:00:00.000Z")).toMatchObject({
+        averageTraceDurationMs: 120,
+        p95TraceDurationMs: 120
+      });
+      expect(overview.trends.aiCost.find((bucket) => bucket.bucketStart === "2026-05-05T00:00:00.000Z")).toMatchObject({
+        llmCostUsd: "0.010000",
+        llmCalls: 1
+      });
+
+      const dailyOverview = await getOverview(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T02:00:00.000Z")
+      });
+      expect(dailyOverview.trends.usage.find((bucket) => bucket.bucketStart === "2026-05-05T00:00:00.000Z")).toMatchObject(
+        {
+          events: 1,
+          traces: 1,
+          llmCalls: 1
+        }
+      );
+    });
+  });
+
   it("filters events by exact event name", async () => {
     await withDb(async (db) => {
       await migrate(db);
