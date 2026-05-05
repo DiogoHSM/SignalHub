@@ -38,6 +38,7 @@ import {
   listTraceSpans,
   listTraces
 } from "@signal-hub/db/repositories/telemetry-query.js";
+import { getEntityTenantDetail, listEntityTenants } from "@signal-hub/db/repositories/entities-query.js";
 import { createTelemetryQueue, enqueueTelemetryJob } from "@signal-hub/queues";
 import { hashPassword, verifyPassword } from "@signal-hub/telemetry/auth";
 import { verifyApiKey } from "@signal-hub/telemetry/api-keys";
@@ -347,7 +348,9 @@ const app = await buildApp({
     getErrorAggregates: (filters) => getErrorAggregates(db, filters),
     getLlmAggregates: (filters) => getLlmAggregates(db, filters),
     getOverview: (filters) => getOverview(db, filters),
-    getTraceAggregates: (filters) => getTraceAggregates(db, filters)
+    getTraceAggregates: (filters) => getTraceAggregates(db, filters),
+    listEntityTenants: (filters) => listEntityTenants(db, filters),
+    getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters)
   },
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,

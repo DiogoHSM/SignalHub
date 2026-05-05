@@ -72,6 +72,67 @@ export type TenantTopUser = {
   lastSeenAt: string;
 };
 
+export type TenantTimelineRow =
+  | {
+      type: "event";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      eventName: string;
+    }
+  | {
+      type: "error";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      severity: string;
+      status: string;
+      message: string;
+    }
+  | {
+      type: "trace";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      status: string;
+      durationMs: number | null;
+      name: string;
+    }
+  | {
+      type: "llm";
+      id: string;
+      timestamp: string;
+      label: string;
+      userId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      provider: string;
+      model: string;
+      promptName: string | null;
+      status: string;
+      costUsd: string;
+    };
+
+export type TenantDetailResponse = {
+  window: EntityWindow;
+  generatedAt: string;
+  scope: { projectId: string; environmentId: string };
+  range: EntityRange;
+  tenant: TenantSummary;
+  topUsers: TenantTopUser[];
+  timeline: TenantTimelineRow[];
+  cursor?: string;
+};
+
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const severeErrorSeverities = ["error", "critical", "fatal"] as const;
@@ -130,6 +191,10 @@ function computeImpactScore(input: {
 function searchPattern(search: string | undefined): string | undefined {
   const trimmed = search?.trim();
   return trimmed ? `%${trimmed}%` : undefined;
+}
+
+function encodeEntityCursor(cursor: EntityCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
 export async function listEntityTenants(db: Db, filters: EntityTenantFilters): Promise<TenantListResponse> {
@@ -269,4 +334,278 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
     range,
     tenants: tenants.slice(0, limit)
   };
+}
+
+export async function getEntityTenantDetail(
+  db: Db,
+  tenantId: string,
+  filters: EntityTenantDetailFilters
+): Promise<TenantDetailResponse> {
+  const { from, to, range } = resolveEntityRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+  const summaryResult = await listEntityTenants(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    window: filters.window,
+    limit: 100,
+    now: filters.now
+  });
+  const tenant =
+    summaryResult.tenants.find((row) => row.tenantId === tenantId) ??
+    ({
+      tenantId,
+      label: tenantId,
+      isUnassigned: false,
+      impactScore: 0,
+      lastSeenAt: null,
+      events: 0,
+      errors: 0,
+      openErrors: 0,
+      severeErrors: 0,
+      traces: 0,
+      failedTraces: 0,
+      llmCalls: 0,
+      failedLlmCalls: 0,
+      llmCostUsd: "0",
+      activeUsers: 0,
+      activeSessions: 0
+    } satisfies TenantSummary);
+
+  const topUsers = await queryEntityTopUsers(db, tenantId, filters, from, to);
+  const timelineRows = await queryEntityTimeline(db, tenantId, filters, from, to, limit + 1);
+  const timeline = timelineRows.slice(0, limit);
+  const response: TenantDetailResponse = {
+    window: filters.window,
+    generatedAt: (filters.now ?? new Date()).toISOString(),
+    scope: { projectId: filters.projectId, environmentId: filters.environmentId },
+    range,
+    tenant,
+    topUsers,
+    timeline
+  };
+
+  if (timelineRows.length > limit && timeline.length > 0) {
+    const lastRow = timeline[timeline.length - 1];
+    response.cursor = encodeEntityCursor({ timestamp: lastRow.timestamp, type: lastRow.type, id: lastRow.id });
+  }
+
+  return response;
+}
+
+async function queryEntityTopUsers(
+  db: Db,
+  tenantId: string,
+  filters: EntityTenantDetailFilters,
+  from: Date,
+  to: Date
+): Promise<TenantTopUser[]> {
+  const rows = await sql<{
+    user_id: string;
+    events: unknown;
+    errors: unknown;
+    traces: unknown;
+    llm_calls: unknown;
+    llm_cost_usd: string;
+    last_seen_at: Date | string;
+  }>`
+    with scoped_rows as (
+      select user_id, timestamp, 1::bigint as events, 0::bigint as errors, 0::bigint as traces,
+        0::bigint as llm_calls, 0::numeric as llm_cost_usd
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and user_id is not null
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select user_id, timestamp, 0::bigint as events, 1::bigint as errors, 0::bigint as traces,
+        0::bigint as llm_calls, 0::numeric as llm_cost_usd
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and user_id is not null
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select user_id, timestamp, 0::bigint as events, 0::bigint as errors, 1::bigint as traces,
+        0::bigint as llm_calls, 0::numeric as llm_cost_usd
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and user_id is not null
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select user_id, timestamp, 0::bigint as events, 0::bigint as errors, 0::bigint as traces,
+        1::bigint as llm_calls, cost_usd as llm_cost_usd
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and user_id is not null
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    aggregated as (
+      select user_id, sum(events) as events, sum(errors) as errors, sum(traces) as traces,
+        sum(llm_calls) as llm_calls, coalesce(sum(llm_cost_usd), 0)::text as llm_cost_usd,
+        max(timestamp) as last_seen_at, sum(events + errors + traces + llm_calls) as total_signals
+      from scoped_rows
+      group by user_id
+    )
+    select user_id, events, errors, traces, llm_calls, llm_cost_usd, last_seen_at
+    from aggregated
+    order by last_seen_at desc, total_signals desc, user_id asc
+    limit 10
+  `.execute(db);
+
+  return rows.rows.map((row) => ({
+    userId: row.user_id,
+    events: toNumber(row.events),
+    errors: toNumber(row.errors),
+    traces: toNumber(row.traces),
+    llmCalls: toNumber(row.llm_calls),
+    llmCostUsd: row.llm_cost_usd,
+    lastSeenAt: toIso(row.last_seen_at)
+  }));
+}
+
+async function queryEntityTimeline(
+  db: Db,
+  tenantId: string,
+  filters: EntityTenantDetailFilters,
+  from: Date,
+  to: Date,
+  limit: number
+): Promise<TenantTimelineRow[]> {
+  const cursor = filters.cursor;
+  const rows = await sql<{
+    type: EntitySignalType;
+    id: string;
+    timestamp: Date | string;
+    label: string;
+    user_id: string | null;
+    session_id: string | null;
+    trace_id: string | null;
+    event_name: string | null;
+    severity: string | null;
+    status: string | null;
+    message: string | null;
+    duration_ms: unknown | null;
+    name: string | null;
+    provider: string | null;
+    model: string | null;
+    prompt_name: string | null;
+    cost_usd: string | null;
+  }>`
+    with timeline_rows as (
+      select 'event'::text as type, id, timestamp, name as label, user_id, session_id, trace_id,
+        name as event_name, null::text as severity, null::text as status, null::text as message,
+        null::integer as duration_ms, null::text as trace_name, null::text as provider, null::text as model,
+        null::text as prompt_name, null::text as cost_usd
+      from events
+      where (${filters.signalType ?? null}::text is null or ${filters.signalType ?? ""} = 'event')
+        and project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select 'error'::text as type, id, timestamp, message as label, user_id, session_id, trace_id,
+        null::text as event_name, severity, status, message, null::integer as duration_ms, null::text as trace_name,
+        null::text as provider, null::text as model, null::text as prompt_name, null::text as cost_usd
+      from errors
+      where (${filters.signalType ?? null}::text is null or ${filters.signalType ?? ""} = 'error')
+        and project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select 'trace'::text as type, id, timestamp, name as label, user_id, session_id, trace_id,
+        null::text as event_name, null::text as severity, status, null::text as message, duration_ms, name as trace_name,
+        null::text as provider, null::text as model, null::text as prompt_name, null::text as cost_usd
+      from traces
+      where (${filters.signalType ?? null}::text is null or ${filters.signalType ?? ""} = 'trace')
+        and project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+      union all
+      select 'llm'::text as type, id, timestamp, provider || ' / ' || model as label, user_id, session_id, trace_id,
+        null::text as event_name, null::text as severity, status, null::text as message, null::integer as duration_ms,
+        null::text as trace_name, provider, model, prompt_name, cost_usd::text as cost_usd
+      from llm_calls
+      where (${filters.signalType ?? null}::text is null or ${filters.signalType ?? ""} = 'llm')
+        and project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and (${filters.userId ?? null}::text is null or user_id = ${filters.userId ?? ""})
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    )
+    select type, id, timestamp, label, user_id, session_id, trace_id, event_name, severity, status, message,
+      duration_ms, trace_name as name, provider, model, prompt_name, cost_usd
+    from timeline_rows
+    where (
+      ${cursor?.timestamp ?? null}::timestamptz is null
+      or timestamp < ${cursor?.timestamp ?? null}::timestamptz
+      or (timestamp = ${cursor?.timestamp ?? null}::timestamptz and type > ${cursor?.type ?? ""})
+      or (timestamp = ${cursor?.timestamp ?? null}::timestamptz and type = ${cursor?.type ?? ""} and id > ${cursor?.id ?? ""})
+    )
+    order by timestamp desc, type asc, id asc
+    limit ${limit}
+  `.execute(db);
+
+  return rows.rows.map((row): TenantTimelineRow => {
+    const base = {
+      id: row.id,
+      timestamp: toIso(row.timestamp),
+      label: row.label,
+      userId: row.user_id,
+      sessionId: row.session_id,
+      traceId: row.trace_id
+    };
+    if (row.type === "event") {
+      return { ...base, type: "event", eventName: row.event_name ?? row.label };
+    }
+    if (row.type === "error") {
+      return {
+        ...base,
+        type: "error",
+        severity: row.severity ?? "",
+        status: row.status ?? "",
+        message: row.message ?? row.label
+      };
+    }
+    if (row.type === "trace") {
+      return {
+        ...base,
+        type: "trace",
+        status: row.status ?? "",
+        durationMs: row.duration_ms === null ? null : toNumber(row.duration_ms),
+        name: row.name ?? row.label
+      };
+    }
+    return {
+      ...base,
+      type: "llm",
+      provider: row.provider ?? "",
+      model: row.model ?? "",
+      promptName: row.prompt_name,
+      status: row.status ?? "",
+      costUsd: row.cost_usd ?? "0"
+    };
+  });
 }

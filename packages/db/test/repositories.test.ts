@@ -44,7 +44,7 @@ import {
   listTraceSpans,
   listTraces
 } from "../src/repositories/telemetry-query.js";
-import { listEntityTenants } from "../src/repositories/entities-query.js";
+import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 
@@ -68,6 +68,10 @@ describe("repositories", () => {
     } finally {
       await db.destroy();
     }
+  }
+
+  function decodeEntityCursorForTest(cursor: string): EntityCursor {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as EntityCursor;
   }
 
   it("runs migrations idempotently", async () => {
@@ -848,6 +852,205 @@ describe("repositories", () => {
         now
       });
       expect(byUser.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_beta"]);
+    });
+  });
+
+  it("gets entity tenant detail with top users and cross-signal timeline", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Entities Detail" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_detail",
+        traceId: "trace_detail",
+        metadata: {}
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_detail_1",
+        timestamp: new Date("2026-05-05T11:55:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:55:01.000Z"),
+        name: "checkout.started",
+        userId: "user_1",
+        sessionId: "session_1",
+        properties: { secret: "hidden event" }
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_detail_1",
+        timestamp: new Date("2026-05-05T11:56:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:56:01.000Z"),
+        message: "Checkout failed",
+        type: "CheckoutError",
+        severity: "error",
+        stack: "hidden stack",
+        status: "open",
+        fingerprint: "checkout_failed",
+        context: { secret: "hidden context" },
+        userId: "user_1",
+        sessionId: "session_1"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_detail_1",
+        timestamp: new Date("2026-05-05T11:57:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:57:01.000Z"),
+        name: "checkout trace",
+        status: "error",
+        startedAt: new Date("2026-05-05T11:57:00.000Z"),
+        endedAt: new Date("2026-05-05T11:57:03.000Z"),
+        durationMs: 3000,
+        userId: "user_2",
+        sessionId: "session_2"
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_detail_1",
+        timestamp: new Date("2026-05-05T11:57:30.000Z"),
+        receivedAt: new Date("2026-05-05T11:57:31.000Z"),
+        parentSpanId: undefined,
+        name: "span excluded",
+        status: "error",
+        startedAt: new Date("2026-05-05T11:57:30.000Z"),
+        endedAt: new Date("2026-05-05T11:57:31.000Z"),
+        durationMs: 1000,
+        input: { hidden: true },
+        output: null,
+        error: { hidden: true },
+        userId: "user_2",
+        sessionId: "session_2"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_detail_1",
+        timestamp: new Date("2026-05-05T11:58:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:58:01.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "explain_checkout",
+        inputTokens: 120,
+        outputTokens: 80,
+        costUsd: "1.250000",
+        latencyMs: 500,
+        status: "success",
+        inputPreview: "hidden input",
+        outputPreview: "hidden output",
+        userId: "user_2",
+        sessionId: "session_2"
+      });
+
+      const detail = await getEntityTenantDetail(db, "tenant_detail", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+
+      expect(detail.tenant.tenantId).toBe("tenant_detail");
+      expect(detail.topUsers).toEqual([
+        expect.objectContaining({
+          userId: "user_2",
+          traces: 1,
+          llmCalls: 1,
+          llmCostUsd: "1.250000",
+          lastSeenAt: "2026-05-05T11:58:00.000Z"
+        }),
+        expect.objectContaining({
+          userId: "user_1",
+          events: 1,
+          errors: 1,
+          lastSeenAt: "2026-05-05T11:56:00.000Z"
+        })
+      ]);
+      expect(detail.timeline.map((row) => row.id)).toEqual(["llm_detail_1", "trc_detail_1", "err_detail_1", "evt_detail_1"]);
+      expect(detail.timeline).toEqual([
+        expect.objectContaining({
+          type: "llm",
+          label: "openai / gpt-5",
+          provider: "openai",
+          model: "gpt-5",
+          promptName: "explain_checkout",
+          costUsd: "1.250000"
+        }),
+        expect.objectContaining({
+          type: "trace",
+          label: "checkout trace",
+          name: "checkout trace",
+          durationMs: 3000
+        }),
+        expect.objectContaining({
+          type: "error",
+          label: "Checkout failed",
+          message: "Checkout failed",
+          severity: "error",
+          status: "open"
+        }),
+        expect.objectContaining({ type: "event", label: "checkout.started", eventName: "checkout.started" })
+      ]);
+      expect(JSON.stringify(detail.timeline)).not.toContain("hidden");
+      expect(JSON.stringify(detail.timeline)).not.toContain("spn_detail_1");
+    });
+  });
+
+  it("filters entity tenant detail by user and signal type and paginates with a cursor", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Entities Cursor" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      for (const [id, minute, userId] of [
+        ["evt_cursor_1", "55", "user_cursor"],
+        ["evt_cursor_2", "54", "user_cursor"],
+        ["evt_cursor_3", "53", "other_user"]
+      ] as const) {
+        await insertEvent(db, {
+          id,
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: new Date(`2026-05-05T11:${minute}:00.000Z`),
+          receivedAt: new Date(`2026-05-05T11:${minute}:01.000Z`),
+          name: id,
+          tenantId: "tenant_cursor",
+          userId,
+          sessionId: "session_cursor",
+          properties: {}
+        });
+      }
+
+      const firstPage = await getEntityTenantDetail(db, "tenant_cursor", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        userId: "user_cursor",
+        signalType: "event",
+        limit: 1,
+        now
+      });
+
+      expect(firstPage.timeline.map((row) => row.id)).toEqual(["evt_cursor_1"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await getEntityTenantDetail(db, "tenant_cursor", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        userId: "user_cursor",
+        signalType: "event",
+        limit: 10,
+        cursor: decodeEntityCursorForTest(firstPage.cursor!),
+        now
+      });
+
+      expect(secondPage.timeline.map((row) => row.id)).toEqual(["evt_cursor_2"]);
+      expect(secondPage.cursor).toBeUndefined();
     });
   });
 
