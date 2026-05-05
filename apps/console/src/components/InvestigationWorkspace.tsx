@@ -8,6 +8,7 @@ import { EventInvestigationPanel } from "./EventInvestigationPanel";
 import type { LlmFilterValues } from "./LlmFilters";
 import { LlmInvestigationPanel } from "./LlmInvestigationPanel";
 import { TraceInvestigationPanel } from "./TraceInvestigationPanel";
+import type { TraceFilterValues } from "./TraceFilters";
 
 type Props = {
   client: ApiClient;
@@ -22,16 +23,43 @@ export type InvestigationTab = "events" | "errors" | "traces" | "llm" | "entitie
 export type InvestigationInitialFilters = {
   events?: Partial<EventFilterValues>;
   errors?: Partial<ErrorFilterValues>;
+  traces?: Partial<TraceFilterValues>;
   llm?: Partial<LlmFilterValues>;
   entities?: { tenantId?: string };
 };
 
+export type InvestigationDrilldown =
+  | { tab: "events"; filters: Partial<EventFilterValues> }
+  | { tab: "errors"; filters: Partial<ErrorFilterValues> }
+  | { tab: "traces"; filters: Partial<TraceFilterValues> }
+  | { tab: "llm"; filters: Partial<LlmFilterValues> };
+
 export function InvestigationWorkspace({ client, projectId, environmentId, initialTab, initialFilters }: Props) {
   const [activeTab, setActiveTab] = useState<InvestigationTab>(initialTab ?? "events");
+  const [localInitialFilters, setLocalInitialFilters] = useState<InvestigationInitialFilters>({});
+  const mergedInitialFilters: InvestigationInitialFilters = {
+    events: { ...initialFilters?.events, ...localInitialFilters.events },
+    errors: { ...initialFilters?.errors, ...localInitialFilters.errors },
+    traces: { ...initialFilters?.traces, ...localInitialFilters.traces },
+    llm: { ...initialFilters?.llm, ...localInitialFilters.llm },
+    entities: initialFilters?.entities
+  };
 
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    setLocalInitialFilters({});
+  }, [projectId, environmentId]);
+
+  function handleEntityDrilldown(drilldown: InvestigationDrilldown) {
+    setLocalInitialFilters((current) => ({
+      ...current,
+      [drilldown.tab]: drilldown.filters
+    }));
+    setActiveTab(drilldown.tab);
+  }
 
   if (!projectId || !environmentId) {
     return (
@@ -67,20 +95,38 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
         </button>
       </nav>
       {activeTab === "events" ? (
-        <EventInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.events} projectId={projectId} />
+        <EventInvestigationPanel
+          client={client}
+          environmentId={environmentId}
+          initialFilters={mergedInitialFilters.events}
+          projectId={projectId}
+        />
       ) : null}
       {activeTab === "errors" ? (
-        <ErrorInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.errors} projectId={projectId} />
+        <ErrorInvestigationPanel
+          client={client}
+          environmentId={environmentId}
+          initialFilters={mergedInitialFilters.errors}
+          projectId={projectId}
+        />
       ) : null}
-      {activeTab === "traces" ? <TraceInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
+      {activeTab === "traces" ? (
+        <TraceInvestigationPanel
+          client={client}
+          environmentId={environmentId}
+          initialFilters={mergedInitialFilters.traces}
+          projectId={projectId}
+        />
+      ) : null}
       {activeTab === "llm" ? (
-        <LlmInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.llm} projectId={projectId} />
+        <LlmInvestigationPanel client={client} environmentId={environmentId} initialFilters={mergedInitialFilters.llm} projectId={projectId} />
       ) : null}
       {activeTab === "entities" ? (
         <EntitiesInvestigationPanel
           client={client}
           environmentId={environmentId}
-          initialTenantId={initialFilters?.entities?.tenantId}
+          initialTenantId={mergedInitialFilters.entities?.tenantId}
+          onDrilldown={handleEntityDrilldown}
           projectId={projectId}
         />
       ) : null}

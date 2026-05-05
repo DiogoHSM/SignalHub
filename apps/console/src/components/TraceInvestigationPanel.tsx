@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { QueryFilters, SpanRecord, TraceRecord } from "../api/types";
 import { TraceDetailDrawer } from "./TraceDetailDrawer";
@@ -9,6 +9,7 @@ type Props = {
   client: ApiClient;
   projectId: string;
   environmentId: string;
+  initialFilters?: Partial<TraceFilterValues>;
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
@@ -56,9 +57,15 @@ function queryFromValues(projectId: string, environmentId: string, values: Trace
   return query;
 }
 
-export function TraceInvestigationPanel({ client, projectId, environmentId }: Props) {
-  const [draftFilters, setDraftFilters] = useState<TraceFilterValues>(defaultFilters);
-  const [appliedFilters, setAppliedFilters] = useState<TraceFilterValues>(defaultFilters);
+function filtersWithDefaults(initialFilters?: Partial<TraceFilterValues>): TraceFilterValues {
+  return { ...defaultFilters, ...initialFilters };
+}
+
+export function TraceInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
+  const initialFilterKey = JSON.stringify(initialFilters ?? {});
+  const hasSyncedInitialFilters = useRef(false);
+  const [draftFilters, setDraftFilters] = useState<TraceFilterValues>(() => filtersWithDefaults(initialFilters));
+  const [appliedFilters, setAppliedFilters] = useState<TraceFilterValues>(() => filtersWithDefaults(initialFilters));
   const [reloadToken, setReloadToken] = useState(0);
   const [spanReloadToken, setSpanReloadToken] = useState(0);
   const [traces, setTraces] = useState<TraceRecord[]>([]);
@@ -95,6 +102,17 @@ export function TraceInvestigationPanel({ client, projectId, environmentId }: Pr
       cancelled = true;
     };
   }, [client, query, reloadToken]);
+
+  useEffect(() => {
+    if (!hasSyncedInitialFilters.current) {
+      hasSyncedInitialFilters.current = true;
+      return;
+    }
+
+    const next = filtersWithDefaults(initialFilters);
+    setDraftFilters(next);
+    setAppliedFilters(next);
+  }, [initialFilterKey]);
 
   useEffect(() => {
     if (!selectedTrace?.traceId) {

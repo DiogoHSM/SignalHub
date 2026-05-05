@@ -146,7 +146,9 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
         ? { events: drilldown.filters }
         : drilldown.tab === "errors"
           ? { errors: drilldown.filters }
-          : { llm: drilldown.filters };
+          : drilldown.tab === "llm"
+            ? { llm: drilldown.filters }
+            : { entities: drilldown.filters };
 
     setInvestigationDrilldown((current) => ({
       nonce: (current?.nonce ?? 0) + 1,

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -514,6 +514,70 @@ describe("ConsoleShell", () => {
       })
     );
     expect(screen.getByLabelText("Event name")).toHaveValue("dashboard_created");
+  });
+
+  it("drills overview tenant rows into seeded entity investigation filters", async () => {
+    const listEntityTenants = vi.fn().mockResolvedValue({ data: { tenants: [] } });
+    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
+    const api = client({
+      getOverview,
+      listEntityTenants,
+      getEntityTenantDetail: vi.fn().mockResolvedValue({
+        data: {
+          window: "7d",
+          generatedAt: "2026-05-05T12:30:00.000Z",
+          scope: { projectId: "prj_1", environmentId: "env_1" },
+          range: { from: "2026-04-28T12:30:00.000Z", to: "2026-05-05T12:30:00.000Z" },
+          tenant: {
+            tenantId: "tenant_1",
+            label: "tenant_1",
+            isUnassigned: false,
+            impactScore: 10,
+            lastSeenAt: "2026-05-05T10:00:00.000Z",
+            events: 5,
+            errors: 1,
+            openErrors: 1,
+            severeErrors: 0,
+            traces: 3,
+            failedTraces: 1,
+            llmCalls: 2,
+            failedLlmCalls: 0,
+            llmCostUsd: "1.25",
+            activeUsers: 2,
+            activeSessions: 3
+          },
+          topUsers: [],
+          timeline: []
+        }
+      }),
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
+    const tenantUsage = (await screen.findByText("Tenant usage")).closest("article");
+    expect(tenantUsage).not.toBeNull();
+
+    await userEvent.click(within(tenantUsage!).getByRole("button", { name: /tenant_1/ }));
+
+    expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Entities" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() =>
+      expect(listEntityTenants).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "7d",
+        limit: 50
+      })
+    );
+    expect(screen.getByText("No tenant activity in this window.")).toBeInTheDocument();
   });
 
   it("does not query investigation events until investigate mode is opened", async () => {

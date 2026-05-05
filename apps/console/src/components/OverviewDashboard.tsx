@@ -9,7 +9,8 @@ import { OverviewTopLists } from "./OverviewTopLists";
 export type OverviewDrilldown =
   | { tab: "events"; filters: { eventName?: string; tenantId?: string } }
   | { tab: "errors"; filters: { severity?: string; status?: string; tenantId?: string } }
-  | { tab: "llm"; filters: { provider?: string; model?: string; promptName?: string; tenantId?: string } };
+  | { tab: "llm"; filters: { provider?: string; model?: string; promptName?: string; tenantId?: string } }
+  | { tab: "entities"; filters: { tenantId: string } };
 
 type Props = {
   client: ApiClient;

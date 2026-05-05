@@ -70,6 +70,56 @@ function timelineRow(overrides: Partial<Extract<TenantTimelineRow, { type: "even
   };
 }
 
+function errorTimelineRow(overrides: Partial<Extract<TenantTimelineRow, { type: "error" }>> = {}): TenantTimelineRow {
+  return {
+    type: "error",
+    id: "err_1",
+    timestamp: "2026-05-05T12:01:00.000Z",
+    label: "Checkout failed",
+    userId: "user_1",
+    sessionId: "sess_1",
+    traceId: "trace_1",
+    severity: "error",
+    status: "open",
+    message: "Checkout failed",
+    ...overrides
+  };
+}
+
+function traceTimelineRow(overrides: Partial<Extract<TenantTimelineRow, { type: "trace" }>> = {}): TenantTimelineRow {
+  return {
+    type: "trace",
+    id: "trc_1",
+    timestamp: "2026-05-05T12:02:00.000Z",
+    label: "Checkout trace",
+    userId: "user_1",
+    sessionId: "sess_1",
+    traceId: "trace_1",
+    status: "error",
+    durationMs: 320,
+    name: "checkout",
+    ...overrides
+  };
+}
+
+function llmTimelineRow(overrides: Partial<Extract<TenantTimelineRow, { type: "llm" }>> = {}): TenantTimelineRow {
+  return {
+    type: "llm",
+    id: "llm_1",
+    timestamp: "2026-05-05T12:03:00.000Z",
+    label: "Summarize cart",
+    userId: "user_1",
+    sessionId: "sess_1",
+    traceId: "trace_1",
+    provider: "openai",
+    model: "gpt-5",
+    promptName: "Unspecified",
+    status: "error",
+    costUsd: "0.250000",
+    ...overrides
+  };
+}
+
 function detail(overrides: Partial<TenantDetailResponse> = {}): TenantDetailResponse {
   const summary = tenant({ tenantId: "tenant_a", label: "Tenant A" });
   return {
@@ -171,6 +221,51 @@ describe("EntitiesInvestigationPanel", () => {
       environmentId: "env_1",
       window: "7d",
       limit: 50
+    });
+  });
+
+  it("drills timeline rows into raw investigation tabs with tenant filters", async () => {
+    const onDrilldown = vi.fn();
+    const rows = [
+      errorTimelineRow(),
+      traceTimelineRow(),
+      timelineRow({ label: "Checkout started", eventName: "checkout.started", traceId: "trace_1" }),
+      llmTimelineRow({ promptName: "Unspecified" })
+    ];
+    const api = client({
+      listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [tenant({ tenantId: "tenant_alpha", label: "Tenant Alpha" })] } }),
+      getEntityTenantDetail: vi.fn().mockResolvedValue({
+        data: detail({
+          tenant: tenant({ tenantId: "tenant_alpha", label: "Tenant Alpha" }),
+          timeline: rows
+        })
+      })
+    });
+
+    render(
+      <EntitiesInvestigationPanel client={api} environmentId="env_1" onDrilldown={onDrilldown} projectId="prj_1" initialTenantId="tenant_alpha" />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout failed/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Checkout trace/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Checkout started/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Summarize cart/ }));
+
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "errors",
+      filters: { tenantId: "tenant_alpha", severity: "error", status: "open", traceId: "trace_1" }
+    });
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "traces",
+      filters: { tenantId: "tenant_alpha", traceId: "trace_1" }
+    });
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "events",
+      filters: { tenantId: "tenant_alpha", eventName: "checkout.started", traceId: "trace_1" }
+    });
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "llm",
+      filters: { tenantId: "tenant_alpha", provider: "openai", model: "gpt-5", status: "error" }
     });
   });
 

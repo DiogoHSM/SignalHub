@@ -117,6 +117,32 @@ describe("TraceInvestigationPanel", () => {
     expect(api.listTraceSpans).not.toHaveBeenCalled();
   });
 
+  it("loads traces with initial filters and displays them", async () => {
+    const api = client({
+      listTraces: vi.fn().mockResolvedValue({ data: [] })
+    });
+
+    render(
+      <TraceInvestigationPanel
+        client={api}
+        environmentId="env_1"
+        initialFilters={{ tenantId: "tenant_1", traceId: "trace_1" }}
+        projectId="prj_1"
+      />
+    );
+
+    expect(await screen.findByText("No traces found")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tenant")).toHaveValue("tenant_1");
+    expect(screen.getByLabelText("Trace")).toHaveValue("trace_1");
+    expect(api.listTraces).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      tenantId: "tenant_1",
+      traceId: "trace_1",
+      limit: 50
+    });
+  });
+
   it("applies filters only after Apply and clears selected trace", async () => {
     const api = client({
       listTraces: vi.fn().mockResolvedValue({ data: [trace({ traceId: "trace_1" })] }),

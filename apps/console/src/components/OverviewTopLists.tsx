@@ -101,7 +101,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       rows: top.tenantsByUsage.map((row) => ({
         label: row.tenantId,
         value: count(row.total),
-        drilldown: { tab: "events", filters: { tenantId: row.tenantId } }
+        drilldown: { tab: "entities", filters: { tenantId: row.tenantId } }
       }))
     },
     {
@@ -110,7 +110,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       rows: top.tenantsByErrors.map((row) => ({
         label: row.tenantId,
         value: count(row.total),
-        drilldown: { tab: "errors", filters: { tenantId: row.tenantId } }
+        drilldown: { tab: "entities", filters: { tenantId: row.tenantId } }
       }))
     },
     {
@@ -119,7 +119,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       rows: top.tenantsByLlmCalls.map((row) => ({
         label: row.tenantId,
         value: count(row.total),
-        drilldown: { tab: "llm", filters: { tenantId: row.tenantId } }
+        drilldown: { tab: "entities", filters: { tenantId: row.tenantId } }
       }))
     },
     {
@@ -128,7 +128,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       rows: top.tenantsByLlmCost.map((row) => ({
         label: row.tenantId,
         value: row.totalCostUsd,
-        drilldown: { tab: "llm", filters: { tenantId: row.tenantId } }
+        drilldown: { tab: "entities", filters: { tenantId: row.tenantId } }
       }))
     }
   ];

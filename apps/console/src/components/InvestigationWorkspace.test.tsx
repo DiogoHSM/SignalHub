@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
+import type { TenantDetailResponse, TenantSummary, TenantTimelineRow } from "../api/types";
 import { InvestigationWorkspace } from "./InvestigationWorkspace";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -36,6 +37,57 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     createUser: vi.fn(),
     updateUser: vi.fn(),
     archiveUser: vi.fn(),
+    ...overrides
+  };
+}
+
+function tenant(overrides: Partial<TenantSummary> = {}): TenantSummary {
+  return {
+    tenantId: "tenant_alpha",
+    label: "Tenant Alpha",
+    isUnassigned: false,
+    impactScore: 10,
+    lastSeenAt: "2026-05-05T10:00:00.000Z",
+    events: 5,
+    errors: 1,
+    openErrors: 1,
+    severeErrors: 0,
+    traces: 3,
+    failedTraces: 1,
+    llmCalls: 2,
+    failedLlmCalls: 0,
+    llmCostUsd: "1.25",
+    activeUsers: 2,
+    activeSessions: 3,
+    ...overrides
+  };
+}
+
+function traceTimelineRow(overrides: Partial<Extract<TenantTimelineRow, { type: "trace" }>> = {}): TenantTimelineRow {
+  return {
+    type: "trace",
+    id: "trc_1",
+    timestamp: "2026-05-05T12:02:00.000Z",
+    label: "Checkout trace",
+    userId: "user_1",
+    sessionId: "sess_1",
+    traceId: "trace_1",
+    status: "error",
+    durationMs: 320,
+    name: "checkout",
+    ...overrides
+  };
+}
+
+function detail(overrides: Partial<TenantDetailResponse> = {}): TenantDetailResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:30:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:30:00.000Z", to: "2026-05-05T12:30:00.000Z" },
+    tenant: tenant(),
+    topUsers: [],
+    timeline: [traceTimelineRow()],
     ...overrides
   };
 }
@@ -127,6 +179,38 @@ describe("InvestigationWorkspace", () => {
       projectId: "prj_1",
       environmentId: "env_1",
       severity: "critical",
+      limit: 50
+    });
+  });
+
+  it("routes entity timeline drilldowns into raw trace filters", async () => {
+    const listTraces = vi.fn().mockResolvedValue({ data: [] });
+    const api = client({
+      listTraces,
+      listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [tenant()] } }),
+      getEntityTenantDetail: vi.fn().mockResolvedValue({ data: detail() })
+    });
+
+    render(
+      <InvestigationWorkspace
+        client={api}
+        environmentId="env_1"
+        initialFilters={{ entities: { tenantId: "tenant_alpha" } }}
+        initialTab="entities"
+        projectId="prj_1"
+      />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout trace/ }));
+
+    expect(screen.getByRole("button", { name: "Traces" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Tenant")).toHaveValue("tenant_alpha");
+    expect(screen.getByLabelText("Trace")).toHaveValue("trace_1");
+    expect(listTraces).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      tenantId: "tenant_alpha",
+      traceId: "trace_1",
       limit: 50
     });
   });

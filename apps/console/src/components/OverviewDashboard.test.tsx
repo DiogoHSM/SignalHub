@@ -285,6 +285,19 @@ describe("OverviewDashboard", () => {
     expect(onDrilldown).toHaveBeenCalledWith({ tab: "llm", filters: { model: "gpt-5" } });
   });
 
+  it("dispatches tenant top-list rows to entity investigation", async () => {
+    const onDrilldown = vi.fn();
+
+    render(<OverviewDashboard client={client({})} environmentId="env_1" onDrilldown={onDrilldown} projectId="prj_1" />);
+
+    const tenantUsage = (await screen.findByText("Tenant usage")).closest("article");
+    expect(tenantUsage).not.toBeNull();
+
+    await userEvent.click(within(tenantUsage!).getByRole("button", { name: /tenant_1/ }));
+
+    expect(onDrilldown).toHaveBeenCalledWith({ tab: "entities", filters: { tenantId: "tenant_1" } });
+  });
+
   it("does not drill into the unspecified prompt sentinel", async () => {
     const onDrilldown = vi.fn();
     const api = client({

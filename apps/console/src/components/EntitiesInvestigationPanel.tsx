@@ -3,12 +3,14 @@ import type { ApiClient } from "../api/client";
 import type { EntitySignalType, EntityWindow, TenantDetailResponse, TenantListQuery, TenantSummary } from "../api/types";
 import { EntitiesTenantDetail } from "./EntitiesTenantDetail";
 import { EntitiesTenantList, type TenantSort } from "./EntitiesTenantList";
+import type { InvestigationDrilldown } from "./InvestigationWorkspace";
 
 type Props = {
   client: ApiClient;
   projectId: string;
   environmentId: string;
   initialTenantId?: string;
+  onDrilldown?: (drilldown: InvestigationDrilldown) => void;
 };
 
 type LoadState = "loading" | "ready" | "unavailable";
@@ -18,7 +20,7 @@ function tenantKey(tenant: TenantSummary): string {
   return tenant.isUnassigned ? "_unassigned" : tenant.tenantId ?? "_unassigned";
 }
 
-export function EntitiesInvestigationPanel({ client, projectId, environmentId, initialTenantId }: Props) {
+export function EntitiesInvestigationPanel({ client, projectId, environmentId, initialTenantId, onDrilldown }: Props) {
   const scopeKey = `${projectId}:${environmentId}`;
   const [windowValue, setWindowValue] = useState<EntityWindow>("7d");
   const [searchDraft, setSearchDraft] = useState("");
@@ -130,6 +132,40 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
     setSelectedTenant(tenant);
   }
 
+  function handleTimelineDrilldown(row: TenantDetailResponse["timeline"][number]) {
+    if (!onDrilldown || !selectedTenantId || selectedTenantId === "_unassigned") return;
+
+    const tenantId = selectedTenantId;
+    const traceFilter = row.traceId ? { traceId: row.traceId } : {};
+
+    if (row.type === "event") {
+      onDrilldown({ tab: "events", filters: { tenantId, eventName: row.eventName, ...traceFilter } });
+      return;
+    }
+
+    if (row.type === "error") {
+      onDrilldown({ tab: "errors", filters: { tenantId, severity: row.severity, status: row.status, ...traceFilter } });
+      return;
+    }
+
+    if (row.type === "trace") {
+      onDrilldown({ tab: "traces", filters: { tenantId, ...traceFilter } });
+      return;
+    }
+
+    const promptName = row.promptName?.trim();
+    onDrilldown({
+      tab: "llm",
+      filters: {
+        tenantId,
+        provider: row.provider,
+        model: row.model,
+        status: row.status,
+        ...(promptName && promptName !== "Unspecified" ? { promptName } : {})
+      }
+    });
+  }
+
   return (
     <section className="entities-shell">
       <div className="entity-toolbar">
@@ -171,7 +207,7 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
           onDraftUserIdChange={setDraftUserId}
           onRetry={() => setDetailRetryToken((current) => current + 1)}
           onSignalTypeChange={setSignalType}
-          onTimelineDrilldown={() => undefined}
+          onTimelineDrilldown={handleTimelineDrilldown}
           signalType={signalType}
           tenant={selectedTenant}
         />
