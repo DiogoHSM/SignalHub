@@ -33,3 +33,8 @@ SignalHub includes an admin-only Integration Console.
 - LLM uses the same filter/list/detail pattern, with a compact aggregate strip for calls, tokens, and total cost.
 - LLM rows should prioritize provider/model, prompt, status, cost, tokens, latency, time, user, and tenant.
 - LLM details should show immutable identifiers, cost and token fields, previews, error text, and metadata JSON.
+- Keep Entities as a peer tab with Events, Errors, Traces, and LLM inside `Investigate`.
+- Entities uses a tenant-first layout with a default `7d` window, impact-ranked tenant rows, and a selected-tenant detail panel.
+- The Unassigned tenant bucket should be visible for context but disabled for drill-in.
+- Entity details should show compact summary metrics, top users, and a cross-signal timeline from events, errors, traces, and LLM calls.
+- Entity timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from tenant context to source records.

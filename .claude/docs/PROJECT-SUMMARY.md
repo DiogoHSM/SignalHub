@@ -20,6 +20,7 @@ Implemented capabilities:
 - Read-only Errors investigation workspace with exact severity, status, and fingerprint filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
+- Read-only Entities investigation workspace with impact-ranked tenant summaries, selected tenant top users, and cross-signal timeline drilldowns.
 - Health and readiness endpoints.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 

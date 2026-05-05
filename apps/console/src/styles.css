@@ -637,6 +637,7 @@ select {
 
 .investigation-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
