@@ -19,11 +19,13 @@ function tenantKey(tenant: TenantSummary): string {
 }
 
 export function EntitiesInvestigationPanel({ client, projectId, environmentId, initialTenantId }: Props) {
+  const scopeKey = `${projectId}:${environmentId}`;
   const [windowValue, setWindowValue] = useState<EntityWindow>("7d");
   const [searchDraft, setSearchDraft] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [sort, setSort] = useState<TenantSort>("impact");
   const [selectedTenantId, setSelectedTenantId] = useState(initialTenantId);
+  const [selectedScopeKey, setSelectedScopeKey] = useState<string | undefined>(() => (initialTenantId ? scopeKey : undefined));
   const [draftUserId, setDraftUserId] = useState("");
   const [appliedUserId, setAppliedUserId] = useState("");
   const [signalType, setSignalType] = useState<EntitySignalType | "">("");
@@ -63,13 +65,19 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
   }, [client, listQuery, listRetryToken]);
 
   useEffect(() => {
+    detailRequestId.current += 1;
+    setSelectedTenantId(undefined);
+    setSelectedScopeKey(undefined);
     setDetail(undefined);
     setSelectedTenant(undefined);
-    setDetailState(selectedTenantId && selectedTenantId !== "_unassigned" ? "loading" : "idle");
+    setDetailState("idle");
   }, [projectId, environmentId]);
 
   useEffect(() => {
-    if (initialTenantId) setSelectedTenantId(initialTenantId);
+    if (initialTenantId) {
+      setSelectedTenantId(initialTenantId);
+      setSelectedScopeKey(scopeKey);
+    }
   }, [initialTenantId]);
 
   useEffect(() => {
@@ -77,7 +85,7 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
   }, [tenants, selectedTenantId]);
 
   useEffect(() => {
-    if (!selectedTenantId || selectedTenantId === "_unassigned") {
+    if (!selectedTenantId || selectedTenantId === "_unassigned" || selectedScopeKey !== scopeKey) {
       setDetail(undefined);
       setDetailState("idle");
       return;
@@ -109,7 +117,7 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
         setDetailState("unavailable");
       }
     );
-  }, [client, projectId, environmentId, windowValue, selectedTenantId, appliedUserId, signalType, detailRetryToken]);
+  }, [client, projectId, environmentId, scopeKey, windowValue, selectedTenantId, selectedScopeKey, appliedUserId, signalType, detailRetryToken]);
 
   function applySearch() {
     setAppliedSearch(searchDraft);
@@ -118,6 +126,7 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
   function selectTenant(tenant: TenantSummary) {
     if (!tenant.tenantId || tenant.isUnassigned) return;
     setSelectedTenantId(tenant.tenantId);
+    setSelectedScopeKey(scopeKey);
     setSelectedTenant(tenant);
   }
 

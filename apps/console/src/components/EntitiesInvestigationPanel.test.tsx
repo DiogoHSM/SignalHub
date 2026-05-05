@@ -224,6 +224,30 @@ describe("EntitiesInvestigationPanel", () => {
     });
   });
 
+  it("resets selected tenant detail when scope changes without a new initial tenant", async () => {
+    const listEntityTenants = vi.fn().mockResolvedValue({ data: { tenants: [tenant()] } });
+    const getEntityTenantDetail = vi.fn().mockResolvedValue({ data: detail() });
+    const api = client({ listEntityTenants, getEntityTenantDetail });
+    const { rerender } = render(
+      <EntitiesInvestigationPanel client={api} environmentId="env_1" initialTenantId="tenant_a" projectId="prj_1" />
+    );
+
+    expect(await screen.findByText("Checkout started")).toBeInTheDocument();
+    expect(getEntityTenantDetail).toHaveBeenCalledTimes(1);
+
+    rerender(<EntitiesInvestigationPanel client={api} environmentId="env_2" initialTenantId="tenant_a" projectId="prj_1" />);
+
+    expect(await screen.findByText("Select a tenant to inspect recent activity.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(listEntityTenants).toHaveBeenLastCalledWith({ projectId: "prj_1", environmentId: "env_2", window: "7d", limit: 50 })
+    );
+    expect(getEntityTenantDetail).toHaveBeenCalledTimes(1);
+    expect(getEntityTenantDetail).not.toHaveBeenCalledWith(
+      "tenant_a",
+      expect.objectContaining({ projectId: "prj_1", environmentId: "env_2" })
+    );
+  });
+
   it("retries list and detail failures", async () => {
     const listEntityTenants = vi
       .fn()
