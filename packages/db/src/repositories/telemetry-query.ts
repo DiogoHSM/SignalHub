@@ -20,6 +20,9 @@ export interface TelemetryFilters {
   sessionId?: string;
   traceId?: string;
   eventName?: string;
+  provider?: string;
+  model?: string;
+  promptName?: string;
   severity?: string;
   status?: string;
   fingerprint?: string;
@@ -340,6 +343,10 @@ export async function listLlmCalls(db: Db, filters: TelemetryFilters): Promise<L
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+  if (filters.provider) query = query.where("provider", "=", filters.provider);
+  if (filters.model) query = query.where("model", "=", filters.model);
+  if (filters.promptName) query = query.where("prompt_name", "=", filters.promptName);
+  if (filters.status) query = query.where("status", "=", filters.status);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
 
@@ -468,6 +475,10 @@ export async function getLlmAggregates(db: Db, filters: TelemetryFilters): Promi
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+  if (filters.provider) query = query.where("provider", "=", filters.provider);
+  if (filters.model) query = query.where("model", "=", filters.model);
+  if (filters.promptName) query = query.where("prompt_name", "=", filters.promptName);
+  if (filters.status) query = query.where("status", "=", filters.status);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
 

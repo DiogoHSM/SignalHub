@@ -430,6 +430,104 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards LLM-specific filters for LLM call queries", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listLlmCalls: async (filters) => {
+          receivedFilters.push(filters);
+          return [];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/llm-calls?project_id=prj_1&environment_id=env_1&provider=openai&model=gpt-5&prompt_name=generate_sql&status=success&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "generate_sql",
+        status: "success",
+        limit: 25
+      }
+    ]);
+  });
+
+  it("forwards LLM-specific filters for LLM aggregate queries", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getLlmAggregates: async (filters) => {
+          receivedFilters.push(filters);
+          return { totalCalls: 1 };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/aggregates/llm?project_id=prj_1&environment_id=env_1&provider=openai&model=gpt-5&prompt_name=generate_sql&status=success"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "generate_sql",
+        status: "success",
+        limit: 50
+      }
+    ]);
+  });
+
+  it("does not forward LLM-specific filters for event aggregate queries", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventAggregates: async (filters) => {
+          receivedFilters.push(filters);
+          return { total: 2 };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/aggregates/events?project_id=prj_1&environment_id=env_1&provider=openai&model=gpt-5&prompt_name=generate_sql&status=success"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        limit: 50
+      }
+    ]);
+  });
+
   it("returns 501 when a query dependency method is missing", async () => {
     app = await buildApp({
       readiness,

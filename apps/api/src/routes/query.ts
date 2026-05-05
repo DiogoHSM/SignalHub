@@ -11,6 +11,9 @@ export type QueryFilters = {
   sessionId?: string;
   traceId?: string;
   eventName?: string;
+  provider?: string;
+  model?: string;
+  promptName?: string;
   severity?: string;
   status?: string;
   fingerprint?: string;
@@ -104,7 +107,7 @@ function parseDate(raw: RawQuery, key: string): Date | undefined | null {
 
 function parseFilters(
   query: unknown,
-  options: { includeEventName?: boolean; includeErrorFilters?: boolean } = {}
+  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean } = {}
 ): QueryFilters | undefined {
   const raw = (query ?? {}) as RawQuery;
   const projectId = parseRequiredId(raw, "project_id");
@@ -162,6 +165,25 @@ function parseFilters(
       filters.fingerprint = fingerprint;
     }
   }
+  if (options.includeLlmFilters) {
+    const provider = optionalNonEmpty(raw, "provider");
+    const model = optionalNonEmpty(raw, "model");
+    const promptName = optionalNonEmpty(raw, "prompt_name");
+    const status = optionalNonEmpty(raw, "status");
+
+    if (provider) {
+      filters.provider = provider;
+    }
+    if (model) {
+      filters.model = model;
+    }
+    if (promptName) {
+      filters.promptName = promptName;
+    }
+    if (status) {
+      filters.status = status;
+    }
+  }
   if (from) {
     filters.from = from;
   }
@@ -212,7 +234,7 @@ async function handleListRoute(
   options: QueryRouteOptions,
   hasMethod: () => boolean,
   run: ListRunner,
-  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean }
+  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean }
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -268,7 +290,7 @@ async function handleAggregateRoute(
   options: QueryRouteOptions,
   hasMethod: () => boolean,
   run: AggregateRunner,
-  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean }
+  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean }
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -313,7 +335,14 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     )
   );
   app.get("/query/llm-calls", (request, reply) =>
-    handleListRoute(request, reply, options, () => !!options.query?.listLlmCalls, (filters) => options.query!.listLlmCalls!(filters))
+    handleListRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.listLlmCalls,
+      (filters) => options.query!.listLlmCalls!(filters),
+      { includeLlmFilters: true }
+    )
   );
   app.get("/query/traces", (request, reply) =>
     handleListRoute(request, reply, options, () => !!options.query?.listTraces, (filters) => options.query!.listTraces!(filters))
@@ -331,8 +360,13 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     )
   );
   app.get("/query/aggregates/llm", (request, reply) =>
-    handleAggregateRoute(request, reply, options, () => !!options.query?.getLlmAggregates, (filters) =>
-      options.query!.getLlmAggregates!(filters)
+    handleAggregateRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.getLlmAggregates,
+      (filters) => options.query!.getLlmAggregates!(filters),
+      { includeLlmFilters: true }
     )
   );
   app.get("/query/aggregates/traces", (request, reply) =>

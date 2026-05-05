@@ -356,6 +356,79 @@ describe("repositories", () => {
     });
   });
 
+  it("filters LLM calls and aggregates by exact LLM fields", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM Filters" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_llm",
+        userId: "user_llm",
+        sessionId: "session_llm",
+        traceId: "trace_llm",
+        timestamp: new Date("2026-05-05T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-05T12:00:01.000Z")
+      };
+
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_match",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "generate_sql",
+        inputTokens: 10,
+        outputTokens: 20,
+        costUsd: "0.250000",
+        latencyMs: 1200,
+        status: "success"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_other_model",
+        provider: "openai",
+        model: "gpt-4",
+        promptName: "generate_sql",
+        inputTokens: 100,
+        outputTokens: 200,
+        costUsd: "2.500000",
+        latencyMs: 2200,
+        status: "success"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_other_status",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "generate_sql",
+        inputTokens: 5,
+        outputTokens: 6,
+        costUsd: "0.050000",
+        latencyMs: 800,
+        status: "error"
+      });
+
+      const filters = {
+        projectId: project.id,
+        environmentId: environment.id,
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "generate_sql",
+        status: "success"
+      };
+
+      await expect(listLlmCalls(db, filters)).resolves.toEqual([expect.objectContaining({ id: "llm_match" })]);
+      await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({
+        totalCalls: 1,
+        totalInputTokens: 10,
+        totalOutputTokens: 20,
+        totalCostUsd: "0.250000"
+      });
+    });
+  });
+
   it("filters events by exact event name", async () => {
     await withDb(async (db) => {
       await migrate(db);
