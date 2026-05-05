@@ -588,7 +588,7 @@ describe("repositories", () => {
         id: "llm_unspecified_prompt",
         provider: "openai",
         model: "gpt-5",
-        promptName: null as unknown as string,
+        promptName: null,
         inputTokens: 5,
         outputTokens: 5,
         costUsd: "0.050000",

@@ -33,7 +33,7 @@ export interface InsertErrorInput extends TelemetryBaseInput {
 export interface InsertLlmCallInput extends TelemetryBaseInput {
   provider: string;
   model: string;
-  promptName?: string;
+  promptName?: string | null;
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: string;
