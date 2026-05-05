@@ -4,8 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { CreatedApiKey } from "../api/types";
-import type { Environment } from "../api/types";
+import type { CreatedApiKey, Environment, OverviewResponse } from "../api/types";
 import { ConsoleShell } from "./ConsoleShell";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -48,6 +47,94 @@ function deferred<T>() {
     resolve = promiseResolve;
   });
   return { promise, resolve };
+}
+
+function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewResponse {
+  return {
+    window: "24h",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: {
+      from: "2026-05-04T12:00:00.000Z",
+      to: "2026-05-05T12:00:00.000Z",
+      bucket: "hour"
+    },
+    kpis: {
+      events: 18,
+      activeUsers: 4,
+      activeTenants: 2,
+      errors: 3,
+      openErrors: 1,
+      traces: 7,
+      failedTraces: 1,
+      averageTraceDurationMs: 250,
+      p95TraceDurationMs: 400,
+      llmCalls: 5,
+      failedLlmCalls: 1,
+      llmInputTokens: 1200,
+      llmOutputTokens: 800,
+      llmCostUsd: "1.250000"
+    },
+    trends: {
+      usage: [{ bucketStart: "2026-05-05T12:00:00.000Z", events: 18, traces: 7, llmCalls: 5 }],
+      errors: [{ bucketStart: "2026-05-05T12:00:00.000Z", errors: 3, openErrors: 1, severeErrors: 1 }],
+      latency: [{ bucketStart: "2026-05-05T12:00:00.000Z", averageTraceDurationMs: 250, p95TraceDurationMs: 400 }],
+      aiCost: [{ bucketStart: "2026-05-05T12:00:00.000Z", llmCostUsd: "1.250000", llmCalls: 5 }]
+    },
+    top: {
+      events: [{ name: "dashboard_created", total: 8 }],
+      tenantsByUsage: [{ tenantId: "tenant_1", total: 10 }],
+      tenantsByErrors: [{ tenantId: "tenant_1", total: 2 }],
+      tenantsByLlmCalls: [{ tenantId: "tenant_1", total: 5 }],
+      tenantsByLlmCost: [{ tenantId: "tenant_1", totalCostUsd: "1.250000" }],
+      llmProviders: [{ provider: "openai", total: 5, totalCostUsd: "1.250000" }],
+      llmModels: [{ model: "gpt-5", total: 5, totalCostUsd: "1.250000" }],
+      llmPrompts: [{ promptName: "summarize_signal", total: 3, totalCostUsd: "0.750000" }],
+      errorSeverity: [{ severity: "critical", total: 1 }],
+      errorStatus: [{ status: "open", total: 1 }]
+    },
+    recent: {
+      errors: [
+        {
+          id: "err_1",
+          timestamp: "2026-05-05T12:00:00.000Z",
+          message: "Checkout fetch failed",
+          type: "TypeError",
+          severity: "critical",
+          status: "open",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          traceId: "trace_1"
+        }
+      ],
+      failedTraces: [
+        {
+          id: "trc_1",
+          timestamp: "2026-05-05T12:00:00.000Z",
+          name: "checkout",
+          status: "error",
+          durationMs: 500,
+          tenantId: "tenant_1",
+          userId: "user_1"
+        }
+      ],
+      failedLlmCalls: [
+        {
+          id: "llm_1",
+          timestamp: "2026-05-05T12:00:00.000Z",
+          provider: "openai",
+          model: "gpt-5",
+          promptName: "summarize_signal",
+          status: "error",
+          costUsd: "0.250000",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          traceId: "trace_1"
+        }
+      ]
+    },
+    ...overrides
+  };
 }
 
 afterEach(() => {
@@ -369,6 +456,62 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Setup" }));
 
     expect(screen.getByRole("textbox", { name: "New environment name" })).toHaveValue("Staging");
+  });
+
+  it("does not query overview until Overview mode is opened", async () => {
+    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
+    const api = client({
+      getOverview,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    expect(getOverview).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
+
+    await waitFor(() =>
+      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
+    );
+  });
+
+  it("drills overview top lists into seeded investigation filters", async () => {
+    const listEvents = vi.fn().mockResolvedValue({ data: [] });
+    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
+    const api = client({
+      getOverview,
+      listEvents,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
+    await userEvent.click(await screen.findByRole("button", { name: /dashboard_created/ }));
+
+    expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() =>
+      expect(listEvents).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        eventName: "dashboard_created",
+        limit: 50
+      })
+    );
+    expect(screen.getByLabelText("Event name")).toHaveValue("dashboard_created");
   });
 
   it("does not query investigation events until investigate mode is opened", async () => {

@@ -84,6 +84,38 @@ describe("EventInvestigationPanel", () => {
     expect(api.listEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
 
+  it("applies initial filters and updates them when they change", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [] })
+    });
+
+    const { rerender } = render(
+      <EventInvestigationPanel client={api} environmentId="env_1" initialFilters={{ eventName: "dashboard_created" }} projectId="prj_1" />
+    );
+
+    expect(await screen.findByText("No events found")).toBeInTheDocument();
+    expect(screen.getByLabelText("Event name")).toHaveValue("dashboard_created");
+    expect(api.listEvents).toHaveBeenLastCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      eventName: "dashboard_created",
+      limit: 50
+    });
+
+    rerender(<EventInvestigationPanel client={api} environmentId="env_1" initialFilters={{ tenantId: "tenant_1" }} projectId="prj_1" />);
+
+    await waitFor(() =>
+      expect(api.listEvents).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        tenantId: "tenant_1",
+        limit: 50
+      })
+    );
+    expect(screen.getByLabelText("Event name")).toHaveValue("");
+    expect(screen.getByLabelText("Tenant")).toHaveValue("tenant_1");
+  });
+
   it("applies event name filters only after Apply", async () => {
     const api = client({
       listEvents: vi.fn().mockResolvedValue({ data: [] })

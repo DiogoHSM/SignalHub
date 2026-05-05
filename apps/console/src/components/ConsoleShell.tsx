@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
-import { InvestigationWorkspace } from "./InvestigationWorkspace";
+import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
+import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SetupWorkspace } from "./SetupWorkspace";
 
@@ -18,6 +19,11 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
   const [activeMode, setActiveMode] = useState<ConsoleMode>("setup");
+  const [investigationDrilldown, setInvestigationDrilldown] = useState<{
+    nonce: number;
+    tab: InvestigationTab;
+    filters: InvestigationInitialFilters;
+  }>();
   const [latestSecret, setLatestSecret] = useState<LatestSecret | undefined>();
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [loadedEnvironmentProjectId, setLoadedEnvironmentProjectId] = useState<string | undefined>();
@@ -134,6 +140,22 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     });
   }
 
+  function handleOverviewDrilldown(drilldown: OverviewDrilldown) {
+    const filters: InvestigationInitialFilters =
+      drilldown.tab === "events"
+        ? { events: drilldown.filters }
+        : drilldown.tab === "errors"
+          ? { errors: drilldown.filters }
+          : { llm: drilldown.filters };
+
+    setInvestigationDrilldown((current) => ({
+      nonce: (current?.nonce ?? 0) + 1,
+      tab: drilldown.tab,
+      filters
+    }));
+    setActiveMode("investigate");
+  }
+
   async function createProject(name: string) {
     if (isLoadingProjects) return;
 
@@ -195,9 +217,26 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
             onSelectEnvironment={setActiveEnvironment}
           />
         </div>
+        <div hidden={activeMode !== "overview"}>
+          {activeMode === "overview" ? (
+            <OverviewDashboard
+              client={client}
+              environmentId={activeEnvironment?.id}
+              onDrilldown={handleOverviewDrilldown}
+              projectId={activeProject?.id}
+            />
+          ) : null}
+        </div>
         <div hidden={activeMode !== "investigate"}>
           {activeMode === "investigate" ? (
-            <InvestigationWorkspace client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+            <InvestigationWorkspace
+              client={client}
+              environmentId={activeEnvironment?.id}
+              initialFilters={investigationDrilldown?.filters}
+              initialTab={investigationDrilldown?.tab}
+              key={investigationDrilldown?.nonce ?? "investigation"}
+              projectId={activeProject?.id}
+            />
           ) : null}
         </div>
       </section>

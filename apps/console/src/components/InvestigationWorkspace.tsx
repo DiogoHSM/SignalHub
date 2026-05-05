@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
+import type { ErrorFilterValues } from "./ErrorFilters";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
+import type { EventFilterValues } from "./EventFilters";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
+import type { LlmFilterValues } from "./LlmFilters";
 import { LlmInvestigationPanel } from "./LlmInvestigationPanel";
 import { TraceInvestigationPanel } from "./TraceInvestigationPanel";
 
@@ -9,12 +12,24 @@ type Props = {
   client: ApiClient;
   projectId?: string;
   environmentId?: string;
+  initialTab?: InvestigationTab;
+  initialFilters?: InvestigationInitialFilters;
 };
 
-type InvestigationTab = "events" | "errors" | "traces" | "llm";
+export type InvestigationTab = "events" | "errors" | "traces" | "llm";
 
-export function InvestigationWorkspace({ client, projectId, environmentId }: Props) {
-  const [activeTab, setActiveTab] = useState<InvestigationTab>("events");
+export type InvestigationInitialFilters = {
+  events?: Partial<EventFilterValues>;
+  errors?: Partial<ErrorFilterValues>;
+  llm?: Partial<LlmFilterValues>;
+};
+
+export function InvestigationWorkspace({ client, projectId, environmentId, initialTab, initialFilters }: Props) {
+  const [activeTab, setActiveTab] = useState<InvestigationTab>(initialTab ?? "events");
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
 
   if (!projectId || !environmentId) {
     return (
@@ -46,10 +61,16 @@ export function InvestigationWorkspace({ client, projectId, environmentId }: Pro
           LLM
         </button>
       </nav>
-      {activeTab === "events" ? <EventInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
-      {activeTab === "errors" ? <ErrorInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
+      {activeTab === "events" ? (
+        <EventInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.events} projectId={projectId} />
+      ) : null}
+      {activeTab === "errors" ? (
+        <ErrorInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.errors} projectId={projectId} />
+      ) : null}
       {activeTab === "traces" ? <TraceInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
-      {activeTab === "llm" ? <LlmInvestigationPanel client={client} environmentId={environmentId} projectId={projectId} /> : null}
+      {activeTab === "llm" ? (
+        <LlmInvestigationPanel client={client} environmentId={environmentId} initialFilters={initialFilters?.llm} projectId={projectId} />
+      ) : null}
     </section>
   );
 }

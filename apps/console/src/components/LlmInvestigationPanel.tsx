@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { LlmAggregates, LlmCallRecord, QueryFilters } from "../api/types";
 import { LlmAggregateStrip } from "./LlmAggregateStrip";
@@ -10,6 +10,7 @@ type Props = {
   client: ApiClient;
   projectId: string;
   environmentId: string;
+  initialFilters?: Partial<LlmFilterValues>;
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
@@ -69,9 +70,15 @@ function queryFromValues(projectId: string, environmentId: string, values: LlmFi
   return query;
 }
 
-export function LlmInvestigationPanel({ client, projectId, environmentId }: Props) {
-  const [draftFilters, setDraftFilters] = useState<LlmFilterValues>(defaultFilters);
-  const [appliedFilters, setAppliedFilters] = useState<LlmFilterValues>(defaultFilters);
+function filtersWithDefaults(initialFilters?: Partial<LlmFilterValues>): LlmFilterValues {
+  return { ...defaultFilters, ...initialFilters };
+}
+
+export function LlmInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
+  const initialFilterKey = JSON.stringify(initialFilters ?? {});
+  const hasSyncedInitialFilters = useRef(false);
+  const [draftFilters, setDraftFilters] = useState<LlmFilterValues>(() => filtersWithDefaults(initialFilters));
+  const [appliedFilters, setAppliedFilters] = useState<LlmFilterValues>(() => filtersWithDefaults(initialFilters));
   const [reloadToken, setReloadToken] = useState(0);
   const [aggregateReloadToken, setAggregateReloadToken] = useState(0);
   const [calls, setCalls] = useState<LlmCallRecord[]>([]);
@@ -106,6 +113,17 @@ export function LlmInvestigationPanel({ client, projectId, environmentId }: Prop
       cancelled = true;
     };
   }, [client, query, reloadToken]);
+
+  useEffect(() => {
+    if (!hasSyncedInitialFilters.current) {
+      hasSyncedInitialFilters.current = true;
+      return;
+    }
+
+    const next = filtersWithDefaults(initialFilters);
+    setDraftFilters(next);
+    setAppliedFilters(next);
+  }, [initialFilterKey]);
 
   useEffect(() => {
     let cancelled = false;

@@ -101,6 +101,45 @@ describe("ErrorInvestigationPanel", () => {
     expect(api.listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
 
+  it("applies initial filters and updates them when they change", async () => {
+    const api = client({
+      listErrors: vi.fn().mockResolvedValue({ data: [] })
+    });
+
+    const { rerender } = render(
+      <ErrorInvestigationPanel
+        client={api}
+        environmentId="env_1"
+        initialFilters={{ severity: "critical", status: "open" }}
+        projectId="prj_1"
+      />
+    );
+
+    expect(await screen.findByText("No errors found")).toBeInTheDocument();
+    expect(screen.getByLabelText("Severity")).toHaveValue("critical");
+    expect(screen.getByLabelText("Status")).toHaveValue("open");
+    expect(api.listErrors).toHaveBeenLastCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      severity: "critical",
+      status: "open",
+      limit: 50
+    });
+
+    rerender(<ErrorInvestigationPanel client={api} environmentId="env_1" initialFilters={{ tenantId: "tenant_1" }} projectId="prj_1" />);
+
+    await waitFor(() =>
+      expect(api.listErrors).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        tenantId: "tenant_1",
+        limit: 50
+      })
+    );
+    expect(screen.getByLabelText("Severity")).toHaveValue("");
+    expect(screen.getByLabelText("Tenant")).toHaveValue("tenant_1");
+  });
+
   it("applies exact filters only after Apply", async () => {
     const api = client({
       listErrors: vi.fn().mockResolvedValue({ data: [] })

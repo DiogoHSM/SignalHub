@@ -107,6 +107,52 @@ describe("LlmInvestigationPanel", () => {
     expect(api.getLlmAggregates).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
 
+  it("applies initial filters and updates them when they change", async () => {
+    const api = client({
+      listLlmCalls: vi.fn().mockResolvedValue({ data: [] }),
+      getLlmAggregates: vi.fn().mockResolvedValue({ data: aggregates() })
+    });
+
+    const { rerender } = render(
+      <LlmInvestigationPanel
+        client={api}
+        environmentId="env_1"
+        initialFilters={{ provider: "openai", model: "gpt-5" }}
+        projectId="prj_1"
+      />
+    );
+
+    expect(await screen.findByText("No LLM calls found")).toBeInTheDocument();
+    expect(screen.getByLabelText("Provider")).toHaveValue("openai");
+    expect(screen.getByLabelText("Model")).toHaveValue("gpt-5");
+    expect(api.listLlmCalls).toHaveBeenLastCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      provider: "openai",
+      model: "gpt-5",
+      limit: 50
+    });
+
+    rerender(<LlmInvestigationPanel client={api} environmentId="env_1" initialFilters={{ promptName: "summarize_signal" }} projectId="prj_1" />);
+
+    await waitFor(() =>
+      expect(api.listLlmCalls).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        promptName: "summarize_signal",
+        limit: 50
+      })
+    );
+    expect(api.getLlmAggregates).toHaveBeenLastCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      promptName: "summarize_signal",
+      limit: 50
+    });
+    expect(screen.getByLabelText("Provider")).toHaveValue("");
+    expect(screen.getByLabelText("Prompt")).toHaveValue("summarize_signal");
+  });
+
   it("applies filters only after Apply and clears selected call", async () => {
     const api = client({
       listLlmCalls: vi.fn().mockResolvedValue({ data: [llmCall({})] }),

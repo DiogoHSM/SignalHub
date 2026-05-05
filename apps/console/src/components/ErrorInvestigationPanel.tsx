@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { ErrorRecord, QueryFilters } from "../api/types";
 import { ErrorDetailDrawer } from "./ErrorDetailDrawer";
@@ -9,6 +9,7 @@ type Props = {
   client: ApiClient;
   projectId: string;
   environmentId: string;
+  initialFilters?: Partial<ErrorFilterValues>;
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
@@ -70,9 +71,15 @@ function queryFromValues(projectId: string, environmentId: string, values: Error
   return query;
 }
 
-export function ErrorInvestigationPanel({ client, projectId, environmentId }: Props) {
-  const [draftFilters, setDraftFilters] = useState<ErrorFilterValues>(defaultFilters);
-  const [appliedFilters, setAppliedFilters] = useState<ErrorFilterValues>(defaultFilters);
+function filtersWithDefaults(initialFilters?: Partial<ErrorFilterValues>): ErrorFilterValues {
+  return { ...defaultFilters, ...initialFilters };
+}
+
+export function ErrorInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
+  const initialFilterKey = JSON.stringify(initialFilters ?? {});
+  const hasSyncedInitialFilters = useRef(false);
+  const [draftFilters, setDraftFilters] = useState<ErrorFilterValues>(() => filtersWithDefaults(initialFilters));
+  const [appliedFilters, setAppliedFilters] = useState<ErrorFilterValues>(() => filtersWithDefaults(initialFilters));
   const [reloadToken, setReloadToken] = useState(0);
   const [errors, setErrors] = useState<ErrorRecord[]>([]);
   const [selectedError, setSelectedError] = useState<ErrorRecord | undefined>();
@@ -104,6 +111,17 @@ export function ErrorInvestigationPanel({ client, projectId, environmentId }: Pr
       cancelled = true;
     };
   }, [client, query, reloadToken]);
+
+  useEffect(() => {
+    if (!hasSyncedInitialFilters.current) {
+      hasSyncedInitialFilters.current = true;
+      return;
+    }
+
+    const next = filtersWithDefaults(initialFilters);
+    setDraftFilters(next);
+    setAppliedFilters(next);
+  }, [initialFilterKey]);
 
   function applyFilters() {
     setAppliedFilters({ ...draftFilters });

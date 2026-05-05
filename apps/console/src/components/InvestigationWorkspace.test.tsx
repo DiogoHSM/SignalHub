@@ -85,4 +85,31 @@ describe("InvestigationWorkspace", () => {
     expect(api.listLlmCalls).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
     expect(api.getLlmAggregates).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
+
+  it("opens the requested investigation tab with initial filters", async () => {
+    const listErrors = vi.fn().mockResolvedValue({ data: [] });
+    const api = client({
+      listErrors
+    });
+
+    render(
+      <InvestigationWorkspace
+        client={api}
+        environmentId="env_1"
+        initialFilters={{ errors: { severity: "critical" } }}
+        initialTab="errors"
+        projectId="prj_1"
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByText("No errors found")).toBeInTheDocument();
+    expect(screen.getByLabelText("Severity")).toHaveValue("critical");
+    expect(listErrors).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      severity: "critical",
+      limit: 50
+    });
+  });
 });

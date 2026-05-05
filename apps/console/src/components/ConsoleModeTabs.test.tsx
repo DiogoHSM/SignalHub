@@ -8,16 +8,25 @@ afterEach(() => {
 });
 
 describe("ConsoleModeTabs", () => {
-  it("shows the active mode and switches modes", async () => {
+  it("renders setup overview and investigate tabs", () => {
     const onChange = vi.fn();
 
     render(<ConsoleModeTabs activeMode="setup" onChange={onChange} />);
 
     expect(screen.getByRole("button", { name: "Setup" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "false");
+  });
 
+  it("switches modes", async () => {
+    const onChange = vi.fn();
+
+    render(<ConsoleModeTabs activeMode="setup" onChange={onChange} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
     await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
 
+    expect(onChange).toHaveBeenCalledWith("overview");
     expect(onChange).toHaveBeenCalledWith("investigate");
   });
 });

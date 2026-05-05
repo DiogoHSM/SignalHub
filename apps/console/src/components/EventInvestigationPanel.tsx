@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { EventRecord, QueryFilters } from "../api/types";
 import { EventDetailDrawer } from "./EventDetailDrawer";
@@ -9,6 +9,7 @@ type Props = {
   client: ApiClient;
   projectId: string;
   environmentId: string;
+  initialFilters?: Partial<EventFilterValues>;
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
@@ -62,9 +63,15 @@ function queryFromValues(projectId: string, environmentId: string, values: Event
   return query;
 }
 
-export function EventInvestigationPanel({ client, projectId, environmentId }: Props) {
-  const [draftFilters, setDraftFilters] = useState<EventFilterValues>(defaultFilters);
-  const [appliedFilters, setAppliedFilters] = useState<EventFilterValues>(defaultFilters);
+function filtersWithDefaults(initialFilters?: Partial<EventFilterValues>): EventFilterValues {
+  return { ...defaultFilters, ...initialFilters };
+}
+
+export function EventInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
+  const initialFilterKey = JSON.stringify(initialFilters ?? {});
+  const hasSyncedInitialFilters = useRef(false);
+  const [draftFilters, setDraftFilters] = useState<EventFilterValues>(() => filtersWithDefaults(initialFilters));
+  const [appliedFilters, setAppliedFilters] = useState<EventFilterValues>(() => filtersWithDefaults(initialFilters));
   const [reloadToken, setReloadToken] = useState(0);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventRecord | undefined>();
@@ -96,6 +103,17 @@ export function EventInvestigationPanel({ client, projectId, environmentId }: Pr
       cancelled = true;
     };
   }, [client, query, reloadToken]);
+
+  useEffect(() => {
+    if (!hasSyncedInitialFilters.current) {
+      hasSyncedInitialFilters.current = true;
+      return;
+    }
+
+    const next = filtersWithDefaults(initialFilters);
+    setDraftFilters(next);
+    setAppliedFilters(next);
+  }, [initialFilterKey]);
 
   function applyFilters() {
     setAppliedFilters({ ...draftFilters });
