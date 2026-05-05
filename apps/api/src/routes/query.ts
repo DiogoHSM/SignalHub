@@ -31,6 +31,34 @@ export type OverviewFilters = {
   window: OverviewWindow;
 };
 
+export type EntityWindow = "24h" | "7d" | "30d";
+
+export type EntitySignalType = "event" | "error" | "trace" | "llm";
+
+export type EntityCursor = {
+  timestamp: string;
+  type: EntitySignalType;
+  id: string;
+};
+
+export type EntityTenantListFilters = {
+  projectId: string;
+  environmentId: string;
+  window: EntityWindow;
+  search?: string;
+  limit: number;
+};
+
+export type EntityTenantDetailFilters = {
+  projectId: string;
+  environmentId: string;
+  window: EntityWindow;
+  userId?: string;
+  signalType?: EntitySignalType;
+  limit: number;
+  cursor?: EntityCursor;
+};
+
 export type QueryListResult<T = unknown> =
   | T[]
   | {
@@ -49,6 +77,8 @@ export type QueryDependencies = {
   getLlmAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getTraceAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getOverview?: (filters: OverviewFilters) => Promise<unknown>;
+  listEntityTenants?: (filters: EntityTenantListFilters) => Promise<unknown>;
+  getEntityTenantDetail?: (tenantId: string, filters: EntityTenantDetailFilters) => Promise<unknown>;
 };
 
 export type QueryRouteOptions = {
@@ -57,6 +87,7 @@ export type QueryRouteOptions = {
 };
 
 const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
+const entityTenantParamsSchema = z.object({ tenantKey: z.string().trim().min(1) });
 
 type RawQuery = Record<string, unknown>;
 
@@ -226,6 +257,132 @@ function parseOverviewFilters(query: unknown): OverviewFilters | undefined {
   };
 }
 
+function parseEntityWindow(raw: RawQuery): EntityWindow | undefined {
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "7d";
+  if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return rawWindow;
+}
+
+function parseEntityLimit(raw: RawQuery): number {
+  const value = optionalNonEmpty(raw, "limit");
+  if (!value) {
+    return 50;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 50;
+  }
+
+  const integer = Math.floor(parsed);
+  if (integer < 1) {
+    return 1;
+  }
+
+  return Math.min(integer, 100);
+}
+
+function isEntitySignalType(value: unknown): value is EntitySignalType {
+  return value === "event" || value === "error" || value === "trace" || value === "llm";
+}
+
+function parseEntitySignalType(raw: RawQuery): EntitySignalType | undefined | null {
+  const value = optionalNonEmpty(raw, "signal_type");
+  if (!value) {
+    return undefined;
+  }
+
+  return isEntitySignalType(value) ? value : null;
+}
+
+function parseEntityCursor(raw: RawQuery): EntityCursor | undefined | null {
+  const value = optionalNonEmpty(raw, "cursor");
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+    if (!decoded || typeof decoded !== "object") {
+      return null;
+    }
+
+    const cursor = decoded as Record<string, unknown>;
+    const timestamp = typeof cursor.timestamp === "string" ? cursor.timestamp.trim() : "";
+    const id = typeof cursor.id === "string" ? cursor.id.trim() : "";
+    if (!timestamp || Number.isNaN(new Date(timestamp).getTime()) || !isEntitySignalType(cursor.type) || !id) {
+      return null;
+    }
+
+    return {
+      timestamp,
+      type: cursor.type,
+      id
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseEntityTenantListFilters(query: unknown): EntityTenantListFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  const window = parseEntityWindow(raw);
+  if (!projectId || !environmentId || !window) {
+    return undefined;
+  }
+
+  const filters: EntityTenantListFilters = {
+    projectId,
+    environmentId,
+    window,
+    limit: parseEntityLimit(raw)
+  };
+
+  const search = optionalNonEmpty(raw, "search");
+  if (search) {
+    filters.search = search;
+  }
+
+  return filters;
+}
+
+function parseEntityTenantDetailFilters(query: unknown): EntityTenantDetailFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  const window = parseEntityWindow(raw);
+  const signalType = parseEntitySignalType(raw);
+  const cursor = parseEntityCursor(raw);
+  if (!projectId || !environmentId || !window || signalType === null || cursor === null) {
+    return undefined;
+  }
+
+  const filters: EntityTenantDetailFilters = {
+    projectId,
+    environmentId,
+    window,
+    limit: parseEntityLimit(raw)
+  };
+
+  const userId = optionalNonEmpty(raw, "user_id");
+  if (userId) {
+    filters.userId = userId;
+  }
+  if (signalType) {
+    filters.signalType = signalType;
+  }
+  if (cursor) {
+    filters.cursor = cursor;
+  }
+
+  return filters;
+}
+
 async function requireHumanUser(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -364,8 +521,55 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
   }
 }
 
+async function handleEntityTenantListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listEntityTenants) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEntityTenantListFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.listEntityTenants(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEntityTenantDetailRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEntityTenantDetail) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = entityTenantParamsSchema.safeParse(request.params);
+  const filters = parseEntityTenantDetailFilters(request.query);
+  if (!params.success || params.data.tenantKey === "_unassigned" || !filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEntityTenantDetail(params.data.tenantKey, filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
+  app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
+  app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));
 
   app.get("/query/events", (request, reply) =>
     handleListRoute(

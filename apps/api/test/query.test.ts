@@ -599,6 +599,240 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("forwards default entity tenant list filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            window: "7d",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+            tenants: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        window: "7d",
+        generatedAt: "2026-05-05T12:00:00.000Z",
+        scope: { projectId: "prj_1", environmentId: "env_1" },
+        range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+        tenants: []
+      }
+    });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 50 }]);
+  });
+
+  it("forwards explicit entity tenant list filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            window: "30d",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "2026-04-05T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+            tenants: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants?project_id=prj_1&environment_id=env_1&window=30d&search=%20tenant_1%20&limit=500"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "30d", search: "tenant_1", limit: 100 }
+    ]);
+  });
+
+  it("rejects unsupported entity windows", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants?project_id=prj_1&environment_id=env_1&window=custom"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("forwards entity tenant detail filters and decoded cursor", async () => {
+    const receivedFilters: unknown[] = [];
+    const cursor = Buffer.from(JSON.stringify({ timestamp: "2026-05-05T11:00:00.000Z", type: "error", id: "err_1" })).toString(
+      "base64url"
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEntityTenantDetail: async (tenantId, filters) => {
+          receivedFilters.push({ tenantId, filters });
+          return {
+            window: "24h",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1", tenantId },
+            timeline: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/entities/tenants/tenant%2Fone?project_id=prj_1&environment_id=env_1&window=24h&user_id=%20usr_1%20" +
+        `&signal_type=error&limit=25&cursor=${cursor}`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        window: "24h",
+        generatedAt: "2026-05-05T12:00:00.000Z",
+        scope: { projectId: "prj_1", environmentId: "env_1", tenantId: "tenant/one" },
+        timeline: []
+      }
+    });
+    expect(receivedFilters).toEqual([
+      {
+        tenantId: "tenant/one",
+        filters: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          window: "24h",
+          userId: "usr_1",
+          signalType: "error",
+          limit: 25,
+          cursor: { timestamp: "2026-05-05T11:00:00.000Z", type: "error", id: "err_1" }
+        }
+      }
+    ]);
+  });
+
+  it("rejects unassigned entity tenant detail routes", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEntityTenantDetail: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants/_unassigned?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects invalid entity tenant detail cursors", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEntityTenantDetail: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants/tenant_1?project_id=prj_1&environment_id=env_1&cursor=not-json"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 501 when entity query dependency methods are missing", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {}
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants?project_id=prj_1&environment_id=env_1"
+    });
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants/tenant_1?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(listResponse.statusCode).toBe(501);
+    expect(listResponse.json()).toEqual({ error: "query_method_unavailable" });
+    expect(detailResponse.statusCode).toBe(501);
+    expect(detailResponse.json()).toEqual({ error: "query_method_unavailable" });
+  });
+
+  it("returns 503 when entity query dependencies throw", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async () => {
+          throw new Error("database down");
+        },
+        getEntityTenantDetail: async () => {
+          throw new Error("database down");
+        }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants?project_id=prj_1&environment_id=env_1"
+    });
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants/tenant_1?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(listResponse.statusCode).toBe(503);
+    expect(listResponse.json()).toEqual({ error: "query_unavailable" });
+    expect(detailResponse.statusCode).toBe(503);
+    expect(detailResponse.json()).toEqual({ error: "query_unavailable" });
+  });
+
   it("returns 501 when overview query dependency is missing", async () => {
     app = await buildApp({
       readiness,
