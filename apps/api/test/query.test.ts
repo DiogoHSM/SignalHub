@@ -528,6 +528,113 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards default overview filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getOverview: async (filters) => {
+          receivedFilters.push(filters);
+          return { ok: true };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/overview?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { ok: true } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "24h" }]);
+  });
+
+  it("forwards explicit overview windows", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getOverview: async (filters) => {
+          receivedFilters.push(filters);
+          return { ok: true };
+        }
+      }
+    });
+
+    for (const window of ["24h", "7d", "30d"]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/query/overview?project_id=prj_1&environment_id=env_1&window=${window}`
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    expect(receivedFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "24h" },
+      { projectId: "prj_1", environmentId: "env_1", window: "7d" },
+      { projectId: "prj_1", environmentId: "env_1", window: "30d" }
+    ]);
+  });
+
+  it("rejects unsupported overview windows", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getOverview: async () => ({ ok: true })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/overview?project_id=prj_1&environment_id=env_1&window=custom"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 501 when overview query dependency is missing", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {}
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/overview?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "query_method_unavailable" });
+  });
+
+  it("returns 503 when overview query dependency throws", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getOverview: async () => {
+          throw new Error("database down");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/overview?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "query_unavailable" });
+  });
+
   it("returns 501 when a query dependency method is missing", async () => {
     app = await buildApp({
       readiness,
