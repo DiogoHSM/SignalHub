@@ -152,6 +152,110 @@ export type LlmAggregates = {
   totalCostUsd: string;
 };
 
+export type OverviewWindow = "24h" | "7d" | "30d";
+
+export type OverviewTrendBucket = "hour" | "day";
+
+export type OverviewErrorSeverity = "debug" | "info" | "warning" | "error" | "critical" | "fatal" | (string & {});
+
+export type OverviewQuery = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  tenantId?: string;
+  eventName?: string;
+  status?: string;
+};
+
+export type OverviewRecentError = {
+  id: string;
+  timestamp: string;
+  message: string;
+  type: string | null;
+  severity: OverviewErrorSeverity;
+  status: string;
+  tenantId: string | null;
+  userId: string | null;
+  traceId: string | null;
+};
+
+export type OverviewRecentTrace = {
+  id: string;
+  timestamp: string;
+  name: string;
+  status: string;
+  durationMs: number | null;
+  tenantId: string | null;
+  userId: string | null;
+};
+
+export type OverviewRecentLlmCall = {
+  id: string;
+  timestamp: string;
+  provider: string;
+  model: string;
+  promptName: string | null;
+  status: string;
+  costUsd: string;
+  tenantId: string | null;
+  userId: string | null;
+  traceId: string | null;
+};
+
+export type OverviewResponse = {
+  window: OverviewWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+    bucket: OverviewTrendBucket;
+  };
+  totals: {
+    events: number;
+    activeUsers: number;
+    activeTenants: number;
+    errors: number;
+    openErrors: number;
+    severeErrors: number;
+    traces: number;
+    failedTraces: number;
+    averageTraceDurationMs: number;
+    p95TraceDurationMs: number | null;
+    llmCalls: number;
+    failedLlmCalls: number;
+    llmInputTokens: number;
+    llmOutputTokens: number;
+    llmCostUsd: string;
+  };
+  trends: {
+    usage: Array<{ bucketStart: string; events: number; traces: number; llmCalls: number }>;
+    errors: Array<{ bucketStart: string; errors: number; openErrors: number; severeErrors: number }>;
+    latency: Array<{ bucketStart: string; averageTraceDurationMs: number; p95TraceDurationMs: number | null }>;
+    aiCost: Array<{ bucketStart: string; llmCostUsd: string; llmCalls: number }>;
+  };
+  top: {
+    events: Array<{ name: string; total: number }>;
+    tenantsByUsage: Array<{ tenantId: string; total: number }>;
+    tenantsByErrors: Array<{ tenantId: string; total: number }>;
+    tenantsByLlmCalls: Array<{ tenantId: string; total: number }>;
+    tenantsByLlmCost: Array<{ tenantId: string; totalCostUsd: string }>;
+    llmProviders: Array<{ provider: string; total: number; totalCostUsd: string }>;
+    llmModels: Array<{ model: string; total: number; totalCostUsd: string }>;
+    llmPrompts: Array<{ promptName: string; total: number; totalCostUsd: string }>;
+    errorSeverity: Array<{ severity: OverviewErrorSeverity; total: number }>;
+    errorStatus: Array<{ status: string; total: number }>;
+  };
+  recentSignals: {
+    errors: OverviewRecentError[];
+    failedTraces: OverviewRecentTrace[];
+    failedLlmCalls: OverviewRecentLlmCall[];
+  };
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;

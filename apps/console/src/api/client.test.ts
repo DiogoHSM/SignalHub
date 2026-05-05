@@ -12,6 +12,46 @@ function emptyResponse(status: number): Response {
   return new Response(null, { status });
 }
 
+function overviewResponse() {
+  return {
+    window: "24h",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-05-04T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z", bucket: "hour" },
+    totals: {
+      events: 0,
+      activeUsers: 0,
+      activeTenants: 0,
+      errors: 0,
+      openErrors: 0,
+      severeErrors: 0,
+      traces: 0,
+      failedTraces: 0,
+      averageTraceDurationMs: 0,
+      p95TraceDurationMs: null,
+      llmCalls: 0,
+      failedLlmCalls: 0,
+      llmInputTokens: 0,
+      llmOutputTokens: 0,
+      llmCostUsd: "0"
+    },
+    trends: { usage: [], errors: [], latency: [], aiCost: [] },
+    top: {
+      events: [],
+      tenantsByUsage: [],
+      tenantsByErrors: [],
+      tenantsByLlmCalls: [],
+      tenantsByLlmCost: [],
+      llmProviders: [],
+      llmModels: [],
+      llmPrompts: [],
+      errorSeverity: [],
+      errorStatus: []
+    },
+    recentSignals: { errors: [], failedTraces: [], failedLlmCalls: [] }
+  };
+}
+
 describe("createApiClient", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -185,6 +225,41 @@ describe("createApiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/query/aggregates/llm?project_id=prj_1&environment_id=env_1&provider=openai&model=gpt-5&prompt_name=generate_sql&status=success",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes overview query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: overviewResponse() }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getOverview({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/overview?project_id=prj_1&environment_id=env_1&window=7d",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("does not encode investigation filters for overview queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: overviewResponse() }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getOverview({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "24h",
+      tenantId: "tenant_1",
+      status: "open",
+      eventName: "checkout.started"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/overview?project_id=prj_1&environment_id=env_1&window=24h",
       expect.objectContaining({ method: "GET" })
     );
   });

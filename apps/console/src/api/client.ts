@@ -8,6 +8,8 @@ import type {
   EventRecord,
   LlmAggregates,
   LlmCallRecord,
+  OverviewQuery,
+  OverviewResponse,
   Project,
   QueryFilters,
   QueryListResponse,
@@ -52,6 +54,7 @@ export type ApiClient = {
   getLlmAggregates: (filters: QueryFilters) => Promise<AggregateResponse<LlmAggregates>>;
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
+  getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   listUsers: () => Promise<{ users: User[] }>;
   createUser: (input: { email: string; password: string; isAdmin: boolean }) => Promise<{ user: User }>;
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
@@ -155,6 +158,15 @@ function queryPath(
   return `${route}?${params.toString()}`;
 }
 
+function overviewPath(query: OverviewQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+
+  return `/query/overview?${params.toString()}`;
+}
+
 export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
@@ -211,6 +223,7 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
     getErrorAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
+    getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
     listUsers: () => request<{ users: User[] }>(path(apiBasePath, "/admin/users")),
     createUser: (input) => request<{ user: User }>(path(apiBasePath, "/admin/users"), { method: "POST", body: input }),
     updateUser: (id, input) =>
