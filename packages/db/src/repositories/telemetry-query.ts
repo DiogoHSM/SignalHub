@@ -790,7 +790,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       ${bucketExpr} as bucket_start,
       count(*) as errors,
       count(*) filter (where status = 'open') as open_errors,
-      count(*) filter (where severity in ('critical', 'error')) as severe_errors
+      count(*) filter (where severity in ('fatal', 'critical', 'error')) as severe_errors
     from errors
     where project_id = ${filters.projectId}
       and environment_id = ${filters.environmentId}
@@ -948,15 +948,14 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
   `.execute(db);
 
   const llmPromptsRows = await sql<{ prompt_name: string; total: unknown; total_cost_usd: string }>`
-    select prompt_name, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
+    select coalesce(prompt_name, 'Unspecified') as prompt_name, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
-      and prompt_name is not null
-    group by prompt_name
-    order by total desc, sum(cost_usd) desc, prompt_name asc
+    group by coalesce(prompt_name, 'Unspecified')
+    order by total desc, prompt_name asc
     limit 5
   `.execute(db);
 

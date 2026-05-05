@@ -505,6 +505,17 @@ describe("repositories", () => {
       });
       await insertError(db, {
         ...base,
+        id: "err_fatal",
+        message: "Worker crashed",
+        severity: "fatal",
+        status: "open",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        traceId: "trace_failed",
+        timestamp: inWindow
+      });
+      await insertError(db, {
+        ...base,
         id: "err_warning",
         message: "Slow response",
         severity: "warning",
@@ -572,6 +583,19 @@ describe("repositories", () => {
         traceId: "trace_failed",
         timestamp: olderInWindow
       });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_unspecified_prompt",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: null as unknown as string,
+        inputTokens: 5,
+        outputTokens: 5,
+        costUsd: "0.050000",
+        latencyMs: 500,
+        status: "success",
+        timestamp: inWindow
+      });
 
       const overview = await getOverview(db, {
         projectId: project.id,
@@ -587,25 +611,25 @@ describe("repositories", () => {
         events: 3,
         activeUsers: 3,
         activeTenants: 2,
-        errors: 2,
-        openErrors: 1,
+        errors: 3,
+        openErrors: 2,
         traces: 2,
         failedTraces: 1,
         averageTraceDurationMs: 200,
         p95TraceDurationMs: expect.any(Number),
-        llmCalls: 2,
+        llmCalls: 3,
         failedLlmCalls: 1,
-        llmInputTokens: 120,
-        llmOutputTokens: 60,
-        llmCostUsd: "0.400000"
+        llmInputTokens: 125,
+        llmOutputTokens: 65,
+        llmCostUsd: "0.450000"
       });
       expect(overview.top.events).toEqual([
         { name: "dashboard_created", total: 2 },
         { name: "chat_started", total: 1 }
       ]);
-      expect(overview.top.tenantsByUsage[0]).toEqual({ tenantId: "tenant_a", total: 5 });
+      expect(overview.top.tenantsByUsage[0]).toEqual({ tenantId: "tenant_a", total: 6 });
       expect(overview.top.tenantsByErrors).toEqual([
-        { tenantId: "tenant_a", total: 1 },
+        { tenantId: "tenant_a", total: 2 },
         { tenantId: "tenant_b", total: 1 }
       ]);
       expect(overview.top.tenantsByLlmCost).toEqual([
@@ -613,14 +637,20 @@ describe("repositories", () => {
         { tenantId: "tenant_b", totalCostUsd: "0.100000" }
       ]);
       expect(overview.top.llmModels).toEqual([
-        { model: "gpt-5", total: 1, totalCostUsd: "0.300000" },
+        { model: "gpt-5", total: 2, totalCostUsd: "0.350000" },
         { model: "claude", total: 1, totalCostUsd: "0.100000" }
       ]);
+      expect(overview.top.llmPrompts).toEqual([
+        { promptName: "Unspecified", total: 1, totalCostUsd: "0.050000" },
+        { promptName: "generate_sql", total: 1, totalCostUsd: "0.300000" },
+        { promptName: "summarize_error", total: 1, totalCostUsd: "0.100000" }
+      ]);
       expect(overview.top.errorStatus).toEqual([
-        { status: "open", total: 1 },
+        { status: "open", total: 2 },
         { status: "resolved", total: 1 }
       ]);
       expect(overview.recent.errors).toEqual([
+        expect.objectContaining({ id: "err_fatal", message: "Worker crashed", severity: "fatal", status: "open" }),
         expect.objectContaining({ id: "err_recent", message: "Checkout failed", severity: "critical", status: "open" }),
         expect.objectContaining({ id: "err_warning", message: "Slow response", severity: "warning", status: "resolved" })
       ]);
@@ -633,6 +663,11 @@ describe("repositories", () => {
       expect(overview.trends.usage.map((bucket) => bucket.bucketStart)).toEqual(
         overview.trends.aiCost.map((bucket) => bucket.bucketStart)
       );
+      expect(overview.trends.errors.find((bucket) => bucket.bucketStart === "2026-05-05T10:00:00.000Z")).toMatchObject({
+        errors: 2,
+        openErrors: 2,
+        severeErrors: 2
+      });
     });
   });
 
