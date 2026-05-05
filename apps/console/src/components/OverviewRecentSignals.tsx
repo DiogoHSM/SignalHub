@@ -10,7 +10,7 @@ function formatMeta(parts: Array<string | number | null | undefined>): string {
 
 export function OverviewRecentSignals({ recent }: Props) {
   return (
-    <section className="overview-recent" aria-label="Recent important signals">
+    <section className="overview-recent" aria-label="Overview recent signals">
       <article className="overview-recent-list">
         <h3>Recent errors</h3>
         {recent.errors.length === 0 ? <p className="muted-text">No recent errors.</p> : null}

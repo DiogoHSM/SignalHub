@@ -21,9 +21,55 @@ type Props = {
 type LoadState = "loading" | "ready" | "unavailable";
 
 const windows: OverviewWindow[] = ["24h", "7d", "30d"];
+const kpiPlaceholderCount = 11;
+const topListPlaceholderCount = 10;
+const recentPlaceholderCount = 3;
 
 function isEmptyish(data: OverviewResponse): boolean {
   return data.kpis.events === 0 && data.kpis.errors === 0 && data.kpis.traces === 0 && data.kpis.llmCalls === 0;
+}
+
+function OverviewLoadingLayout() {
+  return (
+    <>
+      <section className="overview-kpis overview-loading-grid" aria-label="Overview KPIs">
+        {Array.from({ length: kpiPlaceholderCount }, (_, index) => (
+          <article className="overview-kpi overview-placeholder" key={index}>
+            <span />
+            <strong />
+          </article>
+        ))}
+      </section>
+      <section className="overview-trends overview-loading-grid" aria-label="Overview trends">
+        {Array.from({ length: 4 }, (_, index) => (
+          <article className="overview-trend overview-placeholder" key={index}>
+            <span />
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 100 40" preserveAspectRatio="none">
+              <polyline fill="none" points="0,34 50,20 100,28" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </article>
+        ))}
+      </section>
+      <section className="overview-lists overview-loading-grid" aria-label="Overview top lists">
+        {Array.from({ length: topListPlaceholderCount }, (_, index) => (
+          <article className="overview-list overview-placeholder" key={index}>
+            <span />
+            <span />
+            <span />
+          </article>
+        ))}
+      </section>
+      <section className="overview-recent overview-loading-grid" aria-label="Overview recent signals">
+        {Array.from({ length: recentPlaceholderCount }, (_, index) => (
+          <article className="overview-recent-list overview-placeholder" key={index}>
+            <span />
+            <span />
+            <span />
+          </article>
+        ))}
+      </section>
+    </>
+  );
 }
 
 export function OverviewDashboard({ client, projectId, environmentId, onDrilldown }: Props) {
@@ -87,7 +133,12 @@ export function OverviewDashboard({ client, projectId, environmentId, onDrilldow
         </div>
       </div>
 
-      {state === "loading" ? <p className="muted-text">Loading overview</p> : null}
+      {state === "loading" ? (
+        <>
+          <p className="muted-text">Loading overview</p>
+          <OverviewLoadingLayout />
+        </>
+      ) : null}
       {state === "unavailable" ? (
         <div className="status-box unavailable">
           <strong>Overview unavailable</strong>

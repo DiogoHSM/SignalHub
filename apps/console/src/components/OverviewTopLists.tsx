@@ -10,6 +10,7 @@ type Row = {
   label: string;
   value: string;
   drilldown: OverviewDrilldown;
+  disabled?: boolean;
 };
 
 type List = {
@@ -28,7 +29,7 @@ function renderList(list: List, onDrilldown: Props["onDrilldown"]) {
       <h3>{list.title}</h3>
       {list.rows.length === 0 ? <p className="muted-text">{list.emptyText}</p> : null}
       {list.rows.map((row) => (
-        <button key={`${list.title}-${row.label}`} onClick={() => onDrilldown(row.drilldown)} type="button">
+        <button disabled={row.disabled} key={`${list.title}-${row.label}`} onClick={() => onDrilldown(row.drilldown)} type="button">
           <span>{row.label}</span>
           <strong>{row.value}</strong>
         </button>
@@ -90,7 +91,8 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       rows: top.llmPrompts.map((row) => ({
         label: row.promptName,
         value: `${count(row.total)} / ${row.totalCostUsd}`,
-        drilldown: { tab: "llm", filters: { promptName: row.promptName } }
+        drilldown: { tab: "llm", filters: { promptName: row.promptName } },
+        disabled: row.promptName === "Unspecified"
       }))
     },
     {

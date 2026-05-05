@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -169,8 +169,9 @@ describe("OverviewDashboard", () => {
     render(<OverviewDashboard client={api} environmentId="env_1" onDrilldown={vi.fn()} projectId="prj_1" />);
 
     expect(screen.getByText("Loading overview")).toBeInTheDocument();
-    expect(await screen.findByText("Events")).toBeInTheDocument();
-    expect(screen.getByText("18")).toBeInTheDocument();
+    expect(await screen.findByText("18")).toBeInTheDocument();
+    const kpis = screen.getByLabelText("Overview KPIs");
+    expect(within(kpis).getByText("Events")).toBeInTheDocument();
     expect(screen.getByText("Active users")).toBeInTheDocument();
     expect(screen.getByText("Active tenants")).toBeInTheDocument();
     expect(screen.getByText("LLM cost")).toBeInTheDocument();
@@ -182,6 +183,41 @@ describe("OverviewDashboard", () => {
     expect(screen.getByText("Checkout fetch failed")).toBeInTheDocument();
     expect(screen.getByText("checkout")).toBeInTheDocument();
     expect(api.getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" });
+  });
+
+  it("preserves the overview layout shape while loading", () => {
+    const pending = deferred<{ data: OverviewResponse }>();
+    const api = client({
+      getOverview: vi.fn().mockReturnValue(pending.promise)
+    });
+
+    render(<OverviewDashboard client={api} environmentId="env_1" onDrilldown={vi.fn()} projectId="prj_1" />);
+
+    expect(screen.getByText("Loading overview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Overview KPIs")).toBeInTheDocument();
+    expect(screen.getByLabelText("Overview trends")).toBeInTheDocument();
+    expect(screen.getByLabelText("Overview top lists")).toBeInTheDocument();
+    expect(screen.getByLabelText("Overview recent signals")).toBeInTheDocument();
+  });
+
+  it("renders approved usage and error trend series", async () => {
+    const api = client({
+      getOverview: vi.fn().mockResolvedValue({ data: overviewResponse() })
+    });
+
+    render(<OverviewDashboard client={api} environmentId="env_1" onDrilldown={vi.fn()} projectId="prj_1" />);
+
+    const usageTrend = (await screen.findByText("Usage trend")).closest("article");
+    const errorTrend = screen.getByText("Error trend").closest("article");
+
+    expect(usageTrend).not.toBeNull();
+    expect(errorTrend).not.toBeNull();
+    expect(within(usageTrend!).getByText("Events")).toBeInTheDocument();
+    expect(within(usageTrend!).getByText("Traces")).toBeInTheDocument();
+    expect(within(usageTrend!).getByText("LLM calls")).toBeInTheDocument();
+    expect(within(errorTrend!).getByText("Errors")).toBeInTheDocument();
+    expect(within(errorTrend!).getByText("Open")).toBeInTheDocument();
+    expect(within(errorTrend!).getByText("Severe")).toBeInTheDocument();
   });
 
   it("reloads when the window changes", async () => {
@@ -245,6 +281,28 @@ describe("OverviewDashboard", () => {
     expect(onDrilldown).toHaveBeenCalledWith({ tab: "events", filters: { eventName: "dashboard_created" } });
     expect(onDrilldown).toHaveBeenCalledWith({ tab: "errors", filters: { severity: "critical" } });
     expect(onDrilldown).toHaveBeenCalledWith({ tab: "llm", filters: { model: "gpt-5" } });
+  });
+
+  it("does not drill into the unspecified prompt sentinel", async () => {
+    const onDrilldown = vi.fn();
+    const api = client({
+      getOverview: vi.fn().mockResolvedValue({
+        data: overviewResponse({
+          top: {
+            ...overviewResponse().top,
+            llmPrompts: [{ promptName: "Unspecified", total: 3, totalCostUsd: "0.750000" }]
+          }
+        })
+      })
+    });
+
+    render(<OverviewDashboard client={api} environmentId="env_1" onDrilldown={onDrilldown} projectId="prj_1" />);
+
+    const unspecified = await screen.findByRole("button", { name: /Unspecified/ });
+    expect(unspecified).toBeDisabled();
+    await userEvent.click(unspecified);
+
+    expect(onDrilldown).not.toHaveBeenCalled();
   });
 
   it("handles empty and zero trend data without invalid SVG points", async () => {

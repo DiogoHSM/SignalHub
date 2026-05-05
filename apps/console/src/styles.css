@@ -329,6 +329,47 @@ select {
   color: #2563eb;
 }
 
+.overview-trend-line.series-1,
+.overview-trend-legend .series-1 {
+  color: #2563eb;
+  stroke: #2563eb;
+}
+
+.overview-trend-line.series-2,
+.overview-trend-legend .series-2 {
+  color: #059669;
+  stroke: #059669;
+}
+
+.overview-trend-line.series-3,
+.overview-trend-legend .series-3 {
+  color: #dc2626;
+  stroke: #dc2626;
+}
+
+.overview-trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.overview-trend-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.overview-trend-legend span::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
 .overview-list button {
   display: flex;
   align-items: center;
@@ -346,6 +387,11 @@ select {
 
 .overview-list button:last-child {
   border-bottom: 0;
+}
+
+.overview-list button:disabled {
+  color: #64748b;
+  cursor: not-allowed;
 }
 
 .overview-list button span,
@@ -378,6 +424,29 @@ select {
 .overview-recent-row span {
   color: #64748b;
   font-size: 12px;
+}
+
+.overview-placeholder {
+  min-height: 72px;
+}
+
+.overview-placeholder span,
+.overview-placeholder strong {
+  display: block;
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.overview-placeholder strong {
+  width: 65%;
+  height: 20px;
+  margin-top: 10px;
+}
+
+.overview-placeholder svg {
+  color: #e2e8f0;
 }
 
 .pill {
