@@ -265,7 +265,7 @@ describe("EntitiesInvestigationPanel", () => {
     });
     expect(onDrilldown).toHaveBeenCalledWith({
       tab: "llm",
-      filters: { tenantId: "tenant_alpha", provider: "openai", model: "gpt-5", status: "error" }
+      filters: { tenantId: "tenant_alpha", provider: "openai", model: "gpt-5", status: "error", traceId: "trace_1" }
     });
   });
 

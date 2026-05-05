@@ -161,6 +161,7 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
         provider: row.provider,
         model: row.model,
         status: row.status,
+        ...traceFilter,
         ...(promptName && promptName !== "Unspecified" ? { promptName } : {})
       }
     });
