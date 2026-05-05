@@ -59,15 +59,13 @@ export type ApiClient = {
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
-  listEntityTenants?: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
-  getEntityTenantDetail?: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
+  listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
+  getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
   listUsers: () => Promise<{ users: User[] }>;
   createUser: (input: { email: string; password: string; isAdmin: boolean }) => Promise<{ user: User }>;
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
 };
-
-type EntityApiClient = Required<Pick<ApiClient, "listEntityTenants" | "getEntityTenantDetail">>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -199,7 +197,7 @@ function entityTenantDetailPath(tenantId: string, query: TenantDetailQuery): str
   return `/query/entities/tenants/${encodePathSegment(tenantId)}?${params.toString()}`;
 }
 
-export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & EntityApiClient {
+export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
