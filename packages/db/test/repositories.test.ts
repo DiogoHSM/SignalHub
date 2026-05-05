@@ -1107,6 +1107,63 @@ describe("repositories", () => {
     });
   });
 
+  it("gets exact entity tenant detail summary outside the first tenant list page", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Entities Detail Exact Summary" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt
+      };
+
+      for (let index = 0; index < 101; index += 1) {
+        await insertError(db, {
+          ...base,
+          id: `err_detail_rank_${index}`,
+          timestamp: new Date("2026-05-05T11:00:00.000Z"),
+          message: `Ranked tenant ${index}`,
+          severity: "warning",
+          status: "resolved",
+          tenantId: `tenant_rank_${index}`,
+          userId: `user_rank_${index}`,
+          sessionId: `session_rank_${index}`
+        });
+      }
+      await insertEvent(db, {
+        ...base,
+        id: "evt_tail_summary",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        name: "tail.summary",
+        tenantId: "tenant_tail",
+        userId: "user_tail",
+        sessionId: "session_tail"
+      });
+
+      const detail = await getEntityTenantDetail(db, "tenant_tail", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 10,
+        now
+      });
+
+      expect(detail.tenant).toMatchObject({
+        tenantId: "tenant_tail",
+        events: 1,
+        errors: 0,
+        activeUsers: 1,
+        activeSessions: 1,
+        lastSeenAt: "2026-05-05T11:59:00.000Z"
+      });
+      expect(detail.timeline.map((row) => row.id)).toEqual(["evt_tail_summary"]);
+    });
+  });
+
   it("buckets overview trends in UTC when the database session timezone is not UTC", async () => {
     await withDb(async (db) => {
       await migrate(db);

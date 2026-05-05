@@ -343,33 +343,7 @@ export async function getEntityTenantDetail(
 ): Promise<TenantDetailResponse> {
   const { from, to, range } = resolveEntityRange(filters.window, filters.now);
   const limit = resolveLimit(filters.limit);
-  const summaryResult = await listEntityTenants(db, {
-    projectId: filters.projectId,
-    environmentId: filters.environmentId,
-    window: filters.window,
-    limit: 100,
-    now: filters.now
-  });
-  const tenant =
-    summaryResult.tenants.find((row) => row.tenantId === tenantId) ??
-    ({
-      tenantId,
-      label: tenantId,
-      isUnassigned: false,
-      impactScore: 0,
-      lastSeenAt: null,
-      events: 0,
-      errors: 0,
-      openErrors: 0,
-      severeErrors: 0,
-      traces: 0,
-      failedTraces: 0,
-      llmCalls: 0,
-      failedLlmCalls: 0,
-      llmCostUsd: "0",
-      activeUsers: 0,
-      activeSessions: 0
-    } satisfies TenantSummary);
+  const tenant = await getEntityTenantSummary(db, tenantId, filters, from, to);
 
   const topUsers = await queryEntityTopUsers(db, tenantId, filters, from, to);
   const timelineRows = await queryEntityTimeline(db, tenantId, filters, from, to, limit + 1);
@@ -390,6 +364,134 @@ export async function getEntityTenantDetail(
   }
 
   return response;
+}
+
+async function getEntityTenantSummary(
+  db: Db,
+  tenantId: string,
+  filters: EntityTenantDetailFilters,
+  from: Date,
+  to: Date
+): Promise<TenantSummary> {
+  const rows = await sql<{
+    last_seen_at: Date | string | null;
+    events: unknown;
+    errors: unknown;
+    open_errors: unknown;
+    severe_errors: unknown;
+    traces: unknown;
+    failed_traces: unknown;
+    llm_calls: unknown;
+    failed_llm_calls: unknown;
+    llm_cost_usd: string;
+    active_users: unknown;
+    active_sessions: unknown;
+    total_signals: unknown;
+  }>`
+    with scoped_events as (
+      select user_id, session_id, timestamp, 1::bigint as events, 0::bigint as errors,
+        0::bigint as open_errors, 0::bigint as severe_errors, 0::bigint as traces, 0::bigint as failed_traces,
+        0::bigint as llm_calls, 0::bigint as failed_llm_calls, 0::numeric as llm_cost_usd
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    scoped_errors as (
+      select user_id, session_id, timestamp, 0::bigint as events, 1::bigint as errors,
+        case when status = 'open' then 1 else 0 end::bigint as open_errors,
+        case
+          when severity in (${severeErrorSeverities[0]}, ${severeErrorSeverities[1]}, ${severeErrorSeverities[2]})
+          then 1
+          else 0
+        end::bigint as severe_errors,
+        0::bigint as traces, 0::bigint as failed_traces, 0::bigint as llm_calls, 0::bigint as failed_llm_calls,
+        0::numeric as llm_cost_usd
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    scoped_traces as (
+      select user_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
+        0::bigint as open_errors, 0::bigint as severe_errors, 1::bigint as traces,
+        case when status <> 'success' then 1 else 0 end::bigint as failed_traces,
+        0::bigint as llm_calls, 0::bigint as failed_llm_calls, 0::numeric as llm_cost_usd
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    scoped_llm_calls as (
+      select user_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
+        0::bigint as open_errors, 0::bigint as severe_errors, 0::bigint as traces, 0::bigint as failed_traces,
+        1::bigint as llm_calls, case when status <> 'success' then 1 else 0 end::bigint as failed_llm_calls,
+        cost_usd as llm_cost_usd
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and tenant_id = ${tenantId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+    ),
+    all_rows as (
+      select * from scoped_events
+      union all select * from scoped_errors
+      union all select * from scoped_traces
+      union all select * from scoped_llm_calls
+    )
+    select max(timestamp) as last_seen_at, coalesce(sum(events), 0) as events, coalesce(sum(errors), 0) as errors,
+      coalesce(sum(open_errors), 0) as open_errors, coalesce(sum(severe_errors), 0) as severe_errors,
+      coalesce(sum(traces), 0) as traces, coalesce(sum(failed_traces), 0) as failed_traces,
+      coalesce(sum(llm_calls), 0) as llm_calls, coalesce(sum(failed_llm_calls), 0) as failed_llm_calls,
+      coalesce(sum(llm_cost_usd), 0)::text as llm_cost_usd,
+      count(distinct user_id) filter (where user_id is not null) as active_users,
+      count(distinct session_id) filter (where session_id is not null) as active_sessions,
+      count(*) as total_signals
+    from all_rows
+  `.execute(db);
+  const row = rows.rows[0];
+  const errors = toNumber(row?.errors);
+  const openErrors = toNumber(row?.open_errors);
+  const severeErrors = toNumber(row?.severe_errors);
+  const failedTraces = toNumber(row?.failed_traces);
+  const failedLlmCalls = toNumber(row?.failed_llm_calls);
+  const llmCostUsd = row?.llm_cost_usd ?? "0";
+
+  return {
+    tenantId,
+    label: tenantId,
+    isUnassigned: false,
+    impactScore:
+      toNumber(row?.total_signals) === 0
+        ? 0
+        : computeImpactScore({
+            severeErrors,
+            openErrors,
+            errors,
+            failedTraces,
+            failedLlmCalls,
+            llmCostUsd: Number(llmCostUsd)
+          }),
+    lastSeenAt: row?.last_seen_at ? toIso(row.last_seen_at) : null,
+    events: toNumber(row?.events),
+    errors,
+    openErrors,
+    severeErrors,
+    traces: toNumber(row?.traces),
+    failedTraces,
+    llmCalls: toNumber(row?.llm_calls),
+    failedLlmCalls,
+    llmCostUsd,
+    activeUsers: toNumber(row?.active_users),
+    activeSessions: toNumber(row?.active_sessions)
+  };
 }
 
 async function queryEntityTopUsers(
