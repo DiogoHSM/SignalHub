@@ -12,8 +12,8 @@ import {
   createProject,
   findApiKeyByPrefix
 } from "@signal-hub/db/repositories/admin.js";
+import { getEntityTenantDetail, listEntityTenants } from "@signal-hub/db/repositories/entities-query.js";
 import { listEvents } from "@signal-hub/db/repositories/telemetry-query.js";
-import { getEntityTenantDetail, listEntityTenants } from "../../../packages/db/src/repositories/entities-query.js";
 import {
   insertError,
   insertEvent,
