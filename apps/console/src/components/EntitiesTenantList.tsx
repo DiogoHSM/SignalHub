@@ -35,6 +35,10 @@ function sortValue(tenant: TenantSummary, sort: TenantSort): number {
   return new Date(tenant.lastSeenAt).getTime();
 }
 
+function recentValue(tenant: TenantSummary): number {
+  return tenant.lastSeenAt ? new Date(tenant.lastSeenAt).getTime() : 0;
+}
+
 function formatTimestamp(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "none";
 }
@@ -45,6 +49,12 @@ export function EntitiesTenantList({ tenants, selectedTenantId, sort, onSortChan
       [...tenants].sort((left, right) => {
         const byMetric = sortValue(right, sort) - sortValue(left, sort);
         if (byMetric !== 0) return byMetric;
+        if (sort === "impact") {
+          const byRecent = recentValue(right) - recentValue(left);
+          if (byRecent !== 0) return byRecent;
+          const byEvents = right.events - left.events;
+          if (byEvents !== 0) return byEvents;
+        }
         return left.label.localeCompare(right.label);
       }),
     [tenants, sort]
@@ -101,7 +111,10 @@ export function EntitiesTenantList({ tenants, selectedTenantId, sort, onSortChan
                 <span>Impact {tenant.impactScore}</span>
                 <span>Events {tenant.events}</span>
                 <span>Errors {tenant.errors}</span>
+                <span>Failed traces {tenant.failedTraces}</span>
+                <span>LLM calls {tenant.llmCalls}</span>
                 <span>LLM ${tenant.llmCostUsd}</span>
+                <span>Active users {tenant.activeUsers}</span>
                 <span>Last {formatTimestamp(tenant.lastSeenAt)}</span>
               </button>
             );

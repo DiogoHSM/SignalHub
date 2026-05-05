@@ -195,10 +195,36 @@ describe("EntitiesInvestigationPanel", () => {
     expect(rows[0]).toHaveTextContent("Unassigned");
     expect(rows[1]).toHaveTextContent("Tenant High");
     expect(screen.getByRole("button", { name: /Unassigned/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Tenant High/ })).toHaveTextContent("Failed traces 1");
+    expect(screen.getByRole("button", { name: /Tenant High/ })).toHaveTextContent("LLM calls 2");
+    expect(screen.getByRole("button", { name: /Tenant High/ })).toHaveTextContent("Active users 2");
 
     await userEvent.click(screen.getByRole("button", { name: /Unassigned/ }));
 
     expect(api.getEntityTenantDetail).not.toHaveBeenCalled();
+  });
+
+  it("keeps impact tie-breaks by recent activity, usage, then label", async () => {
+    const api = client({
+      listEntityTenants: vi.fn().mockResolvedValue({
+        data: {
+          tenants: [
+            tenant({ tenantId: "tenant_z", label: "Tenant Z", impactScore: 20, lastSeenAt: "2026-05-05T10:00:00.000Z", events: 10 }),
+            tenant({ tenantId: "tenant_b", label: "Tenant B", impactScore: 20, lastSeenAt: "2026-05-05T12:00:00.000Z", events: 1 }),
+            tenant({ tenantId: "tenant_a", label: "Tenant A", impactScore: 20, lastSeenAt: "2026-05-05T10:00:00.000Z", events: 10 })
+          ]
+        }
+      })
+    });
+
+    render(<EntitiesInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const rows = await screen.findAllByRole("button", { name: /Tenant [ABZ]/ });
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Tenant B"),
+      expect.stringContaining("Tenant A"),
+      expect.stringContaining("Tenant Z")
+    ]);
   });
 
   it("selecting tenant loads summary top users and timeline", async () => {
@@ -222,6 +248,43 @@ describe("EntitiesInvestigationPanel", () => {
       window: "7d",
       limit: 50
     });
+  });
+
+  it("loads more timeline rows with the returned cursor", async () => {
+    const getEntityTenantDetail = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: detail({
+          timeline: [timelineRow({ id: "evt_1", label: "First row" })],
+          cursor: "cursor_1"
+        })
+      })
+      .mockResolvedValueOnce({
+        data: detail({
+          timeline: [timelineRow({ id: "evt_2", label: "Second row" })]
+        })
+      });
+    const api = client({
+      listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [tenant()] } }),
+      getEntityTenantDetail
+    });
+
+    render(<EntitiesInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" initialTenantId="tenant_a" />);
+
+    expect(await screen.findByRole("button", { name: /First row/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(await screen.findByRole("button", { name: /Second row/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /First row/ })).toBeInTheDocument();
+    expect(getEntityTenantDetail).toHaveBeenLastCalledWith("tenant_a", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 50,
+      cursor: "cursor_1"
+    });
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
 
   it("drills timeline rows into raw investigation tabs with tenant filters", async () => {

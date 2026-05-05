@@ -36,6 +36,8 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
   const [detail, setDetail] = useState<TenantDetailResponse | undefined>();
   const [listState, setListState] = useState<LoadState>("loading");
   const [detailState, setDetailState] = useState<DetailState>("idle");
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const [listRetryToken, setListRetryToken] = useState(0);
   const [detailRetryToken, setDetailRetryToken] = useState(0);
   const listRequestId = useRef(0);
@@ -73,6 +75,8 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
     setDetail(undefined);
     setSelectedTenant(undefined);
     setDetailState("idle");
+    setLoadingMore(false);
+    setLoadMoreError(false);
   }, [projectId, environmentId]);
 
   useEffect(() => {
@@ -90,12 +94,16 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
     if (!selectedTenantId || selectedTenantId === "_unassigned" || selectedScopeKey !== scopeKey) {
       setDetail(undefined);
       setDetailState("idle");
+      setLoadingMore(false);
+      setLoadMoreError(false);
       return;
     }
 
     const requestId = ++detailRequestId.current;
     setDetailState("loading");
     setDetail(undefined);
+    setLoadingMore(false);
+    setLoadMoreError(false);
 
     const query = {
       projectId,
@@ -117,6 +125,7 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
         if (requestId !== detailRequestId.current) return;
         setDetail(undefined);
         setDetailState("unavailable");
+        setLoadingMore(false);
       }
     );
   }, [client, projectId, environmentId, scopeKey, windowValue, selectedTenantId, selectedScopeKey, appliedUserId, signalType, detailRetryToken]);
@@ -130,6 +139,48 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
     setSelectedTenantId(tenant.tenantId);
     setSelectedScopeKey(scopeKey);
     setSelectedTenant(tenant);
+  }
+
+  function loadMoreTimeline() {
+    if (!selectedTenantId || selectedTenantId === "_unassigned" || selectedScopeKey !== scopeKey || !detail?.cursor || loadingMore) return;
+
+    const requestId = ++detailRequestId.current;
+    const cursor = detail.cursor;
+    setLoadingMore(true);
+    setLoadMoreError(false);
+
+    const query = {
+      projectId,
+      environmentId,
+      window: windowValue,
+      ...(appliedUserId.trim() ? { userId: appliedUserId.trim() } : {}),
+      ...(signalType ? { signalType } : {}),
+      limit: 50,
+      cursor
+    };
+
+    void client.getEntityTenantDetail(selectedTenantId, query).then(
+      ({ data }) => {
+        if (requestId !== detailRequestId.current) return;
+        setDetail((current) =>
+          current
+            ? {
+                ...data,
+                timeline: [...current.timeline, ...data.timeline]
+              }
+            : data
+        );
+        setSelectedTenant(data.tenant);
+        setDetailState("ready");
+        setLoadingMore(false);
+        setLoadMoreError(false);
+      },
+      () => {
+        if (requestId !== detailRequestId.current) return;
+        setLoadingMore(false);
+        setLoadMoreError(true);
+      }
+    );
   }
 
   function handleTimelineDrilldown(row: TenantDetailResponse["timeline"][number]) {
@@ -203,9 +254,12 @@ export function EntitiesInvestigationPanel({ client, projectId, environmentId, i
           detail={detail}
           draftUserId={draftUserId}
           error={detailState === "unavailable"}
+          loadMoreError={loadMoreError}
           loading={detailState === "loading"}
+          loadingMore={loadingMore}
           onApplyUser={() => setAppliedUserId(draftUserId)}
           onDraftUserIdChange={setDraftUserId}
+          onLoadMore={loadMoreTimeline}
           onRetry={() => setDetailRetryToken((current) => current + 1)}
           onSignalTypeChange={setSignalType}
           onTimelineDrilldown={handleTimelineDrilldown}

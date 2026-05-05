@@ -8,10 +8,13 @@ type Props = {
   signalType: EntitySignalType | "";
   loading: boolean;
   error: boolean;
+  loadingMore: boolean;
+  loadMoreError: boolean;
   onDraftUserIdChange: (value: string) => void;
   onApplyUser: () => void;
   onSignalTypeChange: (value: EntitySignalType | "") => void;
   onRetry: () => void;
+  onLoadMore: () => void;
   onTimelineDrilldown: (row: TenantTimelineRow) => void;
 };
 
@@ -39,10 +42,13 @@ export function EntitiesTenantDetail({
   signalType,
   loading,
   error,
+  loadingMore,
+  loadMoreError,
   onDraftUserIdChange,
   onApplyUser,
   onSignalTypeChange,
   onRetry,
+  onLoadMore,
   onTimelineDrilldown
 }: Props) {
   const summary = detail?.tenant ?? tenant;
@@ -164,6 +170,14 @@ export function EntitiesTenantDetail({
                 <span>{timelineMeta(row)}</span>
               </button>
             ))}
+            {loadMoreError ? <p className="muted-text">More timeline rows are unavailable.</p> : null}
+            {detail.cursor ? (
+              <div className="filter-actions">
+                <button disabled={loadingMore} onClick={onLoadMore} type="button">
+                  {loadingMore ? "Loading more" : "Load more"}
+                </button>
+              </div>
+            ) : null}
           </div>
         </>
       ) : null}
