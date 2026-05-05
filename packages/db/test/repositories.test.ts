@@ -571,7 +571,7 @@ describe("repositories", () => {
         id: "llm_failed",
         provider: "anthropic",
         model: "claude",
-        promptName: "summarize_error",
+        promptName: null,
         inputTokens: 20,
         outputTokens: 10,
         costUsd: "0.100000",
@@ -641,9 +641,8 @@ describe("repositories", () => {
         { model: "claude", total: 1, totalCostUsd: "0.100000" }
       ]);
       expect(overview.top.llmPrompts).toEqual([
-        { promptName: "Unspecified", total: 1, totalCostUsd: "0.050000" },
-        { promptName: "generate_sql", total: 1, totalCostUsd: "0.300000" },
-        { promptName: "summarize_error", total: 1, totalCostUsd: "0.100000" }
+        { promptName: "Unspecified", total: 2, totalCostUsd: "0.150000" },
+        { promptName: "generate_sql", total: 1, totalCostUsd: "0.300000" }
       ]);
       expect(overview.top.errorStatus).toEqual([
         { status: "open", total: 2 },
@@ -655,7 +654,9 @@ describe("repositories", () => {
         expect.objectContaining({ id: "err_warning", message: "Slow response", severity: "warning", status: "resolved" })
       ]);
       expect(overview.recent.failedTraces).toEqual([expect.objectContaining({ id: "trc_failed", status: "error" })]);
-      expect(overview.recent.failedLlmCalls).toEqual([expect.objectContaining({ id: "llm_failed", status: "error" })]);
+      expect(overview.recent.failedLlmCalls).toEqual([
+        expect.objectContaining({ id: "llm_failed", status: "error", promptName: "Unspecified" })
+      ]);
       expect(overview.trends.usage).toHaveLength(25);
       expect(overview.trends.errors).toHaveLength(25);
       expect(overview.trends.latency).toHaveLength(25);

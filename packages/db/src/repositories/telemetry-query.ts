@@ -1029,14 +1029,14 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     timestamp: Date | string;
     provider: string;
     model: string;
-    prompt_name: string | null;
+    prompt_name: string;
     status: string;
     cost_usd: string;
     tenant_id: string | null;
     user_id: string | null;
     trace_id: string | null;
   }>`
-    select id, timestamp, provider, model, prompt_name, status, cost_usd::text as cost_usd, tenant_id, user_id, trace_id
+    select id, timestamp, provider, model, coalesce(prompt_name, 'Unspecified') as prompt_name, status, cost_usd::text as cost_usd, tenant_id, user_id, trace_id
     from llm_calls
     where project_id = ${filters.projectId}
       and environment_id = ${filters.environmentId}
