@@ -5,7 +5,8 @@ import type { Db } from "./client.js";
 
 const migrations = [
   { name: "0001_initial.sql", url: new URL("../migrations/0001_initial.sql", import.meta.url) },
-  { name: "0002_operational_safety.sql", url: new URL("../migrations/0002_operational_safety.sql", import.meta.url) }
+  { name: "0002_operational_safety.sql", url: new URL("../migrations/0002_operational_safety.sql", import.meta.url) },
+  { name: "0003_simple_alerts.sql", url: new URL("../migrations/0003_simple_alerts.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

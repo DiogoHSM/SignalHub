@@ -193,6 +193,69 @@ export interface SystemHeartbeatsTable {
   updated_at: Timestamp;
 }
 
+export type AlertRuleType = "critical_errors" | "error_count" | "trace_p95_latency" | "llm_cost";
+export type AlertSeverity = "info" | "warning" | "critical";
+
+export interface NotificationChannelsTable {
+  id: ColumnType<string, string | undefined, string>;
+  name: string;
+  type: "webhook";
+  url: string;
+  secret_header_name: string | null;
+  secret_header_value: string | null;
+  enabled: DefaultedBoolean;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface AlertRulesTable {
+  id: ColumnType<string, string | undefined, string>;
+  project_id: string;
+  environment_id: string;
+  notification_channel_id: string | null;
+  name: string;
+  type: AlertRuleType;
+  severity: AlertSeverity;
+  window_minutes: number;
+  threshold: NumericString;
+  cooldown_minutes: number;
+  enabled: DefaultedBoolean;
+  last_evaluated_at: NullableTimestamp;
+  last_triggered_at: NullableTimestamp;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface AlertEventsTable {
+  id: ColumnType<string, string | undefined, string>;
+  rule_id: string;
+  project_id: string;
+  environment_id: string;
+  status: "triggered";
+  severity: AlertSeverity;
+  triggered_at: Timestamp;
+  window_start: Timestamp;
+  window_end: Timestamp;
+  observed_value: NumericString;
+  threshold: NumericString;
+  message: string;
+  metadata: JsonColumn;
+  created_at: Timestamp;
+}
+
+export interface NotificationDeliveriesTable {
+  id: ColumnType<string, string | undefined, string>;
+  alert_event_id: string;
+  notification_channel_id: string;
+  status: "success" | "failed";
+  attempted_at: Timestamp;
+  response_status: number | null;
+  error_message: string | null;
+  created_at: Timestamp;
+}
+
 export interface MigrationsTable {
   name: string;
   checksum: string;
@@ -212,5 +275,9 @@ export interface Database {
   dead_letter_jobs: DeadLetterJobsTable;
   retention_runs: RetentionRunsTable;
   system_heartbeats: SystemHeartbeatsTable;
+  notification_channels: NotificationChannelsTable;
+  alert_rules: AlertRulesTable;
+  alert_events: AlertEventsTable;
+  notification_deliveries: NotificationDeliveriesTable;
   _migrations: MigrationsTable;
 }

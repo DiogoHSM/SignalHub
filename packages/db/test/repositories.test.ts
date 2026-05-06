@@ -104,6 +104,17 @@ describe("repositories", () => {
     });
   });
 
+  it("runs simple alert migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, type, enabled from notification_channels limit 0`.execute(db);
+      await sql`select id, type, threshold from alert_rules limit 0`.execute(db);
+      await sql`select id, observed_value from alert_events limit 0`.execute(db);
+      await sql`select id, status from notification_deliveries limit 0`.execute(db);
+    });
+  });
+
   it("uses transaction-scoped retention locks without leaking locks", async () => {
     await withDb(async (db) => {
       await migrate(db);
