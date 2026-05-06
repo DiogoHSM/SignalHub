@@ -57,7 +57,7 @@ Modify:
 - Modify: `packages/config/src/index.ts`
 - Test: `packages/config/test/config.test.ts`
 
-- [ ] **Step 1: Add failing config tests**
+- [x] **Step 1: Add failing config tests**
 
 Add tests beside the alert config tests:
 
@@ -142,7 +142,7 @@ it("requires S3 settings when backup S3 upload is enabled", () => {
 });
 ```
 
-- [ ] **Step 2: Run config tests and verify failure**
+- [x] **Step 2: Run config tests and verify failure**
 
 Run:
 
@@ -152,7 +152,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: fail because `config.backups` does not exist.
 
-- [ ] **Step 3: Implement backup config**
+- [x] **Step 3: Implement backup config**
 
 In `packages/config/src/index.ts`, add schema fields after alert config:
 
@@ -209,7 +209,7 @@ backups: {
 }
 ```
 
-- [ ] **Step 4: Run config tests and verify pass**
+- [x] **Step 4: Run config tests and verify pass**
 
 Run:
 
@@ -219,7 +219,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/config/src/index.ts packages/config/test/config.test.ts
