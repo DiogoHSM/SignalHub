@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import type { AlertRuleRecord, NotificationChannelRecord } from "@signal-hub/db/repositories/alerts.js";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
 
@@ -58,6 +59,12 @@ export type AlertEvaluationRuntime = {
   }) => Promise<unknown>;
 };
 
+type PendingDelivery = {
+  eventId: string;
+  channel: NotificationChannelRecord;
+  payload: AlertWebhookPayload;
+};
+
 export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): Promise<{
   ran: boolean;
   skipped: boolean;
@@ -68,6 +75,7 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
     const now = runtime.now();
     const rules = await runtime.listActiveRules();
     let triggered = 0;
+    const pendingDeliveries: PendingDelivery[] = [];
 
     for (const rule of rules) {
       const windowEnd = now;
@@ -104,15 +112,10 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
         if (rule.notificationChannelId) {
           const channel = await runtime.getNotificationChannel(rule.notificationChannelId);
           if (channel?.enabled === true && channel.archivedAt === null) {
-            const delivery = await runtime.deliver(
+            pendingDeliveries.push({
+              eventId: event.id,
               channel,
-              toWebhookPayload(rule, event.id, now, windowStart, windowEnd, observed.observedValue, message)
-            );
-            await runtime.recordDelivery({
-              alertEventId: event.id,
-              notificationChannelId: channel.id,
-              attemptedAt: now,
-              ...delivery
+              payload: toWebhookPayload(rule, event.id, now, windowStart, windowEnd, observed.observedValue, message)
             });
           }
         }
@@ -122,11 +125,39 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
       }
     }
 
-    return { evaluated: rules.length, triggered };
+    return { evaluated: rules.length, triggered, pendingDeliveries };
   });
 
   if (!lockResult.locked) return { ran: false, skipped: true, evaluated: 0, triggered: 0 };
-  return { ran: true, skipped: false, ...lockResult.result };
+
+  for (const pending of lockResult.result.pendingDeliveries) {
+    let delivery: DeliveryResult;
+
+    try {
+      delivery = await runtime.deliver(pending.channel, pending.payload);
+    } catch (error) {
+      console.error(`Alert webhook delivery ${pending.eventId} failed`, error);
+      continue;
+    }
+
+    try {
+      await runtime.recordDelivery({
+        alertEventId: pending.eventId,
+        notificationChannelId: pending.channel.id,
+        attemptedAt: runtime.now(),
+        ...delivery
+      });
+    } catch (error) {
+      console.error(`Alert webhook delivery ${pending.eventId} recording failed`, error);
+    }
+  }
+
+  return {
+    ran: true,
+    skipped: false,
+    evaluated: lockResult.result.evaluated,
+    triggered: lockResult.result.triggered
+  };
 }
 
 export function validateWebhookTarget(rawUrl: string, nodeEnv: string): URL {
@@ -135,17 +166,7 @@ export function validateWebhookTarget(rawUrl: string, nodeEnv: string): URL {
     throw new Error("webhook URL must use http or https");
   }
 
-  const host = url.hostname.toLowerCase();
-  const privateHost =
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host === "[::1]" ||
-    host.startsWith("10.") ||
-    host.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
-
-  if (nodeEnv === "production" && privateHost) {
+  if (nodeEnv === "production" && isPrivateWebhookHost(url.hostname)) {
     throw new Error("private webhook targets are not allowed in production");
   }
 
@@ -172,6 +193,16 @@ export async function deliverWebhook(input: {
       status: "failed",
       responseStatus: null,
       errorMessage: sanitizeMessage(error instanceof Error ? error.message : "invalid webhook URL")
+    };
+  }
+
+  try {
+    validateSecretHeaderName(input.channel.secretHeaderName);
+  } catch (error) {
+    return {
+      status: "failed",
+      responseStatus: null,
+      errorMessage: sanitizeMessage(error instanceof Error ? error.message : "invalid webhook secret header name")
     };
   }
 
@@ -261,6 +292,67 @@ function isInCooldown(rule: AlertRuleRecord, now: Date): boolean {
 
 function sanitizeMessage(message: string): string {
   return sanitizePreviewText(message) ?? "Webhook delivery failed";
+}
+
+const RESERVED_SECRET_HEADER_NAMES = new Set([
+  "content-type",
+  "content-length",
+  "host",
+  "authorization",
+  "cookie",
+  "set-cookie"
+]);
+const HTTP_TOKEN_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+function validateSecretHeaderName(headerName: string | null | undefined): void {
+  if (!headerName) return;
+
+  if (!HTTP_TOKEN_PATTERN.test(headerName)) {
+    throw new Error("invalid webhook secret header name");
+  }
+
+  if (RESERVED_SECRET_HEADER_NAMES.has(headerName.toLowerCase())) {
+    throw new Error("reserved webhook secret header name");
+  }
+}
+
+function isPrivateWebhookHost(rawHost: string): boolean {
+  const host = normalizeLiteralHost(rawHost);
+
+  if (host === "localhost") return true;
+
+  const ipVersion = isIP(host);
+  if (ipVersion === 4) return isPrivateIpv4Host(host);
+  if (ipVersion === 6) return isPrivateIpv6Host(host);
+
+  return false;
+}
+
+function normalizeLiteralHost(host: string): string {
+  return host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+}
+
+function isPrivateIpv4Host(host: string): boolean {
+  const octets = host.split(".").map((octet) => Number(octet));
+  const [first, second] = octets;
+
+  return (
+    host === "0.0.0.0" ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function isPrivateIpv6Host(host: string): boolean {
+  if (host === "::1") return true;
+
+  const firstHextet = Number.parseInt(host.split(":")[0] ?? "", 16);
+  if (Number.isNaN(firstHextet)) return false;
+
+  return (firstHextet & 0xfe00) === 0xfc00 || (firstHextet & 0xffc0) === 0xfe80;
 }
 
 function toWebhookPayload(

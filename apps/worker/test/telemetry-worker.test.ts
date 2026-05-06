@@ -711,6 +711,67 @@ describe("runAlertEvaluationOnce", () => {
 
     expect(result).toEqual({ ran: false, skipped: true, evaluated: 0, triggered: 0 });
   });
+
+  it("delivers webhooks after the alert evaluation lock is released", async () => {
+    const now = new Date("2026-05-06T12:00:00.000Z");
+    const calls: string[] = [];
+
+    const result = await runAlertEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => {
+        calls.push("lock:start");
+        const result = await run();
+        calls.push("lock:released");
+        return { locked: true, result };
+      },
+      listActiveRules: async () => [
+        {
+          id: "rule_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          notificationChannelId: "chn_1",
+          name: "Critical errors",
+          type: "critical_errors",
+          severity: "critical",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        }
+      ],
+      getNotificationChannel: async () => ({
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      }),
+      evaluateRule: async () => ({ observedValue: "2" }),
+      recordAlertEvent: async () => ({ id: "evt_1" }),
+      updateRuleEvaluation: async () => undefined,
+      deliver: async () => {
+        calls.push("deliver");
+        return { status: "success", responseStatus: 204, errorMessage: null };
+      },
+      recordDelivery: async () => {
+        calls.push("recordDelivery");
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, evaluated: 1, triggered: 1 });
+    expect(calls).toEqual(["lock:start", "lock:released", "deliver", "recordDelivery"]);
+  });
 });
 
 describe("validateWebhookTarget", () => {
@@ -718,6 +779,22 @@ describe("validateWebhookTarget", () => {
     expect(() => validateWebhookTarget("http://localhost:3000/hook", "production")).toThrow(
       /private webhook targets are not allowed/
     );
+  });
+
+  it("rejects unsafe literal webhook targets in production", () => {
+    for (const target of [
+      "http://169.254.169.254/latest/meta-data",
+      "http://0.0.0.0/hook",
+      "http://127.1.2.3/hook",
+      "http://[::1]/hook",
+      "http://[fc00::1]/hook",
+      "http://[fd12:3456::1]/hook",
+      "http://[fe80::1]/hook"
+    ]) {
+      expect(() => validateWebhookTarget(target, "production"), target).toThrow(
+        /private webhook targets are not allowed/
+      );
+    }
   });
 });
 
@@ -802,6 +879,68 @@ describe("deliverWebhook", () => {
         body: JSON.stringify(payload)
       })
     );
+  });
+
+  it("does not call fetch when the secret header name is not an HTTP token", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: "Bad Header",
+        secretHeaderValue: "secret-value",
+        hasSecret: true,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      fetchImpl
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: expect.stringMatching(/invalid webhook secret header name/)
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not call fetch when the secret header name is reserved", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: "Authorization",
+        secretHeaderValue: "secret-value",
+        hasSecret: true,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      fetchImpl
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: expect.stringMatching(/reserved webhook secret header name/)
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 
