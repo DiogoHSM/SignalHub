@@ -115,6 +115,8 @@ function validateSecretHeaderName(value: string): string | null {
 
 export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelProps) {
   const currentScopeRef = useRef({ projectId, environmentId });
+  const channelCreateRequestRef = useRef(0);
+  const ruleCreateRequestRef = useRef(0);
   const [rules, setRules] = useState<AlertRuleResponse[]>([]);
   const [channels, setChannels] = useState<NotificationChannelResponse[]>([]);
   const [events, setEvents] = useState<AlertEventResponse[]>([]);
@@ -128,8 +130,12 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
   currentScopeRef.current = { projectId, environmentId };
 
   useEffect(() => {
+    channelCreateRequestRef.current += 1;
+    ruleCreateRequestRef.current += 1;
     setChannelForm(defaultChannelForm);
     setRuleForm(defaultRuleForm);
+    setIsCreatingChannel(false);
+    setIsCreatingRule(false);
   }, [projectId, environmentId]);
 
   useEffect(() => {
@@ -205,6 +211,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       }
     }
 
+    const requestId = channelCreateRequestRef.current + 1;
+    channelCreateRequestRef.current = requestId;
     setIsCreatingChannel(true);
     setError(null);
     try {
@@ -216,12 +224,20 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
         secretHeaderValue: secretHeaderValue || null,
         enabled: true
       });
+      if (channelCreateRequestRef.current !== requestId) {
+        return;
+      }
       setChannels((current) => [...current, channel]);
       setChannelForm(defaultChannelForm);
     } catch {
+      if (channelCreateRequestRef.current !== requestId) {
+        return;
+      }
       setError("Could not create notification channel");
     } finally {
-      setIsCreatingChannel(false);
+      if (channelCreateRequestRef.current === requestId) {
+        setIsCreatingChannel(false);
+      }
     }
   }
 
@@ -250,6 +266,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       return;
     }
 
+    const requestId = ruleCreateRequestRef.current + 1;
+    ruleCreateRequestRef.current = requestId;
     setIsCreatingRule(true);
     setError(null);
     try {
@@ -266,6 +284,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
         enabled: true
       });
       if (
+        ruleCreateRequestRef.current !== requestId ||
         currentScopeRef.current.projectId !== submittedProjectId ||
         currentScopeRef.current.environmentId !== submittedEnvironmentId
       ) {
@@ -275,6 +294,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       setRuleForm((current) => ({ ...defaultRuleForm, notificationChannelId: current.notificationChannelId }));
     } catch {
       if (
+        ruleCreateRequestRef.current !== requestId ||
         currentScopeRef.current.projectId !== submittedProjectId ||
         currentScopeRef.current.environmentId !== submittedEnvironmentId
       ) {
@@ -282,7 +302,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       }
       setError("Could not create alert rule");
     } finally {
-      setIsCreatingRule(false);
+      if (ruleCreateRequestRef.current === requestId) {
+        setIsCreatingRule(false);
+      }
     }
   }
 

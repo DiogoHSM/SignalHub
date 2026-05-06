@@ -377,6 +377,31 @@ describe("AlertsPanel", () => {
     expect(within(screen.getByLabelText("Alert rules")).queryByText("Env A critical errors")).not.toBeInTheDocument();
   });
 
+  it("does not keep rule creation disabled in a new environment while the old create is pending", async () => {
+    const pendingCreate = deferred<Awaited<ReturnType<ApiClient["createAlertRule"]>>>();
+    const createAlertRule = vi.fn().mockReturnValue(pendingCreate.promise);
+    const api = client({
+      createAlertRule,
+      listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
+      listAlertEvents: vi.fn().mockResolvedValue({ data: [] })
+    });
+
+    const { rerender } = render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Rule name"), "Env A critical errors");
+    await userEvent.click(screen.getByRole("button", { name: "Create rule" }));
+
+    await waitFor(() => expect(createAlertRule).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "env_1" })));
+    expect(screen.getByRole("button", { name: "Create rule" })).toBeDisabled();
+
+    rerender(<AlertsPanel client={api} projectId="prj_1" environmentId="env_2" />);
+
+    await waitFor(() => expect(api.listAlertRules).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_2" }));
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "Create rule" })).not.toBeDisabled();
+  });
+
   it("clears scoped alert data while a new environment load is pending", async () => {
     const env2Rules = deferred<Awaited<ReturnType<ApiClient["listAlertRules"]>>>();
     const env2Channels = deferred<Awaited<ReturnType<ApiClient["listNotificationChannels"]>>>();
