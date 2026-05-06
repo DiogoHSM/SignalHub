@@ -158,6 +158,21 @@ describe("InvestigationWorkspace", () => {
     expect(listEntityTenants).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 50 });
   });
 
+  it("shows the users tab and loads it lazily", async () => {
+    const listUsersActivity = vi.fn().mockResolvedValue({ data: { users: [] } });
+    const api = client({ listUsersActivity });
+
+    render(<InvestigationWorkspace client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(screen.getByRole("button", { name: "Users" })).toHaveAttribute("aria-pressed", "false");
+    expect(listUsersActivity).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Users" }));
+
+    expect(await screen.findByText("No user activity in this window.")).toBeInTheDocument();
+    expect(listUsersActivity).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 50 });
+  });
+
   it("opens the requested investigation tab with initial filters", async () => {
     const listErrors = vi.fn().mockResolvedValue({ data: [] });
     const api = client({

@@ -897,7 +897,8 @@ select {
   justify-content: space-between;
 }
 
-.entities-shell {
+.entities-shell,
+.users-shell {
   display: grid;
   gap: 1rem;
 }
@@ -927,14 +928,17 @@ select {
   padding: 7px 9px;
 }
 
-.entities-layout {
+.entities-layout,
+.users-layout {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 1rem;
 }
 
 .entity-tenant-list,
-.entity-detail {
+.entity-detail,
+.users-user-list,
+.user-detail {
   min-width: 0;
 }
 
@@ -963,13 +967,17 @@ select {
 }
 
 .entity-tenant-rows,
-.entity-timeline {
+.entity-timeline,
+.users-user-rows,
+.user-timeline {
   display: grid;
   gap: 0.5rem;
 }
 
 .entity-tenant-row,
-.entity-timeline-row {
+.entity-timeline-row,
+.user-row,
+.user-timeline-row {
   width: 100%;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -980,30 +988,38 @@ select {
   text-align: left;
 }
 
-.entity-tenant-row {
+.entity-tenant-row,
+.user-row {
   display: grid;
   gap: 0.35rem;
 }
 
 .entity-tenant-row[aria-pressed="true"],
-.entity-timeline-row:focus-visible {
+.entity-timeline-row:focus-visible,
+.user-row[aria-pressed="true"],
+.user-timeline-row:focus-visible {
   border-color: #2563eb;
   background: #eff6ff;
 }
 
-.entity-tenant-row[aria-disabled="true"] {
+.entity-tenant-row[aria-disabled="true"],
+.user-row[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.65;
 }
 
 .entity-tenant-row span,
-.entity-timeline-row span {
+.entity-timeline-row span,
+.user-row span,
+.user-timeline-row span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .entity-tenant-row code,
-.entity-timeline-row code {
+.entity-timeline-row code,
+.user-row code,
+.user-timeline-row code {
   display: block;
   color: #64748b;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -1050,26 +1066,31 @@ select {
   margin-bottom: 1rem;
 }
 
-.entity-top-users {
+.entity-top-users,
+.user-recent-sessions {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
 .entity-top-users th,
-.entity-top-users td {
+.entity-top-users td,
+.user-recent-sessions th,
+.user-recent-sessions td {
   border-bottom: 1px solid #e2e8f0;
   padding: 0.5rem;
   text-align: left;
   white-space: nowrap;
 }
 
-.entity-top-users th {
+.entity-top-users th,
+.user-recent-sessions th {
   color: #475569;
   font-size: 12px;
 }
 
-.entity-timeline-row {
+.entity-timeline-row,
+.user-timeline-row {
   display: grid;
   grid-template-columns: minmax(160px, 1.2fr) minmax(150px, 0.8fr) minmax(180px, 1fr);
   gap: 0.75rem;
@@ -1118,8 +1139,10 @@ select {
 
 @media (max-width: 860px) {
   .entities-layout,
+  .users-layout,
   .entity-detail-filters,
-  .entity-timeline-row {
+  .entity-timeline-row,
+  .user-timeline-row {
     grid-template-columns: 1fr;
   }
 }

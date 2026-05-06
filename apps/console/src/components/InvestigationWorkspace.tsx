@@ -9,6 +9,7 @@ import type { LlmFilterValues } from "./LlmFilters";
 import { LlmInvestigationPanel } from "./LlmInvestigationPanel";
 import { TraceInvestigationPanel } from "./TraceInvestigationPanel";
 import type { TraceFilterValues } from "./TraceFilters";
+import { UsersInvestigationPanel } from "./UsersInvestigationPanel";
 
 type Props = {
   client: ApiClient;
@@ -18,7 +19,7 @@ type Props = {
   initialFilters?: InvestigationInitialFilters;
 };
 
-export type InvestigationTab = "events" | "errors" | "traces" | "llm" | "entities";
+export type InvestigationTab = "events" | "errors" | "traces" | "llm" | "entities" | "users";
 
 export type InvestigationInitialFilters = {
   events?: Partial<EventFilterValues>;
@@ -26,6 +27,7 @@ export type InvestigationInitialFilters = {
   traces?: Partial<TraceFilterValues>;
   llm?: Partial<LlmFilterValues>;
   entities?: { tenantId?: string };
+  users?: { userId?: string };
 };
 
 export type InvestigationDrilldown =
@@ -42,7 +44,8 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
     errors: { ...initialFilters?.errors, ...localInitialFilters.errors },
     traces: { ...initialFilters?.traces, ...localInitialFilters.traces },
     llm: { ...initialFilters?.llm, ...localInitialFilters.llm },
-    entities: initialFilters?.entities
+    entities: initialFilters?.entities,
+    users: initialFilters?.users
   };
 
   useEffect(() => {
@@ -53,7 +56,7 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
     setLocalInitialFilters({});
   }, [projectId, environmentId]);
 
-  function handleEntityDrilldown(drilldown: InvestigationDrilldown) {
+  function handleInvestigationDrilldown(drilldown: InvestigationDrilldown) {
     setLocalInitialFilters((current) => ({
       ...current,
       [drilldown.tab]: drilldown.filters
@@ -93,6 +96,9 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
         <button aria-pressed={activeTab === "entities"} onClick={() => setActiveTab("entities")} type="button">
           Entities
         </button>
+        <button aria-pressed={activeTab === "users"} onClick={() => setActiveTab("users")} type="button">
+          Users
+        </button>
       </nav>
       {activeTab === "events" ? (
         <EventInvestigationPanel
@@ -126,7 +132,16 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
           client={client}
           environmentId={environmentId}
           initialTenantId={mergedInitialFilters.entities?.tenantId}
-          onDrilldown={handleEntityDrilldown}
+          onDrilldown={handleInvestigationDrilldown}
+          projectId={projectId}
+        />
+      ) : null}
+      {activeTab === "users" ? (
+        <UsersInvestigationPanel
+          client={client}
+          environmentId={environmentId}
+          initialUserId={mergedInitialFilters.users?.userId}
+          onDrilldown={handleInvestigationDrilldown}
           projectId={projectId}
         />
       ) : null}
