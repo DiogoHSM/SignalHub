@@ -12,8 +12,9 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Postgres storage for operational data and typed telemetry tables.
 - Human-session query endpoints for raw telemetry and basic aggregates.
 - JavaScript SDK and raw HTTP integration guide.
-- Integration Console for setup, overview, investigation, and system health.
+- Integration Console for setup, overview, investigation, alerts, and system health.
 - Worker-owned retention, heartbeat, and operational health reporting.
+- Worker-owned simple alerts with internal history and optional webhook delivery.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 
 SignalHub does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, object storage, or stored log telemetry.
@@ -51,7 +52,7 @@ Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operato
 
 ## Operational Config
 
-Retention settings are non-secret operational config. They are documented in `.env.example` and `.claude/docs/SECRETS.md`.
+Retention and alert scheduler settings are non-secret operational config. They are documented in `.env.example` and `.claude/docs/SECRETS.md`.
 
 ## Operational Safety
 
@@ -70,6 +71,14 @@ Retention only deletes telemetry rows. Operational metadata, projects, environme
 Set `RETENTION_ENABLED=false` to disable scheduled deletion. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
 The console `System` mode is available to logged-in users. It shows API, worker, Postgres, Redis, queue, ingestion freshness, and retention status from the system health endpoint.
+
+## Simple Alerts
+
+SignalHub evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
+
+Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each delivery attempt. Native email, Telegram, Discord, escalation, silencing, acknowledgement, and retry workflows are out of scope for this slice.
+
+Webhook secrets are write-only. Saved secret values are redacted and are never returned by the API or displayed in the console.
 
 ## Local Development
 

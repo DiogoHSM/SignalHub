@@ -37,6 +37,12 @@ Telemetry retention is built into the worker. Set the `RETENTION_*` environment 
 
 Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the worker available for ingestion jobs.
 
+## Simple Alerts
+
+Simple alert evaluation is built into the worker. Set `ALERTS_ENABLED`, `ALERTS_INTERVAL_MINUTES`, and `ALERTS_WEBHOOK_TIMEOUT_MS` in `.env` to control worker-owned alert scheduling and webhook delivery timeout. No extra cron job or external scheduler is needed.
+
+Set `ALERTS_ENABLED=false` to stop scheduled alert evaluation while keeping the worker available for ingestion and retention.
+
 ## Migrations
 
 The API runs migrations during startup. Operators can also run migrations explicitly with:

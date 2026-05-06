@@ -12,6 +12,7 @@ SignalHub includes an admin-only Integration Console.
 ## Investigation UX
 
 - Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
+- Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
 - Keep `System` as a quiet operational mode for service health, queue depth, ingestion freshness, and retention status.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
@@ -44,3 +45,9 @@ SignalHub includes an admin-only Integration Console.
 - The Anonymous / Unassigned user bucket should be visible for context but disabled for drill-in.
 - User details should show compact summary metrics, recent sessions, and a cross-signal timeline from events, errors, traces, and LLM calls.
 - User timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from user context to source records.
+
+## Alerts UX
+
+- Alerts should stay dense and operational: rules, channels, recent events, and delivery status should be visible without a marketing-style layout.
+- Alert rule controls should remain scoped to the active project and environment.
+- Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.

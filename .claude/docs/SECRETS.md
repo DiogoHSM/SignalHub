@@ -32,6 +32,9 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `RETENTION_TRACES_DAYS` | No | `90` | Non-secret operational config. Trace retention window. |
 | `RETENTION_SPANS_DAYS` | No | `90` | Non-secret operational config. Span retention window. |
 | `RETENTION_LLM_CALLS_DAYS` | No | `180` | Non-secret operational config. LLM call retention window. |
+| `ALERTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled alert evaluation in the worker. |
+| `ALERTS_INTERVAL_MINUTES` | No | `1` | Non-secret operational config. Minutes between scheduled alert evaluation runs. |
+| `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |
 
 Operational rules:
 
@@ -39,3 +42,4 @@ Operational rules:
 - Do not commit `.env`.
 - Do not commit root-level `SECRETS.md`.
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
+- Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.

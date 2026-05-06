@@ -34,6 +34,10 @@ Operational tables:
 - `api_keys`
 - `system_heartbeats`
 - `retention_runs`
+- `notification_channels`
+- `alert_rules`
+- `alert_events`
+- `notification_deliveries`
 
 Telemetry tables:
 
@@ -69,6 +73,8 @@ Admin:
 - `/admin/projects/:projectId/api-keys`
 - `/admin/environments/:id`
 - `/admin/api-keys/:id`
+- `/admin/notification-channels`
+- `/admin/alert-rules`
 
 Ingestion:
 
@@ -95,6 +101,11 @@ Query:
 - `GET /query/aggregates/llm`
 - `GET /query/aggregates/traces`
 
+Alerts:
+
+- `GET /alerts/events`
+- `GET /alerts/events/:id`
+
 ## Deferred Boundaries
 
 ClickHouse, object storage, stored log telemetry, SaaS workspace scope, and billing are intentionally deferred. Internal boundaries remain narrow enough to add those later without changing the ingestion contracts.
@@ -108,6 +119,8 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 ## Operational Safety
 
 The worker owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, and `llm_calls` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`; worker liveness is recorded in `system_heartbeats`.
+
+The worker also owns simple alert scheduling. When `ALERTS_ENABLED=true`, it evaluates enabled project/environment-scoped `alert_rules` under an advisory lock, records triggered `alert_events`, and sends optional generic webhook notifications through `notification_channels`. Webhook delivery outcomes are stored in `notification_deliveries`.
 
 `GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, ingestion freshness, and retention policy/run status.
 
@@ -132,3 +145,7 @@ The console also includes a read-only Users view for user-first investigation. I
 The console includes a read-only `Overview` mode for the selected project and environment. It uses `GET /query/overview` to load KPIs, UTC-bucketed mini trends, top lists, and recent important signals for `24h`, `7d`, or `30d` windows.
 
 Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
+
+## Alerts Console
+
+The console includes an operational `Alerts` mode for the active project and environment. It uses admin routes to manage alert rules and generic webhook notification channels, and read routes to show recent alert history and delivery status. Webhook secret header values are write-only and redacted after save.
