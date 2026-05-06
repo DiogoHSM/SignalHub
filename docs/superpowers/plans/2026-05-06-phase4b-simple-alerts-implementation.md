@@ -1504,7 +1504,7 @@ git commit -m "feat: add alert api routes"
 - Modify: `apps/console/src/api/client.ts`
 - Modify: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing client tests**
+- [x] **Step 1: Add failing client tests**
 
 Add to `apps/console/src/api/client.test.ts`:
 
@@ -1536,7 +1536,7 @@ it("creates notification channels without reading back secrets", async () => {
 });
 ```
 
-- [ ] **Step 2: Run console client tests and verify failure**
+- [x] **Step 2: Run console client tests and verify failure**
 
 Run:
 
@@ -1546,7 +1546,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: fail because alert client methods do not exist.
 
-- [ ] **Step 3: Add console alert types**
+- [x] **Step 3: Add console alert types**
 
 In `apps/console/src/api/types.ts`, add:
 
@@ -1600,7 +1600,7 @@ export type AlertEventResponse = {
 };
 ```
 
-- [ ] **Step 4: Add API client methods**
+- [x] **Step 4: Add API client methods**
 
 In `apps/console/src/api/client.ts`, add methods to `ApiClient` and implementation:
 
@@ -1628,7 +1628,7 @@ listAlertEvents: (filters) =>
 
 Also add update/archive methods if the UI in Task 7 uses edit/delete toggles.
 
-- [ ] **Step 5: Run console client tests and verify pass**
+- [x] **Step 5: Run console client tests and verify pass**
 
 Run:
 
@@ -1638,7 +1638,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
