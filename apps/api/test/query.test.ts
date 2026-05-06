@@ -833,6 +833,187 @@ describe("query routes", () => {
     expect(detailResponse.json()).toEqual({ error: "query_unavailable" });
   });
 
+  it("forwards default user list filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listUsersActivity: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            window: "7d",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+            users: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/users?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        window: "7d",
+        generatedAt: "2026-05-05T12:00:00.000Z",
+        scope: { projectId: "prj_1", environmentId: "env_1" },
+        range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+        users: []
+      }
+    });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 50 }]);
+  });
+
+  it("forwards explicit user list filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listUsersActivity: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            window: "30d",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "2026-04-05T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+            users: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/users?project_id=prj_1&environment_id=env_1&window=30d&search=%20user_1%20&tenant_id=%20tenant_1%20&limit=500"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "30d", search: "user_1", tenantId: "tenant_1", limit: 100 }
+    ]);
+  });
+
+  it("rejects unsupported user windows", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listUsersActivity: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/users?project_id=prj_1&environment_id=env_1&window=custom"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("forwards user detail filters and decoded cursor", async () => {
+    const receivedFilters: unknown[] = [];
+    const cursor = Buffer.from(JSON.stringify({ timestamp: "2026-05-05T11:00:00.000Z", type: "error", id: "err_1" })).toString(
+      "base64url"
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getUserDetail: async (userId, filters) => {
+          receivedFilters.push({ userId, filters });
+          return {
+            window: "24h",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "2026-05-04T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+            user: {
+              userId: "user/one",
+              label: "user/one",
+              isAnonymous: false,
+              impactScore: 0,
+              lastSeenAt: null,
+              events: 0,
+              errors: 0,
+              openErrors: 0,
+              severeErrors: 0,
+              traces: 0,
+              failedTraces: 0,
+              llmCalls: 0,
+              failedLlmCalls: 0,
+              llmCostUsd: "0",
+              activeTenants: 0,
+              activeSessions: 0
+            },
+            recentSessions: [],
+            timeline: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        `/query/users/${encodeURIComponent("user/one")}?project_id=prj_1&environment_id=env_1&window=24h` +
+        `&tenant_id=tenant_1&signal_type=error&limit=25&cursor=${cursor}`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        userId: "user/one",
+        filters: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          window: "24h",
+          tenantId: "tenant_1",
+          signalType: "error",
+          limit: 25,
+          cursor: { timestamp: "2026-05-05T11:00:00.000Z", type: "error", id: "err_1" }
+        }
+      }
+    ]);
+  });
+
+  it("rejects anonymous and invalid user detail cursors", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getUserDetail: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const anonymousResponse = await app.inject({
+      method: "GET",
+      url: "/query/users/_anonymous?project_id=prj_1&environment_id=env_1"
+    });
+    expect(anonymousResponse.statusCode).toBe(400);
+    expect(anonymousResponse.json()).toEqual({ error: "invalid_query" });
+
+    const invalidCursorResponse = await app.inject({
+      method: "GET",
+      url: "/query/users/user_1?project_id=prj_1&environment_id=env_1&cursor=not-json"
+    });
+    expect(invalidCursorResponse.statusCode).toBe(400);
+    expect(invalidCursorResponse.json()).toEqual({ error: "invalid_query" });
+  });
+
   it("returns 501 when overview query dependency is missing", async () => {
     app = await buildApp({
       readiness,
