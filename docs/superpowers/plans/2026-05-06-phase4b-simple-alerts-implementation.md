@@ -1972,7 +1972,7 @@ git commit -m "docs: document simple alerts"
 
 - Potentially modify exact files responsible for any defect found during verification.
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 Run:
 
@@ -1982,7 +1982,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run production build**
+- [x] **Step 2: Run production build**
 
 Run:
 
@@ -1992,7 +1992,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Validate Compose**
+- [x] **Step 3: Validate Compose**
 
 Run:
 
@@ -2002,7 +2002,7 @@ docker compose config --quiet
 
 Expected: exits 0.
 
-- [ ] **Step 4: Browser visual check**
+- [x] **Step 4: Browser visual check**
 
 Run the console dev server:
 
@@ -2021,7 +2021,7 @@ Verify at `1440x1000` and `390x900`:
 - Webhook secret field does not retain a saved value after create.
 - There is no horizontal page overflow.
 
-- [ ] **Step 5: Commit verification fixes if needed**
+- [x] **Step 5: Commit verification fixes if needed**
 
 If verification fixes are needed:
 
