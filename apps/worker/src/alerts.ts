@@ -1,5 +1,8 @@
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
+import { lookup as resolveDns } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
 import type { AlertRuleRecord, NotificationChannelRecord } from "@signal-hub/db/repositories/alerts.js";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
 
@@ -67,6 +70,13 @@ type PendingDelivery = {
 };
 
 type ResolveHostname = (hostname: string) => Promise<Array<{ address: string }>>;
+type WebhookRequest = (input: {
+  url: URL;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs: number;
+  lookup: LookupFunction;
+}) => Promise<{ status: number }>;
 
 export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): Promise<{
   ran: boolean;
@@ -181,14 +191,11 @@ export async function deliverWebhook(input: {
   payload: AlertWebhookPayload;
   fetchImpl?: typeof fetch;
   resolveHostname?: ResolveHostname;
+  requestImpl?: WebhookRequest;
+  requestLookup?: LookupFunction;
   timeoutMs: number;
   nodeEnv: string;
 }): Promise<DeliveryResult> {
-  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
-  if (!fetchImpl) {
-    return { status: "failed", responseStatus: null, errorMessage: "fetch is unavailable" };
-  }
-
   let url: URL;
   try {
     url = validateWebhookTarget(input.channel.url, input.nodeEnv);
@@ -233,19 +240,32 @@ export async function deliverWebhook(input: {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const body = JSON.stringify(input.payload);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Content-Length": String(Buffer.byteLength(body))
+  };
   if (input.channel.secretHeaderName && input.channel.secretHeaderValue) {
     headers[input.channel.secretHeaderName] = input.channel.secretHeaderValue;
   }
 
   try {
-    const response = await fetchImpl(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(input.payload),
-      redirect: "manual",
-      signal: controller.signal
-    });
+    const response =
+      input.nodeEnv === "production"
+        ? await (input.requestImpl ?? defaultWebhookRequest)({
+            url,
+            headers,
+            body,
+            timeoutMs: input.timeoutMs,
+            lookup: createValidatingWebhookLookup(input.requestLookup ?? defaultWebhookLookup)
+          })
+        : await fetchWebhook({
+            fetchImpl: input.fetchImpl,
+            url,
+            headers,
+            body,
+            signal: controller.signal
+          });
 
     if (response.status >= 200 && response.status < 300) {
       return { status: "success", responseStatus: response.status, errorMessage: null };
@@ -260,7 +280,7 @@ export async function deliverWebhook(input: {
     return {
       status: "failed",
       responseStatus: null,
-      errorMessage: sanitizeMessage(error instanceof Error ? error.message : "Webhook delivery failed")
+      errorMessage: sanitizeMessage(formatWebhookDeliveryError(error))
     };
   } finally {
     clearTimeout(timeout);
@@ -268,7 +288,159 @@ export async function deliverWebhook(input: {
 }
 
 function defaultResolveHostname(hostname: string): Promise<Array<{ address: string }>> {
-  return lookup(hostname, { all: true });
+  return resolveDns(hostname, { all: true });
+}
+
+const defaultWebhookLookup: LookupFunction = (hostname, options, callback) => {
+  dnsLookup(hostname, options, callback);
+};
+
+async function fetchWebhook(input: {
+  fetchImpl?: typeof fetch;
+  url: URL;
+  headers: Record<string, string>;
+  body: string;
+  signal: AbortSignal;
+}): Promise<{ status: number }> {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+  if (!fetchImpl) throw new Error("fetch is unavailable");
+
+  return fetchImpl(input.url, {
+    method: "POST",
+    headers: input.headers,
+    body: input.body,
+    redirect: "manual",
+    signal: input.signal
+  });
+}
+
+function defaultWebhookRequest(input: {
+  url: URL;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs: number;
+  lookup: LookupFunction;
+}): Promise<{ status: number }> {
+  if (input.url.protocol === "https:") {
+    return requestHttpsWebhook(input);
+  }
+
+  return requestHttpWebhook(input);
+}
+
+function requestHttpWebhook(input: {
+  url: URL;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs: number;
+  lookup: LookupFunction;
+}): Promise<{ status: number }> {
+  return new Promise((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const request = httpRequest(
+      input.url,
+      {
+        method: "POST",
+        headers: input.headers,
+        lookup: input.lookup
+      },
+      (response) => {
+        if (timeout) clearTimeout(timeout);
+        response.resume();
+        resolve({ status: response.statusCode ?? 0 });
+      }
+    );
+
+    timeout = setTimeout(() => {
+      request.destroy(new Error("Webhook delivery timed out"));
+    }, input.timeoutMs);
+
+    request.on("error", reject);
+    request.on("close", () => {
+      if (timeout) clearTimeout(timeout);
+    });
+    request.end(input.body);
+  });
+}
+
+function requestHttpsWebhook(input: {
+  url: URL;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs: number;
+  lookup: LookupFunction;
+}): Promise<{ status: number }> {
+  return new Promise((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const request = httpsRequest(
+      input.url,
+      {
+        method: "POST",
+        headers: input.headers,
+        lookup: input.lookup,
+        servername: input.url.hostname
+      },
+      (response) => {
+        if (timeout) clearTimeout(timeout);
+        response.resume();
+        resolve({ status: response.statusCode ?? 0 });
+      }
+    );
+
+    timeout = setTimeout(() => {
+      request.destroy(new Error("Webhook delivery timed out"));
+    }, input.timeoutMs);
+
+    request.on("error", reject);
+    request.on("close", () => {
+      if (timeout) clearTimeout(timeout);
+    });
+    request.end(input.body);
+  });
+}
+
+function createValidatingWebhookLookup(lookup: LookupFunction): LookupFunction {
+  return (hostname, options, callback) => {
+    lookup(hostname, options, (error, address, family) => {
+      if (error) {
+        callback(error, address as string, family);
+        return;
+      }
+
+      if (Array.isArray(address)) {
+        const privateAddress = address.find((entry) => isPrivateWebhookHost(entry.address));
+        if (privateAddress) {
+          callback(
+            new Error("private webhook targets are not allowed in production"),
+            privateAddress.address,
+            privateAddress.family
+          );
+          return;
+        }
+
+        callback(null, address as LookupAddress[], family);
+        return;
+      }
+
+      if (isPrivateWebhookHost(address)) {
+        callback(new Error("private webhook targets are not allowed in production"), address, family);
+        return;
+      }
+
+      callback(null, address, family);
+    });
+  };
+}
+
+function formatWebhookDeliveryError(error: unknown): string {
+  if (!(error instanceof Error)) return "Webhook delivery failed";
+
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "ENODATA") {
+    return "Webhook DNS resolution failed";
+  }
+
+  return error.message;
 }
 
 type IntervalHandle = ReturnType<typeof setInterval>;

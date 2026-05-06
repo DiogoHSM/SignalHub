@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { LookupFunction } from "node:net";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
 import {
   deliverWebhook,
@@ -823,6 +824,8 @@ describe("deliverWebhook", () => {
   const resolvePublicHostname = async () => [{ address: "93.184.216.34" }];
 
   it("records non-2xx responses as failed with response status", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 500 }));
+
     const result = await deliverWebhook({
       channel: {
         id: "chn_1",
@@ -841,7 +844,7 @@ describe("deliverWebhook", () => {
       timeoutMs: 5000,
       nodeEnv: "production",
       resolveHostname: resolvePublicHostname,
-      fetchImpl: vi.fn(async () => new Response("nope", { status: 500 }))
+      requestImpl
     });
 
     expect(result).toEqual({
@@ -849,10 +852,16 @@ describe("deliverWebhook", () => {
       responseStatus: 500,
       errorMessage: "Webhook returned HTTP 500"
     });
+    expect(requestImpl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: new URL("https://hooks.example.com/signalhub"),
+        body: JSON.stringify(payload)
+      })
+    );
   });
 
   it("does not follow webhook redirects and records redirect status", async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 302 }));
+    const requestImpl = vi.fn(async () => ({ status: 302 }));
 
     const result = await deliverWebhook({
       channel: {
@@ -872,7 +881,7 @@ describe("deliverWebhook", () => {
       timeoutMs: 5000,
       nodeEnv: "production",
       resolveHostname: resolvePublicHostname,
-      fetchImpl
+      requestImpl
     });
 
     expect(result).toEqual({
@@ -880,15 +889,12 @@ describe("deliverWebhook", () => {
       responseStatus: 302,
       errorMessage: "Webhook returned HTTP 302"
     });
-    expect(fetchImpl).toHaveBeenCalledWith(
-      new URL("https://hooks.example.com/signalhub"),
-      expect.objectContaining({ redirect: "manual" })
-    );
+    expect(requestImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("does not call fetch in production when a hostname resolves to a private address", async () => {
+  it("does not send a production request when a hostname resolves to a private address", async () => {
     for (const address of ["10.0.0.1", "169.254.169.254", "127.0.0.1", "fc00::1", "fe80::1"]) {
-      const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+      const requestImpl = vi.fn(async () => ({ status: 204 }));
 
       const result = await deliverWebhook({
         channel: {
@@ -908,7 +914,7 @@ describe("deliverWebhook", () => {
         timeoutMs: 5000,
         nodeEnv: "production",
         resolveHostname: async () => [{ address }],
-        fetchImpl
+        requestImpl
       });
 
       expect(result, address).toEqual({
@@ -916,12 +922,12 @@ describe("deliverWebhook", () => {
         responseStatus: null,
         errorMessage: expect.stringMatching(/private webhook targets are not allowed/)
       });
-      expect(fetchImpl, address).not.toHaveBeenCalled();
+      expect(requestImpl, address).not.toHaveBeenCalled();
     }
   });
 
-  it("does not call fetch in production when hostname DNS resolution fails", async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+  it("does not send a production request when hostname DNS resolution fails", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
 
     const result = await deliverWebhook({
       channel: {
@@ -943,7 +949,7 @@ describe("deliverWebhook", () => {
       resolveHostname: async () => {
         throw new Error("lookup failed");
       },
-      fetchImpl
+      requestImpl
     });
 
     expect(result).toEqual({
@@ -951,11 +957,48 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: "Webhook DNS resolution failed"
     });
+    expect(requestImpl).not.toHaveBeenCalled();
+  });
+
+  it("blocks production delivery when connection-time DNS rebinds to a private address", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const requestLookup: LookupFunction = (hostname, _options, callback) => {
+      expect(hostname).toBe("hooks.example.com");
+      callback(null, "169.254.169.254", 4);
+    };
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestLookup,
+      fetchImpl
+    } as Parameters<typeof deliverWebhook>[0] & { requestLookup: LookupFunction });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: expect.stringMatching(/private webhook targets are not allowed/)
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("sends configured secret header when present", async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
 
     const result = await deliverWebhook({
       channel: {
@@ -975,14 +1018,13 @@ describe("deliverWebhook", () => {
       timeoutMs: 5000,
       nodeEnv: "production",
       resolveHostname: resolvePublicHostname,
-      fetchImpl
+      requestImpl
     });
 
     expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
-    expect(fetchImpl).toHaveBeenCalledWith(
-      new URL("https://hooks.example.com/signalhub"),
+    expect(requestImpl).toHaveBeenCalledWith(
       expect.objectContaining({
-        method: "POST",
+        url: new URL("https://hooks.example.com/signalhub"),
         headers: expect.objectContaining({
           "Content-Type": "application/json",
           "X-SignalHub-Secret": "secret-value"
@@ -992,8 +1034,8 @@ describe("deliverWebhook", () => {
     );
   });
 
-  it("does not call fetch when the secret header name is not an HTTP token", async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+  it("does not send a request when the secret header name is not an HTTP token", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
 
     const result = await deliverWebhook({
       channel: {
@@ -1012,7 +1054,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "production",
-      fetchImpl
+      requestImpl
     });
 
     expect(result).toEqual({
@@ -1020,12 +1062,12 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: expect.stringMatching(/invalid webhook secret header name/)
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(requestImpl).not.toHaveBeenCalled();
   });
 
-  it("does not call fetch when the secret header name is reserved", async () => {
+  it("does not send a request when the secret header name is reserved", async () => {
     for (const secretHeaderName of ["Proxy-Authorization", "Connection"]) {
-      const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+      const requestImpl = vi.fn(async () => ({ status: 204 }));
 
       const result = await deliverWebhook({
         channel: {
@@ -1044,7 +1086,7 @@ describe("deliverWebhook", () => {
         payload,
         timeoutMs: 5000,
         nodeEnv: "production",
-        fetchImpl
+        requestImpl
       });
 
       expect(result, secretHeaderName).toEqual({
@@ -1052,7 +1094,7 @@ describe("deliverWebhook", () => {
         responseStatus: null,
         errorMessage: expect.stringMatching(/reserved webhook secret header name/)
       });
-      expect(fetchImpl, secretHeaderName).not.toHaveBeenCalled();
+      expect(requestImpl, secretHeaderName).not.toHaveBeenCalled();
     }
   });
 });
