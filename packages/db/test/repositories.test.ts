@@ -29,6 +29,7 @@ import {
   listAlertEvents,
   recordAlertEvent,
   recordNotificationDelivery,
+  updateAlertRule,
   updateAlertRuleEvaluation,
   withAlertEvaluationLock
 } from "../src/repositories/alerts.js";
@@ -305,6 +306,161 @@ describe("repositories", () => {
       });
 
       expect(first).toEqual({ locked: true, result: "outer" });
+    });
+  });
+
+  it("does not conflict alert evaluation locks with retention locks", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const result = await withRetentionLock(db, async () => {
+        return withAlertEvaluationLock(db, async () => "alerts");
+      });
+
+      expect(result).toEqual({ locked: true, result: { locked: true, result: "alerts" } });
+    });
+  });
+
+  it("rejects new alert rules under archived scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Active Alert Scope Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const archivedProject = await createProject(db, { name: "Archived Alert Scope Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+
+      await archiveProject(db, archivedProject.id);
+      await expect(
+        createAlertRule(db, {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "Archived project alert",
+          type: "critical_errors",
+          severity: "critical",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          enabled: true
+        })
+      ).rejects.toThrow("active_alert_rule_scope_not_found");
+
+      const archivedEnvironment = await createEnvironment(db, { projectId: project.id, name: "archived" });
+      await archiveEnvironment(db, archivedEnvironment.id);
+      await expect(
+        createAlertRule(db, {
+          projectId: project.id,
+          environmentId: archivedEnvironment.id,
+          name: "Archived environment alert",
+          type: "critical_errors",
+          severity: "critical",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          enabled: true
+        })
+      ).rejects.toThrow("active_alert_rule_scope_not_found");
+
+      await expect(
+        createAlertRule(db, {
+          projectId: archivedProject.id,
+          environmentId: environment.id,
+          name: "Cross project alert",
+          type: "critical_errors",
+          severity: "critical",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          enabled: true
+        })
+      ).rejects.toThrow("active_alert_rule_scope_not_found");
+    });
+  });
+
+  it("rejects alert rule updates to archived scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Update Alert Scope Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const archivedEnvironment = await createEnvironment(db, { projectId: project.id, name: "archived" });
+      const rule = await createAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Update scope alert",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 10,
+        threshold: "1",
+        cooldownMinutes: 30,
+        enabled: true
+      });
+
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      await expect(updateAlertRule(db, rule.id, { environmentId: archivedEnvironment.id })).rejects.toThrow(
+        "active_alert_rule_scope_not_found"
+      );
+    });
+  });
+
+  it("excludes alert rules from archived scopes when listing active rules", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Active Alert Rules Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const archivedProject = await createProject(db, { name: "Archived Active Alert Rules Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedEnvironment = await createEnvironment(db, { projectId: project.id, name: "archived" });
+
+      const activeRule = await createAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Active alert",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 10,
+        threshold: "1",
+        cooldownMinutes: 30,
+        enabled: true
+      });
+      const archivedProjectRule = await createAlertRule(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "Archived project alert",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 10,
+        threshold: "1",
+        cooldownMinutes: 30,
+        enabled: true
+      });
+      const archivedEnvironmentRule = await createAlertRule(db, {
+        projectId: project.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived environment alert",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 10,
+        threshold: "1",
+        cooldownMinutes: 30,
+        enabled: true
+      });
+
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      const activeRules = await listActiveAlertRules(db);
+      expect(activeRules.map((rule) => rule.id)).toContain(activeRule.id);
+      expect(activeRules.map((rule) => rule.id)).not.toContain(archivedProjectRule.id);
+      expect(activeRules.map((rule) => rule.id)).not.toContain(archivedEnvironmentRule.id);
     });
   });
 

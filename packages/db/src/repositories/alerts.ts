@@ -19,7 +19,7 @@ type AlertEventRow = Selectable<AlertEventsTable>;
 type NotificationDeliveryRow = Selectable<NotificationDeliveriesTable>;
 type AlertEventWithDeliveryRow = AlertEventRow & { latest_delivery_status: "success" | "failed" | null };
 
-const ALERT_EVALUATION_LOCK_ID = 927380402914;
+const ALERT_EVALUATION_LOCK_ID = 927380402915;
 
 export type NotificationChannelRecord = {
   id: string;
@@ -157,6 +157,25 @@ function toNotificationDelivery(row: NotificationDeliveryRow): NotificationDeliv
   };
 }
 
+async function assertActiveAlertRuleScope(
+  db: AlertDb,
+  input: { projectId: string; environmentId: string }
+): Promise<void> {
+  const activeScope = await db
+    .selectFrom("projects")
+    .innerJoin("environments", "environments.project_id", "projects.id")
+    .select("environments.id")
+    .where("projects.id", "=", input.projectId)
+    .where("environments.id", "=", input.environmentId)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
+    .executeTakeFirst();
+
+  if (!activeScope) {
+    throw new Error("active_alert_rule_scope_not_found");
+  }
+}
+
 export async function createNotificationChannel(
   db: AlertDb,
   input: {
@@ -263,6 +282,8 @@ export async function createAlertRule(
     enabled: boolean;
   }
 ): Promise<AlertRuleRecord> {
+  await assertActiveAlertRuleScope(db, input);
+
   const row = await db
     .insertInto("alert_rules")
     .values({
@@ -303,9 +324,17 @@ export async function listAlertRules(
 export async function listActiveAlertRules(db: AlertDb): Promise<AlertRuleRecord[]> {
   const rows = await db
     .selectFrom("alert_rules")
-    .selectAll()
-    .where("enabled", "=", true)
-    .where("archived_at", "is", null)
+    .innerJoin("projects", "projects.id", "alert_rules.project_id")
+    .innerJoin("environments", (join) =>
+      join
+        .onRef("environments.project_id", "=", "alert_rules.project_id")
+        .onRef("environments.id", "=", "alert_rules.environment_id")
+    )
+    .selectAll("alert_rules")
+    .where("alert_rules.enabled", "=", true)
+    .where("alert_rules.archived_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
     .orderBy("created_at", "asc")
     .execute();
 
@@ -327,6 +356,8 @@ export async function updateAlertRule(
   db: AlertDb,
   id: string,
   input: {
+    projectId?: string;
+    environmentId?: string;
     notificationChannelId?: string | null;
     name?: string;
     type?: AlertRuleType;
@@ -337,9 +368,28 @@ export async function updateAlertRule(
     enabled?: boolean;
   }
 ): Promise<AlertRuleRecord | undefined> {
+  if (input.projectId !== undefined || input.environmentId !== undefined) {
+    const current = await db
+      .selectFrom("alert_rules")
+      .select(["project_id", "environment_id"])
+      .where("id", "=", id)
+      .where("archived_at", "is", null)
+      .executeTakeFirst();
+    if (!current) {
+      return undefined;
+    }
+
+    await assertActiveAlertRuleScope(db, {
+      projectId: input.projectId ?? current.project_id,
+      environmentId: input.environmentId ?? current.environment_id
+    });
+  }
+
   const row = await db
     .updateTable("alert_rules")
     .set({
+      ...(input.projectId !== undefined ? { project_id: input.projectId } : {}),
+      ...(input.environmentId !== undefined ? { environment_id: input.environmentId } : {}),
       ...(input.notificationChannelId !== undefined
         ? { notification_channel_id: input.notificationChannelId }
         : {}),
