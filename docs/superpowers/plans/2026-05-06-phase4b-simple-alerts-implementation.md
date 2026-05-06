@@ -65,7 +65,7 @@ Modify:
 - Modify: `packages/config/src/index.ts`
 - Test: `packages/config/test/config.test.ts`
 
-- [ ] **Step 1: Add failing config tests**
+- [x] **Step 1: Add failing config tests**
 
 Add tests to `packages/config/test/config.test.ts`:
 
@@ -115,7 +115,7 @@ it.each(["ALERTS_INTERVAL_MINUTES", "ALERTS_WEBHOOK_TIMEOUT_MS"] as const)("reje
 });
 ```
 
-- [ ] **Step 2: Run config tests and verify failure**
+- [x] **Step 2: Run config tests and verify failure**
 
 Run:
 
@@ -125,7 +125,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: fail because `config.alerts` does not exist.
 
-- [ ] **Step 3: Implement alert config**
+- [x] **Step 3: Implement alert config**
 
 In `packages/config/src/index.ts`, add schema fields beside retention config:
 
@@ -148,7 +148,7 @@ alerts: {
 }
 ```
 
-- [ ] **Step 4: Run config tests and verify pass**
+- [x] **Step 4: Run config tests and verify pass**
 
 Run:
 
@@ -158,7 +158,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/config/src/index.ts packages/config/test/config.test.ts
