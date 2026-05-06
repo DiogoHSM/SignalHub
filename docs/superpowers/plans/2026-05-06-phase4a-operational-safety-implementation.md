@@ -62,7 +62,7 @@ Modify:
 - Modify: `packages/config/src/index.ts`
 - Test: `packages/config/test/config.test.ts`
 
-- [ ] **Step 1: Add failing config tests**
+- [x] **Step 1: Add failing config tests**
 
 Add tests that assert the default retention policy and validation behavior:
 
@@ -130,7 +130,7 @@ it.each(["RETENTION_INTERVAL_MINUTES", "RETENTION_BATCH_SIZE", "RETENTION_EVENTS
 );
 ```
 
-- [ ] **Step 2: Run config tests and verify failure**
+- [x] **Step 2: Run config tests and verify failure**
 
 Run:
 
@@ -140,7 +140,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: fail because `config.retention` does not exist.
 
-- [ ] **Step 3: Implement retention config**
+- [x] **Step 3: Implement retention config**
 
 In `packages/config/src/index.ts`, add helpers and schema fields:
 
@@ -182,7 +182,7 @@ retention: {
 }
 ```
 
-- [ ] **Step 4: Run config tests and verify pass**
+- [x] **Step 4: Run config tests and verify pass**
 
 Run:
 
@@ -192,7 +192,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/config/src/index.ts packages/config/test/config.test.ts
@@ -208,7 +208,7 @@ git commit -m "feat: add retention configuration"
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add a failing migration test**
+- [x] **Step 1: Add a failing migration test**
 
 Add an integration test that runs `migrate(db)` and verifies the new tables exist:
 
@@ -219,7 +219,7 @@ it("runs operational safety migrations", async () => {
 });
 ```
 
-- [ ] **Step 2: Run DB tests and verify failure**
+- [x] **Step 2: Run DB tests and verify failure**
 
 Run:
 
@@ -229,7 +229,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because `retention_runs` and `system_heartbeats` do not exist.
 
-- [ ] **Step 3: Add migration SQL**
+- [x] **Step 3: Add migration SQL**
 
 Create `packages/db/migrations/0002_operational_safety.sql`:
 
@@ -263,7 +263,7 @@ CREATE TABLE system_heartbeats (
 );
 ```
 
-- [ ] **Step 4: Update the migration runner**
+- [x] **Step 4: Update the migration runner**
 
 Replace the single-file migration constants in `packages/db/src/migrate.ts` with ordered migration loading:
 
@@ -299,7 +299,7 @@ for (const migration of migrations) {
 }
 ```
 
-- [ ] **Step 5: Update Kysely schema**
+- [x] **Step 5: Update Kysely schema**
 
 Add interfaces in `packages/db/src/schema.ts`:
 
@@ -338,7 +338,7 @@ retention_runs: RetentionRunsTable;
 system_heartbeats: SystemHeartbeatsTable;
 ```
 
-- [ ] **Step 6: Run DB tests and verify pass**
+- [x] **Step 6: Run DB tests and verify pass**
 
 Run:
 
@@ -348,7 +348,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/migrations/0002_operational_safety.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/test/repositories.test.ts
@@ -362,7 +362,7 @@ git commit -m "feat: add operational metadata tables"
 - Create: `packages/db/src/repositories/system.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing repository tests**
+- [x] **Step 1: Add failing repository tests**
 
 Add tests for heartbeat upsert, ingestion freshness, retention run recording, and retention deletion:
 
@@ -415,7 +415,7 @@ it("deletes telemetry older than retention cutoffs in bounded batches", async ()
 });
 ```
 
-- [ ] **Step 2: Run DB tests and verify failure**
+- [x] **Step 2: Run DB tests and verify failure**
 
 Run:
 
@@ -425,7 +425,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because `system.ts` functions do not exist.
 
-- [ ] **Step 3: Implement repository types and helpers**
+- [x] **Step 3: Implement repository types and helpers**
 
 Create `packages/db/src/repositories/system.ts` with exported types:
 
@@ -464,7 +464,7 @@ export type RetentionRunRecord = {
 
 Add `toRetentionRunRecord(row)` and `toIso` only if needed by API mapping. Keep DB repository values as `Date` objects.
 
-- [ ] **Step 4: Implement advisory lock and heartbeat functions**
+- [x] **Step 4: Implement advisory lock and heartbeat functions**
 
 Use a fixed bigint lock id:
 
@@ -517,7 +517,7 @@ export async function getHeartbeat(db: Db, component: string) {
 }
 ```
 
-- [ ] **Step 5: Implement bounded retention deletion**
+- [x] **Step 5: Implement bounded retention deletion**
 
 Use CTE deletes with `ctid` to honor batch size:
 
@@ -570,7 +570,7 @@ export async function deleteExpiredTelemetry(db: Db, options: RetentionExecution
 }
 ```
 
-- [ ] **Step 6: Implement retention run history and freshness**
+- [x] **Step 6: Implement retention run history and freshness**
 
 Add:
 
@@ -644,7 +644,7 @@ export async function getIngestionFreshness(db: Db) {
 }
 ```
 
-- [ ] **Step 7: Run DB tests and verify pass**
+- [x] **Step 7: Run DB tests and verify pass**
 
 Run:
 
@@ -654,7 +654,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/system.ts packages/db/test/repositories.test.ts
@@ -670,7 +670,7 @@ git commit -m "feat: add operational system repository"
 - Modify: `apps/worker/src/main.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Add failing worker unit tests**
+- [x] **Step 1: Add failing worker unit tests**
 
 Add tests around pure orchestration functions:
 
@@ -728,7 +728,7 @@ it("skips retention when advisory lock is held", async () => {
 });
 ```
 
-- [ ] **Step 2: Run worker tests and verify failure**
+- [x] **Step 2: Run worker tests and verify failure**
 
 Run:
 
@@ -738,7 +738,7 @@ pnpm --filter @signal-hub/worker test
 
 Expected: fail because `runRetentionOnce` does not exist.
 
-- [ ] **Step 3: Implement retention orchestration**
+- [x] **Step 3: Implement retention orchestration**
 
 Create `apps/worker/src/retention.ts`:
 
@@ -829,7 +829,7 @@ export function startRetentionScheduler(input: {
 }
 ```
 
-- [ ] **Step 4: Implement heartbeat loop**
+- [x] **Step 4: Implement heartbeat loop**
 
 Create `apps/worker/src/heartbeat.ts`:
 
@@ -857,7 +857,7 @@ export function startHeartbeat(input: {
 }
 ```
 
-- [ ] **Step 5: Wire worker main**
+- [x] **Step 5: Wire worker main**
 
 In `apps/worker/src/main.ts`, import system repository functions and start loops:
 
@@ -917,7 +917,7 @@ stopRetention();
 stopHeartbeat();
 ```
 
-- [ ] **Step 6: Run worker tests and verify pass**
+- [x] **Step 6: Run worker tests and verify pass**
 
 Run:
 
@@ -927,7 +927,7 @@ pnpm --filter @signal-hub/worker test
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/worker/src/retention.ts apps/worker/src/heartbeat.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts
@@ -944,7 +944,7 @@ git commit -m "feat: add worker retention and heartbeat"
 - Modify: `apps/api/src/main.ts`
 - Modify: `apps/api/test/e2e.test.ts`
 
-- [ ] **Step 1: Add failing API tests**
+- [x] **Step 1: Add failing API tests**
 
 Create `apps/api/test/system.test.ts`:
 
@@ -1011,7 +1011,7 @@ describe("system health routes", () => {
 });
 ```
 
-- [ ] **Step 2: Run API tests and verify failure**
+- [x] **Step 2: Run API tests and verify failure**
 
 Run:
 
@@ -1021,7 +1021,7 @@ pnpm --filter @signal-hub/api test -- system.test.ts
 
 Expected: fail because `system` build option and route do not exist.
 
-- [ ] **Step 3: Implement system route**
+- [x] **Step 3: Implement system route**
 
 Create `apps/api/src/routes/system.ts`:
 
@@ -1075,7 +1075,7 @@ registerSystemRoutes(app, {
 });
 ```
 
-- [ ] **Step 4: Wire real dependencies in API main**
+- [x] **Step 4: Wire real dependencies in API main**
 
 In `apps/api/src/main.ts`, import:
 
@@ -1173,7 +1173,7 @@ system: {
 }
 ```
 
-- [ ] **Step 5: Run API tests and verify pass**
+- [x] **Step 5: Run API tests and verify pass**
 
 Run:
 
@@ -1183,7 +1183,7 @@ pnpm --filter @signal-hub/api test -- system.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Run API suite**
+- [x] **Step 6: Run API suite**
 
 Run:
 
@@ -1193,7 +1193,7 @@ pnpm --filter @signal-hub/api test
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/system.ts apps/api/src/app.ts apps/api/src/main.ts apps/api/test/system.test.ts apps/api/test/e2e.test.ts
@@ -1208,7 +1208,7 @@ git commit -m "feat: add system health api"
 - Modify: `apps/console/src/api/client.ts`
 - Test: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing client test**
+- [x] **Step 1: Add failing client test**
 
 Add:
 
@@ -1247,7 +1247,7 @@ it("fetches system health", async () => {
 });
 ```
 
-- [ ] **Step 2: Run client tests and verify failure**
+- [x] **Step 2: Run client tests and verify failure**
 
 Run:
 
@@ -1257,7 +1257,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: fail because `getSystemHealth` does not exist.
 
-- [ ] **Step 3: Add types**
+- [x] **Step 3: Add types**
 
 In `apps/console/src/api/types.ts`:
 
@@ -1305,7 +1305,7 @@ export type SystemHealthResponse = {
 };
 ```
 
-- [ ] **Step 4: Add client method**
+- [x] **Step 4: Add client method**
 
 In `apps/console/src/api/client.ts`, import `SystemHealthResponse`, add to `ApiClient`:
 
@@ -1319,7 +1319,7 @@ Return implementation:
 getSystemHealth: () => request<AggregateResponse<SystemHealthResponse>>(path(apiBasePath, "/system/health")),
 ```
 
-- [ ] **Step 5: Run client tests and verify pass**
+- [x] **Step 5: Run client tests and verify pass**
 
 Run:
 
@@ -1329,7 +1329,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
@@ -1348,7 +1348,7 @@ git commit -m "feat: add system health console client"
 - Modify: `apps/console/src/components/ConsoleShell.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Add failing panel tests**
+- [x] **Step 1: Add failing panel tests**
 
 Create `SystemHealthPanel.test.tsx`:
 
@@ -1430,7 +1430,7 @@ describe("SystemHealthPanel", () => {
 });
 ```
 
-- [ ] **Step 2: Run console component tests and verify failure**
+- [x] **Step 2: Run console component tests and verify failure**
 
 Run:
 
@@ -1440,7 +1440,7 @@ pnpm --filter @signal-hub/console test -- SystemHealthPanel.test.tsx
 
 Expected: fail because `SystemHealthPanel` does not exist.
 
-- [ ] **Step 3: Implement SystemHealthPanel**
+- [x] **Step 3: Implement SystemHealthPanel**
 
 Create `apps/console/src/components/SystemHealthPanel.tsx`:
 
@@ -1557,7 +1557,7 @@ export function SystemHealthPanel({ client }: { client: ApiClient }) {
 }
 ```
 
-- [ ] **Step 4: Add System mode**
+- [x] **Step 4: Add System mode**
 
 Update `ConsoleModeTabs.tsx`:
 
@@ -1587,7 +1587,7 @@ Add after Investigate:
 </div>
 ```
 
-- [ ] **Step 5: Add CSS**
+- [x] **Step 5: Add CSS**
 
 Append focused styles:
 
@@ -1644,7 +1644,7 @@ Append focused styles:
 }
 ```
 
-- [ ] **Step 6: Run console tests and verify pass**
+- [x] **Step 6: Run console tests and verify pass**
 
 Run:
 
@@ -1654,7 +1654,7 @@ pnpm --filter @signal-hub/console test -- SystemHealthPanel.test.tsx ConsoleMode
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/console/src/components/SystemHealthPanel.tsx apps/console/src/components/SystemHealthPanel.test.tsx apps/console/src/components/ConsoleModeTabs.tsx apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.tsx apps/console/src/components/ConsoleShell.test.tsx apps/console/src/styles.css
@@ -1673,7 +1673,7 @@ git commit -m "feat: add system health console panel"
 - Modify: `.claude/docs/UI-UX.md`
 - Modify: `.claude/docs/PROJECT-SUMMARY.md`
 
-- [ ] **Step 1: Update `.env.example`**
+- [x] **Step 1: Update `.env.example`**
 
 Add:
 
@@ -1688,7 +1688,7 @@ RETENTION_SPANS_DAYS=90
 RETENTION_LLM_CALLS_DAYS=180
 ```
 
-- [ ] **Step 2: Update README**
+- [x] **Step 2: Update README**
 
 Add a section:
 
@@ -1710,7 +1710,7 @@ Default windows:
 Set `RETENTION_ENABLED=false` to disable scheduled deletion. The console `System` mode shows API, worker, Postgres, Redis, queue, ingestion freshness, and retention status for logged-in users.
 ```
 
-- [ ] **Step 3: Update project docs**
+- [x] **Step 3: Update project docs**
 
 Add concise entries:
 
@@ -1720,7 +1720,7 @@ Add concise entries:
 - `UI-UX.md`: mention `System` as a quiet operational mode.
 - `PROJECT-SUMMARY.md`: add Phase 4A capabilities.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .env.example README.md .claude/docs/ARCHITECTURE.md .claude/docs/DEPLOYMENT.md .claude/docs/SECRETS.md .claude/docs/UI-UX.md .claude/docs/PROJECT-SUMMARY.md
@@ -1733,7 +1733,7 @@ git commit -m "docs: document operational safety"
 
 - Potentially modify the exact files responsible for any defect found during verification. Do not change files if verification passes.
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 Run:
 
@@ -1743,7 +1743,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run production build**
+- [x] **Step 2: Run production build**
 
 Run:
 
@@ -1753,7 +1753,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Validate Compose**
+- [x] **Step 3: Validate Compose**
 
 Run:
 
@@ -1763,7 +1763,7 @@ docker compose config --quiet
 
 Expected: exits 0.
 
-- [ ] **Step 4: Browser visual check**
+- [x] **Step 4: Browser visual check**
 
 Run the console dev server:
 
@@ -1788,7 +1788,7 @@ Verify at `1440x1000` and `390x900`:
 - Retention status renders.
 - There is no horizontal page overflow.
 
-- [ ] **Step 5: Commit fixes if needed**
+- [x] **Step 5: Commit fixes if needed**
 
 If visual or verification fixes are needed:
 
