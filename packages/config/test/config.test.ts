@@ -50,6 +50,68 @@ describe("loadConfig", () => {
     expect(config.console.publicEndpoint).toBe("https://signalhub.example.com");
   });
 
+  it("loads retention defaults", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      PORT: "3000",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      REDIS_URL: "redis://localhost:6379",
+      SESSION_SECRET: "a-secure-session-secret-with-enough-length",
+      API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
+      BOOTSTRAP_ADMIN_EMAIL: "admin@example.com",
+      BOOTSTRAP_ADMIN_PASSWORD: "correct-horse-battery-staple",
+      GOOGLE_OAUTH_ENABLED: "false"
+    });
+
+    expect(config.retention).toEqual({
+      enabled: true,
+      intervalMinutes: 60,
+      batchSize: 1000,
+      eventsDays: 90,
+      errorsDays: 180,
+      tracesDays: 90,
+      spansDays: 90,
+      llmCallsDays: 180
+    });
+  });
+
+  it("loads explicit retention settings", () => {
+    const config = loadConfig({
+      ...validEnv,
+      RETENTION_ENABLED: "false",
+      RETENTION_INTERVAL_MINUTES: "15",
+      RETENTION_BATCH_SIZE: "250",
+      RETENTION_EVENTS_DAYS: "30",
+      RETENTION_ERRORS_DAYS: "60",
+      RETENTION_TRACES_DAYS: "30",
+      RETENTION_SPANS_DAYS: "15",
+      RETENTION_LLM_CALLS_DAYS: "120"
+    });
+
+    expect(config.retention).toEqual({
+      enabled: false,
+      intervalMinutes: 15,
+      batchSize: 250,
+      eventsDays: 30,
+      errorsDays: 60,
+      tracesDays: 30,
+      spansDays: 15,
+      llmCallsDays: 120
+    });
+  });
+
+  it.each(["RETENTION_INTERVAL_MINUTES", "RETENTION_BATCH_SIZE", "RETENTION_EVENTS_DAYS"] as const)(
+    "rejects non-positive %s",
+    (fieldName) => {
+      expect(() =>
+        loadConfig({
+          ...validEnv,
+          [fieldName]: "0"
+        })
+      ).toThrow();
+    }
+  );
+
   it("allows blank Google OAuth settings when disabled", () => {
     const config = loadConfig({
       NODE_ENV: "test",

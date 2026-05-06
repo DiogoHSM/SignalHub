@@ -3,6 +3,8 @@ import { z } from "zod";
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
 const optionalEnvString = z.preprocess(emptyStringToUndefined, z.string().optional());
 const optionalEnvUrl = z.preprocess(emptyStringToUndefined, z.string().url().optional());
+const optionalPositiveInteger = (defaultValue: number) =>
+  z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).default(defaultValue));
 
 const rawConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -24,7 +26,18 @@ const rawConfigSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((value) => (value === undefined ? undefined : value === "true")),
-  SIGNALHUB_PUBLIC_ENDPOINT: optionalEnvUrl
+  SIGNALHUB_PUBLIC_ENDPOINT: optionalEnvUrl,
+  RETENTION_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  RETENTION_INTERVAL_MINUTES: optionalPositiveInteger(60),
+  RETENTION_BATCH_SIZE: optionalPositiveInteger(1000),
+  RETENTION_EVENTS_DAYS: optionalPositiveInteger(90),
+  RETENTION_ERRORS_DAYS: optionalPositiveInteger(180),
+  RETENTION_TRACES_DAYS: optionalPositiveInteger(90),
+  RETENTION_SPANS_DAYS: optionalPositiveInteger(90),
+  RETENTION_LLM_CALLS_DAYS: optionalPositiveInteger(180)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -68,6 +81,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     console: {
       enabled: parsed.CONSOLE_ENABLED ?? (parsed.NODE_ENV === "production"),
       publicEndpoint: parsed.SIGNALHUB_PUBLIC_ENDPOINT ?? ""
+    },
+    retention: {
+      enabled: parsed.RETENTION_ENABLED,
+      intervalMinutes: parsed.RETENTION_INTERVAL_MINUTES,
+      batchSize: parsed.RETENTION_BATCH_SIZE,
+      eventsDays: parsed.RETENTION_EVENTS_DAYS,
+      errorsDays: parsed.RETENTION_ERRORS_DAYS,
+      tracesDays: parsed.RETENTION_TRACES_DAYS,
+      spansDays: parsed.RETENTION_SPANS_DAYS,
+      llmCallsDays: parsed.RETENTION_LLM_CALLS_DAYS
     }
   };
 }
