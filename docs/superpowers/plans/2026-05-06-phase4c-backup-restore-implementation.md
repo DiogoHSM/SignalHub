@@ -236,7 +236,7 @@ git commit -m "feat: add backup configuration"
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing migration and repository tests**
+- [x] **Step 1: Add failing migration and repository tests**
 
 Add tests to `packages/db/test/repositories.test.ts`:
 
@@ -303,7 +303,7 @@ it("uses a backup advisory lock", async () => {
 });
 ```
 
-- [ ] **Step 2: Run DB tests and verify failure**
+- [x] **Step 2: Run DB tests and verify failure**
 
 Run:
 
@@ -313,7 +313,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because migration and repository do not exist.
 
-- [ ] **Step 3: Add backup migration**
+- [x] **Step 3: Add backup migration**
 
 Create `packages/db/migrations/0004_backup_runs.sql`:
 
@@ -344,7 +344,7 @@ Add to `packages/db/src/migrate.ts`:
 { name: "0004_backup_runs.sql", url: new URL("../migrations/0004_backup_runs.sql", import.meta.url) }
 ```
 
-- [ ] **Step 4: Add schema types**
+- [x] **Step 4: Add schema types**
 
 Add to `packages/db/src/schema.ts`:
 
@@ -367,7 +367,7 @@ export interface BackupRunsTable {
 
 Add `backup_runs: BackupRunsTable;` to `Database`.
 
-- [ ] **Step 5: Add repository**
+- [x] **Step 5: Add repository**
 
 Create `packages/db/src/repositories/backups.ts`:
 
@@ -492,7 +492,7 @@ export async function withBackupLock<T>(
 }
 ```
 
-- [ ] **Step 6: Run DB tests and verify pass**
+- [x] **Step 6: Run DB tests and verify pass**
 
 Run:
 
@@ -502,7 +502,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/migrations/0004_backup_runs.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/backups.ts packages/db/test/repositories.test.ts
