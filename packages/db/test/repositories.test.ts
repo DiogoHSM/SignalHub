@@ -108,11 +108,13 @@ describe("repositories", () => {
       await migrate(db);
 
       const heartbeatAt = new Date("2026-05-06T12:00:00.000Z");
+      const updatedHeartbeatAt = new Date("2026-05-06T12:05:00.000Z");
       await upsertHeartbeat(db, { component: "worker", heartbeatAt });
+      await upsertHeartbeat(db, { component: "worker", heartbeatAt: updatedHeartbeatAt });
 
       const heartbeat = await getHeartbeat(db, "worker");
       expect(heartbeat?.component).toBe("worker");
-      expect(heartbeat?.lastHeartbeatAt).toEqual(heartbeatAt);
+      expect(heartbeat?.lastHeartbeatAt).toEqual(updatedHeartbeatAt);
     });
   });
 
@@ -131,12 +133,21 @@ describe("repositories", () => {
       const project = await createProject(db, { name: "Freshness Project" });
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
       const receivedAt = new Date("2026-05-06T12:00:00.000Z");
+      const olderAt = new Date("2026-05-06T09:00:00.000Z");
       const eventAt = new Date("2026-05-06T10:00:00.000Z");
       const errorAt = new Date("2026-05-06T10:01:00.000Z");
       const traceAt = new Date("2026-05-06T10:02:00.000Z");
       const spanAt = new Date("2026-05-06T10:03:00.000Z");
       const llmAt = new Date("2026-05-06T10:04:00.000Z");
 
+      await insertEvent(db, {
+        id: "evt_freshness_older",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: olderAt,
+        receivedAt,
+        name: "freshness.event.older"
+      });
       await insertEvent(db, {
         id: "evt_freshness",
         projectId: project.id,
@@ -146,6 +157,15 @@ describe("repositories", () => {
         name: "freshness.event"
       });
       await insertError(db, {
+        id: "err_freshness_older",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: olderAt,
+        receivedAt,
+        message: "Older freshness error",
+        severity: "warning"
+      });
+      await insertError(db, {
         id: "err_freshness",
         projectId: project.id,
         environmentId: environment.id,
@@ -153,6 +173,16 @@ describe("repositories", () => {
         receivedAt,
         message: "Freshness error",
         severity: "error"
+      });
+      await insertTrace(db, {
+        id: "trc_freshness_older",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: olderAt,
+        receivedAt,
+        name: "Older freshness trace",
+        status: "ok",
+        startedAt: olderAt
       });
       await insertTrace(db, {
         id: "trc_freshness",
@@ -165,6 +195,17 @@ describe("repositories", () => {
         startedAt: traceAt
       });
       await insertSpan(db, {
+        id: "spn_freshness_older",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: olderAt,
+        receivedAt,
+        traceId: "trace_freshness_older",
+        name: "Older freshness span",
+        status: "ok",
+        startedAt: olderAt
+      });
+      await insertSpan(db, {
         id: "spn_freshness",
         projectId: project.id,
         environmentId: environment.id,
@@ -174,6 +215,16 @@ describe("repositories", () => {
         name: "Freshness span",
         status: "ok",
         startedAt: spanAt
+      });
+      await insertLlmCall(db, {
+        id: "llm_freshness_older",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: olderAt,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        status: "success"
       });
       await insertLlmCall(db, {
         id: "llm_freshness",
@@ -234,6 +285,8 @@ describe("repositories", () => {
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
       const receivedAt = new Date("2026-05-06T12:00:00.000Z");
       const oldTimestamp = new Date("2026-01-01T12:00:00.000Z");
+      const olderTimestamp = new Date("2025-12-31T12:00:00.000Z");
+      const longRetentionOldTimestamp = new Date("2025-10-01T12:00:00.000Z");
       const freshTimestamp = new Date("2026-05-05T12:00:00.000Z");
 
       await insertEvent(db, {
@@ -245,6 +298,14 @@ describe("repositories", () => {
         name: "old.event"
       });
       await insertEvent(db, {
+        id: "evt_older_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: olderTimestamp,
+        receivedAt,
+        name: "older.event"
+      });
+      await insertEvent(db, {
         id: "evt_fresh_retention",
         projectId: project.id,
         environmentId: environment.id,
@@ -252,10 +313,92 @@ describe("repositories", () => {
         receivedAt,
         name: "fresh.event"
       });
+      await insertError(db, {
+        id: "err_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: longRetentionOldTimestamp,
+        receivedAt,
+        message: "Old error",
+        severity: "error"
+      });
+      await insertError(db, {
+        id: "err_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        message: "Fresh error",
+        severity: "error"
+      });
+      await insertTrace(db, {
+        id: "trc_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        traceId: "trace_old_retention",
+        name: "Old trace",
+        status: "ok",
+        startedAt: oldTimestamp
+      });
+      await insertTrace(db, {
+        id: "trc_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        traceId: "trace_fresh_retention",
+        name: "Fresh trace",
+        status: "ok",
+        startedAt: freshTimestamp
+      });
+      await insertSpan(db, {
+        id: "spn_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        traceId: "trace_old_retention",
+        name: "Old span",
+        status: "ok",
+        startedAt: oldTimestamp
+      });
+      await insertSpan(db, {
+        id: "spn_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        traceId: "trace_fresh_retention",
+        name: "Fresh span",
+        status: "ok",
+        startedAt: freshTimestamp
+      });
+      await insertLlmCall(db, {
+        id: "llm_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: longRetentionOldTimestamp,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        status: "success"
+      });
+      await insertLlmCall(db, {
+        id: "llm_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        status: "success"
+      });
 
       const deleted = await deleteExpiredTelemetry(db, {
         now: new Date("2026-05-06T12:00:00.000Z"),
-        batchSize: 1000,
+        batchSize: 1,
         eventsDays: 90,
         errorsDays: 180,
         tracesDays: 90,
@@ -263,8 +406,24 @@ describe("repositories", () => {
         llmCallsDays: 180
       });
 
-      expect(deleted.events).toBe(1);
-      expect(await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 })).toHaveLength(1);
+      expect(deleted).toEqual({
+        events: 2,
+        errors: 1,
+        traces: 1,
+        spans: 1,
+        llmCalls: 1
+      });
+
+      const filters = { projectId: project.id, environmentId: environment.id, limit: 10 };
+      await expect(listEvents(db, filters)).resolves.toEqual([expect.objectContaining({ id: "evt_fresh_retention" })]);
+      await expect(listErrors(db, filters)).resolves.toEqual([expect.objectContaining({ id: "err_fresh_retention" })]);
+      await expect(listTraces(db, filters)).resolves.toEqual([expect.objectContaining({ id: "trc_fresh_retention" })]);
+      await expect(listTraceSpans(db, filters)).resolves.toEqual([
+        expect.objectContaining({ id: "spn_fresh_retention" })
+      ]);
+      await expect(listLlmCalls(db, filters)).resolves.toEqual([
+        expect.objectContaining({ id: "llm_fresh_retention" })
+      ]);
     });
   });
 
