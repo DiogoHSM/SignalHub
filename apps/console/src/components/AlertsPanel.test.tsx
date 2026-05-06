@@ -377,6 +377,161 @@ describe("AlertsPanel", () => {
     expect(within(screen.getByLabelText("Alert rules")).queryByText("Env A critical errors")).not.toBeInTheDocument();
   });
 
+  it("clears scoped alert data while a new environment load is pending", async () => {
+    const env2Rules = deferred<Awaited<ReturnType<ApiClient["listAlertRules"]>>>();
+    const env2Channels = deferred<Awaited<ReturnType<ApiClient["listNotificationChannels"]>>>();
+    const env2Events = deferred<Awaited<ReturnType<ApiClient["listAlertEvents"]>>>();
+    const listAlertRules = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rules: [
+          {
+            id: "rule_env_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            notificationChannelId: "chn_env_1",
+            name: "Env 1 stale rule",
+            type: "critical_errors",
+            severity: "critical",
+            windowMinutes: 10,
+            threshold: "1",
+            cooldownMinutes: 30,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: null,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      })
+      .mockReturnValueOnce(env2Rules.promise);
+    const listNotificationChannels = vi
+      .fn()
+      .mockResolvedValueOnce({
+        channels: [
+          {
+            id: "chn_env_1",
+            name: "Env 1 stale channel",
+            type: "webhook",
+            url: "https://hooks.example.com/env-1",
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      })
+      .mockReturnValueOnce(env2Channels.promise);
+    const listAlertEvents = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "evt_env_1",
+            ruleId: "rule_env_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            status: "triggered",
+            severity: "critical",
+            triggeredAt: "",
+            windowStart: "",
+            windowEnd: "",
+            observedValue: "2",
+            threshold: "1",
+            message: "Env 1 stale event",
+            metadata: {},
+            createdAt: "",
+            latestDeliveryStatus: "success"
+          }
+        ]
+      })
+      .mockReturnValueOnce(env2Events.promise);
+    const api = client({ listAlertRules, listNotificationChannels, listAlertEvents });
+
+    const { rerender } = render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    expect(await screen.findByText("Env 1 stale rule")).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Notification channels")).getByText("Env 1 stale channel")).toBeInTheDocument();
+    expect(screen.getByText("Env 1 stale event")).toBeInTheDocument();
+
+    rerender(<AlertsPanel client={api} projectId="prj_1" environmentId="env_2" />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading alerts");
+    expect(screen.queryByText("Env 1 stale rule")).not.toBeInTheDocument();
+    expect(screen.queryByText("Env 1 stale channel")).not.toBeInTheDocument();
+    expect(screen.queryByText("Env 1 stale event")).not.toBeInTheDocument();
+
+    await act(async () => {
+      env2Rules.resolve({
+        rules: [
+          {
+            id: "rule_env_2",
+            projectId: "prj_1",
+            environmentId: "env_2",
+            notificationChannelId: "chn_env_2",
+            name: "Env 2 fresh rule",
+            type: "error_count",
+            severity: "warning",
+            windowMinutes: 5,
+            threshold: "3",
+            cooldownMinutes: 15,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: null,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      });
+      env2Channels.resolve({
+        channels: [
+          {
+            id: "chn_env_2",
+            name: "Env 2 fresh channel",
+            type: "webhook",
+            url: "https://hooks.example.com/env-2",
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      });
+      env2Events.resolve({
+        data: [
+          {
+            id: "evt_env_2",
+            ruleId: "rule_env_2",
+            projectId: "prj_1",
+            environmentId: "env_2",
+            status: "triggered",
+            severity: "warning",
+            triggeredAt: "",
+            windowStart: "",
+            windowEnd: "",
+            observedValue: "4",
+            threshold: "3",
+            message: "Env 2 fresh event",
+            metadata: {},
+            createdAt: "",
+            latestDeliveryStatus: "success"
+          }
+        ]
+      });
+      await Promise.all([env2Rules.promise, env2Channels.promise, env2Events.promise]);
+    });
+
+    expect(await screen.findByText("Env 2 fresh rule")).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Notification channels")).getByText("Env 2 fresh channel")).toBeInTheDocument();
+    expect(screen.getByText("Env 2 fresh event")).toBeInTheDocument();
+  });
+
   it("resets unsaved channel and rule fields when switching environments", async () => {
     const api = client({
       listNotificationChannels: vi.fn().mockResolvedValue({

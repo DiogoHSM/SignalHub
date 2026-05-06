@@ -145,6 +145,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     let cancelled = false;
     setIsLoading(true);
     setError(null);
+    setRules([]);
+    setChannels([]);
+    setEvents([]);
 
     void Promise.all([
       client.listAlertRules({ projectId, environmentId }),

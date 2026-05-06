@@ -742,7 +742,7 @@ select {
 
 .alerts-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 12px;
   min-width: 0;
 }
@@ -782,6 +782,7 @@ select {
 
 .alerts-row {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
