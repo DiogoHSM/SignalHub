@@ -3,7 +3,7 @@ import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
 
 const execFileAsync = promisify(execFile);
@@ -21,7 +21,7 @@ export type BackupS3Config = {
   prefix: string;
 };
 
-export type BackupConfig = {
+export type BackupRuntimeConfig = {
   enabled: boolean;
   intervalHours: number;
   localDir: string;
@@ -46,23 +46,28 @@ export type BackupRunRecordInput = {
 export type DumpDatabaseInput = {
   databaseUrl: string;
   outputPath: string;
+  execFileFn?: (file: string, args: string[]) => Promise<unknown>;
 };
 
 export type UploadBackupInput = {
   filePath: string;
   key: string;
   s3: BackupS3Config;
+  createClient?: (config: S3ClientConfig) => { send: (command: PutObjectCommand) => Promise<unknown> };
 };
 
-export type BackupRuntime = {
+export type BackupRunInput = {
   now: () => Date;
   trigger: BackupTrigger;
-  config: BackupConfig;
+  config: BackupRuntimeConfig;
   withLock: <T>(run: () => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
   dumpDatabase?: (input: DumpDatabaseInput) => Promise<void>;
   uploadBackup?: (input: UploadBackupInput) => Promise<{ bucket: string; key: string }>;
   recordBackupRun: (input: BackupRunRecordInput) => Promise<unknown>;
 };
+
+export type BackupConfig = BackupRuntimeConfig;
+export type BackupRuntime = BackupRunInput;
 
 export function createBackupFilename(now: Date): string {
   const year = now.getUTCFullYear().toString().padStart(4, "0");
@@ -80,7 +85,13 @@ export function createBackupS3Key(prefix: string, filename: string): string {
 }
 
 export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<void> {
-  await execFileAsync("pg_dump", [
+  const execFileFn =
+    input.execFileFn ??
+    (async (file: string, args: string[]) => {
+      await execFileAsync(file, args);
+    });
+
+  await execFileFn("pg_dump", [
     "--format=custom",
     "--no-owner",
     "--no-privileges",
@@ -91,7 +102,8 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
 }
 
 export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ bucket: string; key: string }> {
-  const client = new S3Client({
+  const createClient = input.createClient ?? ((config: S3ClientConfig) => new S3Client(config));
+  const client = createClient({
     endpoint: input.s3.endpoint,
     region: input.s3.region,
     credentials: {
@@ -135,7 +147,7 @@ export async function pruneLocalBackups(input: {
   );
 }
 
-export async function runBackupOnce(runtime: BackupRuntime): Promise<{ ran: boolean; skipped: boolean }> {
+export async function runBackupOnce(runtime: BackupRunInput): Promise<{ ran: boolean; skipped: boolean }> {
   const startedAt = runtime.now();
   const filename = createBackupFilename(startedAt);
   const localPath = join(runtime.config.localDir, filename);

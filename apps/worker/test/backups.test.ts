@@ -3,15 +3,127 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createBackupS3Key,
   createBackupFilename,
+  dumpPostgresDatabase,
   pruneLocalBackups,
   runBackupOnce,
-  startBackupScheduler
+  startBackupScheduler,
+  uploadBackupToS3
 } from "../src/backups.js";
+import type { BackupRunInput, BackupRuntimeConfig, BackupS3Config } from "../src/backups.js";
 
 describe("createBackupFilename", () => {
   it("uses a UTC timestamp and no secrets", () => {
     expect(createBackupFilename(new Date("2026-05-06T12:34:56.000Z"))).toBe("signalhub-20260506T123456Z.dump");
+  });
+});
+
+describe("createBackupS3Key", () => {
+  it("trims leading and trailing slashes from prefixes", () => {
+    expect(createBackupS3Key("/prod/signalhub/", "signalhub-20260506T123456Z.dump")).toBe(
+      "prod/signalhub/signalhub-20260506T123456Z.dump"
+    );
+  });
+
+  it("returns the filename when prefix is empty", () => {
+    expect(createBackupS3Key("", "signalhub-20260506T123456Z.dump")).toBe("signalhub-20260506T123456Z.dump");
+    expect(createBackupS3Key("///", "signalhub-20260506T123456Z.dump")).toBe("signalhub-20260506T123456Z.dump");
+  });
+});
+
+describe("dumpPostgresDatabase", () => {
+  it("runs pg_dump with custom format and ownership-safe flags", async () => {
+    const execFileFn = vi.fn(async () => undefined);
+
+    await dumpPostgresDatabase({
+      databaseUrl: "postgres://user:pass@localhost:5432/signalhub",
+      outputPath: "/tmp/signalhub.dump",
+      execFileFn
+    });
+
+    expect(execFileFn).toHaveBeenCalledWith("pg_dump", [
+      "--format=custom",
+      "--no-owner",
+      "--no-privileges",
+      "--file",
+      "/tmp/signalhub.dump",
+      "postgres://user:pass@localhost:5432/signalhub"
+    ]);
+  });
+});
+
+describe("uploadBackupToS3", () => {
+  it("uses configured S3 client options and uploads as an octet stream", async () => {
+    const send = vi.fn(async (_command: { input: unknown }) => undefined);
+    const createClient = vi.fn(() => ({ send }));
+
+    await uploadBackupToS3({
+      filePath: "/tmp/signalhub.dump",
+      key: "prod/signalhub/signalhub-20260506T120000Z.dump",
+      s3: {
+        enabled: true,
+        endpoint: "https://example.r2.cloudflarestorage.com",
+        region: "auto",
+        bucket: "bucket",
+        accessKeyId: "access",
+        secretAccessKey: "secret",
+        prefix: "prod/signalhub"
+      },
+      createClient
+    });
+
+    expect(createClient).toHaveBeenCalledWith({
+      endpoint: "https://example.r2.cloudflarestorage.com",
+      region: "auto",
+      credentials: {
+        accessKeyId: "access",
+        secretAccessKey: "secret"
+      },
+      forcePathStyle: true
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    const sentCommand = send.mock.calls[0]?.[0];
+    expect(sentCommand?.input).toEqual(
+      expect.objectContaining({
+        Bucket: "bucket",
+        Key: "prod/signalhub/signalhub-20260506T120000Z.dump",
+        ContentType: "application/octet-stream"
+      })
+    );
+  });
+});
+
+describe("pruneLocalBackups", () => {
+  it("only deletes old SignalHub dump files", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
+    const oldBackup = join(localDir, "signalhub-old.dump");
+    const freshBackup = join(localDir, "signalhub-fresh.dump");
+    const unrelatedDump = join(localDir, "other-old.dump");
+    const unrelatedText = join(localDir, "signalhub-old.txt");
+
+    try {
+      await writeFile(oldBackup, "old");
+      await writeFile(freshBackup, "fresh");
+      await writeFile(unrelatedDump, "other");
+      await writeFile(unrelatedText, "text");
+      await utimes(oldBackup, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
+      await utimes(unrelatedDump, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
+      await utimes(unrelatedText, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
+
+      await pruneLocalBackups({
+        localDir,
+        retentionDays: 14,
+        now: new Date("2026-05-06T12:00:00.000Z")
+      });
+
+      await expect(stat(oldBackup)).rejects.toThrow();
+      await expect(stat(freshBackup)).resolves.toBeTruthy();
+      await expect(stat(unrelatedDump)).resolves.toBeTruthy();
+      await expect(stat(unrelatedText)).resolves.toBeTruthy();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -145,21 +257,25 @@ describe("startBackupScheduler", () => {
       resolveRun = resolve;
     });
     const runOnce = vi.fn(() => activeRun);
+    const setTimeoutFn = vi.fn((callback: () => void) => {
+      callbacks.push(callback);
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    });
+    const setIntervalFn = vi.fn((callback: () => void) => {
+      callbacks.push(callback);
+      return 2 as unknown as ReturnType<typeof setInterval>;
+    });
     const stop = startBackupScheduler({
       intervalHours: 1,
       runOnce,
-      setTimeoutFn: (callback) => {
-        callbacks.push(callback);
-        return 1 as unknown as ReturnType<typeof setTimeout>;
-      },
-      setIntervalFn: (callback) => {
-        callbacks.push(callback);
-        return 2 as unknown as ReturnType<typeof setInterval>;
-      },
+      setTimeoutFn,
+      setIntervalFn,
       clearTimeoutFn: vi.fn(),
       clearIntervalFn: vi.fn()
     });
 
+    expect(setTimeoutFn).toHaveBeenCalledWith(expect.any(Function), 1000);
+    expect(setIntervalFn).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
     callbacks[0]();
     callbacks[1]();
     expect(runOnce).toHaveBeenCalledTimes(1);
@@ -167,3 +283,12 @@ describe("startBackupScheduler", () => {
     await stop();
   });
 });
+
+type RequiredTypeExports = {
+  s3: BackupS3Config;
+  config: BackupRuntimeConfig;
+  input: BackupRunInput;
+};
+
+const requiredTypeExports: RequiredTypeExports | null = null;
+void requiredTypeExports;
