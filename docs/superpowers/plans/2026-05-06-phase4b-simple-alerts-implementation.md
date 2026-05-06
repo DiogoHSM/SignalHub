@@ -1657,7 +1657,7 @@ git commit -m "feat: add alert console client"
 - Modify: `apps/console/src/components/ConsoleShell.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Add failing panel and navigation tests**
+- [x] **Step 1: Add failing panel and navigation tests**
 
 Create `apps/console/src/components/AlertsPanel.test.tsx`:
 
@@ -1740,7 +1740,7 @@ describe("AlertsPanel", () => {
 
 Update `ConsoleModeTabs.test.tsx` to expect an `Alerts` tab and `ConsoleShell.test.tsx` to load the Alerts panel.
 
-- [ ] **Step 2: Run console tests and verify failure**
+- [x] **Step 2: Run console tests and verify failure**
 
 Run:
 
@@ -1750,7 +1750,7 @@ pnpm --filter @signal-hub/console test -- AlertsPanel.test.tsx ConsoleModeTabs.t
 
 Expected: fail because `AlertsPanel` and `alerts` mode do not exist.
 
-- [ ] **Step 3: Implement `AlertsPanel`**
+- [x] **Step 3: Implement `AlertsPanel`**
 
 Create `apps/console/src/components/AlertsPanel.tsx` with:
 
@@ -1832,7 +1832,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
 
 Then add compact create forms for rules and channels, using existing form/input styles from setup components. Keep secret values write-only by clearing the field after create success.
 
-- [ ] **Step 4: Add Alerts mode**
+- [x] **Step 4: Add Alerts mode**
 
 Update `apps/console/src/components/ConsoleModeTabs.tsx`:
 
@@ -1854,7 +1854,7 @@ Update `ConsoleShell.tsx` to render:
 {mode === "alerts" ? <AlertsPanel client={client} projectId={activeProject?.id} environmentId={activeEnvironment?.id} /> : null}
 ```
 
-- [ ] **Step 5: Add CSS**
+- [x] **Step 5: Add CSS**
 
 In `apps/console/src/styles.css`, add:
 
@@ -1896,7 +1896,7 @@ In `apps/console/src/styles.css`, add:
 
 Use existing status pill classes if available; otherwise add a focused `.status-pill` variant that matches the System panel.
 
-- [ ] **Step 6: Run console tests and verify pass**
+- [x] **Step 6: Run console tests and verify pass**
 
 Run:
 
@@ -1906,7 +1906,7 @@ pnpm --filter @signal-hub/console test -- AlertsPanel.test.tsx ConsoleModeTabs.t
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/console/src/components/AlertsPanel.tsx apps/console/src/components/AlertsPanel.test.tsx apps/console/src/components/ConsoleModeTabs.tsx apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.tsx apps/console/src/components/ConsoleShell.test.tsx apps/console/src/styles.css
