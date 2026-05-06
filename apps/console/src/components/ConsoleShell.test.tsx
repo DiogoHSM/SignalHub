@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { CreatedApiKey, Environment, OverviewResponse } from "../api/types";
+import type { CreatedApiKey, Environment, OverviewResponse, SystemHealthResponse } from "../api/types";
 import { ConsoleShell } from "./ConsoleShell";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -137,6 +137,34 @@ function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewRe
           traceId: "trace_1"
         }
       ]
+    },
+    ...overrides
+  };
+}
+
+function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): SystemHealthResponse {
+  return {
+    generatedAt: "2026-05-06T12:00:00.000Z",
+    status: "healthy",
+    services: {
+      api: { status: "healthy", uptimeSeconds: 120 },
+      postgres: { status: "healthy", latencyMs: 4 },
+      redis: { status: "healthy", latencyMs: 2 },
+      worker: { status: "healthy", lastHeartbeatAt: "2026-05-06T11:59:55.000Z" }
+    },
+    queues: { telemetry: { waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0 } },
+    ingestion: {
+      lastEventAt: null,
+      lastErrorAt: null,
+      lastTraceAt: null,
+      lastSpanAt: null,
+      lastLlmCallAt: null
+    },
+    retention: {
+      enabled: true,
+      intervalMinutes: 60,
+      lastRun: null,
+      policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
     },
     ...overrides
   };
@@ -436,6 +464,39 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Setup" }));
     expect(screen.getByText("Environment: Production")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
+  });
+
+  it("lazy-loads system health when System mode is opened", async () => {
+    const health = deferred<{ data: SystemHealthResponse }>();
+    const getSystemHealth = vi.fn().mockReturnValue(health.promise);
+    const api = client({
+      getSystemHealth,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    expect(getSystemHealth).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "System" }));
+
+    expect(getSystemHealth).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Loading system health")).toBeInTheDocument();
+
+    await act(async () => {
+      health.resolve({ data: systemHealthResponse() });
+      await health.promise;
+    });
+
+    expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
+    expect(screen.getByText("Postgres")).toBeInTheDocument();
   });
 
   it("preserves in-progress setup form state across mode switches while hiding inactive setup controls", async () => {

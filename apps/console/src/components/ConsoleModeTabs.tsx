@@ -1,4 +1,4 @@
-export type ConsoleMode = "setup" | "overview" | "investigate";
+export type ConsoleMode = "setup" | "overview" | "investigate" | "system";
 
 type Props = {
   activeMode: ConsoleMode;
@@ -16,6 +16,9 @@ export function ConsoleModeTabs({ activeMode, onChange }: Props) {
       </button>
       <button aria-pressed={activeMode === "investigate"} onClick={() => onChange("investigate")} type="button">
         Investigate
+      </button>
+      <button aria-pressed={activeMode === "system"} onClick={() => onChange("system")} type="button">
+        System
       </button>
     </div>
   );

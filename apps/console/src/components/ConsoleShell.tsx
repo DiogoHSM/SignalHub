@@ -6,6 +6,7 @@ import { InvestigationWorkspace, type InvestigationInitialFilters, type Investig
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SetupWorkspace } from "./SetupWorkspace";
+import { SystemHealthPanel } from "./SystemHealthPanel";
 
 type LatestSecret = {
   secret: string;
@@ -241,6 +242,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
             />
           ) : null}
         </div>
+        <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
       </section>
     </main>
   );
