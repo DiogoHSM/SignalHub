@@ -6,8 +6,10 @@ const zeroDeleted: RetentionDeletedCounts = { events: 0, errors: 0, traces: 0, s
 export type RetentionRuntime = {
   now: () => Date;
   policy: RetentionPolicy;
-  tryAcquireLock: () => Promise<boolean>;
-  releaseLock: () => Promise<void>;
+  withLock: <T>(run: (lockedRuntime: RetentionLockedRuntime) => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
+};
+
+export type RetentionLockedRuntime = {
   deleteExpiredTelemetry: () => Promise<RetentionDeletedCounts>;
   recordRetentionRun: (input: {
     startedAt: Date;
@@ -20,16 +22,13 @@ export type RetentionRuntime = {
 };
 
 export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran: boolean; skipped: boolean }> {
-  const locked = await runtime.tryAcquireLock();
-  if (!locked) return { ran: false, skipped: true };
-
-  const startedAt = runtime.now();
-  try {
+  const result = await runtime.withLock(async (lockedRuntime) => {
+    const startedAt = runtime.now();
     let deleted: RetentionDeletedCounts;
     try {
-      deleted = await runtime.deleteExpiredTelemetry();
+      deleted = await lockedRuntime.deleteExpiredTelemetry();
     } catch (error) {
-      await runtime.recordRetentionRun({
+      await lockedRuntime.recordRetentionRun({
         startedAt,
         finishedAt: runtime.now(),
         status: "failed",
@@ -40,7 +39,7 @@ export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran
       return { ran: true, skipped: false };
     }
 
-    await runtime.recordRetentionRun({
+    await lockedRuntime.recordRetentionRun({
       startedAt,
       finishedAt: runtime.now(),
       status: "success",
@@ -48,9 +47,9 @@ export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran
       policy: runtime.policy
     });
     return { ran: true, skipped: false };
-  } finally {
-    await runtime.releaseLock();
-  }
+  });
+
+  return result.locked ? result.result : { ran: false, skipped: true };
 }
 
 type IntervalHandle = ReturnType<typeof setInterval>;

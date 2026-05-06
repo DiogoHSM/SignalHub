@@ -20,7 +20,7 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
       worker: { status: "healthy", lastHeartbeatAt: "2026-05-06T11:59:55.000Z" }
     },
     queues: {
-      telemetry: { waiting: 1, active: 2, completed: 30, failed: 0, delayed: 3 }
+      telemetry: { status: "healthy", errorMessage: null, waiting: 1, active: 2, completed: 30, failed: 0, delayed: 3 }
     },
     ingestion: {
       lastEventAt: "2026-05-06T11:58:00.000Z",
@@ -117,5 +117,34 @@ describe("SystemHealthPanel", () => {
     expect(screen.queryByText("Invalid Date")).not.toBeInTheDocument();
     expect(screen.getByText("Generated No data")).toBeInTheDocument();
     expect(screen.getAllByText("No data").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("renders queue probe failures without showing fallback counts", async () => {
+    const api = client(
+      vi.fn().mockResolvedValue({
+        data: healthyResponse({
+          status: "unhealthy",
+          queues: {
+            telemetry: {
+              status: "unhealthy",
+              errorMessage: "Queue counts unavailable",
+              waiting: 0,
+              active: 0,
+              completed: 0,
+              failed: 0,
+              delayed: 0
+            }
+          }
+        })
+      })
+    );
+
+    render(<SystemHealthPanel client={api} />);
+
+    expect(await screen.findByText("Queue counts unavailable")).toBeInTheDocument();
+    const queuesCard = screen.getByRole("heading", { name: "Queues" }).closest("article");
+    expect(queuesCard).not.toBeNull();
+    expect(within(queuesCard as HTMLElement).getByText("unhealthy")).toBeInTheDocument();
+    expect(within(queuesCard as HTMLElement).queryByText("Waiting")).not.toBeInTheDocument();
   });
 });

@@ -14,9 +14,8 @@ import { insertDeadLetterJob } from "@signal-hub/db/repositories/dead-letter.js"
 import {
   deleteExpiredTelemetry,
   recordRetentionRun,
-  releaseRetentionLock,
-  tryAcquireRetentionLock,
-  upsertHeartbeat
+  upsertHeartbeat,
+  withRetentionLock
 } from "@signal-hub/db/repositories/system.js";
 import { startHeartbeat } from "./heartbeat.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
@@ -63,15 +62,18 @@ const stopRetention = config.retention.enabled
         runRetentionOnce({
           now: () => new Date(),
           policy: retentionPolicy,
-          tryAcquireLock: () => tryAcquireRetentionLock(db),
-          releaseLock: () => releaseRetentionLock(db),
-          deleteExpiredTelemetry: () =>
-            deleteExpiredTelemetry(db, {
-              now: new Date(),
-              batchSize: config.retention.batchSize,
-              ...retentionPolicy
-            }),
-          recordRetentionRun: (input) => recordRetentionRun(db, input)
+          withLock: (run) =>
+            withRetentionLock(db, (lockedDb) =>
+              run({
+                deleteExpiredTelemetry: () =>
+                  deleteExpiredTelemetry(lockedDb, {
+                    now: new Date(),
+                    batchSize: config.retention.batchSize,
+                    ...retentionPolicy
+                  }),
+                recordRetentionRun: (input) => recordRetentionRun(lockedDb, input)
+              })
+            )
         })
     })
   : async () => {};

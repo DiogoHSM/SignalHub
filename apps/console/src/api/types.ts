@@ -508,6 +508,8 @@ export type SystemHealthResponse = {
   };
   queues: {
     telemetry: {
+      status: SystemStatus;
+      errorMessage: string | null;
       waiting: number;
       active: number;
       completed: number;

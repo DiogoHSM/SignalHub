@@ -51,7 +51,8 @@ import {
   getIngestionFreshness,
   getLastRetentionRun,
   recordRetentionRun,
-  upsertHeartbeat
+  upsertHeartbeat,
+  withRetentionLock
 } from "../src/repositories/system.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
@@ -100,6 +101,21 @@ describe("repositories", () => {
 
       await sql`select id, status, started_at from retention_runs limit 0`.execute(db);
       await sql`select component, last_heartbeat_at from system_heartbeats limit 0`.execute(db);
+    });
+  });
+
+  it("uses transaction-scoped retention locks without leaking locks", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const first = await withRetentionLock(db, async () => {
+        const concurrent = await withRetentionLock(db, async () => "concurrent");
+        expect(concurrent).toEqual({ locked: false });
+        return "first";
+      });
+      expect(first).toEqual({ locked: true, result: "first" });
+
+      await expect(withRetentionLock(db, async () => "second")).resolves.toEqual({ locked: true, result: "second" });
     });
   });
 
@@ -424,6 +440,48 @@ describe("repositories", () => {
       await expect(listLlmCalls(db, filters)).resolves.toEqual([
         expect.objectContaining({ id: "llm_fresh_retention" })
       ]);
+    });
+  });
+
+  it("limits retention work per table by maximum batch count", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Bounded Retention Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const receivedAt = new Date("2026-05-06T12:00:00.000Z");
+      const oldTimestamp = new Date("2026-01-01T12:00:00.000Z");
+
+      await insertEvent(db, {
+        id: "evt_bounded_retention_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        name: "bounded.retention.one"
+      });
+      await insertEvent(db, {
+        id: "evt_bounded_retention_2",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        name: "bounded.retention.two"
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        now: new Date("2026-05-06T12:00:00.000Z"),
+        batchSize: 1,
+        maxBatchesPerTable: 1,
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180
+      });
+
+      expect(deleted.events).toBe(1);
+      await expect(listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 })).resolves.toHaveLength(1);
     });
   });
 

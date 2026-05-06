@@ -258,7 +258,9 @@ describe("createApiClient", () => {
               redis: { status: "healthy", latencyMs: 1 },
               worker: { status: "healthy", lastHeartbeatAt: "2026-05-06T11:59:30.000Z" }
             },
-            queues: { telemetry: { waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 } },
+            queues: {
+              telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 }
+            },
             ingestion: {
               lastEventAt: null,
               lastErrorAt: null,

@@ -55,7 +55,7 @@ Retention settings are non-secret operational config. They are documented in `.e
 
 ## Operational Safety
 
-The worker runs telemetry retention by default. Retention environment variables control scheduled deletion of old telemetry with bounded delete statements; a retention run may execute multiple batches until expired rows are drained.
+The worker runs telemetry retention by default. Retention environment variables control scheduled deletion of old telemetry with bounded delete statements; each run can process a limited number of batches and later scheduled runs continue draining older rows.
 
 Retention only deletes telemetry rows. Operational metadata, projects, environments, users, and API keys are not deleted by retention.
 

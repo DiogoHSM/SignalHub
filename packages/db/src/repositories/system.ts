@@ -1,11 +1,13 @@
-import type { Selectable } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../client.js";
-import type { RetentionRunsTable } from "../schema.js";
+import type { Database, RetentionRunsTable } from "../schema.js";
 
 type RetentionRunRow = Selectable<RetentionRunsTable>;
+type SystemDb = Db | Transaction<Database>;
 
 const retentionAdvisoryLockId = 927380402914;
+const defaultMaxBatchesPerTable = 25;
 
 export type RetentionPolicy = {
   eventsDays: number;
@@ -18,6 +20,7 @@ export type RetentionPolicy = {
 export type RetentionExecutionOptions = RetentionPolicy & {
   now: Date;
   batchSize: number;
+  maxBatchesPerTable?: number;
 };
 
 export type RetentionDeletedCounts = {
@@ -62,19 +65,29 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
   };
 }
 
-export async function tryAcquireRetentionLock(db: Db): Promise<boolean> {
-  const result = await sql<{ locked: boolean }>`select pg_try_advisory_lock(${retentionAdvisoryLockId}) as locked`.execute(
-    db
-  );
+async function tryAcquireRetentionTransactionLock(db: SystemDb): Promise<boolean> {
+  const result = await sql<{ locked: boolean }>`
+    select pg_try_advisory_xact_lock(${retentionAdvisoryLockId}) as locked
+  `.execute(db);
   return result.rows[0]?.locked === true;
 }
 
-export async function releaseRetentionLock(db: Db): Promise<void> {
-  await sql`select pg_advisory_unlock(${retentionAdvisoryLockId})`.execute(db);
+export async function withRetentionLock<T>(
+  db: Db,
+  run: (lockedDb: Transaction<Database>) => Promise<T>
+): Promise<{ locked: false } | { locked: true; result: T }> {
+  return db.transaction().execute(async (trx) => {
+    const locked = await tryAcquireRetentionTransactionLock(trx);
+    if (!locked) {
+      return { locked: false };
+    }
+
+    return { locked: true, result: await run(trx) };
+  });
 }
 
 export async function upsertHeartbeat(
-  db: Db,
+  db: SystemDb,
   input: { component: string; heartbeatAt: Date; metadata?: unknown }
 ): Promise<void> {
   await db
@@ -95,7 +108,10 @@ export async function upsertHeartbeat(
     .execute();
 }
 
-export async function getHeartbeat(db: Db, component: string): Promise<{ component: string; lastHeartbeatAt: Date } | null> {
+export async function getHeartbeat(
+  db: SystemDb,
+  component: string
+): Promise<{ component: string; lastHeartbeatAt: Date } | null> {
   const row = await db
     .selectFrom("system_heartbeats")
     .select(["component", "last_heartbeat_at"])
@@ -105,7 +121,7 @@ export async function getHeartbeat(db: Db, component: string): Promise<{ compone
   return row ? { component: row.component, lastHeartbeatAt: row.last_heartbeat_at } : null;
 }
 
-async function deleteExpiredFromTable(db: Db, tableName: string, cutoff: Date, batchSize: number): Promise<number> {
+async function deleteExpiredFromTable(db: SystemDb, tableName: string, cutoff: Date, batchSize: number): Promise<number> {
   const result = await sql<{ deleted_count: string }>`
     with deleted_rows as (
       delete from ${sql.table(tableName)}
@@ -123,29 +139,37 @@ async function deleteExpiredFromTable(db: Db, tableName: string, cutoff: Date, b
   return Number(result.rows[0]?.deleted_count ?? 0);
 }
 
-async function deleteAllExpiredFromTable(db: Db, tableName: string, cutoff: Date, batchSize: number): Promise<number> {
+async function deleteExpiredBatchesFromTable(
+  db: SystemDb,
+  tableName: string,
+  cutoff: Date,
+  batchSize: number,
+  maxBatches: number
+): Promise<number> {
   let total = 0;
-  for (;;) {
+  for (let batch = 0; batch < maxBatches; batch += 1) {
     const deleted = await deleteExpiredFromTable(db, tableName, cutoff, batchSize);
     total += deleted;
     if (deleted < batchSize) return total;
   }
+  return total;
 }
 
-export async function deleteExpiredTelemetry(db: Db, options: RetentionExecutionOptions): Promise<RetentionDeletedCounts> {
+export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExecutionOptions): Promise<RetentionDeletedCounts> {
   const cutoff = (days: number) => new Date(options.now.getTime() - days * 24 * 60 * 60 * 1000);
+  const maxBatches = options.maxBatchesPerTable ?? defaultMaxBatchesPerTable;
 
   return {
-    events: await deleteAllExpiredFromTable(db, "events", cutoff(options.eventsDays), options.batchSize),
-    errors: await deleteAllExpiredFromTable(db, "errors", cutoff(options.errorsDays), options.batchSize),
-    traces: await deleteAllExpiredFromTable(db, "traces", cutoff(options.tracesDays), options.batchSize),
-    spans: await deleteAllExpiredFromTable(db, "spans", cutoff(options.spansDays), options.batchSize),
-    llmCalls: await deleteAllExpiredFromTable(db, "llm_calls", cutoff(options.llmCallsDays), options.batchSize)
+    events: await deleteExpiredBatchesFromTable(db, "events", cutoff(options.eventsDays), options.batchSize, maxBatches),
+    errors: await deleteExpiredBatchesFromTable(db, "errors", cutoff(options.errorsDays), options.batchSize, maxBatches),
+    traces: await deleteExpiredBatchesFromTable(db, "traces", cutoff(options.tracesDays), options.batchSize, maxBatches),
+    spans: await deleteExpiredBatchesFromTable(db, "spans", cutoff(options.spansDays), options.batchSize, maxBatches),
+    llmCalls: await deleteExpiredBatchesFromTable(db, "llm_calls", cutoff(options.llmCallsDays), options.batchSize, maxBatches)
   };
 }
 
 export async function recordRetentionRun(
-  db: Db,
+  db: SystemDb,
   input: {
     startedAt: Date;
     finishedAt: Date | null;
@@ -179,7 +203,7 @@ export async function recordRetentionRun(
   return toRetentionRunRecord(row);
 }
 
-export async function getLastRetentionRun(db: Db): Promise<RetentionRunRecord | null> {
+export async function getLastRetentionRun(db: SystemDb): Promise<RetentionRunRecord | null> {
   const row = await db
     .selectFrom("retention_runs")
     .selectAll()
@@ -190,7 +214,7 @@ export async function getLastRetentionRun(db: Db): Promise<RetentionRunRecord | 
   return row ? toRetentionRunRecord(row) : null;
 }
 
-export async function getIngestionFreshness(db: Db): Promise<{
+export async function getIngestionFreshness(db: SystemDb): Promise<{
   lastEventAt: Date | null;
   lastErrorAt: Date | null;
   lastTraceAt: Date | null;

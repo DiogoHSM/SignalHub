@@ -153,15 +153,22 @@ export function SystemHealthPanel({ client }: Props) {
 
           <section className="system-grid" aria-label="System operations">
             <article className="system-card">
-              <h3>Queues</h3>
-              <dl>
-                {queueLabels.map(([key, label]) => (
-                  <div key={key}>
-                    <dt>{label}</dt>
-                    <dd>{health.queues.telemetry[key]}</dd>
-                  </div>
-                ))}
-              </dl>
+              <div className="system-card__header">
+                <h3>Queues</h3>
+                <span className={statusClass(health.queues.telemetry.status)}>{health.queues.telemetry.status}</span>
+              </div>
+              {health.queues.telemetry.status === "unhealthy" ? (
+                <p className="muted-text">{health.queues.telemetry.errorMessage ?? "Queue counts unavailable"}</p>
+              ) : (
+                <dl>
+                  {queueLabels.map(([key, label]) => (
+                    <div key={key}>
+                      <dt>{label}</dt>
+                      <dd>{health.queues.telemetry[key]}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
             </article>
 
             <article className="system-card">

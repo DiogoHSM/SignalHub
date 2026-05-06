@@ -22,7 +22,7 @@ export type SystemHealthSnapshot = {
     worker: { status: SystemStatus; lastHeartbeatAt: string | null };
   };
   queues: {
-    telemetry: SystemQueueCounts;
+    telemetry: SystemQueueCounts & { status: SystemStatus; errorMessage: string | null };
   };
   ingestion: {
     lastEventAt: string | null;

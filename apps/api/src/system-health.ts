@@ -81,12 +81,16 @@ function isoOrNull(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
 }
 
-function queueCountsOrFallback(result: Probe<Partial<SystemQueueCounts>>): SystemQueueCounts {
+function queueCountsOrFallback(
+  result: Probe<Partial<SystemQueueCounts>>
+): SystemHealthSnapshot["queues"]["telemetry"] {
   if (!result.ok) {
-    return emptyQueueCounts;
+    return { status: "unhealthy", errorMessage: "Queue counts unavailable", ...emptyQueueCounts };
   }
 
   return {
+    status: "healthy",
+    errorMessage: null,
     waiting: result.value.waiting ?? 0,
     active: result.value.active ?? 0,
     completed: result.value.completed ?? 0,

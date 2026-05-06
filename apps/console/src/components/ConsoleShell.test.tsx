@@ -152,7 +152,7 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
       redis: { status: "healthy", latencyMs: 2 },
       worker: { status: "healthy", lastHeartbeatAt: "2026-05-06T11:59:55.000Z" }
     },
-    queues: { telemetry: { waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0 } },
+    queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0 } },
     ingestion: {
       lastEventAt: null,
       lastErrorAt: null,

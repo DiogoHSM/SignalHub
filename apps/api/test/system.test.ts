@@ -26,7 +26,7 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
     redis: { status: "healthy", latencyMs: 3 },
     worker: { status: "degraded", lastHeartbeatAt: null }
   },
-  queues: { telemetry: { waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 } },
+  queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 } },
   ingestion: {
     lastEventAt: null,
     lastErrorAt: null,
@@ -129,7 +129,15 @@ describe("system health routes", () => {
     expect(snapshot.services.postgres).toEqual({ status: "unhealthy", latencyMs: null });
     expect(snapshot.services.redis.status).toBe("healthy");
     expect(snapshot.services.worker).toEqual({ status: "degraded", lastHeartbeatAt: null });
-    expect(snapshot.queues.telemetry).toEqual({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 });
+    expect(snapshot.queues.telemetry).toEqual({
+      status: "unhealthy",
+      errorMessage: "Queue counts unavailable",
+      waiting: 0,
+      active: 0,
+      completed: 0,
+      failed: 0,
+      delayed: 0
+    });
     expect(snapshot.ingestion).toEqual({
       lastEventAt: null,
       lastErrorAt: null,
