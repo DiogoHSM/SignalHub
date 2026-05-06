@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type {
   AlertEventResponse,
@@ -85,6 +85,7 @@ function isValidThreshold(value: string): boolean {
 }
 
 export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelProps) {
+  const currentScopeRef = useRef({ projectId, environmentId });
   const [rules, setRules] = useState<AlertRuleResponse[]>([]);
   const [channels, setChannels] = useState<NotificationChannelResponse[]>([]);
   const [events, setEvents] = useState<AlertEventResponse[]>([]);
@@ -94,6 +95,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  currentScopeRef.current = { projectId, environmentId };
 
   useEffect(() => {
     if (!projectId || !environmentId) {
@@ -144,7 +147,10 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     const url = channelForm.url.trim();
     const secretHeaderName = channelForm.secretHeaderName.trim();
     const secretHeaderValue = channelForm.secretHeaderValue.trim();
-    if (!name || !url) return;
+    if (!name || !url) {
+      setError("Channel name and webhook URL are required");
+      return;
+    }
     if (secretHeaderValue && !secretHeaderName) {
       setError("Secret header name is required when a secret value is set");
       return;
@@ -173,8 +179,13 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
   async function createRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!projectId || !environmentId || isLoading) return;
+    const submittedProjectId = projectId;
+    const submittedEnvironmentId = environmentId;
     const name = ruleForm.name.trim();
-    if (!name) return;
+    if (!name) {
+      setError("Rule name is required");
+      return;
+    }
     const windowMinutes = parsePositiveInteger(ruleForm.windowMinutes);
     if (windowMinutes === null) {
       setError("Window must be a whole number of at least 1 minute");
@@ -194,8 +205,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     setError(null);
     try {
       const { rule } = await client.createAlertRule({
-        projectId,
-        environmentId,
+        projectId: submittedProjectId,
+        environmentId: submittedEnvironmentId,
         notificationChannelId: ruleForm.notificationChannelId || null,
         name,
         type: ruleForm.type,
@@ -205,9 +216,21 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
         cooldownMinutes,
         enabled: true
       });
+      if (
+        currentScopeRef.current.projectId !== submittedProjectId ||
+        currentScopeRef.current.environmentId !== submittedEnvironmentId
+      ) {
+        return;
+      }
       setRules((current) => [...current, rule]);
       setRuleForm((current) => ({ ...defaultRuleForm, notificationChannelId: current.notificationChannelId }));
     } catch {
+      if (
+        currentScopeRef.current.projectId !== submittedProjectId ||
+        currentScopeRef.current.environmentId !== submittedEnvironmentId
+      ) {
+        return;
+      }
       setError("Could not create alert rule");
     } finally {
       setIsCreatingRule(false);

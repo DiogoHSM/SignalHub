@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -287,6 +287,77 @@ describe("AlertsPanel", () => {
         enabled: true
       })
     );
+  });
+
+  it("does not render a stale created alert rule after switching environments", async () => {
+    const pendingCreate = deferred<Awaited<ReturnType<ApiClient["createAlertRule"]>>>();
+    const createAlertRule = vi.fn().mockReturnValue(pendingCreate.promise);
+    const api = client({
+      createAlertRule,
+      listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
+      listAlertEvents: vi.fn().mockResolvedValue({ data: [] })
+    });
+
+    const { rerender } = render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Rule name"), "Env A critical errors");
+    await userEvent.click(screen.getByRole("button", { name: "Create rule" }));
+
+    await waitFor(() => expect(createAlertRule).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "env_1" })));
+
+    rerender(<AlertsPanel client={api} projectId="prj_1" environmentId="env_2" />);
+    await waitFor(() => expect(api.listAlertRules).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_2" }));
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+
+    await act(async () => {
+      pendingCreate.resolve({
+        rule: {
+          id: "rule_stale",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          notificationChannelId: null,
+          name: "Env A critical errors",
+          type: "critical_errors",
+          severity: "critical",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          createdAt: "",
+          updatedAt: "",
+          archivedAt: null
+        }
+      });
+      await pendingCreate.promise;
+    });
+
+    expect(within(screen.getByLabelText("Alert rules")).queryByText("Env A critical errors")).not.toBeInTheDocument();
+  });
+
+  it("shows validation and skips channel creation when required channel fields are blank", async () => {
+    const createNotificationChannel = vi.fn();
+
+    render(<AlertsPanel client={client({ createNotificationChannel })} projectId="prj_1" environmentId="env_1" />);
+
+    await screen.findByLabelText("Channel name");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Channel name and webhook URL are required");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+  });
+
+  it("shows validation and skips rule creation when the rule name is blank", async () => {
+    const createAlertRule = vi.fn();
+
+    render(<AlertsPanel client={client({ createAlertRule })} projectId="prj_1" environmentId="env_1" />);
+
+    await screen.findByLabelText("Rule name");
+    await userEvent.click(screen.getByRole("button", { name: "Create rule" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Rule name is required");
+    expect(createAlertRule).not.toHaveBeenCalled();
   });
 
   it("blocks blank and invalid numeric alert rule values before submitting", async () => {
