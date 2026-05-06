@@ -226,6 +226,47 @@ describe("AlertsPanel", () => {
     expect(createNotificationChannel).not.toHaveBeenCalled();
   });
 
+  it("rejects invalid webhook URLs before submitting a channel", async () => {
+    const createNotificationChannel = vi.fn();
+
+    render(<AlertsPanel client={client({ createNotificationChannel })} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Channel name"), "Ops");
+    await userEvent.type(screen.getByLabelText("Webhook URL"), "ftp://hooks.example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Webhook URL must be a valid http or https URL");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+
+    await userEvent.clear(screen.getByLabelText("Webhook URL"));
+    await userEvent.type(screen.getByLabelText("Webhook URL"), "https://user:pass@hooks.example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Webhook URL must not include credentials");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid secret header names before submitting a channel", async () => {
+    const createNotificationChannel = vi.fn();
+
+    render(<AlertsPanel client={client({ createNotificationChannel })} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Channel name"), "Ops");
+    await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com");
+    await userEvent.type(screen.getByLabelText("Secret header name"), "Authorization");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Secret header name must begin with X- or SignalHub-");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+
+    await userEvent.clear(screen.getByLabelText("Secret header name"));
+    await userEvent.type(screen.getByLabelText("Secret header name"), "X SignalHub Secret");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Secret header name may only contain letters, numbers, and hyphens");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+  });
+
   it("creates an alert rule for the active project and environment", async () => {
     const createAlertRule = vi.fn().mockResolvedValue({
       rule: {
@@ -334,6 +375,54 @@ describe("AlertsPanel", () => {
     });
 
     expect(within(screen.getByLabelText("Alert rules")).queryByText("Env A critical errors")).not.toBeInTheDocument();
+  });
+
+  it("resets unsaved channel and rule fields when switching environments", async () => {
+    const api = client({
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_1",
+            name: "Ops",
+            type: "webhook",
+            url: "https://hooks.example.com",
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      })
+    });
+
+    const { rerender } = render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Channel name"), "Unsaved channel");
+    await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com/unsaved");
+    await userEvent.type(screen.getByLabelText("Secret header name"), "X-SignalHub-Secret");
+    await userEvent.type(screen.getByLabelText("Secret header value"), "unsaved-secret");
+    await userEvent.type(screen.getByLabelText("Rule name"), "Unsaved rule");
+    await userEvent.clear(screen.getByLabelText("Window"));
+    await userEvent.type(screen.getByLabelText("Window"), "15");
+    await userEvent.clear(screen.getByLabelText("Threshold"));
+    await userEvent.type(screen.getByLabelText("Threshold"), "3");
+    await userEvent.clear(screen.getByLabelText("Cooldown"));
+    await userEvent.type(screen.getByLabelText("Cooldown"), "45");
+    await userEvent.selectOptions(screen.getByLabelText("Notification channel"), "chn_1");
+
+    rerender(<AlertsPanel client={api} projectId="prj_1" environmentId="env_2" />);
+
+    expect(await screen.findByLabelText("Channel name")).toHaveValue("");
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue("");
+    expect(screen.getByLabelText("Secret header name")).toHaveValue("");
+    expect(screen.getByLabelText("Secret header value")).toHaveValue("");
+    expect(screen.getByLabelText("Rule name")).toHaveValue("");
+    expect(screen.getByLabelText("Window")).toHaveValue(10);
+    expect(screen.getByLabelText("Threshold")).toHaveValue(1);
+    expect(screen.getByLabelText("Cooldown")).toHaveValue(30);
+    expect(screen.getByLabelText("Notification channel")).toHaveValue("");
   });
 
   it("shows validation and skips channel creation when required channel fields are blank", async () => {

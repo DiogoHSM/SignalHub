@@ -84,6 +84,35 @@ function isValidThreshold(value: string): boolean {
   return /^\d+(\.\d{1,6})?$/.test(trimmed) && Number(trimmed) > 0;
 }
 
+function validateWebhookUrl(value: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return "Webhook URL must be a valid http or https URL";
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "Webhook URL must be a valid http or https URL";
+  }
+
+  if (parsed.username || parsed.password) {
+    return "Webhook URL must not include credentials";
+  }
+
+  return null;
+}
+
+function validateSecretHeaderName(value: string): string | null {
+  if (!/^[A-Za-z0-9-]+$/.test(value)) {
+    return "Secret header name may only contain letters, numbers, and hyphens";
+  }
+  if (!/^(x-|signalhub-)/i.test(value)) {
+    return "Secret header name must begin with X- or SignalHub-";
+  }
+  return null;
+}
+
 export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelProps) {
   const currentScopeRef = useRef({ projectId, environmentId });
   const [rules, setRules] = useState<AlertRuleResponse[]>([]);
@@ -97,6 +126,11 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
   const [error, setError] = useState<string | null>(null);
 
   currentScopeRef.current = { projectId, environmentId };
+
+  useEffect(() => {
+    setChannelForm(defaultChannelForm);
+    setRuleForm(defaultRuleForm);
+  }, [projectId, environmentId]);
 
   useEffect(() => {
     if (!projectId || !environmentId) {
@@ -151,9 +185,21 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       setError("Channel name and webhook URL are required");
       return;
     }
+    const webhookUrlError = validateWebhookUrl(url);
+    if (webhookUrlError) {
+      setError(webhookUrlError);
+      return;
+    }
     if (secretHeaderValue && !secretHeaderName) {
       setError("Secret header name is required when a secret value is set");
       return;
+    }
+    if (secretHeaderName) {
+      const secretHeaderNameError = validateSecretHeaderName(secretHeaderName);
+      if (secretHeaderNameError) {
+        setError(secretHeaderNameError);
+        return;
+      }
     }
 
     setIsCreatingChannel(true);
