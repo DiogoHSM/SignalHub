@@ -174,7 +174,7 @@ git commit -m "feat: add alert configuration"
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing migration test**
+- [x] **Step 1: Add failing migration test**
 
 Add to `packages/db/test/repositories.test.ts` near the migration coverage:
 
@@ -187,7 +187,7 @@ it("runs simple alert migrations", async () => {
 });
 ```
 
-- [ ] **Step 2: Run DB tests and verify failure**
+- [x] **Step 2: Run DB tests and verify failure**
 
 Run:
 
@@ -197,7 +197,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because the alert tables do not exist.
 
-- [ ] **Step 3: Add migration SQL**
+- [x] **Step 3: Add migration SQL**
 
 Create `packages/db/migrations/0003_simple_alerts.sql`:
 
@@ -276,7 +276,7 @@ CREATE INDEX notification_deliveries_event_idx ON notification_deliveries(alert_
 CREATE INDEX notification_deliveries_channel_time_idx ON notification_deliveries(notification_channel_id, attempted_at DESC);
 ```
 
-- [ ] **Step 4: Register migration**
+- [x] **Step 4: Register migration**
 
 In `packages/db/src/migrate.ts`, add the migration to the ordered list:
 
@@ -284,7 +284,7 @@ In `packages/db/src/migrate.ts`, add the migration to the ordered list:
 { name: "0003_simple_alerts.sql", url: new URL("../migrations/0003_simple_alerts.sql", import.meta.url) }
 ```
 
-- [ ] **Step 5: Update Kysely schema**
+- [x] **Step 5: Update Kysely schema**
 
 In `packages/db/src/schema.ts`, add interfaces:
 
@@ -362,7 +362,7 @@ alert_events: AlertEventsTable;
 notification_deliveries: NotificationDeliveriesTable;
 ```
 
-- [ ] **Step 6: Run DB tests and verify pass**
+- [x] **Step 6: Run DB tests and verify pass**
 
 Run:
 
@@ -372,7 +372,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/migrations/0003_simple_alerts.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/test/repositories.test.ts
