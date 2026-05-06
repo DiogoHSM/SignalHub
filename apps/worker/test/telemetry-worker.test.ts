@@ -786,6 +786,7 @@ describe("validateWebhookTarget", () => {
       "http://169.254.169.254/latest/meta-data",
       "http://0.0.0.0/hook",
       "http://127.1.2.3/hook",
+      "http://[::]/hook",
       "http://[::1]/hook",
       "http://[fc00::1]/hook",
       "http://[fd12:3456::1]/hook",
@@ -819,6 +820,7 @@ describe("deliverWebhook", () => {
     message: "Errors threshold reached: 2 >= 1",
     signalhub: { source: "signalhub" as const }
   };
+  const resolvePublicHostname = async () => [{ address: "93.184.216.34" }];
 
   it("records non-2xx responses as failed with response status", async () => {
     const result = await deliverWebhook({
@@ -838,6 +840,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
       fetchImpl: vi.fn(async () => new Response("nope", { status: 500 }))
     });
 
@@ -846,6 +849,109 @@ describe("deliverWebhook", () => {
       responseStatus: 500,
       errorMessage: "Webhook returned HTTP 500"
     });
+  });
+
+  it("does not follow webhook redirects and records redirect status", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 302 }));
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      fetchImpl
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: 302,
+      errorMessage: "Webhook returned HTTP 302"
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      new URL("https://hooks.example.com/signalhub"),
+      expect.objectContaining({ redirect: "manual" })
+    );
+  });
+
+  it("does not call fetch in production when a hostname resolves to a private address", async () => {
+    for (const address of ["10.0.0.1", "169.254.169.254", "127.0.0.1", "fc00::1", "fe80::1"]) {
+      const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+
+      const result = await deliverWebhook({
+        channel: {
+          id: "chn_1",
+          name: "Webhook",
+          type: "webhook",
+          url: "https://hooks.example.com/signalhub",
+          secretHeaderName: null,
+          secretHeaderValue: null,
+          hasSecret: false,
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        },
+        payload,
+        timeoutMs: 5000,
+        nodeEnv: "production",
+        resolveHostname: async () => [{ address }],
+        fetchImpl
+      });
+
+      expect(result, address).toEqual({
+        status: "failed",
+        responseStatus: null,
+        errorMessage: expect.stringMatching(/private webhook targets are not allowed/)
+      });
+      expect(fetchImpl, address).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does not call fetch in production when hostname DNS resolution fails", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: async () => {
+        throw new Error("lookup failed");
+      },
+      fetchImpl
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "Webhook DNS resolution failed"
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("sends configured secret header when present", async () => {
@@ -868,6 +974,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
       fetchImpl
     });
 

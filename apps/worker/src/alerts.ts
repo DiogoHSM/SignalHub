@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { AlertRuleRecord, NotificationChannelRecord } from "@signal-hub/db/repositories/alerts.js";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
@@ -64,6 +65,8 @@ type PendingDelivery = {
   channel: NotificationChannelRecord;
   payload: AlertWebhookPayload;
 };
+
+type ResolveHostname = (hostname: string) => Promise<Array<{ address: string }>>;
 
 export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): Promise<{
   ran: boolean;
@@ -177,6 +180,7 @@ export async function deliverWebhook(input: {
   channel: NotificationChannelRecord;
   payload: AlertWebhookPayload;
   fetchImpl?: typeof fetch;
+  resolveHostname?: ResolveHostname;
   timeoutMs: number;
   nodeEnv: string;
 }): Promise<DeliveryResult> {
@@ -206,6 +210,27 @@ export async function deliverWebhook(input: {
     };
   }
 
+  if (input.nodeEnv === "production" && shouldResolveWebhookHostname(url)) {
+    const resolveHostname = input.resolveHostname ?? defaultResolveHostname;
+
+    try {
+      const resolved = await resolveHostname(url.hostname);
+      if (resolved.length === 0) {
+        return { status: "failed", responseStatus: null, errorMessage: "Webhook DNS resolution failed" };
+      }
+
+      if (resolved.some((entry) => isPrivateWebhookHost(entry.address))) {
+        return {
+          status: "failed",
+          responseStatus: null,
+          errorMessage: "private webhook targets are not allowed in production"
+        };
+      }
+    } catch {
+      return { status: "failed", responseStatus: null, errorMessage: "Webhook DNS resolution failed" };
+    }
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -218,6 +243,7 @@ export async function deliverWebhook(input: {
       method: "POST",
       headers,
       body: JSON.stringify(input.payload),
+      redirect: "manual",
       signal: controller.signal
     });
 
@@ -239,6 +265,10 @@ export async function deliverWebhook(input: {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function defaultResolveHostname(hostname: string): Promise<Array<{ address: string }>> {
+  return lookup(hostname, { all: true });
 }
 
 type IntervalHandle = ReturnType<typeof setInterval>;
@@ -323,6 +353,12 @@ function isPrivateWebhookHost(rawHost: string): boolean {
   return false;
 }
 
+function shouldResolveWebhookHostname(url: URL): boolean {
+  const host = normalizeLiteralHost(url.hostname);
+
+  return host !== "localhost" && isIP(host) === 0;
+}
+
 function normalizeLiteralHost(host: string): string {
   return host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
 }
@@ -365,12 +401,16 @@ function isPrivateIpv4Host(host: string): boolean {
 }
 
 function isPrivateIpv6Host(host: string): boolean {
-  if (host === "::1") return true;
+  if (host === "::" || host === "::1" || isUnspecifiedIpv6Host(host)) return true;
 
   const firstHextet = Number.parseInt(host.split(":")[0] ?? "", 16);
   if (Number.isNaN(firstHextet)) return false;
 
   return (firstHextet & 0xfe00) === 0xfc00 || (firstHextet & 0xffc0) === 0xfe80;
+}
+
+function isUnspecifiedIpv6Host(host: string): boolean {
+  return host.replace(/:/g, "").replace(/0/g, "").length === 0;
 }
 
 function toWebhookPayload(
