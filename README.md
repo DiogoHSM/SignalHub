@@ -2,7 +2,7 @@
 
 SignalHub is a self-hosted telemetry core for product analytics, error tracking, LLM observability, traces, and spans. One installation can monitor multiple projects and environments. Clients ingest telemetry with project-environment API keys, the API validates and queues each signal in Redis/BullMQ, and the worker sanitizes and persists typed records in Postgres.
 
-## Phase 1 Capabilities
+## Current Capabilities
 
 - Local admin login with a bootstrap admin seed.
 - Admin management for users, projects, environments, and scoped ingestion API keys.
@@ -11,9 +11,12 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Redis-backed ingestion queue with worker processing.
 - Postgres storage for operational data and typed telemetry tables.
 - Human-session query endpoints for raw telemetry and basic aggregates.
+- JavaScript SDK and raw HTTP integration guide.
+- Integration Console for setup, overview, investigation, and system health.
+- Worker-owned retention, heartbeat, and operational health reporting.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 
-Phase 1 does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, object storage, dashboards, SDKs, or log storage.
+SignalHub does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, object storage, or stored log telemetry.
 
 ## Prerequisites
 
@@ -45,6 +48,28 @@ Create `.env` from `.env.example` and replace the example values before running 
 Google OAuth is optional. It is not open signup: Google sign-in only succeeds for an existing, unarchived local user with a verified Google email. On first successful Google login, SignalHub links that user's Google subject to the local account.
 
 Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operator notes. The committed `.claude/docs/SECRETS.md` contains sanitized variable names and safe examples only.
+
+## Operational Config
+
+Retention settings are non-secret operational config. They are documented in `.env.example` and `.claude/docs/SECRETS.md`.
+
+## Operational Safety
+
+The worker runs telemetry retention by default. Retention environment variables control scheduled deletion of old telemetry with bounded delete statements; a retention run may execute multiple batches until expired rows are drained.
+
+Retention only deletes telemetry rows. Operational metadata, projects, environments, users, and API keys are not deleted by retention.
+
+| Telemetry type | Default retention |
+| --- | --- |
+| Events | 90 days |
+| Errors | 180 days |
+| Traces | 90 days |
+| Spans | 90 days |
+| LLM calls | 180 days |
+
+Set `RETENTION_ENABLED=false` to disable scheduled deletion. The other retention variables configure the run interval, batch size, and per-table retention windows.
+
+The console `System` mode is available to logged-in users. It shows API, worker, Postgres, Redis, queue, ingestion freshness, and retention status from the system health endpoint.
 
 ## Local Development
 

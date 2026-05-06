@@ -24,6 +24,14 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `GOOGLE_CLIENT_ID` | If OAuth enabled | `example-client-id.apps.googleusercontent.com` | Google OAuth client ID. |
 | `GOOGLE_CLIENT_SECRET` | If OAuth enabled | `example-client-secret` | Google OAuth client secret. |
 | `GOOGLE_REDIRECT_URI` | If OAuth enabled | `http://localhost:3000/auth/google/callback` | OAuth callback URL. |
+| `RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled telemetry deletion in the worker. |
+| `RETENTION_INTERVAL_MINUTES` | No | `60` | Non-secret operational config. Minutes between scheduled retention runs. |
+| `RETENTION_BATCH_SIZE` | No | `1000` | Non-secret operational config. Maximum rows deleted per telemetry table per delete batch. |
+| `RETENTION_EVENTS_DAYS` | No | `90` | Non-secret operational config. Event retention window. |
+| `RETENTION_ERRORS_DAYS` | No | `180` | Non-secret operational config. Error retention window. |
+| `RETENTION_TRACES_DAYS` | No | `90` | Non-secret operational config. Trace retention window. |
+| `RETENTION_SPANS_DAYS` | No | `90` | Non-secret operational config. Span retention window. |
+| `RETENTION_LLM_CALLS_DAYS` | No | `180` | Non-secret operational config. LLM call retention window. |
 
 Operational rules:
 

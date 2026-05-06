@@ -1,6 +1,6 @@
 # Deployment
 
-Docker Compose is the primary Phase 1 installation path.
+Docker Compose is the primary self-hosted installation path.
 
 ## Local Compose
 
@@ -30,6 +30,12 @@ Docker Compose is the primary Phase 1 installation path.
 - `redis`: Redis 7 with append-only persistence, bound to `127.0.0.1:${REDIS_PORT:-6379}`.
 - `api`: Fastify API on host port `3000`.
 - `worker`: BullMQ telemetry worker.
+
+## Retention
+
+Telemetry retention is built into the worker. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. No extra cron job or external scheduler is needed.
+
+Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the worker available for ingestion jobs.
 
 ## Migrations
 

@@ -12,6 +12,7 @@ SignalHub includes an admin-only Integration Console.
 ## Investigation UX
 
 - Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
+- Keep `System` as a quiet operational mode for service health, queue depth, ingestion freshness, and retention status.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.

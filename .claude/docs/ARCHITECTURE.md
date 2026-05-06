@@ -1,6 +1,6 @@
 # Architecture
 
-SignalHub Phase 1 is a self-hosted operational core with four runtime components:
+SignalHub is a self-hosted operational core with four runtime components:
 
 - Fastify API service.
 - Worker service.
@@ -32,6 +32,8 @@ Operational tables:
 - `projects`
 - `environments`
 - `api_keys`
+- `system_heartbeats`
+- `retention_runs`
 
 Telemetry tables:
 
@@ -49,6 +51,7 @@ Health:
 
 - `GET /health`
 - `GET /ready`
+- `GET /system/health`
 
 Auth:
 
@@ -94,13 +97,19 @@ Query:
 
 ## Deferred Boundaries
 
-ClickHouse, object storage, SDKs, dashboards, and log storage are intentionally deferred. Phase 1 keeps internal boundaries narrow enough to add those later without changing the ingestion contracts.
+ClickHouse, object storage, stored log telemetry, SaaS workspace scope, and billing are intentionally deferred. Internal boundaries remain narrow enough to add those later without changing the ingestion contracts.
 
 ## Integration Console
 
 `apps/console` contains the Vite + React + TypeScript browser console.
 
 The API exposes `GET /console/config` for non-secret browser configuration and serves built console assets from `/console` in production. The console uses existing session authentication, admin routes, and query routes.
+
+## Operational Safety
+
+The worker owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, and `llm_calls` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`; worker liveness is recorded in `system_heartbeats`.
+
+`GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, ingestion freshness, and retention policy/run status.
 
 ## Investigation Console
 
