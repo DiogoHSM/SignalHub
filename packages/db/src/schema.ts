@@ -7,6 +7,7 @@ type NullableJsonColumn = ColumnType<unknown | null, unknown | null | undefined,
 type DefaultedBoolean = ColumnType<boolean, boolean | undefined, boolean>;
 type DefaultedInteger = ColumnType<number, number | undefined, number>;
 type NumericString = ColumnType<string, string | number | undefined, string | number>;
+type RequiredNumericString = ColumnType<string, string | number, string | number>;
 type NullableNumericString = ColumnType<string | null, string | number | null | undefined, string | number | null>;
 
 export interface UsersTable {
@@ -218,7 +219,7 @@ export interface AlertRulesTable {
   type: AlertRuleType;
   severity: AlertSeverity;
   window_minutes: number;
-  threshold: NumericString;
+  threshold: RequiredNumericString;
   cooldown_minutes: number;
   enabled: DefaultedBoolean;
   last_evaluated_at: NullableTimestamp;
@@ -238,8 +239,8 @@ export interface AlertEventsTable {
   triggered_at: Timestamp;
   window_start: Timestamp;
   window_end: Timestamp;
-  observed_value: NumericString;
-  threshold: NumericString;
+  observed_value: RequiredNumericString;
+  threshold: RequiredNumericString;
   message: string;
   metadata: JsonColumn;
   created_at: Timestamp;

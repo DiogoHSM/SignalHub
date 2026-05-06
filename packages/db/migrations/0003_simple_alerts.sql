@@ -30,15 +30,17 @@ CREATE TABLE alert_rules (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   archived_at timestamptz,
+  UNIQUE(id, project_id, environment_id),
   FOREIGN KEY (project_id, environment_id) REFERENCES environments(project_id, id)
 );
 
 CREATE INDEX alert_rules_active_scope_idx ON alert_rules(project_id, environment_id, enabled, archived_at);
 CREATE INDEX alert_rules_channel_idx ON alert_rules(notification_channel_id);
+CREATE INDEX alert_rules_enabled_created_at_idx ON alert_rules(created_at ASC) WHERE enabled = true AND archived_at IS NULL;
 
 CREATE TABLE alert_events (
   id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  rule_id text NOT NULL REFERENCES alert_rules(id),
+  rule_id text NOT NULL,
   project_id text NOT NULL REFERENCES projects(id),
   environment_id text NOT NULL,
   status text NOT NULL CHECK (status IN ('triggered')),
@@ -51,7 +53,8 @@ CREATE TABLE alert_events (
   message text NOT NULL,
   metadata jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (project_id, environment_id) REFERENCES environments(project_id, id)
+  FOREIGN KEY (project_id, environment_id) REFERENCES environments(project_id, id),
+  FOREIGN KEY (rule_id, project_id, environment_id) REFERENCES alert_rules(id, project_id, environment_id)
 );
 
 CREATE INDEX alert_events_scope_time_idx ON alert_events(project_id, environment_id, triggered_at DESC);

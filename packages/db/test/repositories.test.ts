@@ -115,6 +115,72 @@ describe("repositories", () => {
     });
   });
 
+  it("rejects alert events whose rule scope does not match the event scope", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`insert into projects (id, name) values ('prj_alert_scope_a', 'Alert Scope A')`.execute(db);
+      await sql`insert into projects (id, name) values ('prj_alert_scope_b', 'Alert Scope B')`.execute(db);
+      await sql`insert into environments (id, project_id, name) values ('env_alert_scope_a', 'prj_alert_scope_a', 'production')`.execute(db);
+      await sql`insert into environments (id, project_id, name) values ('env_alert_scope_b', 'prj_alert_scope_b', 'production')`.execute(db);
+      await sql`
+        insert into alert_rules (
+          id,
+          project_id,
+          environment_id,
+          name,
+          type,
+          severity,
+          window_minutes,
+          threshold,
+          cooldown_minutes
+        )
+        values (
+          'alr_alert_scope_a',
+          'prj_alert_scope_a',
+          'env_alert_scope_a',
+          'Critical errors',
+          'critical_errors',
+          'critical',
+          5,
+          1,
+          10
+        )
+      `.execute(db);
+
+      await expect(sql`
+        insert into alert_events (
+          id,
+          rule_id,
+          project_id,
+          environment_id,
+          status,
+          severity,
+          triggered_at,
+          window_start,
+          window_end,
+          observed_value,
+          threshold,
+          message
+        )
+        values (
+          'ale_alert_scope_mismatch',
+          'alr_alert_scope_a',
+          'prj_alert_scope_b',
+          'env_alert_scope_b',
+          'triggered',
+          'critical',
+          '2026-05-06T12:00:00.000Z',
+          '2026-05-06T11:55:00.000Z',
+          '2026-05-06T12:00:00.000Z',
+          2,
+          1,
+          'Mismatched alert scope'
+        )
+      `.execute(db)).rejects.toThrow(/foreign key constraint/);
+    });
+  });
+
   it("uses transaction-scoped retention locks without leaking locks", async () => {
     await withDb(async (db) => {
       await migrate(db);
