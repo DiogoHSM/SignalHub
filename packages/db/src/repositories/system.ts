@@ -1,0 +1,215 @@
+import type { Selectable } from "kysely";
+import { sql } from "kysely";
+import type { Db } from "../client.js";
+import type { RetentionRunsTable } from "../schema.js";
+
+type RetentionRunRow = Selectable<RetentionRunsTable>;
+
+const retentionAdvisoryLockId = 927380402914;
+
+export type RetentionPolicy = {
+  eventsDays: number;
+  errorsDays: number;
+  tracesDays: number;
+  spansDays: number;
+  llmCallsDays: number;
+};
+
+export type RetentionExecutionOptions = RetentionPolicy & {
+  now: Date;
+  batchSize: number;
+};
+
+export type RetentionDeletedCounts = {
+  events: number;
+  errors: number;
+  traces: number;
+  spans: number;
+  llmCalls: number;
+};
+
+export type RetentionRunRecord = {
+  id: string;
+  status: "success" | "failed";
+  startedAt: Date;
+  finishedAt: Date | null;
+  errorMessage: string | null;
+  deleted: RetentionDeletedCounts;
+  policy: RetentionPolicy;
+};
+
+export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
+  return {
+    id: row.id,
+    status: row.status,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    errorMessage: row.error_message,
+    deleted: {
+      events: row.deleted_events,
+      errors: row.deleted_errors,
+      traces: row.deleted_traces,
+      spans: row.deleted_spans,
+      llmCalls: row.deleted_llm_calls
+    },
+    policy: {
+      eventsDays: row.events_days,
+      errorsDays: row.errors_days,
+      tracesDays: row.traces_days,
+      spansDays: row.spans_days,
+      llmCallsDays: row.llm_calls_days
+    }
+  };
+}
+
+export async function tryAcquireRetentionLock(db: Db): Promise<boolean> {
+  const result = await sql<{ locked: boolean }>`select pg_try_advisory_lock(${retentionAdvisoryLockId}) as locked`.execute(
+    db
+  );
+  return result.rows[0]?.locked === true;
+}
+
+export async function releaseRetentionLock(db: Db): Promise<void> {
+  await sql`select pg_advisory_unlock(${retentionAdvisoryLockId})`.execute(db);
+}
+
+export async function upsertHeartbeat(
+  db: Db,
+  input: { component: string; heartbeatAt: Date; metadata?: unknown }
+): Promise<void> {
+  await db
+    .insertInto("system_heartbeats")
+    .values({
+      component: input.component,
+      last_heartbeat_at: input.heartbeatAt,
+      metadata: input.metadata ?? {},
+      updated_at: input.heartbeatAt
+    })
+    .onConflict((oc) =>
+      oc.column("component").doUpdateSet({
+        last_heartbeat_at: input.heartbeatAt,
+        metadata: input.metadata ?? {},
+        updated_at: input.heartbeatAt
+      })
+    )
+    .execute();
+}
+
+export async function getHeartbeat(db: Db, component: string): Promise<{ component: string; lastHeartbeatAt: Date } | null> {
+  const row = await db
+    .selectFrom("system_heartbeats")
+    .select(["component", "last_heartbeat_at"])
+    .where("component", "=", component)
+    .executeTakeFirst();
+
+  return row ? { component: row.component, lastHeartbeatAt: row.last_heartbeat_at } : null;
+}
+
+async function deleteExpiredFromTable(db: Db, tableName: string, cutoff: Date, batchSize: number): Promise<number> {
+  const result = await sql<{ deleted_count: string }>`
+    with deleted_rows as (
+      delete from ${sql.table(tableName)}
+      where ctid in (
+        select ctid from ${sql.table(tableName)}
+        where timestamp < ${cutoff}
+        order by timestamp asc
+        limit ${batchSize}
+      )
+      returning 1
+    )
+    select count(*)::text as deleted_count from deleted_rows
+  `.execute(db);
+
+  return Number(result.rows[0]?.deleted_count ?? 0);
+}
+
+async function deleteAllExpiredFromTable(db: Db, tableName: string, cutoff: Date, batchSize: number): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const deleted = await deleteExpiredFromTable(db, tableName, cutoff, batchSize);
+    total += deleted;
+    if (deleted < batchSize) return total;
+  }
+}
+
+export async function deleteExpiredTelemetry(db: Db, options: RetentionExecutionOptions): Promise<RetentionDeletedCounts> {
+  const cutoff = (days: number) => new Date(options.now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  return {
+    events: await deleteAllExpiredFromTable(db, "events", cutoff(options.eventsDays), options.batchSize),
+    errors: await deleteAllExpiredFromTable(db, "errors", cutoff(options.errorsDays), options.batchSize),
+    traces: await deleteAllExpiredFromTable(db, "traces", cutoff(options.tracesDays), options.batchSize),
+    spans: await deleteAllExpiredFromTable(db, "spans", cutoff(options.spansDays), options.batchSize),
+    llmCalls: await deleteAllExpiredFromTable(db, "llm_calls", cutoff(options.llmCallsDays), options.batchSize)
+  };
+}
+
+export async function recordRetentionRun(
+  db: Db,
+  input: {
+    startedAt: Date;
+    finishedAt: Date | null;
+    status: "success" | "failed";
+    errorMessage?: string | null;
+    deleted: RetentionDeletedCounts;
+    policy: RetentionPolicy;
+  }
+): Promise<RetentionRunRecord> {
+  const row = await db
+    .insertInto("retention_runs")
+    .values({
+      started_at: input.startedAt,
+      finished_at: input.finishedAt,
+      status: input.status,
+      error_message: input.errorMessage ?? null,
+      deleted_events: input.deleted.events,
+      deleted_errors: input.deleted.errors,
+      deleted_traces: input.deleted.traces,
+      deleted_spans: input.deleted.spans,
+      deleted_llm_calls: input.deleted.llmCalls,
+      events_days: input.policy.eventsDays,
+      errors_days: input.policy.errorsDays,
+      traces_days: input.policy.tracesDays,
+      spans_days: input.policy.spansDays,
+      llm_calls_days: input.policy.llmCallsDays
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  return toRetentionRunRecord(row);
+}
+
+export async function getLastRetentionRun(db: Db): Promise<RetentionRunRecord | null> {
+  const row = await db
+    .selectFrom("retention_runs")
+    .selectAll()
+    .orderBy("started_at", "desc")
+    .limit(1)
+    .executeTakeFirst();
+
+  return row ? toRetentionRunRecord(row) : null;
+}
+
+export async function getIngestionFreshness(db: Db): Promise<{
+  lastEventAt: Date | null;
+  lastErrorAt: Date | null;
+  lastTraceAt: Date | null;
+  lastSpanAt: Date | null;
+  lastLlmCallAt: Date | null;
+}> {
+  const [eventRow, errorRow, traceRow, spanRow, llmRow] = await Promise.all([
+    db.selectFrom("events").select((eb) => eb.fn.max("timestamp").as("last_at")).executeTakeFirst(),
+    db.selectFrom("errors").select((eb) => eb.fn.max("timestamp").as("last_at")).executeTakeFirst(),
+    db.selectFrom("traces").select((eb) => eb.fn.max("timestamp").as("last_at")).executeTakeFirst(),
+    db.selectFrom("spans").select((eb) => eb.fn.max("timestamp").as("last_at")).executeTakeFirst(),
+    db.selectFrom("llm_calls").select((eb) => eb.fn.max("timestamp").as("last_at")).executeTakeFirst()
+  ]);
+
+  return {
+    lastEventAt: eventRow?.last_at ?? null,
+    lastErrorAt: errorRow?.last_at ?? null,
+    lastTraceAt: traceRow?.last_at ?? null,
+    lastSpanAt: spanRow?.last_at ?? null,
+    lastLlmCallAt: llmRow?.last_at ?? null
+  };
+}

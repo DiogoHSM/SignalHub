@@ -45,6 +45,14 @@ import {
   listTraces
 } from "../src/repositories/telemetry-query.js";
 import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
+import {
+  deleteExpiredTelemetry,
+  getHeartbeat,
+  getIngestionFreshness,
+  getLastRetentionRun,
+  recordRetentionRun,
+  upsertHeartbeat
+} from "../src/repositories/system.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
@@ -92,6 +100,171 @@ describe("repositories", () => {
 
       await sql`select id, status, started_at from retention_runs limit 0`.execute(db);
       await sql`select component, last_heartbeat_at from system_heartbeats limit 0`.execute(db);
+    });
+  });
+
+  it("records and reads worker heartbeat", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const heartbeatAt = new Date("2026-05-06T12:00:00.000Z");
+      await upsertHeartbeat(db, { component: "worker", heartbeatAt });
+
+      const heartbeat = await getHeartbeat(db, "worker");
+      expect(heartbeat?.component).toBe("worker");
+      expect(heartbeat?.lastHeartbeatAt).toEqual(heartbeatAt);
+    });
+  });
+
+  it("returns latest ingestion freshness timestamps or nulls", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await expect(getIngestionFreshness(db)).resolves.toEqual({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      });
+
+      const project = await createProject(db, { name: "Freshness Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const receivedAt = new Date("2026-05-06T12:00:00.000Z");
+      const eventAt = new Date("2026-05-06T10:00:00.000Z");
+      const errorAt = new Date("2026-05-06T10:01:00.000Z");
+      const traceAt = new Date("2026-05-06T10:02:00.000Z");
+      const spanAt = new Date("2026-05-06T10:03:00.000Z");
+      const llmAt = new Date("2026-05-06T10:04:00.000Z");
+
+      await insertEvent(db, {
+        id: "evt_freshness",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: eventAt,
+        receivedAt,
+        name: "freshness.event"
+      });
+      await insertError(db, {
+        id: "err_freshness",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: errorAt,
+        receivedAt,
+        message: "Freshness error",
+        severity: "error"
+      });
+      await insertTrace(db, {
+        id: "trc_freshness",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: traceAt,
+        receivedAt,
+        name: "Freshness trace",
+        status: "ok",
+        startedAt: traceAt
+      });
+      await insertSpan(db, {
+        id: "spn_freshness",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: spanAt,
+        receivedAt,
+        traceId: "trace_freshness",
+        name: "Freshness span",
+        status: "ok",
+        startedAt: spanAt
+      });
+      await insertLlmCall(db, {
+        id: "llm_freshness",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: llmAt,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        status: "success"
+      });
+
+      await expect(getIngestionFreshness(db)).resolves.toEqual({
+        lastEventAt: eventAt,
+        lastErrorAt: errorAt,
+        lastTraceAt: traceAt,
+        lastSpanAt: spanAt,
+        lastLlmCallAt: llmAt
+      });
+    });
+  });
+
+  it("records and reads the last retention run", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const startedAt = new Date("2026-05-06T12:00:00.000Z");
+      const finishedAt = new Date("2026-05-06T12:00:05.000Z");
+      const deleted = { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
+      const policy = { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 };
+
+      const run = await recordRetentionRun(db, {
+        startedAt,
+        finishedAt,
+        status: "success",
+        deleted,
+        policy
+      });
+
+      expect(run).toMatchObject({
+        id: expect.any(String),
+        status: "success",
+        startedAt,
+        finishedAt,
+        errorMessage: null,
+        deleted,
+        policy
+      });
+      await expect(getLastRetentionRun(db)).resolves.toEqual(run);
+    });
+  });
+
+  it("deletes telemetry older than retention cutoffs in bounded batches", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Retention Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const receivedAt = new Date("2026-05-06T12:00:00.000Z");
+      const oldTimestamp = new Date("2026-01-01T12:00:00.000Z");
+      const freshTimestamp = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, {
+        id: "evt_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        name: "old.event"
+      });
+      await insertEvent(db, {
+        id: "evt_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        name: "fresh.event"
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        now: new Date("2026-05-06T12:00:00.000Z"),
+        batchSize: 1000,
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180
+      });
+
+      expect(deleted.events).toBe(1);
+      expect(await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 })).toHaveLength(1);
     });
   });
 
