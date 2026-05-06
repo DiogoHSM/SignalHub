@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
+import {
+  deliverWebhook,
+  runAlertEvaluationOnce,
+  startAlertScheduler,
+  validateWebhookTarget
+} from "../src/alerts.js";
 import { startHeartbeat } from "../src/heartbeat.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
@@ -541,6 +547,304 @@ describe("startRetentionScheduler", () => {
     expect(runOnce).not.toHaveBeenCalled();
     expect(clearedTimeouts).toEqual([timeoutHandle]);
     expect(clearedIntervals).toEqual([intervalHandle]);
+  });
+});
+
+describe("runAlertEvaluationOnce", () => {
+  it("creates an alert event and records webhook success when a rule fires", async () => {
+    const now = new Date("2026-05-06T12:00:00.000Z");
+    const deliveries: unknown[] = [];
+    const eventInputs: unknown[] = [];
+    const updates: unknown[] = [];
+    const deliveredPayloads: unknown[] = [];
+
+    const result = await runAlertEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listActiveRules: async () => [
+        {
+          id: "rule_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          notificationChannelId: "chn_1",
+          name: "Critical errors",
+          type: "critical_errors",
+          severity: "critical",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        }
+      ],
+      getNotificationChannel: async () => ({
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      }),
+      evaluateRule: async (rule, windowStart, windowEnd) => {
+        expect(rule.id).toBe("rule_1");
+        expect(windowStart).toEqual(new Date("2026-05-06T11:50:00.000Z"));
+        expect(windowEnd).toEqual(now);
+        return { observedValue: "2" };
+      },
+      recordAlertEvent: async (input) => {
+        eventInputs.push(input);
+        return { id: "evt_1" };
+      },
+      updateRuleEvaluation: async (input) => {
+        updates.push(input);
+      },
+      deliver: async (_channel, payload) => {
+        deliveredPayloads.push(payload);
+        return { status: "success", responseStatus: 204, errorMessage: null };
+      },
+      recordDelivery: async (input) => {
+        deliveries.push(input);
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, evaluated: 1, triggered: 1 });
+    expect(eventInputs).toEqual([
+      expect.objectContaining({
+        triggeredAt: now,
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: now,
+        observedValue: "2",
+        message: "Critical errors threshold reached: 2 >= 1",
+        metadata: { ruleType: "critical_errors" }
+      })
+    ]);
+    expect(updates).toEqual([{ ruleId: "rule_1", evaluatedAt: now, triggeredAt: now }]);
+    expect(deliveredPayloads).toEqual([
+      expect.objectContaining({
+        alertEventId: "evt_1",
+        ruleId: "rule_1",
+        observedValue: "2",
+        threshold: "1",
+        signalhub: { source: "signalhub" }
+      })
+    ]);
+    expect(deliveries).toEqual([
+      {
+        alertEventId: "evt_1",
+        notificationChannelId: "chn_1",
+        status: "success",
+        attemptedAt: now,
+        responseStatus: 204,
+        errorMessage: null
+      }
+    ]);
+  });
+
+  it("suppresses events during cooldown while updating evaluation time", async () => {
+    const now = new Date("2026-05-06T12:00:00.000Z");
+    const updated: unknown[] = [];
+    const evaluateRule = vi.fn(async () => ({ observedValue: "5" }));
+
+    const result = await runAlertEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listActiveRules: async () => [
+        {
+          id: "rule_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          notificationChannelId: null,
+          name: "Errors",
+          type: "error_count",
+          severity: "warning",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: new Date("2026-05-06T11:45:00.000Z"),
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        }
+      ],
+      getNotificationChannel: async () => null,
+      evaluateRule,
+      recordAlertEvent: async () => {
+        throw new Error("should not create event");
+      },
+      updateRuleEvaluation: async (input) => {
+        updated.push(input);
+      },
+      deliver: async () => ({ status: "success", responseStatus: 204, errorMessage: null }),
+      recordDelivery: async () => {}
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, evaluated: 1, triggered: 0 });
+    expect(evaluateRule).not.toHaveBeenCalled();
+    expect(updated).toEqual([{ ruleId: "rule_1", evaluatedAt: now }]);
+  });
+
+  it("returns skipped result when alert evaluation lock is not acquired", async () => {
+    const result = await runAlertEvaluationOnce({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      withLock: async () => ({ locked: false }),
+      listActiveRules: async () => {
+        throw new Error("should_not_list_rules");
+      },
+      getNotificationChannel: async () => null,
+      evaluateRule: async () => ({ observedValue: "0" }),
+      recordAlertEvent: async () => ({ id: "evt_1" }),
+      updateRuleEvaluation: async () => undefined,
+      deliver: async () => ({ status: "success", responseStatus: 204, errorMessage: null }),
+      recordDelivery: async () => undefined
+    });
+
+    expect(result).toEqual({ ran: false, skipped: true, evaluated: 0, triggered: 0 });
+  });
+});
+
+describe("validateWebhookTarget", () => {
+  it("rejects localhost webhook targets in production", () => {
+    expect(() => validateWebhookTarget("http://localhost:3000/hook", "production")).toThrow(
+      /private webhook targets are not allowed/
+    );
+  });
+});
+
+describe("deliverWebhook", () => {
+  const now = new Date("2026-05-06T12:00:00.000Z");
+  const payload = {
+    alertEventId: "evt_1",
+    ruleId: "rule_1",
+    ruleName: "Errors",
+    ruleType: "error_count" as const,
+    severity: "warning" as const,
+    projectId: "prj_1",
+    environmentId: "env_1",
+    triggeredAt: now.toISOString(),
+    window: { from: "2026-05-06T11:50:00.000Z", to: now.toISOString(), minutes: 10 },
+    observedValue: "2",
+    threshold: "1",
+    message: "Errors threshold reached: 2 >= 1",
+    signalhub: { source: "signalhub" as const }
+  };
+
+  it("records non-2xx responses as failed with response status", async () => {
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      fetchImpl: vi.fn(async () => new Response("nope", { status: 500 }))
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: 500,
+      errorMessage: "Webhook returned HTTP 500"
+    });
+  });
+
+  it("sends configured secret header when present", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: "X-SignalHub-Secret",
+        secretHeaderValue: "secret-value",
+        hasSecret: true,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      fetchImpl
+    });
+
+    expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      new URL("https://hooks.example.com/signalhub"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "X-SignalHub-Secret": "secret-value"
+        }),
+        body: JSON.stringify(payload)
+      })
+    );
+  });
+});
+
+describe("startAlertScheduler", () => {
+  it("does not overlap active runs and awaits active run on stop", async () => {
+    const running = createDeferred();
+    const calls: string[] = [];
+    const intervalHandle = { id: "alert-interval" } as unknown as ReturnType<typeof setInterval>;
+    const timeoutHandle = { id: "alert-startup" } as unknown as ReturnType<typeof setTimeout>;
+    const scheduledIntervals: Array<() => void> = [];
+    const scheduledTimeouts: Array<() => void> = [];
+
+    const stop = startAlertScheduler({
+      intervalMinutes: 5,
+      runOnce: async () => {
+        calls.push("run");
+        await running.promise;
+        calls.push("done");
+      },
+      setTimeoutFn: ((callback: () => void) => {
+        scheduledTimeouts.push(callback);
+        return timeoutHandle;
+      }) as unknown as typeof setTimeout,
+      clearTimeoutFn: vi.fn(),
+      setIntervalFn: ((callback: () => void) => {
+        scheduledIntervals.push(callback);
+        return intervalHandle;
+      }) as unknown as typeof setInterval,
+      clearIntervalFn: vi.fn()
+    });
+
+    scheduledTimeouts[0]?.();
+    scheduledIntervals[0]?.();
+    expect(calls).toEqual(["run"]);
+
+    const stopped = stop();
+    await Promise.resolve();
+    expect(calls).toEqual(["run"]);
+
+    running.resolve();
+    await stopped;
+
+    expect(calls).toEqual(["run", "done"]);
   });
 });
 

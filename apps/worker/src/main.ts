@@ -17,6 +17,16 @@ import {
   upsertHeartbeat,
   withRetentionLock
 } from "@signal-hub/db/repositories/system.js";
+import {
+  evaluateAlertRule,
+  getNotificationChannel,
+  listActiveAlertRules,
+  recordAlertEvent,
+  recordNotificationDelivery,
+  updateAlertRuleEvaluation,
+  withAlertEvaluationLock
+} from "@signal-hub/db/repositories/alerts.js";
+import { deliverWebhook, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { startHeartbeat } from "./heartbeat.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
@@ -78,6 +88,37 @@ const stopRetention = config.retention.enabled
     })
   : async () => {};
 
+const stopAlerts = config.alerts.enabled
+  ? startAlertScheduler({
+      intervalMinutes: config.alerts.intervalMinutes,
+      runOnce: () =>
+        runAlertEvaluationOnce({
+          now: () => new Date(),
+          withLock: (run) => withAlertEvaluationLock(db, run),
+          listActiveRules: () => listActiveAlertRules(db),
+          getNotificationChannel: (id) => getNotificationChannel(db, id),
+          evaluateRule: (rule, windowStart, windowEnd) =>
+            evaluateAlertRule(db, {
+              projectId: rule.projectId,
+              environmentId: rule.environmentId,
+              type: rule.type,
+              windowStart,
+              windowEnd
+            }),
+          recordAlertEvent: (input) => recordAlertEvent(db, input),
+          updateRuleEvaluation: (input) => updateAlertRuleEvaluation(db, input),
+          deliver: (channel, payload) =>
+            deliverWebhook({
+              channel,
+              payload,
+              timeoutMs: config.alerts.webhookTimeoutMs,
+              nodeEnv: config.nodeEnv
+            }),
+          recordDelivery: (input) => recordNotificationDelivery(db, input)
+        })
+    })
+  : async () => {};
+
 worker.on("completed", (job) => {
   console.info(`Processed telemetry job ${job.id ?? "unknown"} (${job.name})`);
 });
@@ -118,7 +159,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
   console.info(`Received ${signal}, shutting down telemetry worker`);
 
-  const stopResults = await Promise.allSettled([stopRetention(), stopHeartbeat(), worker.close()]);
+  const stopResults = await Promise.allSettled([stopAlerts(), stopRetention(), stopHeartbeat(), worker.close()]);
   const resourceResults = await Promise.allSettled([connection.quit(), db.destroy()]);
   const results = [...stopResults, ...resourceResults];
   for (const result of results) {
