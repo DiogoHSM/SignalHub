@@ -406,6 +406,34 @@ describe("admin alert routes", () => {
     expect(updates).toEqual([]);
   });
 
+  it("clears the secret value when clearing a notification channel secret header name", async () => {
+    const updates: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        updateNotificationChannel: async (id, input) => {
+          updates.push({ id, input });
+          return notificationChannel({
+            id,
+            secretHeaderName: input.secretHeaderName,
+            secretHeaderValue: input.secretHeaderValue,
+            hasSecret: false
+          });
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_1",
+      payload: { secretHeaderName: null }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(updates).toEqual([{ id: "chn_1", input: { secretHeaderName: null, secretHeaderValue: null } }]);
+  });
+
   it("returns 404 when updating a missing notification channel", async () => {
     app = await buildApp({
       readiness,

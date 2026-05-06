@@ -821,7 +821,9 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_notification_channel_request" });
     }
 
-    const channel = await options.alerts.updateNotificationChannel(params.data.id, parsed.data);
+    const input =
+      parsed.data.secretHeaderName === null ? { ...parsed.data, secretHeaderValue: null } : parsed.data;
+    const channel = await options.alerts.updateNotificationChannel(params.data.id, input);
     if (!channel) {
       return reply.status(404).send({ error: "notification_channel_not_found" });
     }
