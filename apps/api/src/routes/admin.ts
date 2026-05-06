@@ -157,6 +157,9 @@ const notificationChannelSchema = notificationChannelBaseSchema
 
 const updateNotificationChannelSchema = notificationChannelBaseSchema
   .partial()
+  .refine((input) => !(input.secretHeaderValue && input.secretHeaderName === null), {
+    message: "secret_header_name_required"
+  })
   .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
 
 const thresholdSchema = z

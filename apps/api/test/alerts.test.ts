@@ -382,6 +382,30 @@ describe("admin alert routes", () => {
     expect(updates).toEqual([{ id: "chn_1", input: { name: "Primary Ops" } }]);
   });
 
+  it("rejects notification channel updates that set a secret value while clearing the header name", async () => {
+    const updates: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        updateNotificationChannel: async (id, input) => {
+          updates.push({ id, input });
+          return notificationChannel({ id, secretHeaderName: input.secretHeaderName, secretHeaderValue: "secret" });
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_1",
+      payload: { secretHeaderName: null, secretHeaderValue: "secret" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+    expect(updates).toEqual([]);
+  });
+
   it("returns 404 when updating a missing notification channel", async () => {
     app = await buildApp({
       readiness,
