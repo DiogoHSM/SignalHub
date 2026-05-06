@@ -285,6 +285,28 @@ describe("admin alert routes", () => {
     expect(response.json().channel.secretHeaderValue).toBeUndefined();
   });
 
+  it("returns 503 without leaking repository errors when creating notification channels fails", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        createNotificationChannel: async () => {
+          throw new Error("database password exposed");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/notification-channels",
+      payload: { name: "Ops", type: "webhook", url: "https://hooks.example.com/signalhub", enabled: true }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "notification_channels_unavailable" });
+    expect(response.body).not.toContain("database password exposed");
+  });
+
   it("rejects unsafe production webhook URLs", async () => {
     app = await buildApp({
       readiness,
@@ -550,6 +572,73 @@ describe("admin alert routes", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json().rule).toMatchObject({ id: "rule_1", threshold: "1.5" });
     expect(createdRules).toEqual([payload]);
+  });
+
+  it("returns 503 without leaking repository errors when creating alert rules fails", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        getNotificationChannel: async () => notificationChannel(),
+        createAlertRule: async () => {
+          throw new Error("database host leaked");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/alert-rules",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        notificationChannelId: "chn_1",
+        name: "Critical errors",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 5,
+        threshold: "1.5",
+        cooldownMinutes: 10,
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "alert_rules_unavailable" });
+    expect(response.body).not.toContain("database host leaked");
+  });
+
+  it("preserves known alert rule scope not found mapping", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        getNotificationChannel: async () => notificationChannel(),
+        createAlertRule: async () => {
+          throw new Error("active_alert_rule_scope_not_found");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/alert-rules",
+      payload: {
+        projectId: "prj_missing",
+        environmentId: "env_missing",
+        notificationChannelId: "chn_1",
+        name: "Critical errors",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 5,
+        threshold: "1.5",
+        cooldownMinutes: 10,
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "alert_rule_scope_not_found" });
   });
 
   it("returns 404 without creating alert rules when the notification channel is missing", async () => {

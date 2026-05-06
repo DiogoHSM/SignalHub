@@ -284,7 +284,14 @@ async function validateAlertRuleNotificationChannel(
     return false;
   }
 
-  const channel = await options.alerts.getNotificationChannel(notificationChannelId);
+  let channel: NotificationChannelRecord | null | undefined;
+  try {
+    channel = await options.alerts.getNotificationChannel(notificationChannelId);
+  } catch {
+    reply.status(503).send({ error: "alert_rules_unavailable" });
+    return false;
+  }
+
   if (!channel || channel.enabled !== true || channel.archivedAt !== null) {
     reply.status(404).send({ error: "notification_channel_not_found" });
     return false;
@@ -798,7 +805,13 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(501).send({ error: "notification_channels_repository_unavailable" });
     }
 
-    const channels = await options.alerts.listNotificationChannels();
+    let channels: NotificationChannelRecord[];
+    try {
+      channels = await options.alerts.listNotificationChannels();
+    } catch {
+      return reply.status(503).send({ error: "notification_channels_unavailable" });
+    }
+
     return reply.send({ channels: channels.map(redactNotificationChannel) });
   });
 
@@ -817,7 +830,13 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_notification_channel_request" });
     }
 
-    const channel = await options.alerts.createNotificationChannel(parsed.data);
+    let channel: NotificationChannelRecord;
+    try {
+      channel = await options.alerts.createNotificationChannel(parsed.data);
+    } catch {
+      return reply.status(503).send({ error: "notification_channels_unavailable" });
+    }
+
     return reply.status(201).send({ channel: redactNotificationChannel(channel) });
   });
 
@@ -847,7 +866,13 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     const input =
       parsed.data.secretHeaderName === null ? { ...parsed.data, secretHeaderValue: null } : parsed.data;
-    const channel = await options.alerts.updateNotificationChannel(params.data.id, input);
+    let channel: NotificationChannelRecord | null | undefined;
+    try {
+      channel = await options.alerts.updateNotificationChannel(params.data.id, input);
+    } catch {
+      return reply.status(503).send({ error: "notification_channels_unavailable" });
+    }
+
     if (!channel) {
       return reply.status(404).send({ error: "notification_channel_not_found" });
     }
@@ -870,7 +895,12 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_notification_channel_request" });
     }
 
-    await options.alerts.archiveNotificationChannel(params.data.id);
+    try {
+      await options.alerts.archiveNotificationChannel(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "notification_channels_unavailable" });
+    }
+
     return reply.status(204).send();
   });
 
@@ -889,10 +919,16 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_alert_rule_request" });
     }
 
-    const rules = await options.alerts.listAlertRules({
-      projectId: parsed.data.project_id,
-      environmentId: parsed.data.environment_id
-    });
+    let rules: AlertRuleRecord[];
+    try {
+      rules = await options.alerts.listAlertRules({
+        projectId: parsed.data.project_id,
+        environmentId: parsed.data.environment_id
+      });
+    } catch {
+      return reply.status(503).send({ error: "alert_rules_unavailable" });
+    }
+
     return reply.send({ rules });
   });
 
@@ -921,7 +957,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       if (isKnownAdminResourceError(error, "active_alert_rule_scope_not_found")) {
         return reply.status(404).send({ error: "alert_rule_scope_not_found" });
       }
-      throw error;
+      return reply.status(503).send({ error: "alert_rules_unavailable" });
     }
 
     return reply.status(201).send({ rule });
@@ -957,7 +993,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       if (isKnownAdminResourceError(error, "active_alert_rule_scope_not_found")) {
         return reply.status(404).send({ error: "alert_rule_scope_not_found" });
       }
-      throw error;
+      return reply.status(503).send({ error: "alert_rules_unavailable" });
     }
 
     if (!rule) {
@@ -982,7 +1018,12 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_alert_rule_request" });
     }
 
-    await options.alerts.archiveAlertRule(params.data.id);
+    try {
+      await options.alerts.archiveAlertRule(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "alert_rules_unavailable" });
+    }
+
     return reply.status(204).send();
   });
 }
