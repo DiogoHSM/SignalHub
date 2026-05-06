@@ -524,6 +524,7 @@ describe("admin alert routes", () => {
       readiness,
       auth: adminAuth,
       alerts: {
+        getNotificationChannel: async () => notificationChannel(),
         createAlertRule: async (input) => {
           createdRules.push(input);
           return alertRule(input);
@@ -549,6 +550,42 @@ describe("admin alert routes", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json().rule).toMatchObject({ id: "rule_1", threshold: "1.5" });
     expect(createdRules).toEqual([payload]);
+  });
+
+  it("returns 404 without creating alert rules when the notification channel is missing", async () => {
+    const createdRules: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        getNotificationChannel: async () => null,
+        createAlertRule: async (input) => {
+          createdRules.push(input);
+          return alertRule(input);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/alert-rules",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        notificationChannelId: "chn_missing",
+        name: "Critical errors",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 5,
+        threshold: "1.5",
+        cooldownMinutes: 10,
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "notification_channel_not_found" });
+    expect(createdRules).toEqual([]);
   });
 
   it("returns 400 for invalid alert rule requests", async () => {
@@ -597,6 +634,31 @@ describe("admin alert routes", () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "alert_rule_not_found" });
+  });
+
+  it("returns 404 without updating alert rules when the notification channel is missing", async () => {
+    const updatedRules: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        getNotificationChannel: async () => null,
+        updateAlertRule: async (_id, input) => {
+          updatedRules.push(input);
+          return alertRule(input);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/alert-rules/rule_1",
+      payload: { notificationChannelId: "chn_missing" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "notification_channel_not_found" });
+    expect(updatedRules).toEqual([]);
   });
 
   it("archives alert rules", async () => {

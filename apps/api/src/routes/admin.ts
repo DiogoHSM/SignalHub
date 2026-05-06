@@ -76,6 +76,7 @@ export type AlertAdministrationDependencies = {
     input: UpdateNotificationChannelInput
   ) => Promise<NotificationChannelRecord | null | undefined>;
   archiveNotificationChannel?: (id: string) => Promise<void>;
+  getNotificationChannel?: (id: string) => Promise<NotificationChannelRecord | null | undefined>;
   listAlertRules?: (filters: AlertRuleListFilters) => Promise<AlertRuleRecord[]>;
   createAlertRule?: (input: CreateAlertRuleInput) => Promise<AlertRuleRecord>;
   updateAlertRule?: (id: string, input: UpdateAlertRuleInput) => Promise<AlertRuleRecord | null | undefined>;
@@ -267,6 +268,29 @@ function validateWebhookUrl(rawUrl: string, nodeEnv: string | undefined): boolea
   }
 
   return nodeEnv === "production" ? !isPrivateWebhookHost(url.hostname) : true;
+}
+
+async function validateAlertRuleNotificationChannel(
+  notificationChannelId: string | null | undefined,
+  options: AdminRouteOptions,
+  reply: FastifyReply
+): Promise<boolean> {
+  if (typeof notificationChannelId !== "string") {
+    return true;
+  }
+
+  if (!options.alerts?.getNotificationChannel) {
+    reply.status(501).send({ error: "alert_rules_repository_unavailable" });
+    return false;
+  }
+
+  const channel = await options.alerts.getNotificationChannel(notificationChannelId);
+  if (!channel || channel.enabled !== true || channel.archivedAt !== null) {
+    reply.status(404).send({ error: "notification_channel_not_found" });
+    return false;
+  }
+
+  return true;
 }
 
 function isPrivateWebhookHost(rawHost: string): boolean {
@@ -886,6 +910,9 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     if (!parsed.success) {
       return reply.status(400).send({ error: "invalid_alert_rule_request" });
     }
+    if (!(await validateAlertRuleNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
+      return reply;
+    }
 
     let rule: AlertRuleRecord;
     try {
@@ -918,6 +945,9 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const parsed = updateAlertRuleSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: "invalid_alert_rule_request" });
+    }
+    if (!(await validateAlertRuleNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
+      return reply;
     }
 
     let rule: AlertRuleRecord | null | undefined;
