@@ -63,7 +63,6 @@ const stopRetention = config.retention.enabled
         runRetentionOnce({
           now: () => new Date(),
           policy: retentionPolicy,
-          batchSize: config.retention.batchSize,
           tryAcquireLock: () => tryAcquireRetentionLock(db),
           releaseLock: () => releaseRetentionLock(db),
           deleteExpiredTelemetry: () =>
@@ -75,7 +74,7 @@ const stopRetention = config.retention.enabled
           recordRetentionRun: (input) => recordRetentionRun(db, input)
         })
     })
-  : () => {};
+  : async () => {};
 
 worker.on("completed", (job) => {
   console.info(`Processed telemetry job ${job.id ?? "unknown"} (${job.name})`);
@@ -116,10 +115,10 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
 
   console.info(`Received ${signal}, shutting down telemetry worker`);
-  stopRetention();
-  stopHeartbeat();
 
-  const results = [await Promise.allSettled([worker.close()]), await Promise.allSettled([connection.quit(), db.destroy()])].flat();
+  const stopResults = await Promise.allSettled([stopRetention(), stopHeartbeat(), worker.close()]);
+  const resourceResults = await Promise.allSettled([connection.quit(), db.destroy()]);
+  const results = [...stopResults, ...resourceResults];
   for (const result of results) {
     if (result.status === "rejected") {
       console.error("Telemetry worker shutdown step failed", result.reason);

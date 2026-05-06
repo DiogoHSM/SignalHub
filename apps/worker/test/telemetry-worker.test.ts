@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
 import { startHeartbeat } from "../src/heartbeat.js";
-import { runRetentionOnce } from "../src/retention.js";
+import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
 
 function createWriter(): TelemetryWriter {
@@ -12,6 +12,15 @@ function createWriter(): TelemetryWriter {
     insertTrace: vi.fn(async () => undefined),
     insertSpan: vi.fn(async () => undefined)
   };
+}
+
+function createDeferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
 }
 
 describe("processTelemetryJob", () => {
@@ -343,7 +352,6 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180
       },
-      batchSize: 1000,
       tryAcquireLock: async () => true,
       releaseLock: async () => {
         calls.push("released");
@@ -370,7 +378,6 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180
       },
-      batchSize: 1000,
       tryAcquireLock: async () => false,
       releaseLock: async () => {
         throw new Error("should_not_release");
@@ -397,7 +404,6 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180
       },
-      batchSize: 1000,
       tryAcquireLock: async () => true,
       releaseLock: async () => {
         calls.push("released");
@@ -416,10 +422,122 @@ describe("runRetentionOnce", () => {
     expect(result).toEqual({ ran: true, skipped: false });
     expect(calls).toEqual(["recorded", "released"]);
   });
+
+  it("does not write a failed zero-deleted run when success recording fails after deletion", async () => {
+    const calls: string[] = [];
+    const recordError = new Error("audit unavailable");
+
+    await expect(
+      runRetentionOnce({
+        now: () => new Date("2026-05-06T12:00:00.000Z"),
+        policy: {
+          eventsDays: 90,
+          errorsDays: 180,
+          tracesDays: 90,
+          spansDays: 90,
+          llmCallsDays: 180
+        },
+        tryAcquireLock: async () => true,
+        releaseLock: async () => {
+          calls.push("released");
+        },
+        deleteExpiredTelemetry: async () => {
+          calls.push("deleted");
+          return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
+        },
+        recordRetentionRun: async (input) => {
+          calls.push(`recorded:${input.status}:${input.deleted.events}`);
+          throw recordError;
+        }
+      })
+    ).rejects.toThrow(recordError);
+
+    expect(calls).toEqual(["deleted", "recorded:success:1", "released"]);
+  });
+});
+
+describe("startRetentionScheduler", () => {
+  it("does not overlap retention runs and drains active work on stop", async () => {
+    const running = createDeferred();
+    const calls: string[] = [];
+    const intervalHandle = { id: "retention-interval" } as unknown as ReturnType<typeof setInterval>;
+    const timeoutHandle = { id: "retention-startup" } as unknown as ReturnType<typeof setTimeout>;
+    const scheduledIntervals: Array<() => void> = [];
+    const scheduledTimeouts: Array<() => void> = [];
+
+    const stop = startRetentionScheduler({
+      intervalMinutes: 5,
+      runOnce: async () => {
+        calls.push("run");
+        await running.promise;
+        calls.push("done");
+      },
+      setTimeoutFn: ((callback: () => void) => {
+        scheduledTimeouts.push(callback);
+        return timeoutHandle;
+      }) as unknown as typeof setTimeout,
+      clearTimeoutFn: vi.fn(),
+      setIntervalFn: ((callback: () => void) => {
+        scheduledIntervals.push(callback);
+        return intervalHandle;
+      }) as unknown as typeof setInterval,
+      clearIntervalFn: vi.fn()
+    });
+
+    scheduledTimeouts[0]?.();
+    scheduledIntervals[0]?.();
+    expect(calls).toEqual(["run"]);
+
+    const stopped = stop();
+    await Promise.resolve();
+    expect(calls).toEqual(["run"]);
+
+    running.resolve();
+    await stopped;
+
+    expect(calls).toEqual(["run", "done"]);
+  });
+
+  it("clears startup and interval timers and does not start work after stop", async () => {
+    const intervalHandle = { id: "retention-interval" } as unknown as ReturnType<typeof setInterval>;
+    const timeoutHandle = { id: "retention-startup" } as unknown as ReturnType<typeof setTimeout>;
+    const scheduledIntervals: Array<() => void> = [];
+    const scheduledTimeouts: Array<() => void> = [];
+    const clearedIntervals: unknown[] = [];
+    const clearedTimeouts: unknown[] = [];
+    const runOnce = vi.fn(async () => undefined);
+
+    const stop = startRetentionScheduler({
+      intervalMinutes: 5,
+      runOnce,
+      setTimeoutFn: ((callback: () => void) => {
+        scheduledTimeouts.push(callback);
+        return timeoutHandle;
+      }) as unknown as typeof setTimeout,
+      clearTimeoutFn: ((handle: unknown) => {
+        clearedTimeouts.push(handle);
+      }) as typeof clearTimeout,
+      setIntervalFn: ((callback: () => void) => {
+        scheduledIntervals.push(callback);
+        return intervalHandle;
+      }) as unknown as typeof setInterval,
+      clearIntervalFn: ((handle: unknown) => {
+        clearedIntervals.push(handle);
+      }) as typeof clearInterval
+    });
+
+    await stop();
+    scheduledTimeouts[0]?.();
+    scheduledIntervals[0]?.();
+
+    expect(runOnce).not.toHaveBeenCalled();
+    expect(clearedTimeouts).toEqual([timeoutHandle]);
+    expect(clearedIntervals).toEqual([intervalHandle]);
+  });
 });
 
 describe("startHeartbeat", () => {
-  it("sends a heartbeat immediately and stops scheduled beats", () => {
+  it("sends a heartbeat immediately and stops scheduled beats", async () => {
     const beat = vi.fn(async () => undefined);
     const scheduled: Array<() => void> = [];
     const cleared: unknown[] = [];
@@ -437,11 +555,45 @@ describe("startHeartbeat", () => {
     });
 
     expect(beat).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    await Promise.resolve();
     scheduled[0]?.();
     expect(beat).toHaveBeenCalledTimes(2);
 
-    stop();
+    await stop();
 
     expect(cleared).toEqual([intervalHandle]);
+  });
+
+  it("does not overlap heartbeat calls and drains active work on stop", async () => {
+    const running = createDeferred();
+    const calls: string[] = [];
+    const intervalHandle = { id: "heartbeat-interval" } as unknown as ReturnType<typeof setInterval>;
+    const scheduled: Array<() => void> = [];
+
+    const stop = startHeartbeat({
+      beat: async () => {
+        calls.push("beat");
+        await running.promise;
+        calls.push("done");
+      },
+      setIntervalFn: ((callback: () => void) => {
+        scheduled.push(callback);
+        return intervalHandle;
+      }) as unknown as typeof setInterval,
+      clearIntervalFn: vi.fn()
+    });
+
+    scheduled[0]?.();
+    expect(calls).toEqual(["beat"]);
+
+    const stopped = stop();
+    await Promise.resolve();
+    expect(calls).toEqual(["beat"]);
+
+    running.resolve();
+    await stopped;
+
+    expect(calls).toEqual(["beat", "done"]);
   });
 });
