@@ -3,13 +3,12 @@ import { readFile } from "node:fs/promises";
 import { sql } from "kysely";
 import type { Db } from "./client.js";
 
-const migrationName = "0001_initial.sql";
-const migrationUrl = new URL("../migrations/0001_initial.sql", import.meta.url);
+const migrations = [
+  { name: "0001_initial.sql", url: new URL("../migrations/0001_initial.sql", import.meta.url) },
+  { name: "0002_operational_safety.sql", url: new URL("../migrations/0002_operational_safety.sql", import.meta.url) }
+];
 
 export async function migrate(db: Db): Promise<void> {
-  const migrationSql = await readFile(migrationUrl, "utf8");
-  const checksum = createHash("sha256").update(migrationSql).digest("hex");
-
   await db.transaction().execute(async (trx) => {
     await sql`SELECT pg_advisory_xact_lock(927380402913)`.execute(trx);
 
@@ -21,21 +20,26 @@ export async function migrate(db: Db): Promise<void> {
       )
     `.execute(trx);
 
-    const existing = await trx
-      .selectFrom("_migrations")
-      .select(["name", "checksum"])
-      .where("name", "=", migrationName)
-      .executeTakeFirst();
+    for (const migration of migrations) {
+      const migrationSql = await readFile(migration.url, "utf8");
+      const checksum = createHash("sha256").update(migrationSql).digest("hex");
 
-    if (existing) {
-      if (existing.checksum !== checksum) {
-        throw new Error(`Migration ${migrationName} checksum mismatch`);
+      const existing = await trx
+        .selectFrom("_migrations")
+        .select(["name", "checksum"])
+        .where("name", "=", migration.name)
+        .executeTakeFirst();
+
+      if (existing) {
+        if (existing.checksum !== checksum) {
+          throw new Error(`Migration ${migration.name} checksum mismatch`);
+        }
+        continue;
       }
-      return;
+
+      await sql.raw(migrationSql).execute(trx);
+
+      await trx.insertInto("_migrations").values({ name: migration.name, checksum }).execute();
     }
-
-    await sql.raw(migrationSql).execute(trx);
-
-    await trx.insertInto("_migrations").values({ name: migrationName, checksum }).execute();
   });
 }

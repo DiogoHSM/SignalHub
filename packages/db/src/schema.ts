@@ -167,6 +167,32 @@ export interface DeadLetterJobsTable {
   created_at: Timestamp;
 }
 
+export interface RetentionRunsTable {
+  id: ColumnType<string, string | undefined, string>;
+  started_at: Timestamp;
+  finished_at: NullableTimestamp;
+  status: "success" | "failed";
+  error_message: string | null;
+  deleted_events: DefaultedInteger;
+  deleted_errors: DefaultedInteger;
+  deleted_traces: DefaultedInteger;
+  deleted_spans: DefaultedInteger;
+  deleted_llm_calls: DefaultedInteger;
+  events_days: number;
+  errors_days: number;
+  traces_days: number;
+  spans_days: number;
+  llm_calls_days: number;
+  created_at: Timestamp;
+}
+
+export interface SystemHeartbeatsTable {
+  component: string;
+  last_heartbeat_at: Timestamp;
+  metadata: JsonColumn;
+  updated_at: Timestamp;
+}
+
 export interface MigrationsTable {
   name: string;
   checksum: string;
@@ -184,5 +210,7 @@ export interface Database {
   traces: TracesTable;
   spans: SpansTable;
   dead_letter_jobs: DeadLetterJobsTable;
+  retention_runs: RetentionRunsTable;
+  system_heartbeats: SystemHeartbeatsTable;
   _migrations: MigrationsTable;
 }

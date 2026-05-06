@@ -86,6 +86,15 @@ describe("repositories", () => {
     });
   });
 
+  it("runs operational safety migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, status, started_at from retention_runs limit 0`.execute(db);
+      await sql`select component, last_heartbeat_at from system_heartbeats limit 0`.execute(db);
+    });
+  });
+
   it("creates admin resources and queries telemetry", async () => {
     await withDb(async (db) => {
       await migrate(db);
