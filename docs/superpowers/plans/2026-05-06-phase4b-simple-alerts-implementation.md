@@ -386,7 +386,7 @@ git commit -m "feat: add alert metadata tables"
 - Create: `packages/db/src/repositories/alerts.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing CRUD and evaluation tests**
+- [x] **Step 1: Add failing CRUD and evaluation tests**
 
 Add tests to `packages/db/test/repositories.test.ts` that create one project and environment, then exercise alert repository functions:
 
@@ -514,7 +514,7 @@ it("uses an advisory lock for alert evaluation", async () => {
 });
 ```
 
-- [ ] **Step 2: Run DB tests and verify failure**
+- [x] **Step 2: Run DB tests and verify failure**
 
 Run:
 
@@ -524,7 +524,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because `repositories/alerts.ts` does not exist.
 
-- [ ] **Step 3: Implement repository types and mappers**
+- [x] **Step 3: Implement repository types and mappers**
 
 Create `packages/db/src/repositories/alerts.ts` with exported types:
 
@@ -597,7 +597,7 @@ export type AlertEventRecord = {
 
 Implement `toNotificationChannel`, `toAlertRule`, and `toAlertEvent` mappers from selected rows.
 
-- [ ] **Step 4: Implement channel and rule CRUD**
+- [x] **Step 4: Implement channel and rule CRUD**
 
 Add functions:
 
@@ -659,7 +659,7 @@ export async function createAlertRule(db: AlertDb, input: {
 
 Also implement `listNotificationChannels`, `getNotificationChannel`, `updateNotificationChannel`, `archiveNotificationChannel`, `listAlertRules`, `getAlertRule`, `updateAlertRule`, and `archiveAlertRule` using the same soft-archive conventions as `packages/db/src/repositories/admin.ts`.
 
-- [ ] **Step 5: Implement evaluation queries and alert recording**
+- [x] **Step 5: Implement evaluation queries and alert recording**
 
 Add:
 
@@ -723,7 +723,7 @@ export async function evaluateAlertRule(db: AlertDb, input: {
 
 Implement `recordAlertEvent`, `recordNotificationDelivery`, `updateAlertRuleEvaluation`, and `listAlertEvents`. `listAlertEvents` should left-join or follow-up query the newest delivery for each event and expose `latestDeliveryStatus`.
 
-- [ ] **Step 6: Implement advisory lock and active rule listing**
+- [x] **Step 6: Implement advisory lock and active rule listing**
 
 Add:
 
@@ -755,7 +755,7 @@ export async function listActiveAlertRules(db: AlertDb): Promise<AlertRuleRecord
 }
 ```
 
-- [ ] **Step 7: Run DB tests and verify pass**
+- [x] **Step 7: Run DB tests and verify pass**
 
 Run:
 
@@ -765,7 +765,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/alerts.ts packages/db/test/repositories.test.ts
