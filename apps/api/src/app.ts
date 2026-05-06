@@ -13,6 +13,7 @@ import { registerConsoleRoutes, type ConsoleRouteOptions } from "./routes/consol
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
 import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
+import { registerSystemRoutes, type SystemHealthDependencies } from "./routes/system.js";
 
 export type BuildAppOptions = {
   readiness: ReadinessCheck;
@@ -21,6 +22,7 @@ export type BuildAppOptions = {
   adminResources?: AdminResourceDependencies;
   ingestion?: IngestionDependencies;
   query?: QueryDependencies;
+  system?: SystemHealthDependencies;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
@@ -62,6 +64,10 @@ export async function buildApp(options: BuildAppOptions) {
   registerQueryRoutes(app, {
     auth: options.auth,
     query: options.query
+  });
+  registerSystemRoutes(app, {
+    auth: options.auth,
+    system: options.system
   });
 
   return app;

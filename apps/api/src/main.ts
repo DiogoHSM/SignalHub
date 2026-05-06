@@ -27,6 +27,11 @@ import {
   updateUser
 } from "@signal-hub/db/repositories/users.js";
 import {
+  getHeartbeat,
+  getIngestionFreshness,
+  getLastRetentionRun
+} from "@signal-hub/db/repositories/system.js";
+import {
   getErrorAggregates,
   getEventAggregates,
   getLlmAggregates,
@@ -50,6 +55,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { buildApp } from "./app.js";
 import type { AuthDependencies, AuthSessionContext, AuthUser, CookieCapableReply } from "./routes/auth.js";
+import type { SystemStatus } from "./routes/system.js";
 
 const sessionCookieName = "signalhub_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
@@ -121,6 +127,22 @@ function toAuthUser(user: { id: string; email: string; isAdmin: boolean }): Auth
   };
 }
 
+async function measure<T>(
+  fn: () => Promise<T>
+): Promise<{ ok: true; value: T; latencyMs: number } | { ok: false; latencyMs: null }> {
+  const started = performance.now();
+  try {
+    const value = await fn();
+    return { ok: true, value, latencyMs: Math.round(performance.now() - started) };
+  } catch {
+    return { ok: false, latencyMs: null };
+  }
+}
+
+function isoOrNull(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
 const googleTokenResponseSchema = z.object({
   access_token: z.string().min(1)
 });
@@ -138,6 +160,13 @@ const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null
 });
 const telemetryQueue = createTelemetryQueue(config.redisUrl);
+const retentionPolicy = {
+  eventsDays: config.retention.eventsDays,
+  errorsDays: config.retention.errorsDays,
+  tracesDays: config.retention.tracesDays,
+  spansDays: config.retention.spansDays,
+  llmCallsDays: config.retention.llmCallsDays
+};
 
 function setSessionCookie(reply: CookieCapableReply, userId: string): void {
   const sessionToken = createSessionToken(
@@ -354,6 +383,74 @@ const app = await buildApp({
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),
     listUsersActivity: (filters) => listUsersActivity(db, filters),
     getUserDetail: (userId, filters) => getUserDetail(db, userId, filters)
+  },
+  system: {
+    getHealth: async () => {
+      const generatedAt = new Date();
+      const [postgres, redisReady, queueCounts, heartbeat, freshness, retentionRun] = await Promise.all([
+        measure(() => sql`select 1`.execute(db)),
+        measure(() => redis.ping()),
+        telemetryQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
+        getHeartbeat(db, "worker"),
+        getIngestionFreshness(db),
+        getLastRetentionRun(db)
+      ]);
+
+      const workerStale =
+        !heartbeat?.lastHeartbeatAt || generatedAt.getTime() - heartbeat.lastHeartbeatAt.getTime() > 150_000;
+      const postgresStatus: SystemStatus = postgres.ok ? "healthy" : "unhealthy";
+      const redisStatus: SystemStatus = redisReady.ok && redisReady.value === "PONG" ? "healthy" : "unhealthy";
+      const workerStatus: SystemStatus = workerStale ? "degraded" : "healthy";
+      const retentionFailed = retentionRun?.status === "failed";
+      const status: SystemStatus =
+        postgresStatus === "unhealthy" || redisStatus === "unhealthy"
+          ? "unhealthy"
+          : workerStatus === "degraded" || retentionFailed
+            ? "degraded"
+            : "healthy";
+
+      return {
+        generatedAt: generatedAt.toISOString(),
+        status,
+        services: {
+          api: { status: "healthy", uptimeSeconds: Math.floor(process.uptime()) },
+          postgres: { status: postgresStatus, latencyMs: postgres.latencyMs },
+          redis: { status: redisStatus, latencyMs: redisReady.latencyMs },
+          worker: { status: workerStatus, lastHeartbeatAt: isoOrNull(heartbeat?.lastHeartbeatAt) }
+        },
+        queues: {
+          telemetry: {
+            waiting: queueCounts.waiting,
+            active: queueCounts.active,
+            completed: queueCounts.completed,
+            failed: queueCounts.failed,
+            delayed: queueCounts.delayed
+          }
+        },
+        ingestion: {
+          lastEventAt: isoOrNull(freshness.lastEventAt),
+          lastErrorAt: isoOrNull(freshness.lastErrorAt),
+          lastTraceAt: isoOrNull(freshness.lastTraceAt),
+          lastSpanAt: isoOrNull(freshness.lastSpanAt),
+          lastLlmCallAt: isoOrNull(freshness.lastLlmCallAt)
+        },
+        retention: {
+          enabled: config.retention.enabled,
+          intervalMinutes: config.retention.intervalMinutes,
+          lastRun: retentionRun
+            ? {
+                id: retentionRun.id,
+                status: retentionRun.status,
+                startedAt: retentionRun.startedAt.toISOString(),
+                finishedAt: isoOrNull(retentionRun.finishedAt),
+                deleted: retentionRun.deleted,
+                errorMessage: retentionRun.errorMessage
+              }
+            : null,
+          policy: retentionPolicy
+        }
+      };
+    }
   },
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,
