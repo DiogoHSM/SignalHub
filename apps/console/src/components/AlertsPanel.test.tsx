@@ -9,10 +9,44 @@ afterEach(() => {
 });
 
 function client(overrides: Partial<ApiClient> = {}): ApiClient {
-  return {
+  const baseClient = {
+    getConsoleConfig: vi.fn(),
+    getMe: vi.fn(),
+    login: vi.fn(),
+    logout: vi.fn(),
+    listProjects: vi.fn(),
+    createProject: vi.fn(),
+    updateProject: vi.fn(),
+    archiveProject: vi.fn(),
+    listEnvironments: vi.fn(),
+    createEnvironment: vi.fn(),
+    updateEnvironment: vi.fn(),
+    archiveEnvironment: vi.fn(),
+    listApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    listEvents: vi.fn(),
+    listErrors: vi.fn(),
+    listTraces: vi.fn(),
+    listTraceSpans: vi.fn(),
+    listLlmCalls: vi.fn(),
+    getLlmAggregates: vi.fn(),
+    getEventAggregates: vi.fn(),
+    getErrorAggregates: vi.fn(),
+    getOverview: vi.fn(),
+    getSystemHealth: vi.fn(),
+    listEntityTenants: vi.fn(),
+    getEntityTenantDetail: vi.fn(),
+    listUsersActivity: vi.fn(),
+    getUserDetail: vi.fn(),
+    listUsers: vi.fn(),
+    createUser: vi.fn(),
+    updateUser: vi.fn(),
+    archiveUser: vi.fn(),
     listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
     listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
+    getAlertEvent: vi.fn(),
     createAlertRule: vi.fn().mockResolvedValue({
       rule: {
         id: "rule_1",
@@ -33,6 +67,8 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
         archivedAt: null
       }
     }),
+    updateAlertRule: vi.fn(),
+    archiveAlertRule: vi.fn(),
     createNotificationChannel: vi.fn().mockResolvedValue({
       channel: {
         id: "chn_1",
@@ -47,8 +83,19 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
         archivedAt: null
       }
     }),
+    updateNotificationChannel: vi.fn(),
+    archiveNotificationChannel: vi.fn(),
     ...overrides
-  } as ApiClient;
+  } satisfies ApiClient;
+  return baseClient;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 describe("AlertsPanel", () => {
@@ -165,6 +212,20 @@ describe("AlertsPanel", () => {
     expect(within(screen.getByLabelText("Notification channels")).getByText("Secret saved")).toBeInTheDocument();
   });
 
+  it("requires a secret header name before submitting a secret value", async () => {
+    const createNotificationChannel = vi.fn();
+
+    render(<AlertsPanel client={client({ createNotificationChannel })} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Channel name"), "Ops");
+    await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com");
+    await userEvent.type(screen.getByLabelText("Secret header value"), "secret");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Secret header name is required when a secret value is set");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+  });
+
   it("creates an alert rule for the active project and environment", async () => {
     const createAlertRule = vi.fn().mockResolvedValue({
       rule: {
@@ -226,6 +287,49 @@ describe("AlertsPanel", () => {
         enabled: true
       })
     );
+  });
+
+  it("blocks blank and invalid numeric alert rule values before submitting", async () => {
+    const createAlertRule = vi.fn();
+
+    render(<AlertsPanel client={client({ createAlertRule })} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Rule name"), "Critical errors");
+    await userEvent.clear(screen.getByLabelText("Window"));
+    await userEvent.click(screen.getByRole("button", { name: "Create rule" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Window must be a whole number of at least 1 minute");
+    expect(createAlertRule).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText("Window"), "10");
+    await userEvent.clear(screen.getByLabelText("Threshold"));
+    await userEvent.type(screen.getByLabelText("Threshold"), "1.1234567");
+    await userEvent.click(screen.getByRole("button", { name: "Create rule" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Threshold must be a positive number with up to 6 decimal places");
+    expect(createAlertRule).not.toHaveBeenCalled();
+  });
+
+  it("disables create buttons while alerts are loading", () => {
+    const alertRules = deferred<{ rules: [] }>();
+    const notificationChannels = deferred<{ channels: [] }>();
+    const alertEvents = deferred<{ data: [] }>();
+
+    render(
+      <AlertsPanel
+        client={client({
+          listAlertRules: vi.fn().mockReturnValue(alertRules.promise),
+          listNotificationChannels: vi.fn().mockReturnValue(notificationChannels.promise),
+          listAlertEvents: vi.fn().mockReturnValue(alertEvents.promise)
+        })}
+        projectId="prj_1"
+        environmentId="env_1"
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading alerts");
+    expect(screen.getByRole("button", { name: "Create channel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create rule" })).toBeDisabled();
   });
 
   it("shows a compact empty state without project or environment", () => {

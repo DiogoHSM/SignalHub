@@ -198,8 +198,10 @@ select {
 }
 
 .mode-tabs {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+  max-width: 100%;
   border: 1px solid #d7dde7;
   border-radius: 6px;
   background: #fff;

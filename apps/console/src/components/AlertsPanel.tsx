@@ -72,9 +72,16 @@ function displayDeliveryStatus(status: AlertEventResponse["latestDeliveryStatus"
   return status ?? "pending";
 }
 
-function parsePositiveInteger(value: string, fallback: number): number {
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+function parsePositiveInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function isValidThreshold(value: string): boolean {
+  const trimmed = value.trim();
+  return /^\d+(\.\d{1,6})?$/.test(trimmed) && Number(trimmed) > 0;
 }
 
 export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelProps) {
@@ -132,11 +139,16 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
 
   async function createChannel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isLoading) return;
     const name = channelForm.name.trim();
     const url = channelForm.url.trim();
     const secretHeaderName = channelForm.secretHeaderName.trim();
-    const secretHeaderValue = channelForm.secretHeaderValue;
+    const secretHeaderValue = channelForm.secretHeaderValue.trim();
     if (!name || !url) return;
+    if (secretHeaderValue && !secretHeaderName) {
+      setError("Secret header name is required when a secret value is set");
+      return;
+    }
 
     setIsCreatingChannel(true);
     setError(null);
@@ -160,9 +172,23 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
 
   async function createRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!projectId || !environmentId) return;
+    if (!projectId || !environmentId || isLoading) return;
     const name = ruleForm.name.trim();
     if (!name) return;
+    const windowMinutes = parsePositiveInteger(ruleForm.windowMinutes);
+    if (windowMinutes === null) {
+      setError("Window must be a whole number of at least 1 minute");
+      return;
+    }
+    if (!isValidThreshold(ruleForm.threshold)) {
+      setError("Threshold must be a positive number with up to 6 decimal places");
+      return;
+    }
+    const cooldownMinutes = parsePositiveInteger(ruleForm.cooldownMinutes);
+    if (cooldownMinutes === null) {
+      setError("Cooldown must be a whole number of at least 1 minute");
+      return;
+    }
 
     setIsCreatingRule(true);
     setError(null);
@@ -174,9 +200,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
         name,
         type: ruleForm.type,
         severity: ruleForm.severity,
-        windowMinutes: parsePositiveInteger(ruleForm.windowMinutes, 10),
-        threshold: ruleForm.threshold.trim() || "1",
-        cooldownMinutes: parsePositiveInteger(ruleForm.cooldownMinutes, 30),
+        windowMinutes,
+        threshold: ruleForm.threshold.trim(),
+        cooldownMinutes,
         enabled: true
       });
       setRules((current) => [...current, rule]);
@@ -299,11 +325,12 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
 
         <section aria-label="Create notification channel" className="alerts-card">
           <h3>Create webhook channel</h3>
-          <form className="alerts-form" onSubmit={createChannel}>
+          <form className="alerts-form" noValidate onSubmit={createChannel}>
             <label>
               Channel name
               <input
                 onChange={(event) => setChannelForm((current) => ({ ...current, name: event.target.value }))}
+                required
                 value={channelForm.name}
               />
             </label>
@@ -312,6 +339,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
               <input
                 onChange={(event) => setChannelForm((current) => ({ ...current, url: event.target.value }))}
                 placeholder="https://hooks.example.com"
+                required
                 type="url"
                 value={channelForm.url}
               />
@@ -320,6 +348,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
               Secret header name
               <input
                 onChange={(event) => setChannelForm((current) => ({ ...current, secretHeaderName: event.target.value }))}
+                required={Boolean(channelForm.secretHeaderValue.trim())}
                 value={channelForm.secretHeaderName}
               />
             </label>
@@ -331,7 +360,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 value={channelForm.secretHeaderValue}
               />
             </label>
-            <button disabled={isCreatingChannel} type="submit">
+            <button disabled={isLoading || isCreatingChannel} type="submit">
               Create channel
             </button>
           </form>
@@ -339,10 +368,14 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
 
         <section aria-label="Create alert rule" className="alerts-card">
           <h3>Create alert rule</h3>
-          <form className="alerts-form" onSubmit={createRule}>
+          <form className="alerts-form" noValidate onSubmit={createRule}>
             <label>
               Rule name
-              <input onChange={(event) => setRuleForm((current) => ({ ...current, name: event.target.value }))} value={ruleForm.name} />
+              <input
+                onChange={(event) => setRuleForm((current) => ({ ...current, name: event.target.value }))}
+                required
+                value={ruleForm.name}
+              />
             </label>
             <label>
               Rule type
@@ -374,6 +407,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 <input
                   min="1"
                   onChange={(event) => setRuleForm((current) => ({ ...current, windowMinutes: event.target.value }))}
+                  required
+                  step="1"
                   type="number"
                   value={ruleForm.windowMinutes}
                 />
@@ -381,7 +416,13 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
               <label>
                 Threshold
                 <input
+                  inputMode="decimal"
+                  min="0.000001"
                   onChange={(event) => setRuleForm((current) => ({ ...current, threshold: event.target.value }))}
+                  pattern="\d+(\.\d{1,6})?"
+                  required
+                  step="0.000001"
+                  type="number"
                   value={ruleForm.threshold}
                 />
               </label>
@@ -390,6 +431,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 <input
                   min="1"
                   onChange={(event) => setRuleForm((current) => ({ ...current, cooldownMinutes: event.target.value }))}
+                  required
+                  step="1"
                   type="number"
                   value={ruleForm.cooldownMinutes}
                 />
@@ -409,7 +452,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 ))}
               </select>
             </label>
-            <button disabled={isCreatingRule} type="submit">
+            <button disabled={isLoading || isCreatingRule} type="submit">
               Create rule
             </button>
           </form>
