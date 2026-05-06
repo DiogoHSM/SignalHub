@@ -1167,7 +1167,7 @@ git commit -m "feat: add worker alert evaluation"
 - Create: `apps/api/test/alerts.test.ts`
 - Modify: `apps/api/test/e2e.test.ts`
 
-- [ ] **Step 1: Add failing API tests**
+- [x] **Step 1: Add failing API tests**
 
 Create `apps/api/test/alerts.test.ts`:
 
@@ -1281,7 +1281,7 @@ describe("alert routes", () => {
 });
 ```
 
-- [ ] **Step 2: Run API tests and verify failure**
+- [x] **Step 2: Run API tests and verify failure**
 
 Run:
 
@@ -1291,7 +1291,7 @@ pnpm --filter @signal-hub/api test -- alerts.test.ts
 
 Expected: fail because alert route dependencies and routes do not exist.
 
-- [ ] **Step 3: Add alert route dependency types and register routes**
+- [x] **Step 3: Add alert route dependency types and register routes**
 
 In `apps/api/src/app.ts`, add an optional `alerts` dependency to `buildApp` options and register:
 
@@ -1317,7 +1317,7 @@ registerAdminRoutes(app, {
 registerAlertRoutes(app, { auth: options.auth, alerts: options.alerts });
 ```
 
-- [ ] **Step 4: Implement admin alert endpoints**
+- [x] **Step 4: Implement admin alert endpoints**
 
 In `apps/api/src/routes/admin.ts`, extend `AdminRouteOptions`:
 
@@ -1401,7 +1401,7 @@ function redactNotificationChannel(channel: NotificationChannelRecord) {
 }
 ```
 
-- [ ] **Step 5: Implement alert history routes**
+- [x] **Step 5: Implement alert history routes**
 
 Create `apps/api/src/routes/alerts.ts`:
 
@@ -1456,7 +1456,7 @@ export function registerAlertRoutes(app: FastifyInstance, options: { auth?: Auth
 
 Add `GET /alerts/events/:id` with `getAlertEvent`.
 
-- [ ] **Step 6: Wire API main**
+- [x] **Step 6: Wire API main**
 
 In `apps/api/src/main.ts`, import alert repository functions and pass them to `buildApp`:
 
@@ -1478,7 +1478,7 @@ alerts: {
 
 Update any `buildApp` calls in `apps/api/test/e2e.test.ts` by leaving `alerts` and `nodeEnv` omitted. Both options must remain optional so existing e2e tests compile without extra setup.
 
-- [ ] **Step 7: Run API tests and verify pass**
+- [x] **Step 7: Run API tests and verify pass**
 
 Run:
 
@@ -1489,7 +1489,7 @@ pnpm --filter @signal-hub/api test
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/api/src/routes/alerts.ts apps/api/src/routes/admin.ts apps/api/src/app.ts apps/api/src/main.ts apps/api/test/alerts.test.ts apps/api/test/e2e.test.ts
