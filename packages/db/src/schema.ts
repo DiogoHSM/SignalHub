@@ -187,6 +187,21 @@ export interface RetentionRunsTable {
   created_at: Timestamp;
 }
 
+export interface BackupRunsTable {
+  id: ColumnType<string, string | undefined, string>;
+  started_at: Timestamp;
+  finished_at: NullableTimestamp;
+  status: "success" | "failed";
+  trigger: "scheduled" | "manual";
+  filename: string;
+  local_path: string;
+  size_bytes: ColumnType<string | null, string | number | null | undefined, string | number | null>;
+  s3_bucket: string | null;
+  s3_key: string | null;
+  error_message: string | null;
+  created_at: Timestamp;
+}
+
 export interface SystemHeartbeatsTable {
   component: string;
   last_heartbeat_at: Timestamp;
@@ -275,6 +290,7 @@ export interface Database {
   spans: SpansTable;
   dead_letter_jobs: DeadLetterJobsTable;
   retention_runs: RetentionRunsTable;
+  backup_runs: BackupRunsTable;
   system_heartbeats: SystemHeartbeatsTable;
   notification_channels: NotificationChannelsTable;
   alert_rules: AlertRulesTable;

@@ -66,6 +66,7 @@ import {
   upsertHeartbeat,
   withRetentionLock
 } from "../src/repositories/system.js";
+import { getBackupStatus, recordBackupRun, withBackupLock } from "../src/repositories/backups.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
@@ -124,6 +125,14 @@ describe("repositories", () => {
       await sql`select id, type, threshold from alert_rules limit 0`.execute(db);
       await sql`select id, observed_value from alert_events limit 0`.execute(db);
       await sql`select id, status from notification_deliveries limit 0`.execute(db);
+    });
+  });
+
+  it("runs backup metadata migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, status, trigger, filename, s3_key from backup_runs limit 0`.execute(db);
     });
   });
 
@@ -476,6 +485,57 @@ describe("repositories", () => {
       const heartbeat = await getHeartbeat(db, "worker");
       expect(heartbeat?.component).toBe("worker");
       expect(heartbeat?.lastHeartbeatAt).toEqual(updatedHeartbeatAt);
+    });
+  });
+
+  it("records backup runs and reads latest status", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const failed = await recordBackupRun(db, {
+        startedAt: new Date("2026-05-06T01:00:00.000Z"),
+        finishedAt: new Date("2026-05-06T01:00:05.000Z"),
+        status: "failed",
+        trigger: "scheduled",
+        filename: "signalhub-20260506T010000Z.dump",
+        localPath: "/var/lib/signalhub/backups/signalhub-20260506T010000Z.dump",
+        sizeBytes: null,
+        s3Bucket: null,
+        s3Key: null,
+        errorMessage: "pg_dump failed"
+      });
+      const success = await recordBackupRun(db, {
+        startedAt: new Date("2026-05-06T02:00:00.000Z"),
+        finishedAt: new Date("2026-05-06T02:00:07.000Z"),
+        status: "success",
+        trigger: "manual",
+        filename: "signalhub-20260506T020000Z.dump",
+        localPath: "/var/lib/signalhub/backups/signalhub-20260506T020000Z.dump",
+        sizeBytes: 1234,
+        s3Bucket: "signalhub-backups",
+        s3Key: "prod/signalhub/signalhub-20260506T020000Z.dump",
+        errorMessage: null
+      });
+
+      const status = await getBackupStatus(db);
+
+      expect(failed.status).toBe("failed");
+      expect(success.status).toBe("success");
+      expect(status.latestSuccess).toMatchObject({ id: success.id, sizeBytes: 1234 });
+      expect(status.latestFailure).toMatchObject({ id: failed.id, errorMessage: "pg_dump failed" });
+    });
+  });
+
+  it("uses a backup advisory lock", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const first = await withBackupLock(db, async () => {
+        const nested = await withBackupLock(db, async () => "nested");
+        return nested;
+      });
+
+      expect(first).toEqual({ locked: true, result: { locked: false } });
     });
   });
 
