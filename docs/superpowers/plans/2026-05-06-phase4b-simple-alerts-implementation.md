@@ -780,7 +780,7 @@ git commit -m "feat: add alert repository"
 - Modify: `apps/worker/src/main.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Add failing worker tests**
+- [x] **Step 1: Add failing worker tests**
 
 Add tests to `apps/worker/test/telemetry-worker.test.ts`:
 
@@ -895,7 +895,7 @@ it("rejects localhost webhook targets in production", () => {
 });
 ```
 
-- [ ] **Step 2: Run worker tests and verify failure**
+- [x] **Step 2: Run worker tests and verify failure**
 
 Run:
 
@@ -905,7 +905,7 @@ pnpm --filter @signal-hub/worker test
 
 Expected: fail because `apps/worker/src/alerts.ts` does not exist.
 
-- [ ] **Step 3: Implement alert runtime types and evaluator**
+- [x] **Step 3: Implement alert runtime types and evaluator**
 
 Create `apps/worker/src/alerts.ts`:
 
@@ -1014,7 +1014,7 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
 }
 ```
 
-- [ ] **Step 4: Implement webhook validation and delivery**
+- [x] **Step 4: Implement webhook validation and delivery**
 
 Add:
 
@@ -1098,7 +1098,7 @@ export async function deliverWebhook(input: {
 }
 ```
 
-- [ ] **Step 5: Implement scheduler and wire worker main**
+- [x] **Step 5: Implement scheduler and wire worker main**
 
 Add `startAlertScheduler` mirroring `startRetentionScheduler`, with no overlapping active run and startup run after one second.
 
@@ -1139,7 +1139,7 @@ const stopAlerts = config.alerts.enabled
 
 Add `stopAlerts()` to the shutdown `Promise.allSettled` list.
 
-- [ ] **Step 6: Run worker tests and verify pass**
+- [x] **Step 6: Run worker tests and verify pass**
 
 Run:
 
@@ -1149,7 +1149,7 @@ pnpm --filter @signal-hub/worker test
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/worker/src/alerts.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts
