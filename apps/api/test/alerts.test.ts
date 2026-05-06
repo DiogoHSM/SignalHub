@@ -406,6 +406,30 @@ describe("admin alert routes", () => {
     expect(updates).toEqual([]);
   });
 
+  it("rejects notification channel updates that set only a secret value", async () => {
+    const updates: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        updateNotificationChannel: async (id, input) => {
+          updates.push({ id, input });
+          return notificationChannel({ id, secretHeaderValue: "new-secret" });
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_1",
+      payload: { secretHeaderValue: "new-secret" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+    expect(updates).toEqual([]);
+  });
+
   it("clears the secret value when clearing a notification channel secret header name", async () => {
     const updates: unknown[] = [];
     app = await buildApp({
