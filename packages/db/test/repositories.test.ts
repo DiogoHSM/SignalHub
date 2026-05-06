@@ -526,16 +526,128 @@ describe("repositories", () => {
     });
   });
 
-  it("uses a backup advisory lock", async () => {
+  it("orders latest backup status deterministically when started timestamps tie", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const startedAt = new Date("2026-05-06T03:00:00.000Z");
+      await sql`
+        insert into backup_runs (
+          id,
+          started_at,
+          finished_at,
+          status,
+          trigger,
+          filename,
+          local_path,
+          size_bytes,
+          created_at
+        )
+        values (
+          'backup_success_older',
+          ${startedAt},
+          ${startedAt},
+          'success',
+          'manual',
+          'older.dump',
+          '/var/lib/signalhub/backups/older.dump',
+          100,
+          '2026-05-06T03:00:01.000Z'
+        ),
+        (
+          'backup_success_newer',
+          ${startedAt},
+          ${startedAt},
+          'success',
+          'manual',
+          'newer.dump',
+          '/var/lib/signalhub/backups/newer.dump',
+          200,
+          '2026-05-06T03:00:02.000Z'
+        ),
+        (
+          'backup_failed_aaa',
+          ${startedAt},
+          ${startedAt},
+          'failed',
+          'scheduled',
+          'failed-a.dump',
+          '/var/lib/signalhub/backups/failed-a.dump',
+          null,
+          '2026-05-06T03:00:03.000Z'
+        ),
+        (
+          'backup_failed_zzz',
+          ${startedAt},
+          ${startedAt},
+          'failed',
+          'scheduled',
+          'failed-z.dump',
+          '/var/lib/signalhub/backups/failed-z.dump',
+          null,
+          '2026-05-06T03:00:03.000Z'
+        )
+      `.execute(db);
+
+      await expect(getBackupStatus(db)).resolves.toMatchObject({
+        latestSuccess: { id: "backup_success_newer", sizeBytes: 200 },
+        latestFailure: { id: "backup_failed_zzz" }
+      });
+    });
+  });
+
+  it("rejects unsafe backup size values", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`
+        insert into backup_runs (
+          id,
+          started_at,
+          finished_at,
+          status,
+          trigger,
+          filename,
+          local_path,
+          size_bytes
+        )
+        values (
+          'backup_unsafe_size',
+          '2026-05-06T04:00:00.000Z',
+          '2026-05-06T04:00:01.000Z',
+          'success',
+          'manual',
+          'unsafe.dump',
+          '/var/lib/signalhub/backups/unsafe.dump',
+          9007199254740992
+        )
+      `.execute(db);
+
+      await expect(getBackupStatus(db)).rejects.toThrow("backup size_bytes exceeds Number.MAX_SAFE_INTEGER");
+    });
+  });
+
+  it("uses a backup advisory lock without holding an idle transaction", async () => {
     await withDb(async (db) => {
       await migrate(db);
 
       const first = await withBackupLock(db, async () => {
+        const lockHolders = await sql<{ state: string | null }>`
+          select state
+          from pg_stat_activity
+          where datname = current_database()
+            and pid <> pg_backend_pid()
+            and query like '%pg_try_advisory%lock%'
+        `.execute(db);
         const nested = await withBackupLock(db, async () => "nested");
-        return nested;
+        return { nested, lockStates: lockHolders.rows.map((row) => row.state) };
       });
 
-      expect(first).toEqual({ locked: true, result: { locked: false } });
+      expect(first.locked).toBe(true);
+      if (!first.locked) throw new Error("backup lock was not acquired");
+      expect(first.result.nested).toEqual({ locked: false });
+      expect(first.result.lockStates).not.toContain("idle in transaction");
+      await expect(withBackupLock(db, async () => "released")).resolves.toEqual({ locked: true, result: "released" });
     });
   });
 

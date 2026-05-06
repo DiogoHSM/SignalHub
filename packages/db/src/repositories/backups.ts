@@ -27,6 +27,15 @@ export type BackupStatusRecord = {
   latestFailure: BackupRunRecord | null;
 };
 
+function toSafeSizeBytes(value: string | null): number | null {
+  if (value === null) return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error("backup size_bytes exceeds Number.MAX_SAFE_INTEGER");
+  }
+  return parsed;
+}
+
 function toBackupRunRecord(row: BackupRunRow): BackupRunRecord {
   return {
     id: row.id,
@@ -36,7 +45,7 @@ function toBackupRunRecord(row: BackupRunRow): BackupRunRecord {
     trigger: row.trigger,
     filename: row.filename,
     localPath: row.local_path,
-    sizeBytes: row.size_bytes === null ? null : Number(row.size_bytes),
+    sizeBytes: toSafeSizeBytes(row.size_bytes),
     s3Bucket: row.s3_bucket,
     s3Key: row.s3_key,
     errorMessage: row.error_message,
@@ -85,6 +94,8 @@ async function getLatestBackupRun(db: BackupDb, status: "success" | "failed"): P
     .selectAll()
     .where("status", "=", status)
     .orderBy("started_at", "desc")
+    .orderBy("created_at", "desc")
+    .orderBy("id", "desc")
     .limit(1)
     .executeTakeFirst();
 
@@ -99,20 +110,28 @@ export async function getBackupStatus(db: BackupDb): Promise<BackupStatusRecord>
   return { latestSuccess, latestFailure };
 }
 
-async function tryAcquireBackupTransactionLock(db: BackupDb): Promise<boolean> {
+async function tryAcquireBackupSessionLock(db: BackupDb): Promise<boolean> {
   const result = await sql<{ locked: boolean }>`
-    select pg_try_advisory_xact_lock(${backupAdvisoryLockId}) as locked
+    select pg_try_advisory_lock(${backupAdvisoryLockId}) as locked
   `.execute(db);
   return result.rows[0]?.locked === true;
+}
+
+async function releaseBackupSessionLock(db: BackupDb): Promise<void> {
+  await sql`select pg_advisory_unlock(${backupAdvisoryLockId})`.execute(db);
 }
 
 export async function withBackupLock<T>(
   db: Db,
   run: () => Promise<T>
 ): Promise<{ locked: false } | { locked: true; result: T }> {
-  return db.transaction().execute(async (trx) => {
-    const locked = await tryAcquireBackupTransactionLock(trx);
+  return db.connection().execute(async (connectionDb) => {
+    const locked = await tryAcquireBackupSessionLock(connectionDb);
     if (!locked) return { locked: false };
-    return { locked: true, result: await run() };
+    try {
+      return { locked: true, result: await run() };
+    } finally {
+      await releaseBackupSessionLock(connectionDb);
+    }
   });
 }
