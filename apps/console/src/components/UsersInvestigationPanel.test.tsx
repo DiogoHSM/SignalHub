@@ -154,6 +154,16 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     createUser: vi.fn(),
     updateUser: vi.fn(),
     archiveUser: vi.fn(),
+    listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
+    createNotificationChannel: vi.fn(),
+    updateNotificationChannel: vi.fn(),
+    archiveNotificationChannel: vi.fn(),
+    listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
+    createAlertRule: vi.fn(),
+    updateAlertRule: vi.fn(),
+    archiveAlertRule: vi.fn(),
+    listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
+    getAlertEvent: vi.fn(),
     ...overrides
   };
 }

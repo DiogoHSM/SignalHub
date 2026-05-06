@@ -41,7 +41,17 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
     listUsers: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),
-    archiveUser: vi.fn()
+    archiveUser: vi.fn(),
+    listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
+    createNotificationChannel: vi.fn(),
+    updateNotificationChannel: vi.fn(),
+    archiveNotificationChannel: vi.fn(),
+    listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
+    createAlertRule: vi.fn(),
+    updateAlertRule: vi.fn(),
+    archiveAlertRule: vi.fn(),
+    listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
+    getAlertEvent: vi.fn()
   } satisfies ApiClient;
   const operationalClient = {
     getConsoleConfig: vi.fn(),
@@ -80,7 +90,17 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
     listUsers: vi.fn().mockResolvedValue({ users: [] }),
     createUser: vi.fn(),
     updateUser: vi.fn(),
-    archiveUser: vi.fn()
+    archiveUser: vi.fn(),
+    listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
+    createNotificationChannel: vi.fn(),
+    updateNotificationChannel: vi.fn(),
+    archiveNotificationChannel: vi.fn(),
+    listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
+    createAlertRule: vi.fn(),
+    updateAlertRule: vi.fn(),
+    archiveAlertRule: vi.fn(),
+    listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
+    getAlertEvent: vi.fn()
   } satisfies ApiClient;
   const createApiClient = vi.fn((apiBasePath?: string) => (apiBasePath === "/api" ? operationalClient : bootstrapClient));
 

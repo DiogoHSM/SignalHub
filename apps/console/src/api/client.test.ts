@@ -575,6 +575,15 @@ describe("createApiClient", () => {
     );
   });
 
+  it("lists alert rules without dangling query string when no filters are provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { rules: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listAlertRules();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/alert-rules", expect.objectContaining({ method: "GET" }));
+  });
+
   it("creates updates and archives alert rules", async () => {
     const fetchMock = vi
       .fn()
@@ -601,7 +610,21 @@ describe("createApiClient", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/admin/alert-rules",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          projectId: "prj_1",
+          environmentId: "env_1",
+          notificationChannelId: "chn_1",
+          name: "Critical errors",
+          type: "critical_errors",
+          severity: "critical",
+          windowMinutes: 5,
+          threshold: "1",
+          cooldownMinutes: 15,
+          enabled: true
+        })
+      })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,

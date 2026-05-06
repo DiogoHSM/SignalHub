@@ -95,7 +95,7 @@ export type ApiClient = {
   createUser: (input: { email: string; password: string; isAdmin: boolean }) => Promise<{ user: User }>;
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
-} & Partial<AlertApiClient>;
+} & AlertApiClient;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -270,7 +270,7 @@ function alertEventListPath(query: AlertEventListQuery): string {
   return `/alerts/events?${params.toString()}`;
 }
 
-export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & AlertApiClient {
+export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
