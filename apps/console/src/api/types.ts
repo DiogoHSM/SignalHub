@@ -372,6 +372,129 @@ export type TenantDetailResponse = {
   cursor?: string;
 };
 
+export type UserWindow = "24h" | "7d" | "30d";
+
+export type UserSignalType = "event" | "error" | "trace" | "llm";
+
+export type UserSummary = {
+  userId: string | null;
+  label: string;
+  isAnonymous: boolean;
+  impactScore: number;
+  lastSeenAt: string | null;
+  events: number;
+  errors: number;
+  openErrors: number;
+  severeErrors: number;
+  traces: number;
+  failedTraces: number;
+  llmCalls: number;
+  failedLlmCalls: number;
+  llmCostUsd: string;
+  activeTenants: number;
+  activeSessions: number;
+};
+
+export type UserListQuery = {
+  projectId: string;
+  environmentId: string;
+  window: UserWindow;
+  search?: string;
+  tenantId?: string;
+  limit?: number;
+};
+
+export type UserDetailQuery = {
+  projectId: string;
+  environmentId: string;
+  window: UserWindow;
+  tenantId?: string;
+  signalType?: UserSignalType;
+  limit?: number;
+  cursor?: string;
+};
+
+export type UserRecentSession = {
+  sessionId: string;
+  tenantId: string | null;
+  events: number;
+  errors: number;
+  traces: number;
+  llmCalls: number;
+  llmCostUsd: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+export type UserTimelineRow =
+  | {
+      type: "event";
+      id: string;
+      timestamp: string;
+      label: string;
+      tenantId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      eventName: string;
+    }
+  | {
+      type: "error";
+      id: string;
+      timestamp: string;
+      label: string;
+      tenantId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      severity: string;
+      status: string;
+      message: string;
+    }
+  | {
+      type: "trace";
+      id: string;
+      timestamp: string;
+      label: string;
+      tenantId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      status: string;
+      durationMs: number | null;
+      name: string;
+    }
+  | {
+      type: "llm";
+      id: string;
+      timestamp: string;
+      label: string;
+      tenantId: string | null;
+      sessionId: string | null;
+      traceId: string | null;
+      provider: string;
+      model: string;
+      promptName: string | null;
+      status: string;
+      costUsd: string;
+    };
+
+export type UserListResponse = {
+  window: UserWindow;
+  generatedAt: string;
+  scope: { projectId: string; environmentId: string };
+  range: { from: string; to: string };
+  users: UserSummary[];
+};
+
+export type UserDetailResponse = {
+  window: UserWindow;
+  generatedAt: string;
+  scope: { projectId: string; environmentId: string };
+  range: { from: string; to: string };
+  user: UserSummary;
+  recentSessions: UserRecentSession[];
+  timeline: UserTimelineRow[];
+  cursor?: string;
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;

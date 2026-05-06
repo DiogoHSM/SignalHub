@@ -53,6 +53,8 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getOverview: vi.fn(),
     listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [] } }),
     getEntityTenantDetail: vi.fn(),
+    listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [] } }),
+    getUserDetail: vi.fn().mockResolvedValue({ data: { window: "7d", generatedAt: "2026-05-05T12:00:00.000Z", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" }, user: { userId: "user_1", label: "user_1", isAnonymous: false, impactScore: 0, lastSeenAt: null, events: 0, errors: 0, openErrors: 0, severeErrors: 0, traces: 0, failedTraces: 0, llmCalls: 0, failedLlmCalls: 0, llmCostUsd: "0", activeTenants: 0, activeSessions: 0 }, recentSessions: [], timeline: [] } }),
     listUsers: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),

@@ -283,6 +283,45 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes user list queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { users: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listUsersActivity({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      search: "user_1",
+      tenantId: "tenant_1",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/users?project_id=prj_1&environment_id=env_1&window=30d&search=user_1&tenant_id=tenant_1&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes user detail queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { timeline: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getUserDetail("user/one", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "24h",
+      tenantId: "tenant_1",
+      signalType: "llm",
+      limit: 10,
+      cursor: "cursor_1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/users/user%2Fone?project_id=prj_1&environment_id=env_1&window=24h&tenant_id=tenant_1&signal_type=llm&limit=10&cursor=cursor_1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("does not encode investigation filters for overview queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: overviewResponse() }));
     vi.stubGlobal("fetch", fetchMock);

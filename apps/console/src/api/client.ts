@@ -19,7 +19,11 @@ import type {
   TenantListQuery,
   TenantListResponse,
   TraceRecord,
-  User
+  User,
+  UserDetailQuery,
+  UserDetailResponse,
+  UserListQuery,
+  UserListResponse
 } from "./types";
 
 export class ApiError extends Error {
@@ -61,6 +65,8 @@ export type ApiClient = {
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
+  listUsersActivity: (query: UserListQuery) => Promise<AggregateResponse<UserListResponse>>;
+  getUserDetail: (userId: string, query: UserDetailQuery) => Promise<AggregateResponse<UserDetailResponse>>;
   listUsers: () => Promise<{ users: User[] }>;
   createUser: (input: { email: string; password: string; isAdmin: boolean }) => Promise<{ user: User }>;
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
@@ -197,6 +203,31 @@ function entityTenantDetailPath(tenantId: string, query: TenantDetailQuery): str
   return `/query/entities/tenants/${encodePathSegment(tenantId)}?${params.toString()}`;
 }
 
+function userListPath(query: UserListQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.search) params.set("search", query.search);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/users?${params.toString()}`;
+}
+
+function userDetailPath(userId: string, query: UserDetailQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.signalType) params.set("signal_type", query.signalType);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
+
+  return `/query/users/${encodePathSegment(userId)}?${params.toString()}`;
+}
+
 export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
@@ -258,6 +289,9 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
       request<AggregateResponse<TenantListResponse>>(path(apiBasePath, entityTenantListPath(query))),
     getEntityTenantDetail: (tenantId, query) =>
       request<AggregateResponse<TenantDetailResponse>>(path(apiBasePath, entityTenantDetailPath(tenantId, query))),
+    listUsersActivity: (query) => request<AggregateResponse<UserListResponse>>(path(apiBasePath, userListPath(query))),
+    getUserDetail: (userId, query) =>
+      request<AggregateResponse<UserDetailResponse>>(path(apiBasePath, userDetailPath(userId, query))),
     listUsers: () => request<{ users: User[] }>(path(apiBasePath, "/admin/users")),
     createUser: (input) => request<{ user: User }>(path(apiBasePath, "/admin/users"), { method: "POST", body: input }),
     updateUser: (id, input) =>
