@@ -37,7 +37,13 @@ const rawConfigSchema = z.object({
   RETENTION_ERRORS_DAYS: optionalPositiveInteger(180),
   RETENTION_TRACES_DAYS: optionalPositiveInteger(90),
   RETENTION_SPANS_DAYS: optionalPositiveInteger(90),
-  RETENTION_LLM_CALLS_DAYS: optionalPositiveInteger(180)
+  RETENTION_LLM_CALLS_DAYS: optionalPositiveInteger(180),
+  ALERTS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  ALERTS_INTERVAL_MINUTES: optionalPositiveInteger(1),
+  ALERTS_WEBHOOK_TIMEOUT_MS: optionalPositiveInteger(5000)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -91,6 +97,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       tracesDays: parsed.RETENTION_TRACES_DAYS,
       spansDays: parsed.RETENTION_SPANS_DAYS,
       llmCallsDays: parsed.RETENTION_LLM_CALLS_DAYS
+    },
+    alerts: {
+      enabled: parsed.ALERTS_ENABLED,
+      intervalMinutes: parsed.ALERTS_INTERVAL_MINUTES,
+      webhookTimeoutMs: parsed.ALERTS_WEBHOOK_TIMEOUT_MS
     }
   };
 }

@@ -112,6 +112,53 @@ describe("loadConfig", () => {
     }
   );
 
+  it("loads alert defaults", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      PORT: "3000",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      REDIS_URL: "redis://localhost:6379",
+      SESSION_SECRET: "a-secure-session-secret-with-enough-length",
+      API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
+      BOOTSTRAP_ADMIN_EMAIL: "admin@example.com",
+      BOOTSTRAP_ADMIN_PASSWORD: "correct-horse-battery-staple",
+      GOOGLE_OAUTH_ENABLED: "false"
+    });
+
+    expect(config.alerts).toEqual({
+      enabled: true,
+      intervalMinutes: 1,
+      webhookTimeoutMs: 5000
+    });
+  });
+
+  it("loads explicit alert settings", () => {
+    const config = loadConfig({
+      ...validEnv,
+      ALERTS_ENABLED: "false",
+      ALERTS_INTERVAL_MINUTES: "5",
+      ALERTS_WEBHOOK_TIMEOUT_MS: "2500"
+    });
+
+    expect(config.alerts).toEqual({
+      enabled: false,
+      intervalMinutes: 5,
+      webhookTimeoutMs: 2500
+    });
+  });
+
+  it.each(["ALERTS_INTERVAL_MINUTES", "ALERTS_WEBHOOK_TIMEOUT_MS"] as const)(
+    "rejects non-positive %s",
+    (fieldName) => {
+      expect(() =>
+        loadConfig({
+          ...validEnv,
+          [fieldName]: "0"
+        })
+      ).toThrow();
+    }
+  );
+
   it("allows blank Google OAuth settings when disabled", () => {
     const config = loadConfig({
       NODE_ENV: "test",
