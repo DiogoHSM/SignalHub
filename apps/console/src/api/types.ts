@@ -495,6 +495,48 @@ export type UserDetailResponse = {
   cursor?: string;
 };
 
+export type SystemStatus = "healthy" | "degraded" | "unhealthy";
+
+export type SystemHealthResponse = {
+  generatedAt: string;
+  status: SystemStatus;
+  services: {
+    api: { status: "healthy"; uptimeSeconds: number };
+    postgres: { status: "healthy" | "degraded" | "unhealthy"; latencyMs: number | null };
+    redis: { status: "healthy" | "unhealthy"; latencyMs: number | null };
+    worker: { status: SystemStatus; lastHeartbeatAt: string | null };
+  };
+  queues: {
+    telemetry: {
+      waiting: number;
+      active: number;
+      completed: number;
+      failed: number;
+      delayed: number;
+    };
+  };
+  ingestion: {
+    lastEventAt: string | null;
+    lastErrorAt: string | null;
+    lastTraceAt: string | null;
+    lastSpanAt: string | null;
+    lastLlmCallAt: string | null;
+  };
+  retention: {
+    enabled: boolean;
+    intervalMinutes: number;
+    lastRun: {
+      id: string;
+      status: "success" | "failed";
+      startedAt: string;
+      finishedAt: string | null;
+      deleted: { events: number; errors: number; traces: number; spans: number; llmCalls: number };
+      errorMessage: string | null;
+    } | null;
+    policy: { eventsDays: number; errorsDays: number; tracesDays: number; spansDays: number; llmCallsDays: number };
+  };
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;

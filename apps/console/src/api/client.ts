@@ -14,6 +14,7 @@ import type {
   QueryFilters,
   QueryListResponse,
   SpanRecord,
+  SystemHealthResponse,
   TenantDetailQuery,
   TenantDetailResponse,
   TenantListQuery,
@@ -63,6 +64,7 @@ export type ApiClient = {
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
+  getSystemHealth: () => Promise<AggregateResponse<SystemHealthResponse>>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
   listUsersActivity: (query: UserListQuery) => Promise<AggregateResponse<UserListResponse>>;
@@ -285,6 +287,7 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
     getErrorAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
+    getSystemHealth: () => request<AggregateResponse<SystemHealthResponse>>(path(apiBasePath, "/system/health")),
     listEntityTenants: (query) =>
       request<AggregateResponse<TenantListResponse>>(path(apiBasePath, entityTenantListPath(query))),
     getEntityTenantDetail: (tenantId, query) =>

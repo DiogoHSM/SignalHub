@@ -245,6 +245,45 @@ describe("createApiClient", () => {
     );
   });
 
+  it("fetches system health", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            generatedAt: "2026-05-06T12:00:00.000Z",
+            status: "healthy",
+            services: {
+              api: { status: "healthy", uptimeSeconds: 10 },
+              postgres: { status: "healthy", latencyMs: 1 },
+              redis: { status: "healthy", latencyMs: 1 },
+              worker: { status: "healthy", lastHeartbeatAt: "2026-05-06T11:59:30.000Z" }
+            },
+            queues: { telemetry: { waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 } },
+            ingestion: {
+              lastEventAt: null,
+              lastErrorAt: null,
+              lastTraceAt: null,
+              lastSpanAt: null,
+              lastLlmCallAt: null
+            },
+            retention: {
+              enabled: true,
+              intervalMinutes: 60,
+              lastRun: null,
+              policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+            }
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient("/api");
+    await expect(client.getSystemHealth()).resolves.toMatchObject({ data: { status: "healthy" } });
+    expect(fetchMock).toHaveBeenCalledWith("/api/system/health", expect.objectContaining({ method: "GET" }));
+  });
+
   it("encodes entity tenant list queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { tenants: [] } }));
     vi.stubGlobal("fetch", fetchMock);
