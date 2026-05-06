@@ -45,6 +45,7 @@ import {
   listTraces
 } from "../src/repositories/telemetry-query.js";
 import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
+import { listUsersActivity } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 
@@ -852,6 +853,178 @@ describe("repositories", () => {
         now
       });
       expect(byUser.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_beta"]);
+    });
+  });
+
+  it("lists users by deterministic impact score", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Users Summary" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_alpha",
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api",
+        release: "1.0.0",
+        metadata: {}
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_user_alpha",
+        timestamp: new Date("2026-05-05T11:55:00.000Z"),
+        name: "checkout.started",
+        userId: "user_alpha",
+        sessionId: "session_alpha",
+        traceId: "trace_alpha"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_user_alpha",
+        timestamp: new Date("2026-05-05T11:56:00.000Z"),
+        message: "Payment failed",
+        type: "PaymentError",
+        severity: "critical",
+        status: "open",
+        fingerprint: "payment_failed",
+        userId: "user_alpha",
+        sessionId: "session_alpha",
+        traceId: "trace_alpha"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_user_alpha",
+        timestamp: new Date("2026-05-05T11:57:00.000Z"),
+        name: "checkout",
+        status: "error",
+        startedAt: new Date("2026-05-05T11:57:00.000Z"),
+        durationMs: 2000,
+        userId: "user_alpha",
+        sessionId: "session_alpha",
+        traceId: "trace_alpha"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_user_alpha",
+        timestamp: new Date("2026-05-05T11:58:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "summarize_checkout",
+        inputTokens: 1000,
+        outputTokens: 500,
+        costUsd: "12.500000",
+        latencyMs: 800,
+        status: "error",
+        userId: "user_alpha",
+        sessionId: "session_alpha",
+        traceId: "trace_alpha"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_user_anonymous",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        name: "anonymous.activity",
+        sessionId: "anonymous_session"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_user_old",
+        timestamp: new Date("2026-04-01T12:00:00.000Z"),
+        name: "outside.window",
+        userId: "user_old",
+        sessionId: "session_old"
+      });
+
+      const result = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+
+      expect(result.window).toBe("7d");
+      expect(result.range).toEqual({ from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" });
+      expect(result.users.map((user) => user.label)).toEqual(["user_alpha", "Anonymous / Unassigned"]);
+      expect(result.users[0]).toMatchObject({
+        userId: "user_alpha",
+        isAnonymous: false,
+        events: 1,
+        errors: 1,
+        openErrors: 1,
+        severeErrors: 1,
+        traces: 1,
+        failedTraces: 1,
+        llmCalls: 1,
+        failedLlmCalls: 1,
+        llmCostUsd: "12.500000",
+        activeTenants: 1,
+        activeSessions: 1,
+        lastSeenAt: "2026-05-05T11:58:00.000Z"
+      });
+      expect(result.users[0].impactScore).toBe(39.125);
+      expect(result.users[1]).toMatchObject({ userId: null, label: "Anonymous / Unassigned", isAnonymous: true, events: 1 });
+    });
+  });
+
+  it("searches users by user id, tenant id, or session id and filters by tenant", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Users Search" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api",
+        release: "1.0.0",
+        metadata: {}
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_user_search_one",
+        timestamp: new Date("2026-05-05T10:00:00.000Z"),
+        name: "user.match",
+        tenantId: "tenant_match",
+        userId: "user_match",
+        sessionId: "session_match"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_user_search_other",
+        timestamp: new Date("2026-05-05T10:01:00.000Z"),
+        name: "other.user",
+        tenantId: "tenant_other",
+        userId: "user_other",
+        sessionId: "session_other"
+      });
+
+      const bySession = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "session_match",
+        limit: 50,
+        now
+      });
+      expect(bySession.users.map((user) => user.userId)).toEqual(["user_match"]);
+
+      const byTenant = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        tenantId: "tenant_other",
+        limit: 50,
+        now
+      });
+      expect(byTenant.users.map((user) => user.userId)).toEqual(["user_other"]);
     });
   });
 
