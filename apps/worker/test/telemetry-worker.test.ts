@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
+import { startHeartbeat } from "../src/heartbeat.js";
+import { runRetentionOnce } from "../src/retention.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
 
 function createWriter(): TelemetryWriter {
@@ -326,5 +328,120 @@ describe("buildDeadLetterJobInput", () => {
       },
       errorMessage: "authorization: [REDACTED]"
     });
+  });
+});
+
+describe("runRetentionOnce", () => {
+  it("records successful retention runs", async () => {
+    const calls: string[] = [];
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180
+      },
+      batchSize: 1000,
+      tryAcquireLock: async () => true,
+      releaseLock: async () => {
+        calls.push("released");
+      },
+      deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 }),
+      recordRetentionRun: async (input) => {
+        expect(input.status).toBe("success");
+        expect(input.deleted.events).toBe(1);
+        calls.push("recorded");
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false });
+    expect(calls).toEqual(["recorded", "released"]);
+  });
+
+  it("skips retention when advisory lock is held", async () => {
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180
+      },
+      batchSize: 1000,
+      tryAcquireLock: async () => false,
+      releaseLock: async () => {
+        throw new Error("should_not_release");
+      },
+      deleteExpiredTelemetry: async () => {
+        throw new Error("should_not_delete");
+      },
+      recordRetentionRun: async () => {
+        throw new Error("should_not_record");
+      }
+    });
+
+    expect(result).toEqual({ ran: false, skipped: true });
+  });
+
+  it("records failed retention runs", async () => {
+    const calls: string[] = [];
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180
+      },
+      batchSize: 1000,
+      tryAcquireLock: async () => true,
+      releaseLock: async () => {
+        calls.push("released");
+      },
+      deleteExpiredTelemetry: async () => {
+        throw new Error("authorization: Bearer secret-token");
+      },
+      recordRetentionRun: async (input) => {
+        expect(input.status).toBe("failed");
+        expect(input.errorMessage).toBe("authorization: [REDACTED]");
+        expect(input.deleted).toEqual({ events: 0, errors: 0, traces: 0, spans: 0, llmCalls: 0 });
+        calls.push("recorded");
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false });
+    expect(calls).toEqual(["recorded", "released"]);
+  });
+});
+
+describe("startHeartbeat", () => {
+  it("sends a heartbeat immediately and stops scheduled beats", () => {
+    const beat = vi.fn(async () => undefined);
+    const scheduled: Array<() => void> = [];
+    const cleared: unknown[] = [];
+    const intervalHandle = { id: "heartbeat-interval" } as unknown as ReturnType<typeof setInterval>;
+
+    const stop = startHeartbeat({
+      beat,
+      setIntervalFn: ((callback: () => void) => {
+        scheduled.push(callback);
+        return intervalHandle;
+      }) as unknown as typeof setInterval,
+      clearIntervalFn: ((handle: unknown) => {
+        cleared.push(handle);
+      }) as typeof clearInterval
+    });
+
+    expect(beat).toHaveBeenCalledTimes(1);
+    scheduled[0]?.();
+    expect(beat).toHaveBeenCalledTimes(2);
+
+    stop();
+
+    expect(cleared).toEqual([intervalHandle]);
   });
 });

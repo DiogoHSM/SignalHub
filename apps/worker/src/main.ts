@@ -11,7 +11,16 @@ import {
   insertTrace
 } from "@signal-hub/db/repositories/telemetry-writes.js";
 import { insertDeadLetterJob } from "@signal-hub/db/repositories/dead-letter.js";
+import {
+  deleteExpiredTelemetry,
+  recordRetentionRun,
+  releaseRetentionLock,
+  tryAcquireRetentionLock,
+  upsertHeartbeat
+} from "@signal-hub/db/repositories/system.js";
+import { startHeartbeat } from "./heartbeat.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
+import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
@@ -34,6 +43,39 @@ const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]
   },
   { connection }
 );
+
+const stopHeartbeat = startHeartbeat({
+  beat: () => upsertHeartbeat(db, { component: "worker", heartbeatAt: new Date() })
+});
+
+const retentionPolicy = {
+  eventsDays: config.retention.eventsDays,
+  errorsDays: config.retention.errorsDays,
+  tracesDays: config.retention.tracesDays,
+  spansDays: config.retention.spansDays,
+  llmCallsDays: config.retention.llmCallsDays
+};
+
+const stopRetention = config.retention.enabled
+  ? startRetentionScheduler({
+      intervalMinutes: config.retention.intervalMinutes,
+      runOnce: () =>
+        runRetentionOnce({
+          now: () => new Date(),
+          policy: retentionPolicy,
+          batchSize: config.retention.batchSize,
+          tryAcquireLock: () => tryAcquireRetentionLock(db),
+          releaseLock: () => releaseRetentionLock(db),
+          deleteExpiredTelemetry: () =>
+            deleteExpiredTelemetry(db, {
+              now: new Date(),
+              batchSize: config.retention.batchSize,
+              ...retentionPolicy
+            }),
+          recordRetentionRun: (input) => recordRetentionRun(db, input)
+        })
+    })
+  : () => {};
 
 worker.on("completed", (job) => {
   console.info(`Processed telemetry job ${job.id ?? "unknown"} (${job.name})`);
@@ -74,6 +116,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
 
   console.info(`Received ${signal}, shutting down telemetry worker`);
+  stopRetention();
+  stopHeartbeat();
 
   const results = [await Promise.allSettled([worker.close()]), await Promise.allSettled([connection.quit(), db.destroy()])].flat();
   for (const result of results) {
