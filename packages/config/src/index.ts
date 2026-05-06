@@ -43,7 +43,24 @@ const rawConfigSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   ALERTS_INTERVAL_MINUTES: optionalPositiveInteger(1),
-  ALERTS_WEBHOOK_TIMEOUT_MS: optionalPositiveInteger(5000)
+  ALERTS_WEBHOOK_TIMEOUT_MS: optionalPositiveInteger(5000),
+  BACKUPS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  BACKUPS_INTERVAL_HOURS: optionalPositiveInteger(24),
+  BACKUPS_LOCAL_DIR: z.preprocess(emptyStringToUndefined, z.string().min(1).default("/var/lib/signalhub/backups")),
+  BACKUPS_RETENTION_DAYS: optionalPositiveInteger(14),
+  BACKUPS_S3_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+  BACKUPS_S3_ENDPOINT: optionalEnvUrl,
+  BACKUPS_S3_REGION: z.preprocess(emptyStringToUndefined, z.string().default("auto")),
+  BACKUPS_S3_BUCKET: optionalEnvString,
+  BACKUPS_S3_ACCESS_KEY_ID: optionalEnvString,
+  BACKUPS_S3_SECRET_ACCESS_KEY: optionalEnvString,
+  BACKUPS_S3_PREFIX: z.preprocess(emptyStringToUndefined, z.string().default("signalhub"))
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -65,6 +82,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     if (!parsed.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID is required when Google OAuth is enabled");
     if (!parsed.GOOGLE_CLIENT_SECRET) throw new Error("GOOGLE_CLIENT_SECRET is required when Google OAuth is enabled");
     if (!parsed.GOOGLE_REDIRECT_URI) throw new Error("GOOGLE_REDIRECT_URI is required when Google OAuth is enabled");
+  }
+
+  if (parsed.BACKUPS_S3_ENABLED) {
+    if (!parsed.BACKUPS_S3_ENDPOINT) throw new Error("BACKUPS_S3_ENDPOINT is required when backup S3 upload is enabled");
+    if (!parsed.BACKUPS_S3_BUCKET) throw new Error("BACKUPS_S3_BUCKET is required when backup S3 upload is enabled");
+    if (!parsed.BACKUPS_S3_ACCESS_KEY_ID) {
+      throw new Error("BACKUPS_S3_ACCESS_KEY_ID is required when backup S3 upload is enabled");
+    }
+    if (!parsed.BACKUPS_S3_SECRET_ACCESS_KEY) {
+      throw new Error("BACKUPS_S3_SECRET_ACCESS_KEY is required when backup S3 upload is enabled");
+    }
   }
 
   return {
@@ -102,6 +130,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       enabled: parsed.ALERTS_ENABLED,
       intervalMinutes: parsed.ALERTS_INTERVAL_MINUTES,
       webhookTimeoutMs: parsed.ALERTS_WEBHOOK_TIMEOUT_MS
+    },
+    backups: {
+      enabled: parsed.BACKUPS_ENABLED,
+      intervalHours: parsed.BACKUPS_INTERVAL_HOURS,
+      localDir: parsed.BACKUPS_LOCAL_DIR,
+      retentionDays: parsed.BACKUPS_RETENTION_DAYS,
+      s3: {
+        enabled: parsed.BACKUPS_S3_ENABLED,
+        endpoint: parsed.BACKUPS_S3_ENDPOINT ?? "",
+        region: parsed.BACKUPS_S3_REGION,
+        bucket: parsed.BACKUPS_S3_BUCKET ?? "",
+        accessKeyId: parsed.BACKUPS_S3_ACCESS_KEY_ID ?? "",
+        secretAccessKey: parsed.BACKUPS_S3_SECRET_ACCESS_KEY ?? "",
+        prefix: parsed.BACKUPS_S3_PREFIX
+      }
     }
   };
 }

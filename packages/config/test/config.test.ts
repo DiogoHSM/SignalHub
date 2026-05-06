@@ -159,6 +159,85 @@ describe("loadConfig", () => {
     }
   );
 
+  it("loads backup defaults", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      PORT: "3000",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      REDIS_URL: "redis://localhost:6379",
+      SESSION_SECRET: "a-secure-session-secret-with-enough-length",
+      API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
+      BOOTSTRAP_ADMIN_EMAIL: "admin@example.com",
+      BOOTSTRAP_ADMIN_PASSWORD: "correct-horse-battery-staple",
+      GOOGLE_OAUTH_ENABLED: "false"
+    });
+
+    expect(config.backups).toEqual({
+      enabled: true,
+      intervalHours: 24,
+      localDir: "/var/lib/signalhub/backups",
+      retentionDays: 14,
+      s3: {
+        enabled: false,
+        endpoint: "",
+        region: "auto",
+        bucket: "",
+        accessKeyId: "",
+        secretAccessKey: "",
+        prefix: "signalhub"
+      }
+    });
+  });
+
+  it("loads explicit backup settings", () => {
+    const config = loadConfig({
+      ...validEnv,
+      BACKUPS_ENABLED: "false",
+      BACKUPS_INTERVAL_HOURS: "6",
+      BACKUPS_LOCAL_DIR: "/tmp/signalhub-backups",
+      BACKUPS_RETENTION_DAYS: "7",
+      BACKUPS_S3_ENABLED: "true",
+      BACKUPS_S3_ENDPOINT: "https://example.r2.cloudflarestorage.com",
+      BACKUPS_S3_REGION: "auto",
+      BACKUPS_S3_BUCKET: "signalhub-backups",
+      BACKUPS_S3_ACCESS_KEY_ID: "access-key",
+      BACKUPS_S3_SECRET_ACCESS_KEY: "secret-key",
+      BACKUPS_S3_PREFIX: "prod/signalhub"
+    });
+
+    expect(config.backups).toEqual({
+      enabled: false,
+      intervalHours: 6,
+      localDir: "/tmp/signalhub-backups",
+      retentionDays: 7,
+      s3: {
+        enabled: true,
+        endpoint: "https://example.r2.cloudflarestorage.com",
+        region: "auto",
+        bucket: "signalhub-backups",
+        accessKeyId: "access-key",
+        secretAccessKey: "secret-key",
+        prefix: "prod/signalhub"
+      }
+    });
+  });
+
+  it.each(["BACKUPS_INTERVAL_HOURS", "BACKUPS_RETENTION_DAYS"] as const)("rejects non-positive %s", (fieldName) => {
+    expect(() => loadConfig({ ...validEnv, [fieldName]: "0" })).toThrow();
+  });
+
+  it("requires S3 settings when backup S3 upload is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        BACKUPS_S3_ENABLED: "true",
+        BACKUPS_S3_ENDPOINT: "https://example.r2.cloudflarestorage.com",
+        BACKUPS_S3_BUCKET: "signalhub-backups",
+        BACKUPS_S3_ACCESS_KEY_ID: "access-key"
+      })
+    ).toThrow("BACKUPS_S3_SECRET_ACCESS_KEY is required when backup S3 upload is enabled");
+  });
+
   it("allows blank Google OAuth settings when disabled", () => {
     const config = loadConfig({
       NODE_ENV: "test",
