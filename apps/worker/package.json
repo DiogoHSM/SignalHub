@@ -14,6 +14,7 @@
     "test": "vitest run --root ../.. apps/worker/test/telemetry-worker.test.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1044.0",
     "@signal-hub/config": "workspace:*",
     "@signal-hub/db": "workspace:*",
     "@signal-hub/queues": "workspace:*",
