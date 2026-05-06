@@ -38,3 +38,8 @@ SignalHub includes an admin-only Integration Console.
 - The Unassigned tenant bucket should be visible for context but disabled for drill-in.
 - Entity details should show compact summary metrics, top users, and a cross-signal timeline from events, errors, traces, and LLM calls.
 - Entity timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from tenant context to source records.
+- Keep Users as a peer tab with Events, Errors, Traces, LLM, and Entities inside `Investigate`.
+- Users uses a user-first layout with a default `7d` window, impact-ranked user rows, tenant/search filters, and a selected-user detail panel.
+- The Anonymous / Unassigned user bucket should be visible for context but disabled for drill-in.
+- User details should show compact summary metrics, recent sessions, and a cross-signal timeline from events, errors, traces, and LLM calls.
+- User timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from user context to source records.

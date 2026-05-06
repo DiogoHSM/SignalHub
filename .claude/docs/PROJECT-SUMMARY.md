@@ -21,6 +21,7 @@ Implemented capabilities:
 - Read-only Traces investigation workspace with lazy ordered span details.
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, selected tenant top users, and cross-signal timeline drilldowns.
+- Read-only Users investigation workspace with impact-ranked user summaries, selected user recent sessions, and cross-signal timeline drilldowns.
 - Health and readiness endpoints.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 
