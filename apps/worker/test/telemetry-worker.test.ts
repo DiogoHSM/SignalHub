@@ -789,7 +789,11 @@ describe("validateWebhookTarget", () => {
       "http://[::1]/hook",
       "http://[fc00::1]/hook",
       "http://[fd12:3456::1]/hook",
-      "http://[fe80::1]/hook"
+      "http://[fe80::1]/hook",
+      "http://[::ffff:127.0.0.1]/hook",
+      "http://[::ffff:7f00:1]/hook",
+      "http://[::ffff:169.254.169.254]/hook",
+      "http://[::ffff:a00:1]/hook"
     ]) {
       expect(() => validateWebhookTarget(target, "production"), target).toThrow(
         /private webhook targets are not allowed/
@@ -913,34 +917,36 @@ describe("deliverWebhook", () => {
   });
 
   it("does not call fetch when the secret header name is reserved", async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    for (const secretHeaderName of ["Proxy-Authorization", "Connection"]) {
+      const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
 
-    const result = await deliverWebhook({
-      channel: {
-        id: "chn_1",
-        name: "Webhook",
-        type: "webhook",
-        url: "https://hooks.example.com/signalhub",
-        secretHeaderName: "Authorization",
-        secretHeaderValue: "secret-value",
-        hasSecret: true,
-        enabled: true,
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: null
-      },
-      payload,
-      timeoutMs: 5000,
-      nodeEnv: "production",
-      fetchImpl
-    });
+      const result = await deliverWebhook({
+        channel: {
+          id: "chn_1",
+          name: "Webhook",
+          type: "webhook",
+          url: "https://hooks.example.com/signalhub",
+          secretHeaderName,
+          secretHeaderValue: "secret-value",
+          hasSecret: true,
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        },
+        payload,
+        timeoutMs: 5000,
+        nodeEnv: "production",
+        fetchImpl
+      });
 
-    expect(result).toEqual({
-      status: "failed",
-      responseStatus: null,
-      errorMessage: expect.stringMatching(/reserved webhook secret header name/)
-    });
-    expect(fetchImpl).not.toHaveBeenCalled();
+      expect(result, secretHeaderName).toEqual({
+        status: "failed",
+        responseStatus: null,
+        errorMessage: expect.stringMatching(/reserved webhook secret header name/)
+      });
+      expect(fetchImpl, secretHeaderName).not.toHaveBeenCalled();
+    }
   });
 });
 

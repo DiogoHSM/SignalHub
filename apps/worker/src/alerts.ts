@@ -294,14 +294,6 @@ function sanitizeMessage(message: string): string {
   return sanitizePreviewText(message) ?? "Webhook delivery failed";
 }
 
-const RESERVED_SECRET_HEADER_NAMES = new Set([
-  "content-type",
-  "content-length",
-  "host",
-  "authorization",
-  "cookie",
-  "set-cookie"
-]);
 const HTTP_TOKEN_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 function validateSecretHeaderName(headerName: string | null | undefined): void {
@@ -311,7 +303,8 @@ function validateSecretHeaderName(headerName: string | null | undefined): void {
     throw new Error("invalid webhook secret header name");
   }
 
-  if (RESERVED_SECRET_HEADER_NAMES.has(headerName.toLowerCase())) {
+  const normalizedHeaderName = headerName.toLowerCase();
+  if (!normalizedHeaderName.startsWith("x-") && !normalizedHeaderName.startsWith("signalhub-")) {
     throw new Error("reserved webhook secret header name");
   }
 }
@@ -323,6 +316,8 @@ function isPrivateWebhookHost(rawHost: string): boolean {
 
   const ipVersion = isIP(host);
   if (ipVersion === 4) return isPrivateIpv4Host(host);
+  const mappedIpv4Host = parseIpv4MappedIpv6Host(host);
+  if (mappedIpv4Host) return isPrivateIpv4Host(mappedIpv4Host);
   if (ipVersion === 6) return isPrivateIpv6Host(host);
 
   return false;
@@ -330,6 +325,29 @@ function isPrivateWebhookHost(rawHost: string): boolean {
 
 function normalizeLiteralHost(host: string): string {
   return host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+}
+
+function parseIpv4MappedIpv6Host(host: string): string | null {
+  const mappedPrefix = "::ffff:";
+  if (!host.startsWith(mappedPrefix)) return null;
+
+  const mappedAddress = host.slice(mappedPrefix.length);
+  if (isIP(mappedAddress) === 4) return mappedAddress;
+
+  const hextets = mappedAddress.split(":");
+  if (hextets.length !== 2) return null;
+
+  const high = parseIpv6MappedHextet(hextets[0]);
+  const low = parseIpv6MappedHextet(hextets[1]);
+  if (high === null || low === null) return null;
+
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+}
+
+function parseIpv6MappedHextet(hextet: string): number | null {
+  if (!/^[0-9a-f]{1,4}$/.test(hextet)) return null;
+
+  return Number.parseInt(hextet, 16);
 }
 
 function isPrivateIpv4Host(host: string): boolean {
