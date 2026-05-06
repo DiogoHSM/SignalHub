@@ -13,6 +13,7 @@ import {
   findApiKeyByPrefix
 } from "@signal-hub/db/repositories/admin.js";
 import { getEntityTenantDetail, listEntityTenants } from "@signal-hub/db/repositories/entities-query.js";
+import { getUserDetail, listUsersActivity } from "@signal-hub/db/repositories/users-query.js";
 import { listEvents } from "@signal-hub/db/repositories/telemetry-query.js";
 import {
   insertError,
@@ -113,7 +114,9 @@ describe("telemetry core e2e", () => {
         query: {
           listEvents: (filters) => listEvents(db, filters),
           listEntityTenants: (filters) => listEntityTenants(db, filters),
-          getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters)
+          getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),
+          listUsersActivity: (filters) => listUsersActivity(db, filters),
+          getUserDetail: (userId, filters) => getUserDetail(db, userId, filters)
         }
       });
 

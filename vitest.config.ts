@@ -21,6 +21,7 @@ export default defineConfig({
       "@signal-hub/db/migrate.js": resolve(root, "packages/db/src/migrate.ts"),
       "@signal-hub/db/repositories/admin.js": resolve(root, "packages/db/src/repositories/admin.ts"),
       "@signal-hub/db/repositories/entities-query.js": resolve(root, "packages/db/src/repositories/entities-query.ts"),
+      "@signal-hub/db/repositories/users-query.js": resolve(root, "packages/db/src/repositories/users-query.ts"),
       "@signal-hub/db/repositories/telemetry-query.js": resolve(root, "packages/db/src/repositories/telemetry-query.ts"),
       "@signal-hub/db/repositories/telemetry-writes.js": resolve(
         root,

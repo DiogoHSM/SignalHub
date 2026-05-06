@@ -45,7 +45,7 @@ import {
   listTraces
 } from "../src/repositories/telemetry-query.js";
 import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
-import { listUsersActivity } from "../src/repositories/users-query.js";
+import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 
@@ -73,6 +73,10 @@ describe("repositories", () => {
 
   function decodeEntityCursorForTest(cursor: string): EntityCursor {
     return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as EntityCursor;
+  }
+
+  function decodeUserCursorForTest(cursor: string): UserCursor {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as UserCursor;
   }
 
   it("runs migrations idempotently", async () => {
@@ -1025,6 +1029,177 @@ describe("repositories", () => {
         now
       });
       expect(byTenant.users.map((user) => user.userId)).toEqual(["user_other"]);
+    });
+  });
+
+  it("gets user detail with recent sessions and cross-signal timeline", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "User Detail" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_alpha",
+        userId: "user_detail",
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api",
+        release: "1.0.0",
+        metadata: { hidden: true }
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_user_detail",
+        timestamp: new Date("2026-05-05T11:50:00.000Z"),
+        name: "checkout.started",
+        sessionId: "session_alpha",
+        traceId: "trace_alpha",
+        properties: { hidden: true }
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_user_detail",
+        timestamp: new Date("2026-05-05T11:51:00.000Z"),
+        message: "Checkout failed",
+        severity: "error",
+        stack: "hidden",
+        status: "open",
+        fingerprint: "checkout_failed",
+        context: { hidden: true },
+        sessionId: "session_alpha",
+        traceId: "trace_alpha"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_user_detail",
+        timestamp: new Date("2026-05-05T11:52:00.000Z"),
+        name: "checkout",
+        status: "success",
+        startedAt: new Date("2026-05-05T11:52:00.000Z"),
+        endedAt: new Date("2026-05-05T11:52:01.000Z"),
+        durationMs: 1000,
+        sessionId: "session_alpha",
+        traceId: "trace_alpha"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_user_detail",
+        timestamp: new Date("2026-05-05T11:53:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "cart.summary",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.250000",
+        latencyMs: 500,
+        status: "success",
+        inputPreview: "hidden",
+        outputPreview: "hidden",
+        sessionId: "session_beta",
+        traceId: "trace_beta"
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_user_detail",
+        timestamp: new Date("2026-05-05T11:54:00.000Z"),
+        traceId: "trace_alpha",
+        name: "hidden span",
+        status: "error",
+        startedAt: new Date("2026-05-05T11:54:00.000Z"),
+        input: { hidden: true },
+        output: { hidden: true },
+        sessionId: "session_alpha"
+      });
+
+      const result = await getUserDetail(db, "user_detail", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+
+      expect(result.user).toMatchObject({
+        userId: "user_detail",
+        events: 1,
+        errors: 1,
+        traces: 1,
+        llmCalls: 1,
+        activeTenants: 1,
+        activeSessions: 2
+      });
+      expect(result.recentSessions.map((session) => session.sessionId)).toEqual(["session_beta", "session_alpha"]);
+      expect(result.timeline.map((row) => `${row.type}:${row.id}`)).toEqual([
+        "llm:llm_user_detail",
+        "trace:trc_user_detail",
+        "error:err_user_detail",
+        "event:evt_user_detail"
+      ]);
+      expect(result.timeline.map((row) => row.id)).not.toContain("spn_user_detail");
+      expect(result.timeline[0]).not.toHaveProperty("inputPreview");
+      expect(result.timeline[1]).not.toHaveProperty("metadata");
+    });
+  });
+
+  it("filters user detail by tenant and signal type and paginates timeline", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "User Cursor" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_cursor",
+        sessionId: "session_cursor",
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api",
+        release: "1.0.0",
+        metadata: {}
+      };
+
+      for (const [id, timestamp, tenantId] of [
+        ["evt_user_cursor_1", "2026-05-05T11:59:00.000Z", "tenant_cursor"],
+        ["evt_user_cursor_2", "2026-05-05T11:58:00.000Z", "tenant_cursor"],
+        ["evt_user_cursor_other", "2026-05-05T11:57:00.000Z", "tenant_other"]
+      ] as const) {
+        await insertEvent(db, {
+          ...base,
+          id,
+          timestamp: new Date(timestamp),
+          name: id,
+          tenantId
+        });
+      }
+
+      const firstPage = await getUserDetail(db, "user_cursor", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        tenantId: "tenant_cursor",
+        signalType: "event",
+        limit: 1,
+        now
+      });
+      expect(firstPage.timeline.map((row) => row.id)).toEqual(["evt_user_cursor_1"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await getUserDetail(db, "user_cursor", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        tenantId: "tenant_cursor",
+        signalType: "event",
+        limit: 1,
+        cursor: decodeUserCursorForTest(firstPage.cursor!),
+        now
+      });
+      expect(secondPage.timeline.map((row) => row.id)).toEqual(["evt_user_cursor_2"]);
+      expect(secondPage.cursor).toBeUndefined();
     });
   });
 
