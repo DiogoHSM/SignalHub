@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
+import { AlertsPanel } from "./AlertsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
 import { ProjectSwitcher } from "./ProjectSwitcher";
@@ -240,6 +241,11 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
               key={investigationDrilldown?.nonce ?? "investigation"}
               projectId={activeProject?.id}
             />
+          ) : null}
+        </div>
+        <div hidden={activeMode !== "alerts"}>
+          {activeMode === "alerts" ? (
+            <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
           ) : null}
         </div>
         <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>

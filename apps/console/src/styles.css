@@ -720,6 +720,149 @@ select {
   color: #475569;
 }
 
+.alerts-panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.alerts-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alerts-panel__header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.alerts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.alerts-card {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid #d7dde7;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.alerts-card--wide {
+  grid-column: 1 / -1;
+}
+
+.alerts-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.alerts-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.alerts-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.alerts-row {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+}
+
+.alerts-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.alerts-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.alerts-row strong,
+.alerts-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.alerts-row strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.alerts-row span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.alerts-row > .status-pill {
+  flex: 0 0 auto;
+}
+
+.alerts-form {
+  display: grid;
+  gap: 8px;
+}
+
+.alerts-form label {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alerts-form input,
+.alerts-form select {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px 9px;
+}
+
+.alerts-form button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
+.alerts-form button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.alerts-form__columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(80px, 1fr));
+  gap: 8px;
+}
+
 .snippet-panel {
   grid-column: 1 / -1;
 }
@@ -1243,6 +1386,8 @@ select {
 
   .workspace-grid,
   .snippet-grid,
+  .alerts-grid,
+  .alerts-form__columns,
   .system-grid,
   .system-grid[aria-label="System operations"] {
     grid-template-columns: 1fr;

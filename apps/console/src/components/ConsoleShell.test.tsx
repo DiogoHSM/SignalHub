@@ -788,4 +788,46 @@ describe("ConsoleShell", () => {
 
     expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
   });
+
+  it("renders the alerts panel for the active project and environment", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listAlertRules: vi.fn().mockResolvedValue({
+        rules: [
+          {
+            id: "rule_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            notificationChannelId: null,
+            name: "Critical errors",
+            type: "critical_errors",
+            severity: "critical",
+            windowMinutes: 10,
+            threshold: "1",
+            cooldownMinutes: 30,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: null,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Alerts" }));
+
+    expect(await screen.findByRole("heading", { name: "Alerts" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("Alert rules")).getByText("Critical errors")).toBeInTheDocument();
+    expect(api.listAlertRules).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+  });
 });
