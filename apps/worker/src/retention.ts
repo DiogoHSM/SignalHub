@@ -7,10 +7,6 @@ export type RetentionRuntime = {
   now: () => Date;
   policy: RetentionPolicy;
   withLock: <T>(run: (lockedRuntime: RetentionLockedRuntime) => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
-};
-
-export type RetentionLockedRuntime = {
-  deleteExpiredTelemetry: () => Promise<RetentionDeletedCounts>;
   recordRetentionRun: (input: {
     startedAt: Date;
     finishedAt: Date | null;
@@ -21,35 +17,42 @@ export type RetentionLockedRuntime = {
   }) => Promise<unknown>;
 };
 
+export type RetentionLockedRuntime = {
+  deleteExpiredTelemetry: () => Promise<RetentionDeletedCounts>;
+};
+
 export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran: boolean; skipped: boolean }> {
-  const result = await runtime.withLock(async (lockedRuntime) => {
-    const startedAt = runtime.now();
-    let deleted: RetentionDeletedCounts;
-    try {
-      deleted = await lockedRuntime.deleteExpiredTelemetry();
-    } catch (error) {
-      await lockedRuntime.recordRetentionRun({
-        startedAt,
-        finishedAt: runtime.now(),
-        status: "failed",
-        errorMessage: sanitizePreviewText(error instanceof Error ? error.message : String(error)),
-        deleted: zeroDeleted,
-        policy: runtime.policy
-      });
-      return { ran: true, skipped: false };
+  const startedAt = runtime.now();
+  let result: { locked: false } | { locked: true; result: RetentionDeletedCounts };
+  try {
+    result = await runtime.withLock((lockedRuntime) => lockedRuntime.deleteExpiredTelemetry());
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("retention_delete_failed:")) {
+      throw error;
     }
 
-    await lockedRuntime.recordRetentionRun({
+    await runtime.recordRetentionRun({
       startedAt,
       finishedAt: runtime.now(),
-      status: "success",
-      deleted,
+      status: "failed",
+      errorMessage: sanitizePreviewText(error.message.replace(/^retention_delete_failed:\s*/, "")),
+      deleted: zeroDeleted,
       policy: runtime.policy
     });
     return { ran: true, skipped: false };
+  }
+
+  if (!result.locked) return { ran: false, skipped: true };
+
+  await runtime.recordRetentionRun({
+    startedAt,
+    finishedAt: runtime.now(),
+    status: "success",
+    deleted: result.result,
+    policy: runtime.policy
   });
 
-  return result.locked ? result.result : { ran: false, skipped: true };
+  return { ran: true, skipped: false };
 }
 
 type IntervalHandle = ReturnType<typeof setInterval>;

@@ -82,7 +82,14 @@ export async function withRetentionLock<T>(
       return { locked: false };
     }
 
-    return { locked: true, result: await run(trx) };
+    try {
+      return { locked: true, result: await run(trx) };
+    } catch (error) {
+      throw new Error(
+        `retention_delete_failed: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? { cause: error } : undefined
+      );
+    }
   });
 }
 

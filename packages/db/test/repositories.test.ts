@@ -119,6 +119,23 @@ describe("repositories", () => {
     });
   });
 
+  it("releases retention locks after failed locked work", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await expect(
+        withRetentionLock(db, async (lockedDb) => {
+          await sql`select * from missing_retention_table`.execute(lockedDb);
+        })
+      ).rejects.toThrow("retention_delete_failed");
+
+      await expect(withRetentionLock(db, async () => "after failure")).resolves.toEqual({
+        locked: true,
+        result: "after failure"
+      });
+    });
+  });
+
   it("records and reads worker heartbeat", async () => {
     await withDb(async (db) => {
       await migrate(db);

@@ -354,20 +354,20 @@ describe("runRetentionOnce", () => {
       },
       withLock: async (run) => {
         const result = await run({
-          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 }),
-          recordRetentionRun: async (input) => {
-            expect(input.status).toBe("success");
-            expect(input.deleted.events).toBe(1);
-            calls.push("recorded");
-          }
+          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 })
         });
         calls.push("released");
         return { locked: true, result };
+      },
+      recordRetentionRun: async (input) => {
+        expect(input.status).toBe("success");
+        expect(input.deleted.events).toBe(1);
+        calls.push("recorded");
       }
     });
 
     expect(result).toEqual({ ran: true, skipped: false });
-    expect(calls).toEqual(["recorded", "released"]);
+    expect(calls).toEqual(["released", "recorded"]);
   });
 
   it("skips retention when advisory lock is held", async () => {
@@ -380,7 +380,10 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180
       },
-      withLock: async () => ({ locked: false })
+      withLock: async () => ({ locked: false }),
+      recordRetentionRun: async () => {
+        throw new Error("should_not_record");
+      }
     });
 
     expect(result).toEqual({ ran: false, skipped: true });
@@ -398,24 +401,29 @@ describe("runRetentionOnce", () => {
         llmCallsDays: 180
       },
       withLock: async (run) => {
-        const result = await run({
-          deleteExpiredTelemetry: async () => {
-            throw new Error("authorization: Bearer secret-token");
-          },
-          recordRetentionRun: async (input) => {
-            expect(input.status).toBe("failed");
-            expect(input.errorMessage).toBe("authorization: [REDACTED]");
-            expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0 });
-            calls.push("recorded");
-          }
-        });
-        calls.push("released");
-        return { locked: true, result };
+        try {
+          const result = await run({
+            deleteExpiredTelemetry: async () => {
+              throw new Error("authorization: Bearer secret-token");
+            }
+          }).catch((error: unknown) => {
+            throw new Error(`retention_delete_failed: ${error instanceof Error ? error.message : String(error)}`);
+          });
+          return { locked: true, result };
+        } finally {
+          calls.push("released");
+        }
+      },
+      recordRetentionRun: async (input) => {
+        expect(input.status).toBe("failed");
+        expect(input.errorMessage).toBe("authorization: [REDACTED]");
+        expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0 });
+        calls.push("recorded");
       }
     });
 
     expect(result).toEqual({ ran: true, skipped: false });
-    expect(calls).toEqual(["recorded", "released"]);
+    expect(calls).toEqual(["released", "recorded"]);
   });
 
   it("does not write a failed zero-deleted run when success recording fails after deletion", async () => {
@@ -431,28 +439,28 @@ describe("runRetentionOnce", () => {
           tracesDays: 90,
           spansDays: 90,
           llmCallsDays: 180
-        },
-        withLock: async (run) => {
-          try {
-            const result = await run({
-              deleteExpiredTelemetry: async () => {
-                calls.push("deleted");
-                return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
-              },
-              recordRetentionRun: async (input) => {
-                calls.push(`recorded:${input.status}:${input.deleted.events}`);
-                throw recordError;
-              }
-            });
-            return { locked: true, result };
-          } finally {
-            calls.push("released");
-          }
+      },
+      withLock: async (run) => {
+        try {
+          const result = await run({
+            deleteExpiredTelemetry: async () => {
+              calls.push("deleted");
+              return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
+            }
+          });
+          return { locked: true, result };
+        } finally {
+          calls.push("released");
+        }
+      },
+      recordRetentionRun: async (input) => {
+        calls.push(`recorded:${input.status}:${input.deleted.events}`);
+        throw recordError;
         }
       })
     ).rejects.toThrow(recordError);
 
-    expect(calls).toEqual(["deleted", "recorded:success:1", "released"]);
+    expect(calls).toEqual(["deleted", "released", "recorded:success:1"]);
   });
 });
 

@@ -70,10 +70,10 @@ const stopRetention = config.retention.enabled
                     now: new Date(),
                     batchSize: config.retention.batchSize,
                     ...retentionPolicy
-                  }),
-                recordRetentionRun: (input) => recordRetentionRun(lockedDb, input)
+                  })
               })
-            )
+            ),
+          recordRetentionRun: (input) => recordRetentionRun(db, input)
         })
     })
   : async () => {};
