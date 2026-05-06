@@ -6,7 +6,51 @@ import type { SystemHealthResponse } from "../api/types";
 import { SystemHealthPanel } from "./SystemHealthPanel";
 
 function client(getSystemHealth: ApiClient["getSystemHealth"]): ApiClient {
-  return { getSystemHealth } as ApiClient;
+  return {
+    getConsoleConfig: vi.fn(),
+    getMe: vi.fn(),
+    login: vi.fn(),
+    logout: vi.fn(),
+    listProjects: vi.fn(),
+    createProject: vi.fn(),
+    updateProject: vi.fn(),
+    archiveProject: vi.fn(),
+    listEnvironments: vi.fn(),
+    createEnvironment: vi.fn(),
+    updateEnvironment: vi.fn(),
+    archiveEnvironment: vi.fn(),
+    listApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    listEvents: vi.fn(),
+    listErrors: vi.fn(),
+    listTraces: vi.fn(),
+    listTraceSpans: vi.fn(),
+    listLlmCalls: vi.fn(),
+    getLlmAggregates: vi.fn(),
+    getEventAggregates: vi.fn(),
+    getErrorAggregates: vi.fn(),
+    getOverview: vi.fn(),
+    getSystemHealth,
+    listEntityTenants: vi.fn(),
+    getEntityTenantDetail: vi.fn(),
+    listUsersActivity: vi.fn(),
+    getUserDetail: vi.fn(),
+    listUsers: vi.fn(),
+    createUser: vi.fn(),
+    updateUser: vi.fn(),
+    archiveUser: vi.fn(),
+    listNotificationChannels: vi.fn(),
+    createNotificationChannel: vi.fn(),
+    updateNotificationChannel: vi.fn(),
+    archiveNotificationChannel: vi.fn(),
+    listAlertRules: vi.fn(),
+    createAlertRule: vi.fn(),
+    updateAlertRule: vi.fn(),
+    archiveAlertRule: vi.fn(),
+    listAlertEvents: vi.fn(),
+    getAlertEvent: vi.fn()
+  } satisfies ApiClient;
 }
 
 function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemHealthResponse {
