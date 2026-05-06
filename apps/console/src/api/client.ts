@@ -1,13 +1,20 @@
 import type {
   AggregateResponse,
   ApiKey,
+  AlertEventListQuery,
+  AlertEventResponse,
+  AlertRuleListQuery,
+  AlertRuleResponse,
   ConsoleConfig,
+  CreateAlertRuleInput,
   CreatedApiKey,
+  CreateNotificationChannelInput,
   Environment,
   ErrorRecord,
   EventRecord,
   LlmAggregates,
   LlmCallRecord,
+  NotificationChannelResponse,
   OverviewQuery,
   OverviewResponse,
   Project,
@@ -24,7 +31,9 @@ import type {
   UserDetailQuery,
   UserDetailResponse,
   UserListQuery,
-  UserListResponse
+  UserListResponse,
+  UpdateAlertRuleInput,
+  UpdateNotificationChannelInput
 } from "./types";
 
 export class ApiError extends Error {
@@ -38,6 +47,19 @@ export class ApiError extends Error {
     this.code = code;
   }
 }
+
+export type AlertApiClient = {
+  listNotificationChannels: () => Promise<{ channels: NotificationChannelResponse[] }>;
+  createNotificationChannel: (input: CreateNotificationChannelInput) => Promise<{ channel: NotificationChannelResponse }>;
+  updateNotificationChannel: (id: string, input: UpdateNotificationChannelInput) => Promise<{ channel: NotificationChannelResponse }>;
+  archiveNotificationChannel: (id: string) => Promise<void>;
+  listAlertRules: (query?: AlertRuleListQuery) => Promise<{ rules: AlertRuleResponse[] }>;
+  createAlertRule: (input: CreateAlertRuleInput) => Promise<{ rule: AlertRuleResponse }>;
+  updateAlertRule: (id: string, input: UpdateAlertRuleInput) => Promise<{ rule: AlertRuleResponse }>;
+  archiveAlertRule: (id: string) => Promise<void>;
+  listAlertEvents: (query: AlertEventListQuery) => Promise<QueryListResponse<AlertEventResponse>>;
+  getAlertEvent: (id: string) => Promise<AggregateResponse<AlertEventResponse>>;
+};
 
 export type ApiClient = {
   getConsoleConfig: () => Promise<ConsoleConfig>;
@@ -73,7 +95,7 @@ export type ApiClient = {
   createUser: (input: { email: string; password: string; isAdmin: boolean }) => Promise<{ user: User }>;
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
-};
+} & Partial<AlertApiClient>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -230,7 +252,25 @@ function userDetailPath(userId: string, query: UserDetailQuery): string {
   return `/query/users/${encodePathSegment(userId)}?${params.toString()}`;
 }
 
-export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
+function alertRuleListPath(query: AlertRuleListQuery = {}): string {
+  const params = new URLSearchParams();
+  if (query.projectId) params.set("project_id", query.projectId);
+  if (query.environmentId) params.set("environment_id", query.environmentId);
+  const queryString = params.toString();
+
+  return queryString ? `/admin/alert-rules?${queryString}` : "/admin/alert-rules";
+}
+
+function alertEventListPath(query: AlertEventListQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/alerts/events?${params.toString()}`;
+}
+
+export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & AlertApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
@@ -299,6 +339,34 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
     createUser: (input) => request<{ user: User }>(path(apiBasePath, "/admin/users"), { method: "POST", body: input }),
     updateUser: (id, input) =>
       request<{ user: User }>(path(apiBasePath, `/admin/users/${encodePathSegment(id)}`), { method: "PATCH", body: input }),
-    archiveUser: (id) => request<void>(path(apiBasePath, `/admin/users/${encodePathSegment(id)}`), { method: "DELETE" })
+    archiveUser: (id) => request<void>(path(apiBasePath, `/admin/users/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listNotificationChannels: () =>
+      request<{ channels: NotificationChannelResponse[] }>(path(apiBasePath, "/admin/notification-channels")),
+    createNotificationChannel: (input) =>
+      request<{ channel: NotificationChannelResponse }>(path(apiBasePath, "/admin/notification-channels"), {
+        method: "POST",
+        body: input
+      }),
+    updateNotificationChannel: (id, input) =>
+      request<{ channel: NotificationChannelResponse }>(
+        path(apiBasePath, `/admin/notification-channels/${encodePathSegment(id)}`),
+        { method: "PATCH", body: input }
+      ),
+    archiveNotificationChannel: (id) =>
+      request<void>(path(apiBasePath, `/admin/notification-channels/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listAlertRules: (query) => request<{ rules: AlertRuleResponse[] }>(path(apiBasePath, alertRuleListPath(query))),
+    createAlertRule: (input) =>
+      request<{ rule: AlertRuleResponse }>(path(apiBasePath, "/admin/alert-rules"), { method: "POST", body: input }),
+    updateAlertRule: (id, input) =>
+      request<{ rule: AlertRuleResponse }>(path(apiBasePath, `/admin/alert-rules/${encodePathSegment(id)}`), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveAlertRule: (id) =>
+      request<void>(path(apiBasePath, `/admin/alert-rules/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listAlertEvents: (query) =>
+      request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
+    getAlertEvent: (id) =>
+      request<AggregateResponse<AlertEventResponse>>(path(apiBasePath, `/alerts/events/${encodePathSegment(id)}`))
   };
 }

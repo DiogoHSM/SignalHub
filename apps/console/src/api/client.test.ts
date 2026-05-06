@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, createApiClient } from "./client";
-import type { OverviewQuery } from "./types";
+import type { NotificationChannelResponse, OverviewQuery } from "./types";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -487,5 +487,164 @@ describe("createApiClient", () => {
       "/query/aggregates/events?project_id=prj_1&environment_id=env_1",
       expect.objectContaining({ method: "GET" })
     );
+  });
+
+  it("lists notification channels", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { channels: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listNotificationChannels();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/notification-channels", expect.objectContaining({ method: "GET" }));
+  });
+
+  it("creates notification channels without expecting secretHeaderValue in the response", async () => {
+    const channel = {
+      id: "chn_1",
+      name: "Ops webhook",
+      type: "webhook",
+      url: "https://hooks.example.com/signalhub",
+      secretHeaderName: "x-signalhub-secret",
+      hasSecret: true,
+      enabled: true,
+      createdAt: "2026-05-06T12:00:00.000Z",
+      updatedAt: "2026-05-06T12:00:00.000Z",
+      archivedAt: null
+    } satisfies NotificationChannelResponse;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { channel }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await createApiClient().createNotificationChannel({
+      name: "Ops webhook",
+      type: "webhook",
+      url: "https://hooks.example.com/signalhub",
+      secretHeaderName: "x-signalhub-secret",
+      secretHeaderValue: "super-secret",
+      enabled: true
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/notification-channels",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "Ops webhook",
+          type: "webhook",
+          url: "https://hooks.example.com/signalhub",
+          secretHeaderName: "x-signalhub-secret",
+          secretHeaderValue: "super-secret",
+          enabled: true
+        })
+      })
+    );
+    expect(response.channel.hasSecret).toBe(true);
+    expect(response.channel).not.toHaveProperty("secretHeaderValue");
+  });
+
+  it("updates and archives notification channels", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { channel: { id: "chn_1", name: "Ops webhook" } }))
+      .mockResolvedValueOnce(emptyResponse(204));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").updateNotificationChannel("chn/1", { enabled: false });
+    await expect(createApiClient("/api").archiveNotificationChannel("chn/1")).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/admin/notification-channels/chn%2F1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: false }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/admin/notification-channels/chn%2F1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("lists alert rules with optional scope filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { rules: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listAlertRules({ projectId: "prj/1", environmentId: "env 1" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/alert-rules?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("creates updates and archives alert rules", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { rule: { id: "rule_1" } }))
+      .mockResolvedValueOnce(jsonResponse(200, { rule: { id: "rule_1", enabled: false } }))
+      .mockResolvedValueOnce(emptyResponse(204));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").createAlertRule({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      notificationChannelId: "chn_1",
+      name: "Critical errors",
+      type: "critical_errors",
+      severity: "critical",
+      windowMinutes: 5,
+      threshold: "1",
+      cooldownMinutes: 15,
+      enabled: true
+    });
+    await createApiClient("/api").updateAlertRule("rule/1", { enabled: false });
+    await expect(createApiClient("/api").archiveAlertRule("rule/1")).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/admin/alert-rules",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/admin/alert-rules/rule%2F1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: false }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/admin/alert-rules/rule%2F1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("listAlertEvents builds the scoped alert events query path", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listAlertEvents({ projectId: "prj_1", environmentId: "env_1" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/alerts/events?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("lists alert events with optional limit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listAlertEvents({ projectId: "prj_1", environmentId: "env_1", limit: 25 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/alerts/events?project_id=prj_1&environment_id=env_1&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("gets alert events by id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "evt_1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getAlertEvent("evt/1");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/alerts/events/evt%2F1", expect.objectContaining({ method: "GET" }));
   });
 });

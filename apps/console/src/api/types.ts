@@ -539,6 +539,97 @@ export type SystemHealthResponse = {
   };
 };
 
+export type NotificationChannelResponse = {
+  id: string;
+  name: string;
+  type: "webhook";
+  url: string;
+  secretHeaderName: string | null;
+  hasSecret: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateNotificationChannelInput = {
+  name: string;
+  type: "webhook";
+  url: string;
+  secretHeaderName?: string | null;
+  secretHeaderValue?: string | null;
+  enabled?: boolean;
+};
+
+export type UpdateNotificationChannelInput = Partial<CreateNotificationChannelInput>;
+
+export type AlertRuleType = "critical_errors" | "error_count" | "trace_p95_latency" | "llm_cost";
+
+export type AlertSeverity = "info" | "warning" | "critical";
+
+export type AlertRuleResponse = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  notificationChannelId: string | null;
+  name: string;
+  type: AlertRuleType;
+  severity: AlertSeverity;
+  windowMinutes: number;
+  threshold: string;
+  cooldownMinutes: number;
+  enabled: boolean;
+  lastEvaluatedAt: string | null;
+  lastTriggeredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateAlertRuleInput = {
+  projectId: string;
+  environmentId: string;
+  notificationChannelId?: string | null;
+  name: string;
+  type: AlertRuleType;
+  severity: AlertSeverity;
+  windowMinutes: number;
+  threshold: string;
+  cooldownMinutes: number;
+  enabled?: boolean;
+};
+
+export type UpdateAlertRuleInput = Partial<CreateAlertRuleInput>;
+
+export type AlertRuleListQuery = {
+  projectId?: string;
+  environmentId?: string;
+};
+
+export type AlertEventResponse = {
+  id: string;
+  ruleId: string;
+  projectId: string;
+  environmentId: string;
+  status: "triggered";
+  severity: AlertSeverity;
+  triggeredAt: string;
+  windowStart: string;
+  windowEnd: string;
+  observedValue: string;
+  threshold: string;
+  message: string;
+  metadata: unknown;
+  createdAt: string;
+  latestDeliveryStatus: "success" | "failed" | null;
+};
+
+export type AlertEventListQuery = {
+  projectId: string;
+  environmentId: string;
+  limit?: number;
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
