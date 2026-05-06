@@ -1925,7 +1925,7 @@ git commit -m "feat: add alerts console panel"
 - Modify: `.claude/docs/UI-UX.md`
 - Modify: `.claude/docs/PROJECT-SUMMARY.md`
 
-- [ ] **Step 1: Update `.env.example`**
+- [x] **Step 1: Update `.env.example`**
 
 Add:
 
@@ -1935,7 +1935,7 @@ ALERTS_INTERVAL_MINUTES=1
 ALERTS_WEBHOOK_TIMEOUT_MS=5000
 ```
 
-- [ ] **Step 2: Update README**
+- [x] **Step 2: Update README**
 
 Add a short section:
 
@@ -1949,7 +1949,7 @@ Alert events are stored internally. Optional webhook channels send compact JSON 
 Webhook secrets are write-only. Saved secret values are never returned by the API or displayed in the console.
 ```
 
-- [ ] **Step 3: Update project docs**
+- [x] **Step 3: Update project docs**
 
 Add concise entries:
 
@@ -1959,7 +1959,7 @@ Add concise entries:
 - `.claude/docs/UI-UX.md`: `Alerts` console mode and operational compact layout.
 - `.claude/docs/PROJECT-SUMMARY.md`: add Phase 4B simple alerts to implemented capabilities after implementation.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .env.example README.md .claude/docs/ARCHITECTURE.md .claude/docs/DEPLOYMENT.md .claude/docs/SECRETS.md .claude/docs/UI-UX.md .claude/docs/PROJECT-SUMMARY.md
