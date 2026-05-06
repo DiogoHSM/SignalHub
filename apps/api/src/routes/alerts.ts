@@ -22,7 +22,7 @@ export type AlertRouteOptions = {
 const listAlertEventsQuerySchema = z.object({
   project_id: z.string().trim().min(1),
   environment_id: z.string().trim().min(1),
-  limit: z.coerce.number().int().min(1).max(250).optional()
+  limit: z.coerce.number().int().min(1).max(100).optional()
 });
 
 const alertEventParamsSchema = z.object({ id: z.string().trim().min(1) });

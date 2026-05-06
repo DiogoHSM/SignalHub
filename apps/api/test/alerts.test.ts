@@ -125,6 +125,24 @@ describe("alert history routes", () => {
     expect(response.json()).toEqual({ error: "invalid_alert_query" });
   });
 
+  it("returns 400 when alert event history limit exceeds 100", async () => {
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      alerts: {
+        listAlertEvents: async () => []
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/alerts/events?project_id=prj_1&environment_id=env_1&limit=101"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_alert_query" });
+  });
+
   it("returns 501 when the alert history repository is unavailable", async () => {
     app = await buildApp({ readiness, auth: userAuth });
 
@@ -304,6 +322,32 @@ describe("admin alert routes", () => {
         type: "webhook",
         url: "https://hooks.example.com/signalhub",
         secretHeaderName: "Authorization",
+        secretHeaderValue: "secret",
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+  });
+
+  it("rejects prefixed secret header names with non-alphanumeric token characters", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        createNotificationChannel: async () => notificationChannel()
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/notification-channels",
+      payload: {
+        name: "Ops",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: "X-SignalHub_Secret",
         secretHeaderValue: "secret",
         enabled: true
       }

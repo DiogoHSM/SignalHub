@@ -232,14 +232,14 @@ function isKnownAdminResourceError(error: unknown, message: string): boolean {
   return error instanceof Error && error.message === message;
 }
 
-const HTTP_TOKEN_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const SECRET_HEADER_NAME_PATTERN = /^[A-Za-z0-9-]+$/;
 
 function isValidSecretHeaderName(headerName: string | null | undefined): boolean {
   if (!headerName) {
     return true;
   }
 
-  if (!HTTP_TOKEN_PATTERN.test(headerName)) {
+  if (!SECRET_HEADER_NAME_PATTERN.test(headerName)) {
     return false;
   }
 
