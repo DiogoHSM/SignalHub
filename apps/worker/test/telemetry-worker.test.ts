@@ -776,6 +776,12 @@ describe("runAlertEvaluationOnce", () => {
 });
 
 describe("validateWebhookTarget", () => {
+  it("rejects webhook URL credentials in all environments", () => {
+    expect(() => validateWebhookTarget("https://user:pass@example.com/hook", "development")).toThrow(
+      /webhook URL credentials are not allowed/
+    );
+  });
+
   it("rejects localhost webhook targets in production", () => {
     expect(() => validateWebhookTarget("http://localhost:3000/hook", "production")).toThrow(
       /private webhook targets are not allowed/
@@ -890,6 +896,44 @@ describe("deliverWebhook", () => {
       errorMessage: "Webhook returned HTTP 302"
     });
     expect(requestImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send a production request when the webhook URL includes credentials", async () => {
+    for (const url of [
+      "https://user@example.com/signalhub",
+      "https://:pass@example.com/signalhub",
+      "https://user:pass@example.com/signalhub"
+    ]) {
+      const requestImpl = vi.fn(async () => ({ status: 204 }));
+
+      const result = await deliverWebhook({
+        channel: {
+          id: "chn_1",
+          name: "Webhook",
+          type: "webhook",
+          url,
+          secretHeaderName: null,
+          secretHeaderValue: null,
+          hasSecret: false,
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        },
+        payload,
+        timeoutMs: 5000,
+        nodeEnv: "production",
+        resolveHostname: resolvePublicHostname,
+        requestImpl
+      });
+
+      expect(result, url).toEqual({
+        status: "failed",
+        responseStatus: null,
+        errorMessage: expect.stringMatching(/webhook URL credentials are not allowed/)
+      });
+      expect(requestImpl, url).not.toHaveBeenCalled();
+    }
   });
 
   it("does not send a production request when a hostname resolves to a private address", async () => {

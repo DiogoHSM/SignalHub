@@ -179,6 +179,10 @@ export function validateWebhookTarget(rawUrl: string, nodeEnv: string): URL {
     throw new Error("webhook URL must use http or https");
   }
 
+  if (url.username !== "" || url.password !== "") {
+    throw new Error("webhook URL credentials are not allowed");
+  }
+
   if (nodeEnv === "production" && isPrivateWebhookHost(url.hostname)) {
     throw new Error("private webhook targets are not allowed in production");
   }
