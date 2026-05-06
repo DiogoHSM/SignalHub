@@ -22,6 +22,17 @@ import {
   updateProject
 } from "../src/repositories/admin.js";
 import {
+  createAlertRule,
+  createNotificationChannel,
+  evaluateAlertRule,
+  listActiveAlertRules,
+  listAlertEvents,
+  recordAlertEvent,
+  recordNotificationDelivery,
+  updateAlertRuleEvaluation,
+  withAlertEvaluationLock
+} from "../src/repositories/alerts.js";
+import {
   archiveUser,
   createUser,
   findUserByEmail,
@@ -213,6 +224,90 @@ describe("repositories", () => {
     });
   });
 
+  it("creates channels rules alert events and deliveries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Alert Repository Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const channel = await createNotificationChannel(db, {
+        name: "Ops webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/signalhub",
+        secretHeaderName: "X-SignalHub-Secret",
+        secretHeaderValue: "secret-value",
+        enabled: true
+      });
+      expect(channel.hasSecret).toBe(true);
+      expect(channel.secretHeaderValue).toBe("secret-value");
+
+      const rule = await createAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        notificationChannelId: channel.id,
+        name: "Critical errors",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 10,
+        threshold: "1",
+        cooldownMinutes: 30,
+        enabled: true
+      });
+      expect(rule.type).toBe("critical_errors");
+
+      const evaluatedAt = new Date("2026-05-06T12:00:00.000Z");
+      await updateAlertRuleEvaluation(db, {
+        ruleId: rule.id,
+        evaluatedAt,
+        triggeredAt: evaluatedAt
+      });
+
+      const activeRules = await listActiveAlertRules(db);
+      expect(activeRules.find((activeRule) => activeRule.id === rule.id)).toMatchObject({
+        id: rule.id,
+        lastEvaluatedAt: evaluatedAt,
+        lastTriggeredAt: evaluatedAt
+      });
+
+      const event = await recordAlertEvent(db, {
+        rule,
+        triggeredAt: new Date("2026-05-06T12:00:00.000Z"),
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z"),
+        observedValue: "2",
+        message: "Critical errors threshold reached",
+        metadata: { count: 2 }
+      });
+
+      await recordNotificationDelivery(db, {
+        alertEventId: event.id,
+        notificationChannelId: channel.id,
+        status: "success",
+        attemptedAt: new Date("2026-05-06T12:00:01.000Z"),
+        responseStatus: 204,
+        errorMessage: null
+      });
+
+      const events = await listAlertEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
+      expect(events[0]).toMatchObject({ id: event.id, latestDeliveryStatus: "success" });
+    });
+  });
+
+  it("uses an advisory lock for alert evaluation", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const first = await withAlertEvaluationLock(db, async () => {
+        const second = await withAlertEvaluationLock(db, async () => "nested");
+        expect(second).toEqual({ locked: false });
+        return "outer";
+      });
+
+      expect(first).toEqual({ locked: true, result: "outer" });
+    });
+  });
+
   it("records and reads worker heartbeat", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -354,6 +449,101 @@ describe("repositories", () => {
         lastSpanAt: spanAt,
         lastLlmCallAt: llmAt
       });
+    });
+  });
+
+  it("evaluates supported alert rule types", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Alert Evaluation Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertError(db, {
+        id: "err_critical",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-06T11:58:00.000Z"),
+        receivedAt: new Date("2026-05-06T11:58:00.000Z"),
+        message: "Checkout failed",
+        severity: "critical",
+        status: "open",
+        metadata: {},
+        context: {}
+      });
+      await insertError(db, {
+        id: "err_warning_for_alert_count",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-06T11:59:00.000Z"),
+        receivedAt: new Date("2026-05-06T11:59:00.000Z"),
+        message: "Retryable checkout failure",
+        severity: "warning",
+        status: "open",
+        metadata: {},
+        context: {}
+      });
+
+      await insertTrace(db, {
+        id: "trace_slow",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-06T11:58:00.000Z"),
+        receivedAt: new Date("2026-05-06T11:58:00.000Z"),
+        name: "checkout",
+        status: "success",
+        startedAt: new Date("2026-05-06T11:57:45.000Z"),
+        endedAt: new Date("2026-05-06T11:58:00.000Z"),
+        durationMs: 15000,
+        metadata: {}
+      });
+      await insertLlmCall(db, {
+        id: "llm_alert_cost",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-06T11:58:30.000Z"),
+        receivedAt: new Date("2026-05-06T11:58:30.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        status: "success",
+        costUsd: "1.25"
+      });
+
+      const criticalResult = await evaluateAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        type: "critical_errors",
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z")
+      });
+      expect(criticalResult.observedValue).toBe("1");
+
+      const errorCountResult = await evaluateAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        type: "error_count",
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z")
+      });
+      expect(errorCountResult.observedValue).toBe("2");
+
+      const latencyResult = await evaluateAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        type: "trace_p95_latency",
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z")
+      });
+      expect(latencyResult.observedValue).toBe("15000");
+
+      const llmCostResult = await evaluateAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        type: "llm_cost",
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z")
+      });
+      expect(llmCostResult.observedValue).toBe("1.25");
     });
   });
 
