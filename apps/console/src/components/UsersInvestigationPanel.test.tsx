@@ -56,6 +56,56 @@ function eventRow(overrides: Partial<Extract<UserTimelineRow, { type: "event" }>
   };
 }
 
+function errorRow(overrides: Partial<Extract<UserTimelineRow, { type: "error" }>> = {}): UserTimelineRow {
+  return {
+    type: "error",
+    id: "err_1",
+    timestamp: "2026-05-05T10:01:00.000Z",
+    label: "Checkout failed",
+    tenantId: "tenant_alpha",
+    sessionId: "session_1",
+    traceId: "trace_1",
+    severity: "error",
+    status: "open",
+    message: "Checkout failed",
+    ...overrides
+  };
+}
+
+function traceRow(overrides: Partial<Extract<UserTimelineRow, { type: "trace" }>> = {}): UserTimelineRow {
+  return {
+    type: "trace",
+    id: "trc_1",
+    timestamp: "2026-05-05T10:02:00.000Z",
+    label: "Checkout trace",
+    tenantId: "tenant_alpha",
+    sessionId: "session_1",
+    traceId: "trace_1",
+    status: "error",
+    durationMs: 320,
+    name: "checkout",
+    ...overrides
+  };
+}
+
+function llmRow(overrides: Partial<Extract<UserTimelineRow, { type: "llm" }>> = {}): UserTimelineRow {
+  return {
+    type: "llm",
+    id: "llm_1",
+    timestamp: "2026-05-05T10:03:00.000Z",
+    label: "Summarize cart",
+    tenantId: "tenant_alpha",
+    sessionId: "session_1",
+    traceId: "trace_1",
+    provider: "openai",
+    model: "gpt-5",
+    promptName: "Unspecified",
+    status: "error",
+    costUsd: "0.250000",
+    ...overrides
+  };
+}
+
 function detail(overrides: Partial<UserDetailResponse> = {}): UserDetailResponse {
   return {
     window: "7d",
@@ -209,6 +259,60 @@ describe("UsersInvestigationPanel", () => {
       window: "7d",
       limit: 50,
       cursor: "cursor_1"
+    });
+  });
+
+  it("drills timeline rows into raw investigation tabs with user filters", async () => {
+    const onDrilldown = vi.fn();
+    const rows = [
+      errorRow(),
+      traceRow(),
+      eventRow({ label: "Checkout started", eventName: "checkout.started", traceId: "trace_1" }),
+      llmRow({ promptName: "cart.summary" })
+    ];
+    const api = client({
+      listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [user({ userId: "user_alpha", label: "user_alpha" })] } }),
+      getUserDetail: vi.fn().mockResolvedValue({
+        data: detail({
+          user: user({ userId: "user_alpha", label: "user_alpha" }),
+          timeline: rows
+        })
+      })
+    });
+
+    render(
+      <UsersInvestigationPanel client={api} environmentId="env_1" onDrilldown={onDrilldown} projectId="prj_1" initialUserId="user_alpha" />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout failed/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Checkout trace/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Checkout started/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Summarize cart/ }));
+
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "errors",
+      filters: { userId: "user_alpha", tenantId: "tenant_alpha", sessionId: "session_1", severity: "error", status: "open", traceId: "trace_1" }
+    });
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "traces",
+      filters: { userId: "user_alpha", tenantId: "tenant_alpha", sessionId: "session_1", traceId: "trace_1" }
+    });
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "events",
+      filters: { userId: "user_alpha", tenantId: "tenant_alpha", sessionId: "session_1", eventName: "checkout.started", traceId: "trace_1" }
+    });
+    expect(onDrilldown).toHaveBeenCalledWith({
+      tab: "llm",
+      filters: {
+        userId: "user_alpha",
+        tenantId: "tenant_alpha",
+        sessionId: "session_1",
+        provider: "openai",
+        model: "gpt-5",
+        status: "error",
+        promptName: "cart.summary",
+        traceId: "trace_1"
+      }
     });
   });
 });

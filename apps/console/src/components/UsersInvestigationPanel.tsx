@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { UserDetailResponse, UserListQuery, UserSignalType, UserSummary } from "../api/types";
+import type { UserDetailResponse, UserListQuery, UserSignalType, UserSummary, UserTimelineRow } from "../api/types";
 import type { InvestigationDrilldown } from "./InvestigationWorkspace";
 import { UsersUserDetail } from "./UsersUserDetail";
 import { UsersUserList, type UserSort } from "./UsersUserList";
@@ -200,8 +200,42 @@ export function UsersInvestigationPanel({ client, projectId, environmentId, init
     );
   }
 
-  function handleTimelineDrilldown() {
-    void onDrilldown;
+  function handleTimelineDrilldown(row: UserTimelineRow) {
+    if (!onDrilldown || !selectedUserId || selectedUserId === "_anonymous") return;
+
+    const common = {
+      userId: selectedUserId,
+      ...(row.tenantId ? { tenantId: row.tenantId } : {}),
+      ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+      ...(row.traceId ? { traceId: row.traceId } : {})
+    };
+
+    if (row.type === "event") {
+      onDrilldown({ tab: "events", filters: { ...common, eventName: row.eventName } });
+      return;
+    }
+
+    if (row.type === "error") {
+      onDrilldown({ tab: "errors", filters: { ...common, severity: row.severity, status: row.status } });
+      return;
+    }
+
+    if (row.type === "trace") {
+      onDrilldown({ tab: "traces", filters: common });
+      return;
+    }
+
+    const promptName = row.promptName?.trim();
+    onDrilldown({
+      tab: "llm",
+      filters: {
+        ...common,
+        provider: row.provider,
+        model: row.model,
+        status: row.status,
+        ...(promptName && promptName !== "Unspecified" ? { promptName } : {})
+      }
+    });
   }
 
   return (

@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { TenantDetailResponse, TenantSummary, TenantTimelineRow } from "../api/types";
+import type { TenantDetailResponse, TenantSummary, TenantTimelineRow, UserDetailResponse, UserSummary, UserTimelineRow } from "../api/types";
 import { InvestigationWorkspace } from "./InvestigationWorkspace";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -90,6 +90,55 @@ function detail(overrides: Partial<TenantDetailResponse> = {}): TenantDetailResp
     tenant: tenant(),
     topUsers: [],
     timeline: [traceTimelineRow()],
+    ...overrides
+  };
+}
+
+function user(overrides: Partial<UserSummary> = {}): UserSummary {
+  return {
+    userId: "user_alpha",
+    label: "user_alpha",
+    isAnonymous: false,
+    impactScore: 10,
+    lastSeenAt: "2026-05-05T10:00:00.000Z",
+    events: 5,
+    errors: 1,
+    openErrors: 1,
+    severeErrors: 0,
+    traces: 3,
+    failedTraces: 1,
+    llmCalls: 2,
+    failedLlmCalls: 0,
+    llmCostUsd: "1.25",
+    activeTenants: 2,
+    activeSessions: 3,
+    ...overrides
+  };
+}
+
+function userEventRow(overrides: Partial<Extract<UserTimelineRow, { type: "event" }>> = {}): UserTimelineRow {
+  return {
+    type: "event",
+    id: "evt_1",
+    timestamp: "2026-05-05T10:00:00.000Z",
+    label: "Checkout started",
+    tenantId: "tenant_alpha",
+    sessionId: "session_1",
+    traceId: "trace_1",
+    eventName: "checkout.started",
+    ...overrides
+  };
+}
+
+function userDetail(overrides: Partial<UserDetailResponse> = {}): UserDetailResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:30:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:30:00.000Z", to: "2026-05-05T12:30:00.000Z" },
+    user: user(),
+    recentSessions: [],
+    timeline: [userEventRow()],
     ...overrides
   };
 }
@@ -228,6 +277,44 @@ describe("InvestigationWorkspace", () => {
       environmentId: "env_1",
       tenantId: "tenant_alpha",
       traceId: "trace_1",
+      limit: 50
+    });
+  });
+
+  it("routes user timeline drilldowns into raw event filters", async () => {
+    const listEvents = vi.fn().mockResolvedValue({ data: [] });
+    const api = client({
+      listEvents,
+      listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [user()] } }),
+      getUserDetail: vi.fn().mockResolvedValue({ data: userDetail() })
+    });
+
+    render(
+      <InvestigationWorkspace
+        client={api}
+        environmentId="env_1"
+        initialFilters={{ users: { userId: "user_alpha" } }}
+        initialTab="users"
+        projectId="prj_1"
+      />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout started/ }));
+
+    expect(screen.getByRole("button", { name: "Events" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Tenant")).toHaveValue("tenant_alpha");
+    expect(screen.getByLabelText("User")).toHaveValue("user_alpha");
+    expect(screen.getByLabelText("Session")).toHaveValue("session_1");
+    expect(screen.getByLabelText("Trace")).toHaveValue("trace_1");
+    expect(screen.getByLabelText("Event name")).toHaveValue("checkout.started");
+    expect(listEvents).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      tenantId: "tenant_alpha",
+      userId: "user_alpha",
+      sessionId: "session_1",
+      traceId: "trace_1",
+      eventName: "checkout.started",
       limit: 50
     });
   });
