@@ -3,8 +3,10 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { registerRequestContext } from "./plugins/request-context.js";
+import { registerAlertRoutes, type AlertRouteDependencies } from "./routes/alerts.js";
 import {
   registerAdminRoutes,
+  type AlertAdministrationDependencies,
   type AdminResourceDependencies,
   type UserAdministrationDependencies
 } from "./routes/admin.js";
@@ -20,12 +22,14 @@ export type BuildAppOptions = {
   auth?: AuthDependencies;
   users?: UserAdministrationDependencies;
   adminResources?: AdminResourceDependencies;
+  alerts?: AlertRouteDependencies & AlertAdministrationDependencies;
   ingestion?: IngestionDependencies;
   query?: QueryDependencies;
   system?: SystemHealthDependencies;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
+  nodeEnv?: string;
   console?: Omit<ConsoleRouteOptions, "googleOAuthEnabled">;
   corsOrigin?: string | string[];
 };
@@ -57,8 +61,14 @@ export async function buildApp(options: BuildAppOptions) {
     auth: options.auth,
     users: options.users,
     adminResources: options.adminResources,
+    alerts: options.alerts,
     apiKeyPepper: options.apiKeyPepper,
-    hashApiKeySecret: options.hashApiKeySecret
+    hashApiKeySecret: options.hashApiKeySecret,
+    nodeEnv: options.nodeEnv
+  });
+  registerAlertRoutes(app, {
+    auth: options.auth,
+    alerts: options.alerts
   });
   registerIngestionRoutes(app, options.ingestion);
   registerQueryRoutes(app, {

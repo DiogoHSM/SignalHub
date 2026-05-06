@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createApiKey, hashApiKey as hashTelemetryApiKey } from "@signal-hub/telemetry/api-keys";
+import { isIP } from "node:net";
 import { z } from "zod";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 import type { AuthDependencies } from "./auth.js";
+import type { AlertRuleRecord, NotificationChannelRecord } from "@signal-hub/db/repositories/alerts.js";
 
 export interface AdminProject {
   id: string;
@@ -66,12 +68,28 @@ export type AdminResourceDependencies = {
   apiKeys?: ApiKeyAdministrationDependencies;
 };
 
+export type AlertAdministrationDependencies = {
+  listNotificationChannels?: () => Promise<NotificationChannelRecord[]>;
+  createNotificationChannel?: (input: CreateNotificationChannelInput) => Promise<NotificationChannelRecord>;
+  updateNotificationChannel?: (
+    id: string,
+    input: UpdateNotificationChannelInput
+  ) => Promise<NotificationChannelRecord | null | undefined>;
+  archiveNotificationChannel?: (id: string) => Promise<void>;
+  listAlertRules?: (filters: AlertRuleListFilters) => Promise<AlertRuleRecord[]>;
+  createAlertRule?: (input: CreateAlertRuleInput) => Promise<AlertRuleRecord>;
+  updateAlertRule?: (id: string, input: UpdateAlertRuleInput) => Promise<AlertRuleRecord | null | undefined>;
+  archiveAlertRule?: (id: string) => Promise<void>;
+};
+
 export type AdminRouteOptions = {
   auth?: AuthDependencies;
   users?: UserAdministrationDependencies;
   adminResources?: AdminResourceDependencies;
+  alerts?: AlertAdministrationDependencies;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
+  nodeEnv?: string;
 };
 
 const createUserSchema = z.object({
@@ -122,6 +140,52 @@ const createApiKeySchema = z.object({
   name: z.string().trim().min(1).max(256)
 });
 
+const notificationChannelBaseSchema = z.object({
+  name: z.string().trim().min(1).max(256),
+  type: z.literal("webhook"),
+  url: z.string().url(),
+  secretHeaderName: z.string().trim().min(1).max(128).nullable().optional(),
+  secretHeaderValue: z.string().trim().min(1).max(4096).nullable().optional(),
+  enabled: z.boolean()
+});
+
+const notificationChannelSchema = notificationChannelBaseSchema
+  .extend({ enabled: z.boolean().default(true) })
+  .refine((input) => !input.secretHeaderValue || Boolean(input.secretHeaderName), {
+    message: "secret_header_name_required"
+  });
+
+const updateNotificationChannelSchema = notificationChannelBaseSchema
+  .partial()
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
+const thresholdSchema = z
+  .string()
+  .regex(/^\d+(\.\d{1,6})?$/)
+  .refine((value) => Number(value) > 0);
+
+const alertRuleSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  notificationChannelId: z.string().trim().min(1).nullable().optional(),
+  name: z.string().trim().min(1).max(256),
+  type: z.enum(["critical_errors", "error_count", "trace_p95_latency", "llm_cost"]),
+  severity: z.enum(["info", "warning", "critical"]),
+  windowMinutes: z.number().int().min(1),
+  threshold: thresholdSchema,
+  cooldownMinutes: z.number().int().min(1),
+  enabled: z.boolean().default(true)
+});
+
+const updateAlertRuleSchema = alertRuleSchema.partial().refine((input) => Object.keys(input).length > 0, {
+  message: "at_least_one_field_required"
+});
+
+const alertRuleListQuerySchema = z.object({
+  project_id: z.string().trim().min(1).optional(),
+  environment_id: z.string().trim().min(1).optional()
+});
+
 type CreateUserInput = z.infer<typeof createUserSchema>;
 type UpdateUserInput = z.infer<typeof updateUserSchema>;
 type CreateProjectInput = z.infer<typeof createProjectSchema>;
@@ -129,12 +193,27 @@ type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 type CreateEnvironmentBody = z.infer<typeof createEnvironmentSchema>;
 type UpdateEnvironmentInput = z.infer<typeof updateEnvironmentSchema>;
 type CreateApiKeyBody = z.infer<typeof createApiKeySchema>;
+type CreateNotificationChannelInput = z.infer<typeof notificationChannelSchema>;
+type UpdateNotificationChannelInput = z.infer<typeof updateNotificationChannelSchema>;
+type CreateAlertRuleInput = z.infer<typeof alertRuleSchema>;
+type UpdateAlertRuleInput = z.infer<typeof updateAlertRuleSchema>;
+type AlertRuleListFilters = {
+  projectId?: string;
+  environmentId?: string;
+};
 type CreateEnvironmentInput = CreateEnvironmentBody & { projectId: string };
 type CreateApiKeyRecordInput = CreateApiKeyBody & { projectId: string; prefix: string; hash: string };
 
 function redactApiKeyHash(apiKey: AdminApiKey): Omit<AdminApiKey, "hash"> {
   const { hash: _hash, ...safeApiKey } = apiKey;
   return safeApiKey;
+}
+
+function redactNotificationChannel(
+  channel: NotificationChannelRecord
+): Omit<NotificationChannelRecord, "secretHeaderValue"> {
+  const { secretHeaderValue: _secretHeaderValue, ...safeChannel } = channel;
+  return safeChannel;
 }
 
 async function hashAdminApiKeySecret(secret: string, options: AdminRouteOptions): Promise<string | undefined> {
@@ -151,6 +230,139 @@ async function hashAdminApiKeySecret(secret: string, options: AdminRouteOptions)
 
 function isKnownAdminResourceError(error: unknown, message: string): boolean {
   return error instanceof Error && error.message === message;
+}
+
+const HTTP_TOKEN_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+function isValidSecretHeaderName(headerName: string | null | undefined): boolean {
+  if (!headerName) {
+    return true;
+  }
+
+  if (!HTTP_TOKEN_PATTERN.test(headerName)) {
+    return false;
+  }
+
+  const normalizedHeaderName = headerName.toLowerCase();
+  return normalizedHeaderName.startsWith("x-") || normalizedHeaderName.startsWith("signalhub-");
+}
+
+function validateWebhookUrl(rawUrl: string, nodeEnv: string | undefined): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return false;
+  }
+
+  if (url.username !== "" || url.password !== "") {
+    return false;
+  }
+
+  return nodeEnv === "production" ? !isPrivateWebhookHost(url.hostname) : true;
+}
+
+function isPrivateWebhookHost(rawHost: string): boolean {
+  const host = normalizeLiteralHost(rawHost);
+
+  if (host === "localhost") {
+    return true;
+  }
+
+  const ipVersion = isIP(host);
+  if (ipVersion === 4) {
+    return isPrivateIpv4Host(host);
+  }
+
+  const mappedIpv4Host = parseIpv4MappedIpv6Host(host);
+  if (mappedIpv4Host) {
+    return isPrivateIpv4Host(mappedIpv4Host);
+  }
+
+  if (ipVersion === 6) {
+    return isPrivateIpv6Host(host);
+  }
+
+  return false;
+}
+
+function normalizeLiteralHost(host: string): string {
+  return host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+}
+
+function parseIpv4MappedIpv6Host(host: string): string | null {
+  const mappedPrefix = "::ffff:";
+  if (!host.startsWith(mappedPrefix)) {
+    return null;
+  }
+
+  const mappedAddress = host.slice(mappedPrefix.length);
+  if (isIP(mappedAddress) === 4) {
+    return mappedAddress;
+  }
+
+  const hextets = mappedAddress.split(":");
+  if (hextets.length !== 2) {
+    return null;
+  }
+
+  const high = parseIpv6MappedHextet(hextets[0]);
+  const low = parseIpv6MappedHextet(hextets[1]);
+  if (high === null || low === null) {
+    return null;
+  }
+
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
+}
+
+function parseIpv6MappedHextet(hextet: string | undefined): number | null {
+  if (!hextet || !/^[0-9a-f]{1,4}$/.test(hextet)) {
+    return null;
+  }
+
+  return Number.parseInt(hextet, 16);
+}
+
+function isPrivateIpv4Host(host: string): boolean {
+  const octets = host.split(".").map((octet) => Number(octet));
+  const [first, second] = octets;
+
+  return (
+    host === "0.0.0.0" ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second !== undefined && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function isPrivateIpv6Host(host: string): boolean {
+  if (host === "::" || host === "::1" || isUnspecifiedIpv6Host(host)) {
+    return true;
+  }
+
+  const firstHextet = Number.parseInt(host.split(":")[0] ?? "", 16);
+  if (Number.isNaN(firstHextet)) {
+    return false;
+  }
+
+  return (firstHextet & 0xfe00) === 0xfc00 || (firstHextet & 0xffc0) === 0xfe80;
+}
+
+function isUnspecifiedIpv6Host(host: string): boolean {
+  return host.replace(/:/g, "").replace(/0/g, "").length === 0;
+}
+
+function isValidNotificationChannelInput(
+  input: Pick<CreateNotificationChannelInput, "url" | "secretHeaderName">,
+  options: AdminRouteOptions
+): boolean {
+  return validateWebhookUrl(input.url, options.nodeEnv) && isValidSecretHeaderName(input.secretHeaderName);
 }
 
 async function requireAdmin(
@@ -546,6 +758,196 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     await options.adminResources.apiKeys.revoke(params.data.id);
+    return reply.status(204).send();
+  });
+
+  app.get("/admin/notification-channels", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.listNotificationChannels) {
+      return reply.status(501).send({ error: "notification_channels_repository_unavailable" });
+    }
+
+    const channels = await options.alerts.listNotificationChannels();
+    return reply.send({ channels: channels.map(redactNotificationChannel) });
+  });
+
+  app.post("/admin/notification-channels", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.createNotificationChannel) {
+      return reply.status(501).send({ error: "notification_channels_repository_unavailable" });
+    }
+
+    const parsed = notificationChannelSchema.safeParse(request.body);
+    if (!parsed.success || !isValidNotificationChannelInput(parsed.data, options)) {
+      return reply.status(400).send({ error: "invalid_notification_channel_request" });
+    }
+
+    const channel = await options.alerts.createNotificationChannel(parsed.data);
+    return reply.status(201).send({ channel: redactNotificationChannel(channel) });
+  });
+
+  app.patch("/admin/notification-channels/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.updateNotificationChannel) {
+      return reply.status(501).send({ error: "notification_channels_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_notification_channel_request" });
+    }
+
+    const parsed = updateNotificationChannelSchema.safeParse(request.body);
+    if (
+      !parsed.success ||
+      (parsed.data.url !== undefined && !validateWebhookUrl(parsed.data.url, options.nodeEnv)) ||
+      (parsed.data.secretHeaderName !== undefined && !isValidSecretHeaderName(parsed.data.secretHeaderName))
+    ) {
+      return reply.status(400).send({ error: "invalid_notification_channel_request" });
+    }
+
+    const channel = await options.alerts.updateNotificationChannel(params.data.id, parsed.data);
+    if (!channel) {
+      return reply.status(404).send({ error: "notification_channel_not_found" });
+    }
+
+    return reply.send({ channel: redactNotificationChannel(channel) });
+  });
+
+  app.delete("/admin/notification-channels/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.archiveNotificationChannel) {
+      return reply.status(501).send({ error: "notification_channels_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_notification_channel_request" });
+    }
+
+    await options.alerts.archiveNotificationChannel(params.data.id);
+    return reply.status(204).send();
+  });
+
+  app.get("/admin/alert-rules", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.listAlertRules) {
+      return reply.status(501).send({ error: "alert_rules_repository_unavailable" });
+    }
+
+    const parsed = alertRuleListQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_alert_rule_request" });
+    }
+
+    const rules = await options.alerts.listAlertRules({
+      projectId: parsed.data.project_id,
+      environmentId: parsed.data.environment_id
+    });
+    return reply.send({ rules });
+  });
+
+  app.post("/admin/alert-rules", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.createAlertRule) {
+      return reply.status(501).send({ error: "alert_rules_repository_unavailable" });
+    }
+
+    const parsed = alertRuleSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_alert_rule_request" });
+    }
+
+    let rule: AlertRuleRecord;
+    try {
+      rule = await options.alerts.createAlertRule(parsed.data);
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_alert_rule_scope_not_found")) {
+        return reply.status(404).send({ error: "alert_rule_scope_not_found" });
+      }
+      throw error;
+    }
+
+    return reply.status(201).send({ rule });
+  });
+
+  app.patch("/admin/alert-rules/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.updateAlertRule) {
+      return reply.status(501).send({ error: "alert_rules_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_alert_rule_request" });
+    }
+
+    const parsed = updateAlertRuleSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_alert_rule_request" });
+    }
+
+    let rule: AlertRuleRecord | null | undefined;
+    try {
+      rule = await options.alerts.updateAlertRule(params.data.id, parsed.data);
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_alert_rule_scope_not_found")) {
+        return reply.status(404).send({ error: "alert_rule_scope_not_found" });
+      }
+      throw error;
+    }
+
+    if (!rule) {
+      return reply.status(404).send({ error: "alert_rule_not_found" });
+    }
+
+    return reply.send({ rule });
+  });
+
+  app.delete("/admin/alert-rules/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.alerts?.archiveAlertRule) {
+      return reply.status(501).send({ error: "alert_rules_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_alert_rule_request" });
+    }
+
+    await options.alerts.archiveAlertRule(params.data.id);
     return reply.status(204).send();
   });
 }

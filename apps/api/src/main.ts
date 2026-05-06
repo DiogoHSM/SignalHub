@@ -17,6 +17,18 @@ import {
   updateProject
 } from "@signal-hub/db/repositories/admin.js";
 import {
+  archiveAlertRule,
+  archiveNotificationChannel,
+  createAlertRule,
+  createNotificationChannel,
+  getAlertEvent,
+  listAlertEvents,
+  listAlertRules,
+  listNotificationChannels,
+  updateAlertRule,
+  updateNotificationChannel
+} from "@signal-hub/db/repositories/alerts.js";
+import {
   archiveUser,
   createUser,
   findUserByEmail,
@@ -384,8 +396,21 @@ const app = await buildApp({
         getLastRetentionRun: () => getLastRetentionRun(db)
       })
   },
+  alerts: {
+    listNotificationChannels: () => listNotificationChannels(db),
+    createNotificationChannel: (input) => createNotificationChannel(db, input),
+    updateNotificationChannel: (id, input) => updateNotificationChannel(db, id, input),
+    archiveNotificationChannel: (id) => archiveNotificationChannel(db, id),
+    listAlertRules: (filters) => listAlertRules(db, filters),
+    createAlertRule: (input) => createAlertRule(db, input),
+    updateAlertRule: (id, input) => updateAlertRule(db, id, input),
+    archiveAlertRule: (id) => archiveAlertRule(db, id),
+    listAlertEvents: (filters) => listAlertEvents(db, filters),
+    getAlertEvent: (id) => getAlertEvent(db, id)
+  },
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,
+  nodeEnv: config.nodeEnv,
   console: {
     enabled: config.console.enabled,
     apiBasePath: "/",
