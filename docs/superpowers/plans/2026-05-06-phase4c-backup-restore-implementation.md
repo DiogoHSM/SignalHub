@@ -518,7 +518,7 @@ git commit -m "feat: add backup metadata repository"
 - Create: `apps/worker/test/backups.test.ts`
 - Modify: `pnpm-lock.yaml`
 
-- [ ] **Step 1: Add S3 dependency**
+- [x] **Step 1: Add S3 dependency**
 
 Run:
 
@@ -528,7 +528,7 @@ pnpm --filter @signal-hub/worker add @aws-sdk/client-s3
 
 Expected: `apps/worker/package.json` and `pnpm-lock.yaml` update.
 
-- [ ] **Step 2: Add failing backup runner tests**
+- [x] **Step 2: Add failing backup runner tests**
 
 Create `apps/worker/test/backups.test.ts`:
 
@@ -704,7 +704,7 @@ describe("startBackupScheduler", () => {
 });
 ```
 
-- [ ] **Step 3: Run worker backup tests and verify failure**
+- [x] **Step 3: Run worker backup tests and verify failure**
 
 Run:
 
@@ -714,7 +714,7 @@ pnpm --filter @signal-hub/worker test -- backups.test.ts
 
 Expected: fail because `apps/worker/src/backups.ts` does not exist.
 
-- [ ] **Step 4: Implement backup runner**
+- [x] **Step 4: Implement backup runner**
 
 Create `apps/worker/src/backups.ts` with these public exports and implementation:
 
@@ -947,7 +947,7 @@ export function startBackupScheduler(input: {
 }
 ```
 
-- [ ] **Step 5: Run worker backup tests and verify pass**
+- [x] **Step 5: Run worker backup tests and verify pass**
 
 Run:
 
@@ -957,7 +957,7 @@ pnpm --filter @signal-hub/worker test -- backups.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/worker/package.json apps/worker/src/backups.ts apps/worker/test/backups.test.ts pnpm-lock.yaml
