@@ -184,15 +184,15 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
   console.info(`Received ${signal}, shutting down telemetry worker`);
 
+  const backupStopResult = await Promise.allSettled([stopBackups()]);
   const stopResults = await Promise.allSettled([
-    stopBackups(),
     stopAlerts(),
     stopRetention(),
     stopHeartbeat(),
     worker.close()
   ]);
   const resourceResults = await Promise.allSettled([connection.quit(), db.destroy()]);
-  const results = [...stopResults, ...resourceResults];
+  const results = [...backupStopResult, ...stopResults, ...resourceResults];
   for (const result of results) {
     if (result.status === "rejected") {
       console.error("Telemetry worker shutdown step failed", result.reason);
