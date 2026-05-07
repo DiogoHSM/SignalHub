@@ -1519,7 +1519,7 @@ git commit -m "feat: expose backup health status"
 - Modify: `apps/console/src/components/ConsoleShell.test.tsx`
 - Modify: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing console tests**
+- [x] **Step 1: Add failing console tests**
 
 In `apps/console/src/components/SystemHealthPanel.test.tsx`, extend `healthyResponse()` with backup status:
 
@@ -1565,7 +1565,7 @@ it("renders backup status without local paths or credentials", async () => {
 
 Update any other `SystemHealthResponse` fixtures in console tests with the same `backups` shape.
 
-- [ ] **Step 2: Run console tests and verify failure**
+- [x] **Step 2: Run console tests and verify failure**
 
 Run:
 
@@ -1575,7 +1575,7 @@ pnpm --filter @signal-hub/console test -- SystemHealthPanel.test.tsx
 
 Expected: fail because types/UI do not include backups.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 In `apps/console/src/api/types.ts`, add:
 
@@ -1608,7 +1608,7 @@ backups: {
 };
 ```
 
-- [ ] **Step 4: Render backup card**
+- [x] **Step 4: Render backup card**
 
 In `apps/console/src/components/SystemHealthPanel.tsx`, add:
 
@@ -1676,7 +1676,7 @@ Add a `Backups` card in the `System operations` grid:
 </article>
 ```
 
-- [ ] **Step 5: Run console tests and build**
+- [x] **Step 5: Run console tests and build**
 
 Run:
 
@@ -1687,7 +1687,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/components/SystemHealthPanel.tsx apps/console/src/components/SystemHealthPanel.test.tsx apps/console/src/components/ConsoleShell.test.tsx apps/console/src/api/client.test.ts
