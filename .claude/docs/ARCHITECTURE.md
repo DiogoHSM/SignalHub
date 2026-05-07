@@ -34,6 +34,7 @@ Operational tables:
 - `api_keys`
 - `system_heartbeats`
 - `retention_runs`
+- `backup_runs`
 - `notification_channels`
 - `alert_rules`
 - `alert_events`
@@ -120,9 +121,11 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The worker owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, and `llm_calls` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`; worker liveness is recorded in `system_heartbeats`.
 
+The worker owns the backup scheduler. When `BACKUPS_ENABLED=true`, it creates scheduled Postgres logical backups with `pg_dump` custom format and writes them to `BACKUPS_LOCAL_DIR`. The `backup_runs` table stores backup metadata only: run status, trigger, filename, byte size, optional S3 bucket/key, timestamps, and sanitized error text. Backup dump contents are stored on the configured filesystem path and optional S3-compatible bucket, not in Postgres metadata tables.
+
 The worker also owns simple alert scheduling. When `ALERTS_ENABLED=true`, it evaluates enabled project/environment-scoped `alert_rules` under an advisory lock, records triggered `alert_events`, and sends optional generic webhook notifications through `notification_channels`. Webhook delivery outcomes are stored in `notification_deliveries`.
 
-`GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, ingestion freshness, and retention policy/run status.
+`GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, ingestion freshness, retention policy/run status, and backup status.
 
 ## Investigation Console
 

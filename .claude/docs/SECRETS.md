@@ -35,11 +35,23 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `ALERTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled alert evaluation in the worker. |
 | `ALERTS_INTERVAL_MINUTES` | No | `1` | Non-secret operational config. Minutes between scheduled alert evaluation runs. |
 | `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |
+| `BACKUPS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled Postgres logical backups in the worker. |
+| `BACKUPS_INTERVAL_HOURS` | No | `24` | Non-secret operational config. Hours between scheduled backup runs. |
+| `BACKUPS_LOCAL_DIR` | No | `/var/lib/signalhub/backups` | Non-secret operational config. Local directory for backup dump files. |
+| `BACKUPS_RETENTION_DAYS` | No | `14` | Non-secret operational config. Local backup retention window. |
+| `BACKUPS_S3_ENABLED` | No | `false` | Non-secret operational config. Enables S3-compatible backup uploads. |
+| `BACKUPS_S3_ENDPOINT` | If S3 enabled | `https://example.r2.cloudflarestorage.com` | S3-compatible endpoint, for example Cloudflare R2. |
+| `BACKUPS_S3_REGION` | If S3 enabled | `auto` | S3-compatible region. Cloudflare R2 commonly uses `auto`. |
+| `BACKUPS_S3_BUCKET` | If S3 enabled | `signalhub-backups` | Private S3-compatible backup bucket name. |
+| `BACKUPS_S3_ACCESS_KEY_ID` | If S3 enabled | `example-r2-access-key-id` | S3-compatible access key id. Store only in environment or secret manager. |
+| `BACKUPS_S3_SECRET_ACCESS_KEY` | If S3 enabled | `example-r2-secret-access-key` | S3-compatible secret access key. Store only in environment or secret manager. |
+| `BACKUPS_S3_PREFIX` | No | `production/signalhub` | Non-secret object key prefix for uploaded backups. |
 
 Operational rules:
 
 - Generate new values for `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` outside disposable local use.
 - Do not commit `.env`.
 - Do not commit root-level `SECRETS.md`.
+- S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.

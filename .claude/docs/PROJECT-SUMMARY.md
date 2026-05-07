@@ -4,7 +4,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Current Phase
 
-Phase 4B: Simple Alerts.
+Phase 4C: Operational Safety, Backups, and Restore.
 
 Implemented capabilities:
 
@@ -23,7 +23,8 @@ Implemented capabilities:
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, selected tenant top users, and cross-signal timeline drilldowns.
 - Read-only Users investigation workspace with impact-ranked user summaries, selected user recent sessions, and cross-signal timeline drilldowns.
 - Worker-owned telemetry retention with per-table windows, bounded batches, and recorded retention runs.
-- Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, and retention status.
+- Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.
+- Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
 - Internal alert history with optional generic webhook notification channels and recorded delivery attempts.
 - Health and readiness endpoints.
@@ -35,7 +36,7 @@ Implemented capabilities:
 - Full RBAC or per-project permissions.
 - End-user product UI outside the operational console.
 - Batch ingestion.
-- ClickHouse and object storage adapters.
+- ClickHouse and object storage adapters beyond optional backup upload.
 - Stored log telemetry.
 - Retention for operational metadata, projects, environments, users, or API keys.
 - Native email, Telegram, Discord, escalation, silencing, acknowledgement, and alert retry workflows.

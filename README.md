@@ -52,7 +52,7 @@ Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operato
 
 ## Operational Config
 
-Retention and alert scheduler settings are non-secret operational config. They are documented in `.env.example` and `.claude/docs/SECRETS.md`.
+Retention, alert scheduler, and backup scheduler settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
 
 ## Operational Safety
 
@@ -71,6 +71,40 @@ Retention only deletes telemetry rows. Operational metadata, projects, environme
 Set `RETENTION_ENABLED=false` to disable scheduled deletion. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
 The console `System` mode is available to logged-in users. It shows API, worker, Postgres, Redis, queue, ingestion freshness, and retention status from the system health endpoint.
+
+## Backups and Restore
+
+The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs `pg_dump` in custom format and writes files named like `signalhub-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`.
+
+Docker Compose mounts the `backup_data` volume at `/var/lib/signalhub/backups` in the worker container. Local retention deletes old local backup files according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files remain on local storage and, optionally, remote object storage.
+
+Run a manual backup with:
+
+```sh
+pnpm backup:create
+```
+
+Restore is destructive. Stop the API and worker before restoring so no process writes to Postgres during `pg_restore`:
+
+```sh
+docker compose stop api worker
+docker compose run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-YYYYMMDDTHHMMSSZ.dump --yes
+docker compose start api worker
+```
+
+For Cloudflare R2, use a private bucket and a scoped token that can write backup objects. Example:
+
+```dotenv
+BACKUPS_S3_ENABLED=true
+BACKUPS_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+BACKUPS_S3_REGION=auto
+BACKUPS_S3_BUCKET=signalhub-backups
+BACKUPS_S3_ACCESS_KEY_ID=<r2-access-key-id>
+BACKUPS_S3_SECRET_ACCESS_KEY=<r2-secret-access-key>
+BACKUPS_S3_PREFIX=production/signalhub
+```
+
+Remote retention is handled by bucket lifecycle rules in this slice.
 
 ## Simple Alerts
 

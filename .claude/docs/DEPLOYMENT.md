@@ -43,6 +43,38 @@ Simple alert evaluation is built into the worker. Set `ALERTS_ENABLED`, `ALERTS_
 
 Set `ALERTS_ENABLED=false` to stop scheduled alert evaluation while keeping the worker available for ingestion and retention.
 
+## Backups and Restore
+
+Postgres logical backups are built into the worker. Set `BACKUPS_ENABLED=true`, `BACKUPS_INTERVAL_HOURS`, `BACKUPS_LOCAL_DIR`, and `BACKUPS_RETENTION_DAYS` in `.env` to control scheduled backups and local pruning. The Compose worker mounts `backup_data` at `/var/lib/signalhub/backups`, which matches the default `BACKUPS_LOCAL_DIR`.
+
+The image includes `postgresql16-client` so `pg_dump` and `pg_restore` are available for backup scripts. Manual backups can be run with:
+
+```sh
+docker compose run --rm worker pnpm backup:create
+```
+
+Optional S3-compatible remote upload is configured with:
+
+```dotenv
+BACKUPS_S3_ENABLED=true
+BACKUPS_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+BACKUPS_S3_REGION=auto
+BACKUPS_S3_BUCKET=signalhub-backups
+BACKUPS_S3_ACCESS_KEY_ID=<r2-access-key-id>
+BACKUPS_S3_SECRET_ACCESS_KEY=<r2-secret-access-key>
+BACKUPS_S3_PREFIX=production/signalhub
+```
+
+For Cloudflare R2, use a private bucket and a scoped token. Remote retention is managed by bucket lifecycle rules in this slice.
+
+Restore is destructive and requires the API and worker to be stopped before running `pg_restore`:
+
+```sh
+docker compose stop api worker
+docker compose run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-YYYYMMDDTHHMMSSZ.dump --yes
+docker compose start api worker
+```
+
 ## Migrations
 
 The API runs migrations during startup. Operators can also run migrations explicitly with:
