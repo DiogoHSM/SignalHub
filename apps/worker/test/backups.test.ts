@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import {
   createBackupS3Key,
@@ -33,23 +34,58 @@ describe("createBackupS3Key", () => {
 });
 
 describe("dumpPostgresDatabase", () => {
-  it("runs pg_dump with custom format and ownership-safe flags", async () => {
-    const execFileFn = vi.fn(async () => undefined);
+  it("runs pg_dump with explicit non-secret connection args and password in the environment", async () => {
+    const execFileFn = vi.fn(
+      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv }) => undefined
+    );
 
     await dumpPostgresDatabase({
-      databaseUrl: "postgres://user:pass@localhost:5432/signalhub",
+      databaseUrl: "postgres://user:pa%24%24@localhost:5433/signalhub",
       outputPath: "/tmp/signalhub.dump",
       execFileFn
     });
 
-    expect(execFileFn).toHaveBeenCalledWith("pg_dump", [
+    const [command, args, options] = execFileFn.mock.calls[0] ?? [];
+    expect(command).toBe("pg_dump");
+    expect(args).toEqual([
       "--format=custom",
       "--no-owner",
       "--no-privileges",
       "--file",
       "/tmp/signalhub.dump",
-      "postgres://user:pass@localhost:5432/signalhub"
+      "--dbname",
+      "signalhub",
+      "--host",
+      "localhost",
+      "--port",
+      "5433",
+      "--username",
+      "user"
     ]);
+    expect(args).not.toContain("postgres://user:pa%24%24@localhost:5433/signalhub");
+    expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "pa$$" }) }));
+  });
+
+  it("does not include the raw database URL in thrown pg_dump errors", async () => {
+    const databaseUrl = "postgres://user:secret@localhost:5432/signalhub";
+    const execFileFn = vi.fn(async () => {
+      throw new Error(`Command failed: pg_dump ${databaseUrl}`);
+    });
+
+    await expect(
+      dumpPostgresDatabase({
+        databaseUrl,
+        outputPath: "/tmp/signalhub.dump",
+        execFileFn
+      })
+    ).rejects.toThrow("pg_dump failed");
+    await expect(
+      dumpPostgresDatabase({
+        databaseUrl,
+        outputPath: "/tmp/signalhub.dump",
+        execFileFn
+      })
+    ).rejects.not.toThrow(databaseUrl);
   });
 });
 
@@ -92,22 +128,53 @@ describe("uploadBackupToS3", () => {
       })
     );
   });
+
+  it("destroys the backup stream when S3 upload fails", async () => {
+    const stream = Readable.from(["backup-content"]);
+    const destroy = vi.spyOn(stream, "destroy");
+    const send = vi.fn(async () => {
+      throw new Error("s3 failed secret=hidden");
+    });
+
+    await expect(
+      uploadBackupToS3({
+        filePath: "/tmp/signalhub.dump",
+        key: "prod/signalhub/signalhub-20260506T120000Z.dump",
+        s3: {
+          enabled: true,
+          endpoint: "https://example.r2.cloudflarestorage.com",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "prod/signalhub"
+        },
+        createClient: () => ({ send }),
+        createReadStreamFn: () => stream
+      })
+    ).rejects.toThrow("s3 failed secret=hidden");
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("pruneLocalBackups", () => {
   it("only deletes old SignalHub dump files", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
-    const oldBackup = join(localDir, "signalhub-old.dump");
+    const oldBackup = join(localDir, "signalhub-20260401T000000Z.dump");
     const freshBackup = join(localDir, "signalhub-fresh.dump");
+    const manualBackup = join(localDir, "signalhub-manual.dump");
     const unrelatedDump = join(localDir, "other-old.dump");
     const unrelatedText = join(localDir, "signalhub-old.txt");
 
     try {
       await writeFile(oldBackup, "old");
       await writeFile(freshBackup, "fresh");
+      await writeFile(manualBackup, "manual");
       await writeFile(unrelatedDump, "other");
       await writeFile(unrelatedText, "text");
       await utimes(oldBackup, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
+      await utimes(manualBackup, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
       await utimes(unrelatedDump, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
       await utimes(unrelatedText, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
 
@@ -119,6 +186,7 @@ describe("pruneLocalBackups", () => {
 
       await expect(stat(oldBackup)).rejects.toThrow();
       await expect(stat(freshBackup)).resolves.toBeTruthy();
+      await expect(stat(manualBackup)).resolves.toBeTruthy();
       await expect(stat(unrelatedDump)).resolves.toBeTruthy();
       await expect(stat(unrelatedText)).resolves.toBeTruthy();
     } finally {
@@ -130,7 +198,7 @@ describe("pruneLocalBackups", () => {
 describe("runBackupOnce", () => {
   it("creates a local backup, uploads to S3 when enabled, records success, and prunes old local files", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
-    const oldFile = join(localDir, "signalhub-old.dump");
+    const oldFile = join(localDir, "signalhub-20260401T000000Z.dump");
     await writeFile(oldFile, "old");
     await utimes(oldFile, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
 
@@ -182,6 +250,97 @@ describe("runBackupOnce", () => {
           s3Bucket: "bucket",
           s3Key: "prod/signalhub/signalhub-20260506T120000Z.dump",
           errorMessage: null
+        })
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records a sanitized failed run when S3 upload fails", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
+    const recordBackupRun = vi.fn(async (input) => input);
+
+    try {
+      await expect(
+        runBackupOnce({
+          now: () => new Date("2026-05-06T12:00:00.000Z"),
+          trigger: "scheduled",
+          config: {
+            enabled: true,
+            intervalHours: 24,
+            localDir,
+            retentionDays: 14,
+            databaseUrl: "postgres://user:password@localhost:5432/signalhub",
+            s3: {
+              enabled: true,
+              endpoint: "https://example.r2.cloudflarestorage.com",
+              region: "auto",
+              bucket: "bucket",
+              accessKeyId: "access",
+              secretAccessKey: "secret",
+              prefix: "prod/signalhub"
+            }
+          },
+          withLock: async (run) => ({ locked: true, result: await run() }),
+          dumpDatabase: async (input) => {
+            await writeFile(input.outputPath, "backup-content");
+          },
+          uploadBackup: async () => {
+            throw new Error("S3 upload failed secret=hidden");
+          },
+          recordBackupRun
+        })
+      ).resolves.toEqual({ ran: true, skipped: false });
+
+      expect(recordBackupRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "failed",
+          trigger: "scheduled",
+          sizeBytes: null,
+          s3Bucket: null,
+          s3Key: null,
+          errorMessage: "S3 upload failed secret=[REDACTED]"
+        })
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records a sanitized failed run when pruning fails", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
+    const recordBackupRun = vi.fn(async (input) => input);
+
+    try {
+      await expect(
+        runBackupOnce({
+          now: () => new Date("2026-05-06T12:00:00.000Z"),
+          trigger: "scheduled",
+          config: {
+            enabled: true,
+            intervalHours: 24,
+            localDir,
+            retentionDays: 14,
+            databaseUrl: "postgres://user:password@localhost:5432/signalhub",
+            s3: { enabled: false, endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", prefix: "signalhub" }
+          },
+          withLock: async (run) => ({ locked: true, result: await run() }),
+          dumpDatabase: async (input) => {
+            await writeFile(input.outputPath, "backup-content");
+          },
+          pruneBackups: async () => {
+            throw new Error("prune failed password=hidden");
+          },
+          recordBackupRun
+        })
+      ).resolves.toEqual({ ran: true, skipped: false });
+
+      expect(recordBackupRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "failed",
+          trigger: "scheduled",
+          errorMessage: "prune failed password=[REDACTED]"
         })
       );
     } finally {

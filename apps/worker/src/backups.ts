@@ -2,12 +2,19 @@ import { createReadStream } from "node:fs";
 import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
+import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
 
 const execFileAsync = promisify(execFile);
-const backupFilenamePattern = /^signalhub-.*\.dump$/;
+const backupFilenamePattern = /^signalhub-\d{8}T\d{6}Z\.dump$/;
+type ExecFileFn = (
+  file: string,
+  args: string[],
+  options?: { env?: NodeJS.ProcessEnv }
+) => Promise<unknown>;
+type BackupReadStream = Readable & { destroy: (error?: Error) => void };
 
 export type BackupTrigger = "scheduled" | "manual";
 
@@ -46,7 +53,7 @@ export type BackupRunInput = {
 export type DumpDatabaseInput = {
   databaseUrl: string;
   outputPath: string;
-  execFileFn?: (file: string, args: string[]) => Promise<unknown>;
+  execFileFn?: ExecFileFn;
 };
 
 export type UploadBackupInput = {
@@ -54,6 +61,7 @@ export type UploadBackupInput = {
   key: string;
   s3: BackupS3Config;
   createClient?: (config: S3ClientConfig) => { send: (command: PutObjectCommand) => Promise<unknown> };
+  createReadStreamFn?: (path: string) => BackupReadStream;
 };
 
 export type RunBackupOnceInput = {
@@ -63,6 +71,7 @@ export type RunBackupOnceInput = {
   withLock: <T>(run: () => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
   dumpDatabase?: (input: DumpDatabaseInput) => Promise<void>;
   uploadBackup?: (input: UploadBackupInput) => Promise<{ bucket: string; key: string }>;
+  pruneBackups?: typeof pruneLocalBackups;
   recordBackupRun: (input: BackupRunInput) => Promise<unknown>;
 };
 
@@ -87,22 +96,45 @@ export function createBackupS3Key(prefix: string, filename: string): string {
 export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<void> {
   const execFileFn =
     input.execFileFn ??
-    (async (file: string, args: string[]) => {
-      await execFileAsync(file, args);
+    (async (file: string, args: string[], options?: { env?: NodeJS.ProcessEnv }) => {
+      await execFileAsync(file, args, options);
     });
-
-  await execFileFn("pg_dump", [
+  const databaseUrl = new URL(input.databaseUrl);
+  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
+  const username = decodeURIComponent(databaseUrl.username);
+  const password = decodeURIComponent(databaseUrl.password);
+  const args = [
     "--format=custom",
     "--no-owner",
     "--no-privileges",
     "--file",
     input.outputPath,
-    input.databaseUrl
-  ]);
+    "--dbname",
+    databaseName,
+    "--host",
+    databaseUrl.hostname
+  ];
+
+  if (databaseUrl.port !== "") {
+    args.push("--port", databaseUrl.port);
+  }
+
+  if (username !== "") {
+    args.push("--username", username);
+  }
+
+  const options = password === "" ? undefined : { env: { ...process.env, PGPASSWORD: password } };
+
+  try {
+    await execFileFn("pg_dump", args, options);
+  } catch {
+    throw new Error("pg_dump failed");
+  }
 }
 
 export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ bucket: string; key: string }> {
   const createClient = input.createClient ?? ((config: S3ClientConfig) => new S3Client(config));
+  const createReadStreamFn = input.createReadStreamFn ?? ((path: string) => createReadStream(path));
   const client = createClient({
     endpoint: input.s3.endpoint,
     region: input.s3.region,
@@ -112,15 +144,20 @@ export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ buck
     },
     forcePathStyle: true
   });
+  const body = createReadStreamFn(input.filePath);
 
-  await client.send(
-    new PutObjectCommand({
-      Bucket: input.s3.bucket,
-      Key: input.key,
-      Body: createReadStream(input.filePath),
-      ContentType: "application/octet-stream"
-    })
-  );
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: input.s3.bucket,
+        Key: input.key,
+        Body: body,
+        ContentType: "application/octet-stream"
+      })
+    );
+  } finally {
+    body.destroy();
+  }
 
   return { bucket: input.s3.bucket, key: input.key };
 }
@@ -153,6 +190,7 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
   const localPath = join(runtime.config.localDir, filename);
   const dumpDatabase = runtime.dumpDatabase ?? dumpPostgresDatabase;
   const uploadBackup = runtime.uploadBackup ?? uploadBackupToS3;
+  const pruneBackups = runtime.pruneBackups ?? pruneLocalBackups;
 
   try {
     const lockResult = await runtime.withLock(async () => {
@@ -169,7 +207,7 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
         s3Key = uploaded.key;
       }
 
-      await pruneLocalBackups({
+      await pruneBackups({
         localDir: runtime.config.localDir,
         retentionDays: runtime.config.retentionDays,
         now: startedAt
