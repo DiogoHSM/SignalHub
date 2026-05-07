@@ -19,6 +19,8 @@ export function parseRestoreArgs(argv: string[]): { filePath: string } {
   for (const arg of args) {
     if (arg === "--yes") {
       hasYes = true;
+    } else if (arg === "--") {
+      continue;
     } else if (arg.startsWith("-")) {
       throw new Error(`Unknown restore option: ${arg}`);
     } else {

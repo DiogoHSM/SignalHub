@@ -44,7 +44,13 @@ describe("parseRestoreArgs", () => {
       "Usage: pnpm backup:restore -- <file> --yes"
     );
     expect(() => parseRestoreArgs(["node", "backup-restore.ts", "backup.dump"])).toThrow("Restore requires --yes");
+    expect(() => parseRestoreArgs(["node", "backup-restore.ts", "--", "backup.dump"])).toThrow(
+      "Restore requires --yes"
+    );
     expect(parseRestoreArgs(["node", "backup-restore.ts", "backup.dump", "--yes"])).toEqual({
+      filePath: "backup.dump"
+    });
+    expect(parseRestoreArgs(["node", "backup-restore.ts", "--", "backup.dump", "--yes"])).toEqual({
       filePath: "backup.dump"
     });
   });
