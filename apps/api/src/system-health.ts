@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import type { SystemBackupHealthRun, SystemHealthSnapshot, SystemQueueCounts, SystemStatus } from "./routes/system.js";
 
 type RetentionPolicy = SystemHealthSnapshot["retention"]["policy"];
@@ -133,16 +134,21 @@ function toBackupHealthRun(run: BackupRun | null): SystemBackupHealthRun | null 
     sizeBytes: run.sizeBytes,
     s3Bucket: run.s3Bucket,
     s3Key: run.s3Key,
-    errorMessage: redactBackupErrorMessage(run.errorMessage)
+    errorMessage: redactBackupErrorMessage(run.errorMessage, run.localPath)
   };
 }
 
-function redactBackupErrorMessage(message: string | null): string | null {
-  return (
-    message
-      ?.replace(/(?:[A-Za-z]:)?[\\/](?:[^\s"'<>|]+[\\/])*backups[\\/](?:signalhub-\d{8}T\d{6}Z\.dump)?/g, "[REDACTED_PATH]")
-      .replace(/(?:[A-Za-z]:)?[\\/](?:[^\s"'<>|]+[\\/])*backups\b/g, "[REDACTED_PATH]") ?? null
-  );
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function redactBackupErrorMessage(message: string | null, localPath: string): string | null {
+  if (!message) return null;
+
+  const localDir = dirname(localPath);
+  return message
+    .replace(new RegExp(escapeRegex(localPath), "g"), "[REDACTED_PATH]")
+    .replace(new RegExp(escapeRegex(localDir), "g"), "[REDACTED_PATH]");
 }
 
 function isBackupStale(input: {
