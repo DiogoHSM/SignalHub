@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { LookupFunction } from "node:net";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
@@ -7,6 +10,7 @@ import {
   startAlertScheduler,
   validateWebhookTarget
 } from "../src/alerts.js";
+import { runBackupOnce, startBackupScheduler } from "../src/backups.js";
 import { startHeartbeat } from "../src/heartbeat.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
@@ -344,6 +348,47 @@ describe("buildDeadLetterJobInput", () => {
       },
       errorMessage: "authorization: [REDACTED]"
     });
+  });
+});
+
+describe("backup scheduler integration helpers", () => {
+  it("records a scheduled backup through injected dependencies", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "signalhub-main-backups-"));
+    const recordBackupRun = vi.fn(async (input) => input);
+    try {
+      const result = await runBackupOnce({
+        now: () => new Date("2026-05-06T12:00:00.000Z"),
+        trigger: "scheduled",
+        config: {
+          enabled: true,
+          intervalHours: 24,
+          localDir,
+          retentionDays: 14,
+          databaseUrl: "postgres://user:pass@localhost:5432/signalhub",
+          s3: {
+            enabled: false,
+            endpoint: "",
+            region: "auto",
+            bucket: "",
+            accessKeyId: "",
+            secretAccessKey: "",
+            prefix: "signalhub"
+          }
+        },
+        withLock: async (run) => ({ locked: true, result: await run() }),
+        dumpDatabase: async ({ outputPath }) => {
+          await writeFile(outputPath, "backup-content");
+        },
+        recordBackupRun
+      });
+
+      expect(result).toEqual({ ran: true, skipped: false });
+      expect(recordBackupRun).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "success", trigger: "scheduled" })
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });
 

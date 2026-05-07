@@ -3,6 +3,7 @@ import { Redis } from "ioredis";
 import { loadConfig } from "@signal-hub/config";
 import { createDb } from "@signal-hub/db";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
+import { recordBackupRun, withBackupLock } from "@signal-hub/db/repositories/backups.js";
 import {
   insertError,
   insertEvent,
@@ -27,6 +28,7 @@ import {
   withAlertEvaluationLock
 } from "@signal-hub/db/repositories/alerts.js";
 import { deliverWebhook, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
+import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
@@ -119,6 +121,29 @@ const stopAlerts = config.alerts.enabled
     })
   : async () => {};
 
+const backupConfig = {
+  enabled: config.backups.enabled,
+  intervalHours: config.backups.intervalHours,
+  localDir: config.backups.localDir,
+  retentionDays: config.backups.retentionDays,
+  databaseUrl: config.databaseUrl,
+  s3: config.backups.s3
+};
+
+const stopBackups = config.backups.enabled
+  ? startBackupScheduler({
+      intervalHours: config.backups.intervalHours,
+      runOnce: () =>
+        runBackupOnce({
+          now: () => new Date(),
+          trigger: "scheduled",
+          config: backupConfig,
+          withLock: (run) => withBackupLock(db, run),
+          recordBackupRun: (input) => recordBackupRun(db, input)
+        })
+    })
+  : async () => {};
+
 worker.on("completed", (job) => {
   console.info(`Processed telemetry job ${job.id ?? "unknown"} (${job.name})`);
 });
@@ -159,7 +184,13 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
   console.info(`Received ${signal}, shutting down telemetry worker`);
 
-  const stopResults = await Promise.allSettled([stopAlerts(), stopRetention(), stopHeartbeat(), worker.close()]);
+  const stopResults = await Promise.allSettled([
+    stopBackups(),
+    stopAlerts(),
+    stopRetention(),
+    stopHeartbeat(),
+    worker.close()
+  ]);
   const resourceResults = await Promise.allSettled([connection.quit(), db.destroy()]);
   const results = [...stopResults, ...resourceResults];
   for (const result of results) {
