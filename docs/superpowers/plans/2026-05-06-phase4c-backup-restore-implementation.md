@@ -1100,7 +1100,7 @@ git commit -m "feat: schedule worker backups"
 - Modify: `package.json`
 - Test: `apps/worker/test/backups.test.ts`
 
-- [ ] **Step 1: Add failing restore confirmation tests**
+- [x] **Step 1: Add failing restore confirmation tests**
 
 Add to `apps/worker/test/backups.test.ts`:
 
@@ -1116,7 +1116,7 @@ describe("parseRestoreArgs", () => {
 });
 ```
 
-- [ ] **Step 2: Run script-related tests and verify failure**
+- [x] **Step 2: Run script-related tests and verify failure**
 
 Run:
 
@@ -1126,7 +1126,7 @@ pnpm --filter @signal-hub/worker test -- backups.test.ts
 
 Expected: fail because `scripts/backup-restore.ts` does not exist.
 
-- [ ] **Step 3: Add manual backup script**
+- [x] **Step 3: Add manual backup script**
 
 Create `scripts/backup-create.ts`:
 
@@ -1173,7 +1173,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 ```
 
-- [ ] **Step 4: Add restore script**
+- [x] **Step 4: Add restore script**
 
 Create `scripts/backup-restore.ts`:
 
@@ -1233,7 +1233,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 ```
 
-- [ ] **Step 5: Add package scripts**
+- [x] **Step 5: Add package scripts**
 
 In root `package.json`, add:
 
@@ -1242,7 +1242,7 @@ In root `package.json`, add:
 "backup:restore": "tsx scripts/backup-restore.ts"
 ```
 
-- [ ] **Step 6: Run tests and script help checks**
+- [x] **Step 6: Run tests and script help checks**
 
 Run:
 
@@ -1253,7 +1253,7 @@ pnpm backup:restore
 
 Expected: tests pass; `pnpm backup:restore` exits non-zero with `Usage: pnpm backup:restore -- <file> --yes`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/backup-create.ts scripts/backup-restore.ts package.json apps/worker/test/backups.test.ts
