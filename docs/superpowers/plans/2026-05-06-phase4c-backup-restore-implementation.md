@@ -1269,7 +1269,7 @@ git commit -m "feat: add backup operator scripts"
 - Modify: `apps/api/src/main.ts`
 - Modify: `apps/api/test/system.test.ts`
 
-- [ ] **Step 1: Add failing API health tests**
+- [x] **Step 1: Add failing API health tests**
 
 In `apps/api/test/system.test.ts`, extend the snapshot fixture with:
 
@@ -1350,7 +1350,7 @@ it("includes backup status and marks stale backups degraded", async () => {
 });
 ```
 
-- [ ] **Step 2: Run API system tests and verify failure**
+- [x] **Step 2: Run API system tests and verify failure**
 
 Run:
 
@@ -1360,7 +1360,7 @@ pnpm --filter @signal-hub/api test -- system.test.ts
 
 Expected: fail because backup health types/dependencies are missing.
 
-- [ ] **Step 3: Extend system route types**
+- [x] **Step 3: Extend system route types**
 
 In `apps/api/src/routes/system.ts`, add:
 
@@ -1398,7 +1398,7 @@ backups: {
 };
 ```
 
-- [ ] **Step 4: Extend `createSystemHealthSnapshot`**
+- [x] **Step 4: Extend `createSystemHealthSnapshot`**
 
 In `apps/api/src/system-health.ts`, add dependency types:
 
@@ -1472,7 +1472,7 @@ backupStale === true || backupFailed
 
 Return `backups`.
 
-- [ ] **Step 5: Wire API main**
+- [x] **Step 5: Wire API main**
 
 In `apps/api/src/main.ts`, import:
 
@@ -1492,7 +1492,7 @@ backups: {
 getBackupStatus: () => getBackupStatus(db)
 ```
 
-- [ ] **Step 6: Run API system tests and verify pass**
+- [x] **Step 6: Run API system tests and verify pass**
 
 Run:
 
@@ -1502,7 +1502,7 @@ pnpm --filter @signal-hub/api test -- system.test.ts
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/system.ts apps/api/src/system-health.ts apps/api/src/main.ts apps/api/test/system.test.ts
