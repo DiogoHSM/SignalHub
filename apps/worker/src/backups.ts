@@ -103,24 +103,29 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
   const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
   const username = decodeURIComponent(databaseUrl.username);
   const password = decodeURIComponent(databaseUrl.password);
+  const sanitizedConnectionUrl = new URL(databaseUrl);
+  sanitizedConnectionUrl.password = "";
   const args = [
     "--format=custom",
     "--no-owner",
     "--no-privileges",
     "--file",
     input.outputPath,
-    "--dbname",
-    databaseName,
-    "--host",
-    databaseUrl.hostname
+    "--dbname"
   ];
 
-  if (databaseUrl.port !== "") {
-    args.push("--port", databaseUrl.port);
-  }
+  if (databaseUrl.search !== "") {
+    args.push(sanitizedConnectionUrl.toString());
+  } else {
+    args.push(databaseName, "--host", databaseUrl.hostname);
 
-  if (username !== "") {
-    args.push("--username", username);
+    if (databaseUrl.port !== "") {
+      args.push("--port", databaseUrl.port);
+    }
+
+    if (username !== "") {
+      args.push("--username", username);
+    }
   }
 
   const options = password === "" ? undefined : { env: { ...process.env, PGPASSWORD: password } };
