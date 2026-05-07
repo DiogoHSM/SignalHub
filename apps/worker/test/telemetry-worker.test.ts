@@ -10,7 +10,7 @@ import {
   startAlertScheduler,
   validateWebhookTarget
 } from "../src/alerts.js";
-import { runBackupOnce, startBackupScheduler } from "../src/backups.js";
+import { runBackupOnce } from "../src/backups.js";
 import { startHeartbeat } from "../src/heartbeat.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
