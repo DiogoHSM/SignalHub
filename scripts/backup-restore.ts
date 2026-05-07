@@ -1,36 +1,93 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "../packages/config/src/index.js";
 
+type RestoreSpawnOptions = { stdio: ["ignore", "inherit", "pipe"]; env?: NodeJS.ProcessEnv };
+type RestoreChildProcess = ChildProcessByStdio<null, null, Readable>;
+type RestoreSpawnFn = (
+  command: string,
+  args: string[],
+  options: RestoreSpawnOptions
+) => RestoreChildProcess;
+
 export function parseRestoreArgs(argv: string[]): { filePath: string } {
   const args = argv.slice(2);
-  const filePath = args.find((arg) => arg !== "--yes");
+  const filePaths: string[] = [];
+  let hasYes = false;
 
-  if (!filePath) {
+  for (const arg of args) {
+    if (arg === "--yes") {
+      hasYes = true;
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown restore option: ${arg}`);
+    } else {
+      filePaths.push(arg);
+    }
+  }
+
+  if (filePaths.length === 0) {
     throw new Error("Usage: pnpm backup:restore -- <file> --yes");
   }
 
-  if (!args.includes("--yes")) {
+  if (!hasYes) {
     throw new Error("Restore requires --yes");
   }
 
-  return { filePath };
+  if (filePaths.length !== 1) {
+    throw new Error("Restore accepts exactly one file path");
+  }
+
+  return { filePath: filePaths[0] };
 }
 
-export async function restoreBackup(input: { databaseUrl: string; filePath: string }): Promise<void> {
+export async function restoreBackup(input: {
+  databaseUrl: string;
+  filePath: string;
+  spawnFn?: RestoreSpawnFn;
+}): Promise<void> {
+  const spawnFn = input.spawnFn ?? spawn;
+  const databaseUrl = new URL(input.databaseUrl);
+  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
+  const username = decodeURIComponent(databaseUrl.username);
+  const password = decodeURIComponent(databaseUrl.password);
+  const sanitizedConnectionUrl = new URL(databaseUrl);
+  sanitizedConnectionUrl.password = "";
+  const databaseArgs = ["--dbname"];
+
+  if (databaseUrl.search !== "") {
+    databaseArgs.push(sanitizedConnectionUrl.toString());
+  } else {
+    databaseArgs.push(databaseName, "--host", databaseUrl.hostname);
+
+    if (databaseUrl.port !== "") {
+      databaseArgs.push("--port", databaseUrl.port);
+    }
+
+    if (username !== "") {
+      databaseArgs.push("--username", username);
+    }
+  }
+
+  const stdio: ["ignore", "inherit", "pipe"] = ["ignore", "inherit", "pipe"];
+  const options: RestoreSpawnOptions =
+    password === ""
+      ? { stdio }
+      : { stdio, env: { ...process.env, PGPASSWORD: password } };
+
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(
+    const child = spawnFn(
       "pg_restore",
       [
         "--clean",
         "--if-exists",
         "--no-owner",
         "--no-privileges",
-        "--dbname",
-        input.databaseUrl,
+        ...databaseArgs,
+        "--",
         input.filePath
       ],
-      { stdio: ["ignore", "inherit", "pipe"] }
+      options
     );
     const stderrChunks: Buffer[] = [];
 

@@ -1,8 +1,9 @@
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createBackupS3Key,
   createBackupFilename,
@@ -12,8 +13,24 @@ import {
   startBackupScheduler,
   uploadBackupToS3
 } from "../src/backups.js";
-import { parseRestoreArgs } from "../../../scripts/backup-restore.js";
+import { parseRestoreArgs, restoreBackup } from "../../../scripts/backup-restore.js";
 import type { BackupRunInput, BackupRuntimeConfig, BackupS3Config } from "../src/backups.js";
+
+const childProcessMock = vi.hoisted(() => ({
+  spawn: vi.fn()
+}));
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawn: childProcessMock.spawn
+}));
+
+function createSuccessfulChildProcess(): EventEmitter & { stderr: EventEmitter } {
+  const child = new EventEmitter() as EventEmitter & { stderr: EventEmitter };
+  child.stderr = new EventEmitter();
+  queueMicrotask(() => child.emit("close", 0));
+  return child;
+}
 
 describe("createBackupFilename", () => {
   it("uses a UTC timestamp and no secrets", () => {
@@ -30,6 +47,84 @@ describe("parseRestoreArgs", () => {
     expect(parseRestoreArgs(["node", "backup-restore.ts", "backup.dump", "--yes"])).toEqual({
       filePath: "backup.dump"
     });
+  });
+
+  it("rejects ambiguous positional file paths", () => {
+    expect(() =>
+      parseRestoreArgs(["node", "backup-restore.ts", "backup-a.dump", "backup-b.dump", "--yes"])
+    ).toThrow("Restore accepts exactly one file path");
+  });
+
+  it("rejects unknown and dash-prefixed restore options", () => {
+    expect(() => parseRestoreArgs(["node", "backup-restore.ts", "backup.dump", "--force", "--yes"])).toThrow(
+      "Unknown restore option: --force"
+    );
+    expect(() => parseRestoreArgs(["node", "backup-restore.ts", "-backup.dump", "--yes"])).toThrow(
+      "Unknown restore option: -backup.dump"
+    );
+  });
+});
+
+describe("restoreBackup", () => {
+  beforeEach(() => {
+    childProcessMock.spawn.mockReset();
+  });
+
+  it("passes password through PGPASSWORD and non-secret connection args", async () => {
+    const databaseUrl = "postgres://user:pa%24%24@localhost:5433/signalhub";
+    childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
+
+    await restoreBackup({
+      databaseUrl,
+      filePath: "/tmp/signalhub.dump"
+    });
+
+    const [command, args, options] = childProcessMock.spawn.mock.calls[0] ?? [];
+    expect(command).toBe("pg_restore");
+    expect(args).toEqual([
+      "--clean",
+      "--if-exists",
+      "--no-owner",
+      "--no-privileges",
+      "--dbname",
+      "signalhub",
+      "--host",
+      "localhost",
+      "--port",
+      "5433",
+      "--username",
+      "user",
+      "--",
+      "/tmp/signalhub.dump"
+    ]);
+    expect(args).not.toContain(databaseUrl);
+    expect(args?.join(" ")).not.toContain("pa%24%24");
+    expect(args?.join(" ")).not.toContain("pa$$");
+    expect(options).toEqual(
+      expect.objectContaining({
+        env: expect.objectContaining({ PGPASSWORD: "pa$$" }),
+        stdio: ["ignore", "inherit", "pipe"]
+      })
+    );
+  });
+
+  it("preserves non-secret database URL options without putting the password in argv", async () => {
+    const databaseUrl =
+      "postgres://user:secret@db.example.com:5432/signalhub?sslmode=require&application_name=signalhub";
+    childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
+
+    await restoreBackup({
+      databaseUrl,
+      filePath: "/tmp/signalhub.dump"
+    });
+
+    const [, args, options] = childProcessMock.spawn.mock.calls[0] ?? [];
+    expect(args).not.toContain(databaseUrl);
+    expect(args?.join(" ")).not.toContain("secret");
+    expect(args).toContain("postgres://user@db.example.com:5432/signalhub?sslmode=require&application_name=signalhub");
+    expect(args).toContain("--");
+    expect(args?.slice(-2)).toEqual(["--", "/tmp/signalhub.dump"]);
+    expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
   });
 });
 
