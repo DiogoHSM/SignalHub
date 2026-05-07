@@ -152,6 +152,71 @@ describe("SystemHealthPanel", () => {
     expect(screen.queryByText(/secret/i)).not.toBeInTheDocument();
   });
 
+  it("renders unknown backup metadata as degraded when backups are enabled", async () => {
+    const api = client(
+      vi.fn().mockResolvedValue({
+        data: healthyResponse({
+          status: "degraded",
+          backups: {
+            enabled: true,
+            intervalHours: 24,
+            retentionDays: 14,
+            s3Enabled: false,
+            stale: null,
+            latestSuccess: null,
+            latestFailure: {
+              id: "bkp_failure",
+              status: "failed",
+              trigger: "scheduled",
+              startedAt: "2026-05-06T11:00:00.000Z",
+              finishedAt: null,
+              filename: "signalhub-20260506T110000Z.dump",
+              sizeBytes: null,
+              s3Bucket: null,
+              s3Key: null,
+              errorMessage: null
+            }
+          }
+        })
+      })
+    );
+
+    render(<SystemHealthPanel client={api} />);
+
+    const backupsCard = (await screen.findByRole("heading", { name: "Backups" })).closest("article");
+    expect(backupsCard).not.toBeNull();
+    expect(within(backupsCard as HTMLElement).getAllByText("Unknown")).toHaveLength(2);
+    expect(within(backupsCard as HTMLElement).getByText("S3 disabled")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText("No data")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText(/2026/)).toBeInTheDocument();
+  });
+
+  it("renders disabled backups as not applicable", async () => {
+    const api = client(
+      vi.fn().mockResolvedValue({
+        data: healthyResponse({
+          backups: {
+            enabled: false,
+            intervalHours: 24,
+            retentionDays: 14,
+            s3Enabled: false,
+            stale: null,
+            latestSuccess: null,
+            latestFailure: null
+          }
+        })
+      })
+    );
+
+    render(<SystemHealthPanel client={api} />);
+
+    const backupsCard = (await screen.findByRole("heading", { name: "Backups" })).closest("article");
+    expect(backupsCard).not.toBeNull();
+    expect(within(backupsCard as HTMLElement).getByText("Disabled")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText("Not applicable")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText("No data")).toBeInTheDocument();
+  });
+
   it("retries after the system health request fails", async () => {
     const getSystemHealth = vi
       .fn()

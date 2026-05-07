@@ -51,6 +51,23 @@ function formatBytes(value: number | null): string {
   return value === null ? "No data" : `${value} bytes`;
 }
 
+function backupStatusLabel(backups: SystemHealthResponse["backups"]): string {
+  if (!backups.enabled) return "Disabled";
+  if (backups.stale === null) return "Unknown";
+  return "Enabled";
+}
+
+function backupStatusClass(backups: SystemHealthResponse["backups"]): string {
+  if (backups.enabled && backups.stale !== false) return "status-pill status-pill--degraded";
+  return "status-pill status-pill--neutral";
+}
+
+function backupStaleLabel(backups: SystemHealthResponse["backups"]): string {
+  if (!backups.enabled) return "Not applicable";
+  if (backups.stale === null) return "Unknown";
+  return backups.stale ? "Yes" : "No";
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -248,9 +265,7 @@ export function SystemHealthPanel({ client }: Props) {
             <article className="system-card">
               <div className="system-card__header">
                 <h3>Backups</h3>
-                <span className={health.backups.stale ? "status-pill status-pill--degraded" : "status-pill status-pill--neutral"}>
-                  {health.backups.enabled ? "Enabled" : "Disabled"}
-                </span>
+                <span className={backupStatusClass(health.backups)}>{backupStatusLabel(health.backups)}</span>
               </div>
               <dl>
                 <div>
@@ -267,7 +282,7 @@ export function SystemHealthPanel({ client }: Props) {
                 </div>
                 <div>
                   <dt>Stale</dt>
-                  <dd>{health.backups.stale === null ? "Not applicable" : health.backups.stale ? "Yes" : "No"}</dd>
+                  <dd>{backupStaleLabel(health.backups)}</dd>
                 </div>
                 {health.backups.latestSuccess ? (
                   <>
