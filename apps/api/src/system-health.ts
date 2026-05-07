@@ -138,10 +138,11 @@ function toBackupHealthRun(run: BackupRun | null): SystemBackupHealthRun | null 
 }
 
 function redactBackupErrorMessage(message: string | null): string | null {
-  return message?.replace(
-    /(?:[A-Za-z]:)?[\\/](?:[^\s"'<>|]+[\\/])*signalhub-\d{8}T\d{6}Z\.dump/g,
-    "[REDACTED_PATH]"
-  ) ?? null;
+  return (
+    message
+      ?.replace(/(?:[A-Za-z]:)?[\\/](?:[^\s"'<>|]+[\\/])*backups[\\/](?:signalhub-\d{8}T\d{6}Z\.dump)?/g, "[REDACTED_PATH]")
+      .replace(/(?:[A-Za-z]:)?[\\/](?:[^\s"'<>|]+[\\/])*backups\b/g, "[REDACTED_PATH]") ?? null
+  );
 }
 
 function isBackupStale(input: {

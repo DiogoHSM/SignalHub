@@ -376,4 +376,53 @@ describe("system health routes", () => {
     expect(snapshot.backups.latestFailure?.errorMessage).toBe("pg_restore failed for [REDACTED_PATH]");
     expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
   });
+
+  it("redacts local backup directory paths from backup failure messages", async () => {
+    const snapshot = await createSystemHealthSnapshot({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      retention: {
+        enabled: true,
+        intervalMinutes: 60,
+        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+      },
+      backups: {
+        enabled: true,
+        intervalHours: 24,
+        retentionDays: 14,
+        s3Enabled: false
+      },
+      postgresPing: async () => undefined,
+      redisPing: async () => "PONG",
+      getQueueCounts: async () => ({}),
+      getHeartbeat: async () => ({ lastHeartbeatAt: new Date("2026-05-06T11:59:00.000Z") }),
+      getIngestionFreshness: async () => ({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      }),
+      getLastRetentionRun: async () => null,
+      getBackupStatus: async () => ({
+        latestSuccess: null,
+        latestFailure: {
+          id: "bkp_failure",
+          status: "failed",
+          trigger: "scheduled",
+          startedAt: new Date("2026-05-06T11:00:00.000Z"),
+          finishedAt: new Date("2026-05-06T11:00:05.000Z"),
+          filename: "signalhub-20260506T110000Z.dump",
+          localPath: "/var/lib/signalhub/backups/signalhub-20260506T110000Z.dump",
+          sizeBytes: null,
+          s3Bucket: null,
+          s3Key: null,
+          errorMessage: "scandir '/var/lib/signalhub/backups'",
+          createdAt: new Date("2026-05-06T11:00:05.000Z")
+        }
+      })
+    });
+
+    expect(snapshot.backups.latestFailure?.errorMessage).toBe("scandir '[REDACTED_PATH]'");
+    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
+  });
 });
