@@ -30,7 +30,7 @@ export type BackupRuntimeConfig = {
   s3: BackupS3Config;
 };
 
-export type BackupRunRecordInput = {
+export type BackupRunInput = {
   startedAt: Date;
   finishedAt: Date | null;
   status: "success" | "failed";
@@ -56,18 +56,18 @@ export type UploadBackupInput = {
   createClient?: (config: S3ClientConfig) => { send: (command: PutObjectCommand) => Promise<unknown> };
 };
 
-export type BackupRunInput = {
+export type RunBackupOnceInput = {
   now: () => Date;
   trigger: BackupTrigger;
   config: BackupRuntimeConfig;
   withLock: <T>(run: () => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
   dumpDatabase?: (input: DumpDatabaseInput) => Promise<void>;
   uploadBackup?: (input: UploadBackupInput) => Promise<{ bucket: string; key: string }>;
-  recordBackupRun: (input: BackupRunRecordInput) => Promise<unknown>;
+  recordBackupRun: (input: BackupRunInput) => Promise<unknown>;
 };
 
 export type BackupConfig = BackupRuntimeConfig;
-export type BackupRuntime = BackupRunInput;
+export type BackupRuntime = RunBackupOnceInput;
 
 export function createBackupFilename(now: Date): string {
   const year = now.getUTCFullYear().toString().padStart(4, "0");
@@ -147,7 +147,7 @@ export async function pruneLocalBackups(input: {
   );
 }
 
-export async function runBackupOnce(runtime: BackupRunInput): Promise<{ ran: boolean; skipped: boolean }> {
+export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran: boolean; skipped: boolean }> {
   const startedAt = runtime.now();
   const filename = createBackupFilename(startedAt);
   const localPath = join(runtime.config.localDir, filename);
