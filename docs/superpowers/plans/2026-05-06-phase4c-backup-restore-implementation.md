@@ -971,7 +971,7 @@ git commit -m "feat: add backup runner"
 - Modify: `apps/worker/src/main.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Add scheduler coverage to worker tests**
+- [x] **Step 1: Add scheduler coverage to worker tests**
 
 In `apps/worker/test/telemetry-worker.test.ts`, import:
 
@@ -1017,7 +1017,7 @@ describe("backup scheduler integration helpers", () => {
 });
 ```
 
-- [ ] **Step 2: Run worker tests and verify current behavior**
+- [x] **Step 2: Run worker tests and verify current behavior**
 
 Run:
 
@@ -1027,7 +1027,7 @@ pnpm --filter @signal-hub/worker test -- telemetry-worker.test.ts
 
 Expected: pass.
 
-- [ ] **Step 3: Wire backup scheduler in worker main**
+- [x] **Step 3: Wire backup scheduler in worker main**
 
 In `apps/worker/src/main.ts`, import:
 
@@ -1073,7 +1073,7 @@ Add `stopBackups()` to the shutdown `Promise.allSettled` list before retention:
 const stopResults = await Promise.allSettled([stopBackups(), stopAlerts(), stopRetention(), stopHeartbeat(), worker.close()]);
 ```
 
-- [ ] **Step 4: Run worker tests and build**
+- [x] **Step 4: Run worker tests and build**
 
 Run:
 
@@ -1084,7 +1084,7 @@ pnpm --filter @signal-hub/worker build
 
 Expected: both pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts
