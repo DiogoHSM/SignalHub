@@ -1822,7 +1822,7 @@ git commit -m "docs: document backup restore operations"
 
 - Modify only the exact files responsible for defects found during verification.
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 Run:
 
@@ -1832,7 +1832,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run production build**
+- [x] **Step 2: Run production build**
 
 Run:
 
@@ -1842,7 +1842,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Validate Compose**
+- [x] **Step 3: Validate Compose**
 
 Run:
 
@@ -1852,7 +1852,7 @@ docker compose config --quiet
 
 Expected: exits 0.
 
-- [ ] **Step 4: Verify backup scripts fail safely without destructive action**
+- [x] **Step 4: Verify backup scripts fail safely without destructive action**
 
 Run:
 
@@ -1863,7 +1863,7 @@ pnpm backup:restore -- /tmp/nonexistent-signalhub-backup.dump
 
 Expected: both exit non-zero. The first prints usage; the second prints that restore requires `--yes`.
 
-- [ ] **Step 5: Browser visual check**
+- [x] **Step 5: Browser visual check**
 
 Run the console dev server:
 
@@ -1882,7 +1882,7 @@ Verify at `1440x1000` and `390x900`:
 - No horizontal page overflow.
 - No browser console errors.
 
-- [ ] **Step 6: Commit verification fixes if needed**
+- [x] **Step 6: Commit verification fixes if needed**
 
 If verification fixes are needed:
 
