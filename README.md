@@ -17,7 +17,7 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Worker-owned simple alerts with internal history and optional webhook delivery.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 
-SignalHub does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, object storage, or stored log telemetry.
+SignalHub does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, product object storage, or stored log telemetry.
 
 ## Prerequisites
 
@@ -81,7 +81,7 @@ Docker Compose mounts the `backup_data` volume at `/var/lib/signalhub/backups` i
 Run a manual backup with:
 
 ```sh
-pnpm backup:create
+docker compose run --rm worker pnpm backup:create
 ```
 
 Restore is destructive. Stop the API and worker before restoring so no process writes to Postgres during `pg_restore`:
