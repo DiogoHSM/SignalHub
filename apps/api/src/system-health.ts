@@ -133,8 +133,15 @@ function toBackupHealthRun(run: BackupRun | null): SystemBackupHealthRun | null 
     sizeBytes: run.sizeBytes,
     s3Bucket: run.s3Bucket,
     s3Key: run.s3Key,
-    errorMessage: run.errorMessage
+    errorMessage: redactBackupErrorMessage(run.errorMessage)
   };
+}
+
+function redactBackupErrorMessage(message: string | null): string | null {
+  return message?.replace(
+    /(?:[A-Za-z]:)?[\\/](?:[^\s"'<>|]+[\\/])*signalhub-\d{8}T\d{6}Z\.dump/g,
+    "[REDACTED_PATH]"
+  ) ?? null;
 }
 
 function isBackupStale(input: {
@@ -187,12 +194,14 @@ export async function createSystemHealthSnapshot(
   const redisStatus: SystemStatus = redisReady.ok && redisReady.value === "PONG" ? "healthy" : "unhealthy";
   const workerStatus: SystemStatus = workerStale ? "degraded" : "healthy";
   const retentionFailed = retentionRunValue?.status === "failed";
-  const backupStale = isBackupStale({
-    enabled: dependencies.backups.enabled,
-    intervalHours: dependencies.backups.intervalHours,
-    now: generatedAt,
-    latestSuccess: backupStatusValue.latestSuccess
-  });
+  const backupStale = backupStatus.ok
+    ? isBackupStale({
+        enabled: dependencies.backups.enabled,
+        intervalHours: dependencies.backups.intervalHours,
+        now: generatedAt,
+        latestSuccess: backupStatusValue.latestSuccess
+      })
+    : null;
   const backupFailureNewer = hasNewerBackupFailure({
     enabled: dependencies.backups.enabled,
     latestSuccess: backupStatusValue.latestSuccess,

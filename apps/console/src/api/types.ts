@@ -497,6 +497,19 @@ export type UserDetailResponse = {
 
 export type SystemStatus = "healthy" | "degraded" | "unhealthy";
 
+export type BackupHealthRun = {
+  id: string;
+  status: "success" | "failed";
+  trigger: "scheduled" | "manual";
+  startedAt: string;
+  finishedAt: string | null;
+  filename: string;
+  sizeBytes: number | null;
+  s3Bucket: string | null;
+  s3Key: string | null;
+  errorMessage: string | null;
+};
+
 export type SystemHealthResponse = {
   generatedAt: string;
   status: SystemStatus;
@@ -536,6 +549,15 @@ export type SystemHealthResponse = {
       errorMessage: string | null;
     } | null;
     policy: { eventsDays: number; errorsDays: number; tracesDays: number; spansDays: number; llmCallsDays: number };
+  };
+  backups: {
+    enabled: boolean;
+    intervalHours: number;
+    retentionDays: number;
+    s3Enabled: boolean;
+    stale: boolean | null;
+    latestSuccess: BackupHealthRun | null;
+    latestFailure: BackupHealthRun | null;
   };
 };
 

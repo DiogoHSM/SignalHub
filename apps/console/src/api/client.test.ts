@@ -273,6 +273,26 @@ describe("createApiClient", () => {
               intervalMinutes: 60,
               lastRun: null,
               policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+            },
+            backups: {
+              enabled: true,
+              intervalHours: 24,
+              retentionDays: 14,
+              s3Enabled: true,
+              stale: false,
+              latestSuccess: {
+                id: "bkp_1",
+                status: "success",
+                trigger: "scheduled",
+                startedAt: "2026-05-06T00:00:00.000Z",
+                finishedAt: "2026-05-06T00:00:05.000Z",
+                filename: "signalhub-20260506T000000Z.dump",
+                sizeBytes: 1234,
+                s3Bucket: "signalhub-backups",
+                s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+                errorMessage: null
+              },
+              latestFailure: null
             }
           }
         }),
