@@ -12,11 +12,24 @@ import {
   startBackupScheduler,
   uploadBackupToS3
 } from "../src/backups.js";
+import { parseRestoreArgs } from "../../../scripts/backup-restore.js";
 import type { BackupRunInput, BackupRuntimeConfig, BackupS3Config } from "../src/backups.js";
 
 describe("createBackupFilename", () => {
   it("uses a UTC timestamp and no secrets", () => {
     expect(createBackupFilename(new Date("2026-05-06T12:34:56.000Z"))).toBe("signalhub-20260506T123456Z.dump");
+  });
+});
+
+describe("parseRestoreArgs", () => {
+  it("requires a file path and explicit --yes", () => {
+    expect(() => parseRestoreArgs(["node", "backup-restore.ts"])).toThrow(
+      "Usage: pnpm backup:restore -- <file> --yes"
+    );
+    expect(() => parseRestoreArgs(["node", "backup-restore.ts", "backup.dump"])).toThrow("Restore requires --yes");
+    expect(parseRestoreArgs(["node", "backup-restore.ts", "backup.dump", "--yes"])).toEqual({
+      filePath: "backup.dump"
+    });
   });
 });
 

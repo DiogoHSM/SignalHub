@@ -16,6 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx scripts/migrate.ts",
+    "backup:create": "tsx scripts/backup-create.ts",
+    "backup:restore": "tsx scripts/backup-restore.ts",
     "seed:admin": "tsx scripts/seed-admin.ts"
   },
   "devDependencies": {
