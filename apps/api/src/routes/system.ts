@@ -12,6 +12,19 @@ export type SystemQueueCounts = {
   delayed: number;
 };
 
+export type SystemBackupHealthRun = {
+  id: string;
+  status: "success" | "failed";
+  trigger: "scheduled" | "manual";
+  startedAt: string;
+  finishedAt: string | null;
+  filename: string;
+  sizeBytes: number | null;
+  s3Bucket: string | null;
+  s3Key: string | null;
+  errorMessage: string | null;
+};
+
 export type SystemHealthSnapshot = {
   generatedAt: string;
   status: SystemStatus;
@@ -55,6 +68,15 @@ export type SystemHealthSnapshot = {
       spansDays: number;
       llmCallsDays: number;
     };
+  };
+  backups: {
+    enabled: boolean;
+    intervalHours: number;
+    retentionDays: number;
+    s3Enabled: boolean;
+    stale: boolean | null;
+    latestSuccess: SystemBackupHealthRun | null;
+    latestFailure: SystemBackupHealthRun | null;
   };
 };
 

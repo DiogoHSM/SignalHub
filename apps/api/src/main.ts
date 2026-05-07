@@ -39,6 +39,7 @@ import {
   listUsers,
   updateUser
 } from "@signal-hub/db/repositories/users.js";
+import { getBackupStatus } from "@signal-hub/db/repositories/backups.js";
 import {
   getHeartbeat,
   getIngestionFreshness,
@@ -389,12 +390,19 @@ const app = await buildApp({
           intervalMinutes: config.retention.intervalMinutes,
           policy: retentionPolicy
         },
+        backups: {
+          enabled: config.backups.enabled,
+          intervalHours: config.backups.intervalHours,
+          retentionDays: config.backups.retentionDays,
+          s3Enabled: config.backups.s3.enabled
+        },
         postgresPing: () => sql`select 1`.execute(db),
         redisPing: () => redis.ping(),
         getQueueCounts: () => telemetryQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
         getHeartbeat: () => getHeartbeat(db, "worker"),
         getIngestionFreshness: () => getIngestionFreshness(db),
-        getLastRetentionRun: () => getLastRetentionRun(db)
+        getLastRetentionRun: () => getLastRetentionRun(db),
+        getBackupStatus: () => getBackupStatus(db)
       })
   },
   alerts: {

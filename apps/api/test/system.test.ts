@@ -39,6 +39,26 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
     intervalMinutes: 60,
     lastRun: null,
     policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+  },
+  backups: {
+    enabled: true,
+    intervalHours: 24,
+    retentionDays: 14,
+    s3Enabled: true,
+    stale: false,
+    latestSuccess: {
+      id: "bkp_1",
+      status: "success",
+      trigger: "scheduled",
+      startedAt: "2026-05-06T00:00:00.000Z",
+      finishedAt: "2026-05-06T00:00:05.000Z",
+      filename: "signalhub-20260506T000000Z.dump",
+      sizeBytes: 1234,
+      s3Bucket: "signalhub-backups",
+      s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+      errorMessage: null
+    },
+    latestFailure: null
   }
 };
 
@@ -105,6 +125,12 @@ describe("system health routes", () => {
         intervalMinutes: 60,
         policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
       },
+      backups: {
+        enabled: true,
+        intervalHours: 24,
+        retentionDays: 14,
+        s3Enabled: false
+      },
       uptimeSeconds: () => 12,
       now: () => new Date("2026-05-06T12:00:00.000Z"),
       postgresPing: async () => {
@@ -121,6 +147,9 @@ describe("system health routes", () => {
         throw new Error("postgres down");
       },
       getLastRetentionRun: async () => {
+        throw new Error("postgres down");
+      },
+      getBackupStatus: async () => {
         throw new Error("postgres down");
       }
     });
@@ -146,5 +175,119 @@ describe("system health routes", () => {
       lastLlmCallAt: null
     });
     expect(snapshot.retention.lastRun).toBeNull();
+  });
+
+  it("includes backup status and marks stale backups degraded", async () => {
+    const snapshot = await createSystemHealthSnapshot({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      retention: {
+        enabled: true,
+        intervalMinutes: 60,
+        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+      },
+      backups: {
+        enabled: true,
+        intervalHours: 4,
+        retentionDays: 14,
+        s3Enabled: true
+      },
+      postgresPing: async () => undefined,
+      redisPing: async () => "PONG",
+      getQueueCounts: async () => ({}),
+      getHeartbeat: async () => ({ lastHeartbeatAt: new Date("2026-05-06T11:59:00.000Z") }),
+      getIngestionFreshness: async () => ({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      }),
+      getLastRetentionRun: async () => null,
+      getBackupStatus: async () => ({
+        latestSuccess: {
+          id: "bkp_1",
+          status: "success",
+          trigger: "scheduled",
+          startedAt: new Date("2026-05-06T00:00:00.000Z"),
+          finishedAt: new Date("2026-05-06T00:00:05.000Z"),
+          filename: "signalhub-20260506T000000Z.dump",
+          localPath: "/var/lib/signalhub/backups/signalhub-20260506T000000Z.dump",
+          sizeBytes: 1234,
+          s3Bucket: "signalhub-backups",
+          s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+          errorMessage: null,
+          createdAt: new Date("2026-05-06T00:00:05.000Z")
+        },
+        latestFailure: null
+      })
+    });
+
+    expect(snapshot.status).toBe("degraded");
+    expect(snapshot.backups.stale).toBe(true);
+    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
+  });
+
+  it("marks health degraded when the latest failed backup is newer than the latest success", async () => {
+    const snapshot = await createSystemHealthSnapshot({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      retention: {
+        enabled: true,
+        intervalMinutes: 60,
+        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+      },
+      backups: {
+        enabled: true,
+        intervalHours: 24,
+        retentionDays: 14,
+        s3Enabled: false
+      },
+      postgresPing: async () => undefined,
+      redisPing: async () => "PONG",
+      getQueueCounts: async () => ({}),
+      getHeartbeat: async () => ({ lastHeartbeatAt: new Date("2026-05-06T11:59:00.000Z") }),
+      getIngestionFreshness: async () => ({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      }),
+      getLastRetentionRun: async () => null,
+      getBackupStatus: async () => ({
+        latestSuccess: {
+          id: "bkp_success",
+          status: "success",
+          trigger: "scheduled",
+          startedAt: new Date("2026-05-06T10:00:00.000Z"),
+          finishedAt: new Date("2026-05-06T10:00:05.000Z"),
+          filename: "signalhub-20260506T100000Z.dump",
+          localPath: "/var/lib/signalhub/backups/signalhub-20260506T100000Z.dump",
+          sizeBytes: 1234,
+          s3Bucket: null,
+          s3Key: null,
+          errorMessage: null,
+          createdAt: new Date("2026-05-06T10:00:05.000Z")
+        },
+        latestFailure: {
+          id: "bkp_failure",
+          status: "failed",
+          trigger: "scheduled",
+          startedAt: new Date("2026-05-06T11:00:00.000Z"),
+          finishedAt: new Date("2026-05-06T11:00:05.000Z"),
+          filename: "signalhub-20260506T110000Z.dump",
+          localPath: "/var/lib/signalhub/backups/signalhub-20260506T110000Z.dump",
+          sizeBytes: null,
+          s3Bucket: null,
+          s3Key: null,
+          errorMessage: "pg_dump failed",
+          createdAt: new Date("2026-05-06T11:00:05.000Z")
+        }
+      })
+    });
+
+    expect(snapshot.status).toBe("degraded");
+    expect(snapshot.backups.stale).toBe(false);
+    expect(snapshot.backups.latestFailure?.id).toBe("bkp_failure");
+    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
   });
 });

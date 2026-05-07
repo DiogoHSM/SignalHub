@@ -1,4 +1,4 @@
-import type { SystemHealthSnapshot, SystemQueueCounts, SystemStatus } from "./routes/system.js";
+import type { SystemBackupHealthRun, SystemHealthSnapshot, SystemQueueCounts, SystemStatus } from "./routes/system.js";
 
 type RetentionPolicy = SystemHealthSnapshot["retention"]["policy"];
 type IngestionFreshness = {
@@ -23,12 +23,32 @@ type RetentionRun = {
   deleted: RetentionDeletedCounts;
   errorMessage: string | null;
 };
+export type BackupRun = {
+  id: string;
+  status: "success" | "failed";
+  trigger: "scheduled" | "manual";
+  startedAt: Date;
+  finishedAt: Date | null;
+  filename: string;
+  localPath: string;
+  sizeBytes: number | null;
+  s3Bucket: string | null;
+  s3Key: string | null;
+  errorMessage: string | null;
+  createdAt?: Date;
+};
 
 export type SystemHealthProbeDependencies = {
   retention: {
     enabled: boolean;
     intervalMinutes: number;
     policy: RetentionPolicy;
+  };
+  backups: {
+    enabled: boolean;
+    intervalHours: number;
+    retentionDays: number;
+    s3Enabled: boolean;
   };
   uptimeSeconds?: () => number;
   now?: () => Date;
@@ -38,6 +58,7 @@ export type SystemHealthProbeDependencies = {
   getHeartbeat: () => Promise<{ lastHeartbeatAt: Date } | null>;
   getIngestionFreshness: () => Promise<IngestionFreshness>;
   getLastRetentionRun: () => Promise<RetentionRun | null>;
+  getBackupStatus: () => Promise<{ latestSuccess: BackupRun | null; latestFailure: BackupRun | null }>;
 };
 
 type TimedProbe<T> = { ok: true; value: T; latencyMs: number } | { ok: false; latencyMs: null };
@@ -99,23 +120,66 @@ function queueCountsOrFallback(
   };
 }
 
+function toBackupHealthRun(run: BackupRun | null): SystemBackupHealthRun | null {
+  if (!run) return null;
+
+  return {
+    id: run.id,
+    status: run.status,
+    trigger: run.trigger,
+    startedAt: run.startedAt.toISOString(),
+    finishedAt: isoOrNull(run.finishedAt),
+    filename: run.filename,
+    sizeBytes: run.sizeBytes,
+    s3Bucket: run.s3Bucket,
+    s3Key: run.s3Key,
+    errorMessage: run.errorMessage
+  };
+}
+
+function isBackupStale(input: {
+  enabled: boolean;
+  intervalHours: number;
+  now: Date;
+  latestSuccess: BackupRun | null;
+}): boolean | null {
+  if (!input.enabled) return null;
+  if (!input.latestSuccess) return true;
+
+  const latestSuccessAt = input.latestSuccess.finishedAt ?? input.latestSuccess.startedAt;
+  return input.now.getTime() - latestSuccessAt.getTime() > input.intervalHours * 2 * 60 * 60 * 1000;
+}
+
+function hasNewerBackupFailure(input: {
+  enabled: boolean;
+  latestSuccess: BackupRun | null;
+  latestFailure: BackupRun | null;
+}): boolean {
+  if (!input.enabled || !input.latestFailure) return false;
+  if (!input.latestSuccess) return true;
+
+  return input.latestFailure.startedAt.getTime() > input.latestSuccess.startedAt.getTime();
+}
+
 export async function createSystemHealthSnapshot(
   dependencies: SystemHealthProbeDependencies
 ): Promise<SystemHealthSnapshot> {
   const generatedAt = dependencies.now?.() ?? new Date();
-  const [postgres, redisReady, queueCounts, heartbeat, freshness, retentionRun] = await Promise.all([
+  const [postgres, redisReady, queueCounts, heartbeat, freshness, retentionRun, backupStatus] = await Promise.all([
     measure(dependencies.postgresPing),
     measure(dependencies.redisPing),
     probe(dependencies.getQueueCounts),
     probe(dependencies.getHeartbeat),
     probe(dependencies.getIngestionFreshness),
-    probe(dependencies.getLastRetentionRun)
+    probe(dependencies.getLastRetentionRun),
+    probe(dependencies.getBackupStatus)
   ]);
 
-  const dbProbeFailed = !heartbeat.ok || !freshness.ok || !retentionRun.ok;
+  const dbProbeFailed = !heartbeat.ok || !freshness.ok || !retentionRun.ok || !backupStatus.ok;
   const heartbeatValue = heartbeat.ok ? heartbeat.value : null;
   const freshnessValue = freshness.ok ? freshness.value : emptyIngestionFreshness;
   const retentionRunValue = retentionRun.ok ? retentionRun.value : null;
+  const backupStatusValue = backupStatus.ok ? backupStatus.value : { latestSuccess: null, latestFailure: null };
   const workerStale =
     !heartbeatValue?.lastHeartbeatAt || generatedAt.getTime() - heartbeatValue.lastHeartbeatAt.getTime() > 150_000;
   const queueUnavailable = !queueCounts.ok;
@@ -123,10 +187,21 @@ export async function createSystemHealthSnapshot(
   const redisStatus: SystemStatus = redisReady.ok && redisReady.value === "PONG" ? "healthy" : "unhealthy";
   const workerStatus: SystemStatus = workerStale ? "degraded" : "healthy";
   const retentionFailed = retentionRunValue?.status === "failed";
+  const backupStale = isBackupStale({
+    enabled: dependencies.backups.enabled,
+    intervalHours: dependencies.backups.intervalHours,
+    now: generatedAt,
+    latestSuccess: backupStatusValue.latestSuccess
+  });
+  const backupFailureNewer = hasNewerBackupFailure({
+    enabled: dependencies.backups.enabled,
+    latestSuccess: backupStatusValue.latestSuccess,
+    latestFailure: backupStatusValue.latestFailure
+  });
   const status: SystemStatus =
     postgresStatus === "unhealthy" || redisStatus === "unhealthy" || queueUnavailable
       ? "unhealthy"
-      : postgresStatus === "degraded" || workerStatus === "degraded" || retentionFailed
+      : postgresStatus === "degraded" || workerStatus === "degraded" || retentionFailed || backupStale || backupFailureNewer
         ? "degraded"
         : "healthy";
 
@@ -163,6 +238,15 @@ export async function createSystemHealthSnapshot(
           }
         : null,
       policy: dependencies.retention.policy
+    },
+    backups: {
+      enabled: dependencies.backups.enabled,
+      intervalHours: dependencies.backups.intervalHours,
+      retentionDays: dependencies.backups.retentionDays,
+      s3Enabled: dependencies.backups.s3Enabled,
+      stale: backupStale,
+      latestSuccess: toBackupHealthRun(backupStatusValue.latestSuccess),
+      latestFailure: toBackupHealthRun(backupStatusValue.latestFailure)
     }
   };
 }
