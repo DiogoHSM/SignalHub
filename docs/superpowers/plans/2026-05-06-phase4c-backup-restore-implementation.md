@@ -1709,7 +1709,7 @@ git commit -m "feat: show backup health in console"
 - Modify: `.claude/docs/PROJECT-SUMMARY.md`
 - Modify: `.claude/docs/UI-UX.md`
 
-- [ ] **Step 1: Add Postgres client tools to Docker image**
+- [x] **Step 1: Add Postgres client tools to Docker image**
 
 In `Dockerfile`, add after `WORKDIR /app`:
 
@@ -1717,7 +1717,7 @@ In `Dockerfile`, add after `WORKDIR /app`:
 RUN apk add --no-cache postgresql16-client
 ```
 
-- [ ] **Step 2: Add backup volume to Compose**
+- [x] **Step 2: Add backup volume to Compose**
 
 In `docker-compose.yml`, add worker volume:
 
@@ -1732,7 +1732,7 @@ Add volume:
   backup_data:
 ```
 
-- [ ] **Step 3: Add env examples**
+- [x] **Step 3: Add env examples**
 
 In `.env.example`, add:
 
@@ -1750,7 +1750,7 @@ BACKUPS_S3_SECRET_ACCESS_KEY=
 BACKUPS_S3_PREFIX=signalhub
 ```
 
-- [ ] **Step 4: Update README backup docs**
+- [x] **Step 4: Update README backup docs**
 
 Add a `Backups and Restore` section:
 
@@ -1788,7 +1788,7 @@ BACKUPS_S3_PREFIX=production/signalhub
 Remote backup retention is controlled by bucket lifecycle rules in this slice.
 ````
 
-- [ ] **Step 5: Update project docs**
+- [x] **Step 5: Update project docs**
 
 Update docs with these facts:
 
@@ -1799,7 +1799,7 @@ Update docs with these facts:
 - `PROJECT-SUMMARY.md`: current phase includes backup/restore.
 - `UI-UX.md`: System panel includes backup status.
 
-- [ ] **Step 6: Validate Compose**
+- [x] **Step 6: Validate Compose**
 
 Run:
 
@@ -1809,7 +1809,7 @@ docker compose config --quiet
 
 Expected: exits 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Dockerfile docker-compose.yml .env.example README.md .claude/docs/ARCHITECTURE.md .claude/docs/DEPLOYMENT.md .claude/docs/SECRETS.md .claude/docs/INFRASTRUCTURE.md .claude/docs/PROJECT-SUMMARY.md .claude/docs/UI-UX.md
