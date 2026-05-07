@@ -130,9 +130,26 @@ describe("SystemHealthPanel", () => {
     expect(screen.getByText("Waiting")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getAllByText("No data")).toHaveLength(2);
-    expect(screen.getByText("Enabled")).toBeInTheDocument();
+    const retentionCard = screen.getByRole("heading", { name: "Retention" }).closest("article");
+    expect(retentionCard).not.toBeNull();
+    expect(within(retentionCard as HTMLElement).getByText("Enabled")).toBeInTheDocument();
     expect(screen.getByText("events 90d")).toBeInTheDocument();
     expect(screen.getByText("success")).toBeInTheDocument();
+  });
+
+  it("renders backup status without local paths or credentials", async () => {
+    const api = client(async () => ({ data: healthyResponse() }));
+    render(<SystemHealthPanel client={api} />);
+
+    const backupsHeading = await screen.findByRole("heading", { name: "Backups" });
+    const backupsCard = backupsHeading.closest("article");
+    expect(backupsCard).not.toBeNull();
+    expect(within(backupsCard as HTMLElement).getByText("Enabled")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText("S3 enabled")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText("signalhub-20260506T000000Z.dump")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText("1234 bytes")).toBeInTheDocument();
+    expect(screen.queryByText(/var\/lib\/signalhub/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/secret/i)).not.toBeInTheDocument();
   });
 
   it("retries after the system health request fails", async () => {

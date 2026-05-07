@@ -47,6 +47,10 @@ function formatLatency(value: number | null): string {
   return value === null ? "No data" : `${value} ms`;
 }
 
+function formatBytes(value: number | null): string {
+  return value === null ? "No data" : `${value} bytes`;
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -238,6 +242,60 @@ export function SystemHealthPanel({ client }: Props) {
                     <dd>No data</dd>
                   </div>
                 )}
+              </dl>
+            </article>
+
+            <article className="system-card">
+              <div className="system-card__header">
+                <h3>Backups</h3>
+                <span className={health.backups.stale ? "status-pill status-pill--degraded" : "status-pill status-pill--neutral"}>
+                  {health.backups.enabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Interval</dt>
+                  <dd>{health.backups.intervalHours} hours</dd>
+                </div>
+                <div>
+                  <dt>Local retention</dt>
+                  <dd>{health.backups.retentionDays} days</dd>
+                </div>
+                <div>
+                  <dt>Offsite</dt>
+                  <dd>{health.backups.s3Enabled ? "S3 enabled" : "S3 disabled"}</dd>
+                </div>
+                <div>
+                  <dt>Stale</dt>
+                  <dd>{health.backups.stale === null ? "Not applicable" : health.backups.stale ? "Yes" : "No"}</dd>
+                </div>
+                {health.backups.latestSuccess ? (
+                  <>
+                    <div>
+                      <dt>Latest success</dt>
+                      <dd>{formatTimestamp(health.backups.latestSuccess.startedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>Filename</dt>
+                      <dd>{health.backups.latestSuccess.filename}</dd>
+                    </div>
+                    <div>
+                      <dt>Size</dt>
+                      <dd>{formatBytes(health.backups.latestSuccess.sizeBytes)}</dd>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <dt>Latest success</dt>
+                    <dd>No data</dd>
+                  </div>
+                )}
+                {health.backups.latestFailure ? (
+                  <div>
+                    <dt>Latest failure</dt>
+                    <dd>{health.backups.latestFailure.errorMessage ?? formatTimestamp(health.backups.latestFailure.startedAt)}</dd>
+                  </div>
+                ) : null}
               </dl>
             </article>
           </section>
