@@ -20,6 +20,14 @@ function requireNoProductionPlaceholder(name: keyof typeof productionPlaceholder
   }
 }
 
+function decodeUrlComponent(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function requireProductionDatabasePasswordIsNotPlaceholder(databaseUrl: string, nodeEnv: string): void {
   if (nodeEnv !== "production") return;
 
@@ -30,7 +38,8 @@ function requireProductionDatabasePasswordIsNotPlaceholder(databaseUrl: string, 
     return;
   }
 
-  if (parsed.password === localOnlyPostgresPassword) {
+  const decodedPassword = decodeUrlComponent(parsed.password);
+  if (parsed.password === localOnlyPostgresPassword || decodedPassword === localOnlyPostgresPassword) {
     throw new Error("DATABASE_URL uses the local-only Postgres password placeholder");
   }
 }

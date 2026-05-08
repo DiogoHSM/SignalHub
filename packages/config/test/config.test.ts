@@ -320,6 +320,16 @@ describe("loadConfig", () => {
     ).toThrow("DATABASE_URL uses the local-only Postgres password placeholder");
   });
 
+  it("rejects the percent-encoded local-only Postgres password placeholder in production database URLs", () => {
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        NODE_ENV: "production",
+        DATABASE_URL: "postgres://signalhub:signalhub%2Dlocal%2Donly%2Dchange%2Dme@localhost:5432/signalhub"
+      })
+    ).toThrow("DATABASE_URL uses the local-only Postgres password placeholder");
+  });
+
   it("allows placeholders in test so configuration tests can stay lightweight", () => {
     const config = loadConfig({
       NODE_ENV: "test",
