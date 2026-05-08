@@ -56,7 +56,7 @@ Do not modify:
 - Modify: `packages/config/src/index.ts`
 - Test: `packages/config/test/config.test.ts`
 
-- [ ] **Step 1: Add failing config tests**
+- [x] **Step 1: Add failing config tests**
 
 Append these tests inside the existing `describe("loadConfig", ...)` block in `packages/config/test/config.test.ts`:
 
@@ -102,7 +102,7 @@ Append these tests inside the existing `describe("loadConfig", ...)` block in `p
   });
 ```
 
-- [ ] **Step 2: Run config tests and verify failure**
+- [x] **Step 2: Run config tests and verify failure**
 
 Run:
 
@@ -112,7 +112,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: fail because production placeholder rejection has not been implemented.
 
-- [ ] **Step 3: Implement production placeholder rejection**
+- [x] **Step 3: Implement production placeholder rejection**
 
 In `packages/config/src/index.ts`, add these constants and helper functions below `optionalPositiveInteger`:
 
@@ -156,7 +156,7 @@ Then call the new helpers in `loadConfig()` immediately after the existing `requ
   requireProductionDatabasePasswordIsNotPlaceholder(parsed.DATABASE_URL, parsed.NODE_ENV);
 ```
 
-- [ ] **Step 4: Run config tests and verify pass**
+- [x] **Step 4: Run config tests and verify pass**
 
 Run:
 
@@ -166,7 +166,7 @@ pnpm --filter @signal-hub/config test
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/config/src/index.ts packages/config/test/config.test.ts
