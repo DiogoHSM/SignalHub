@@ -6,6 +6,35 @@ const optionalEnvUrl = z.preprocess(emptyStringToUndefined, z.string().url().opt
 const optionalPositiveInteger = (defaultValue: number) =>
   z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).default(defaultValue));
 
+const productionPlaceholders = {
+  SESSION_SECRET: "change-me-to-a-long-random-secret",
+  API_KEY_PEPPER: "change-me-to-a-long-random-pepper",
+  BOOTSTRAP_ADMIN_PASSWORD: "change-me-admin-password-32-chars-min"
+} as const;
+
+const localOnlyPostgresPassword = "signalhub-local-only-change-me";
+
+function requireNoProductionPlaceholder(name: keyof typeof productionPlaceholders, value: string, nodeEnv: string): void {
+  if (nodeEnv === "production" && value === productionPlaceholders[name]) {
+    throw new Error(`${name} must be replaced for production`);
+  }
+}
+
+function requireProductionDatabasePasswordIsNotPlaceholder(databaseUrl: string, nodeEnv: string): void {
+  if (nodeEnv !== "production") return;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    return;
+  }
+
+  if (parsed.password === localOnlyPostgresPassword) {
+    throw new Error("DATABASE_URL uses the local-only Postgres password placeholder");
+  }
+}
+
 const rawConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -77,6 +106,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   requireStrongSecret("SESSION_SECRET", parsed.SESSION_SECRET, parsed.NODE_ENV);
   requireStrongSecret("API_KEY_PEPPER", parsed.API_KEY_PEPPER, parsed.NODE_ENV);
   requireStrongSecret("BOOTSTRAP_ADMIN_PASSWORD", parsed.BOOTSTRAP_ADMIN_PASSWORD, parsed.NODE_ENV);
+  requireNoProductionPlaceholder("SESSION_SECRET", parsed.SESSION_SECRET, parsed.NODE_ENV);
+  requireNoProductionPlaceholder("API_KEY_PEPPER", parsed.API_KEY_PEPPER, parsed.NODE_ENV);
+  requireNoProductionPlaceholder("BOOTSTRAP_ADMIN_PASSWORD", parsed.BOOTSTRAP_ADMIN_PASSWORD, parsed.NODE_ENV);
+  requireProductionDatabasePasswordIsNotPlaceholder(parsed.DATABASE_URL, parsed.NODE_ENV);
 
   if (parsed.GOOGLE_OAUTH_ENABLED) {
     if (!parsed.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID is required when Google OAuth is enabled");

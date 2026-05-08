@@ -296,6 +296,46 @@ describe("loadConfig", () => {
     ).toThrow(expectedMessage);
   });
 
+  it.each([
+    ["SESSION_SECRET", "change-me-to-a-long-random-secret"],
+    ["API_KEY_PEPPER", "change-me-to-a-long-random-pepper"],
+    ["BOOTSTRAP_ADMIN_PASSWORD", "change-me-admin-password-32-chars-min"]
+  ] as const)("rejects production placeholder %s", (fieldName, placeholder) => {
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        NODE_ENV: "production",
+        [fieldName]: placeholder
+      })
+    ).toThrow(`${fieldName} must be replaced for production`);
+  });
+
+  it("rejects the local-only Postgres password placeholder in production database URLs", () => {
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        NODE_ENV: "production",
+        DATABASE_URL: "postgres://signalhub:signalhub-local-only-change-me@localhost:5432/signalhub"
+      })
+    ).toThrow("DATABASE_URL uses the local-only Postgres password placeholder");
+  });
+
+  it("allows placeholders in test so configuration tests can stay lightweight", () => {
+    const config = loadConfig({
+      NODE_ENV: "test",
+      PORT: "3000",
+      DATABASE_URL: "postgres://signalhub:signalhub-local-only-change-me@localhost:5432/signalhub",
+      REDIS_URL: "redis://localhost:6379",
+      SESSION_SECRET: "change-me-to-a-long-random-secret",
+      API_KEY_PEPPER: "change-me-to-a-long-random-pepper",
+      BOOTSTRAP_ADMIN_EMAIL: "admin@example.com",
+      BOOTSTRAP_ADMIN_PASSWORD: "change-me-admin-password-32-chars-min",
+      GOOGLE_OAUTH_ENABLED: "false"
+    });
+
+    expect(config.nodeEnv).toBe("test");
+  });
+
   it("requires Google OAuth settings when enabled", () => {
     expect(() =>
       loadConfig({
