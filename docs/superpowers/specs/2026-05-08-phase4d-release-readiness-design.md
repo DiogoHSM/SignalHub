@@ -4,7 +4,7 @@
 
 Add the next operational maturity slice for SignalHub: release readiness and self-hosted install hardening. This phase makes a fresh Docker Compose installation easier to verify, safer to run in production-like environments, and clearer to upgrade or restore.
 
-The primary new operator surface is a read-only `pnpm doctor` command. It validates local environment configuration, Compose configuration, service availability, API health, and operational assumptions without modifying data. Documentation is updated around the same flow so a new operator can clone the project, configure it, start it, verify it, back it up, restore it, and upgrade it without reading source code.
+The primary new operator surface is a read-only project doctor script run with `pnpm run doctor`. It validates local environment configuration, Compose configuration, service availability, API health, and operational assumptions without modifying data. Documentation is updated around the same flow so a new operator can clone the project, configure it, start it, verify it, back it up, restore it, and upgrade it without reading source code.
 
 ## Goals
 
@@ -32,7 +32,7 @@ The primary new operator surface is a read-only `pnpm doctor` command. It valida
 
 ### Recommended: Operator Doctor plus Release Docs
 
-Add a focused root `pnpm doctor` script that checks the install from the operator machine and optionally performs Compose-aware checks when Docker is available. Pair it with stricter production config safety and practical install, upgrade, restore, and troubleshooting docs.
+Add a focused root `doctor` package script, run as `pnpm run doctor`, that checks the install from the operator machine and optionally performs Compose-aware checks when Docker is available. Pair it with stricter production config safety and practical install, upgrade, restore, and troubleshooting docs.
 
 This is the best fit now because SignalHub already has the main MVP runtime features. The next adoption risk is not missing another screen; it is an operator cloning the repo and being unsure whether the installation is configured safely.
 
@@ -54,10 +54,10 @@ The intended operator flow is:
 2. Copy `.env.example` to `.env`.
 3. Fill secrets, Postgres password, public endpoint, and optional backup settings.
 4. Run `pnpm install`.
-5. Run `pnpm doctor` before startup for static checks.
+5. Run `pnpm run doctor` before startup for static checks.
 6. Start the Compose stack.
 7. Seed the bootstrap admin.
-8. Run `pnpm doctor -- --compose` to verify running services.
+8. Run `pnpm run doctor -- --compose` to verify running services.
 9. Open `/console`.
 10. Before upgrades, create a backup, update code or image, run migrations, restart, and run doctor again.
 
@@ -68,12 +68,14 @@ Local Node development remains supported for contributors, but production docume
 Add a root script:
 
 ```sh
-pnpm doctor
-pnpm doctor -- --compose
-pnpm doctor -- --api-url http://localhost:3000
+pnpm run doctor
+pnpm run doctor -- --compose
+pnpm run doctor -- --api-url http://localhost:3000
 ```
 
 The command is read-only by default. It must not create projects, mutate users, rotate secrets, run migrations, restore backups, delete data, or enqueue telemetry.
+
+Use `pnpm run doctor` rather than `pnpm doctor` because `pnpm doctor` is pnpm's own built-in diagnostic command and does not invoke project scripts.
 
 ### Check Categories
 
@@ -92,7 +94,7 @@ Warnings do not cause a non-zero exit.
 
 ### Default Host Checks
 
-Default `pnpm doctor` checks:
+Default `pnpm run doctor` checks:
 
 - Node.js version is compatible with the project.
 - pnpm version is compatible with the project package manager field.
@@ -110,7 +112,7 @@ The default mode may also try unauthenticated API checks if `--api-url` is suppl
 
 ### Compose Checks
 
-`pnpm doctor -- --compose` adds running-stack checks:
+`pnpm run doctor -- --compose` adds running-stack checks:
 
 - Docker is available.
 - Docker Compose is available.
@@ -225,7 +227,7 @@ Verification commands:
 pnpm test
 pnpm build
 docker compose config --quiet
-pnpm doctor
+pnpm run doctor
 ```
 
 ## Rollout
@@ -235,18 +237,18 @@ Implementation order:
 1. Add production placeholder safety rules in shared config.
 2. Add doctor result model and pure validation helpers.
 3. Add command and HTTP check adapters with timeouts.
-4. Add `scripts/doctor.ts` and root `pnpm doctor` script.
+4. Add `scripts/doctor.ts` and root `doctor` package script.
 5. Add tests for config hardening and doctor behavior.
 6. Update README and `.claude/docs` operational documentation.
 7. Run full verification.
 
 ## Acceptance Criteria
 
-- `pnpm doctor` exists and runs safely without mutating application data.
-- `pnpm doctor` returns non-zero only for failed checks, not warnings.
-- `pnpm doctor -- --compose` verifies a running Compose install when Docker is available.
+- `pnpm run doctor` exists and runs safely without mutating application data.
+- `pnpm run doctor` returns non-zero only for failed checks, not warnings.
+- `pnpm run doctor -- --compose` verifies a running Compose install when Docker is available.
 - Production startup rejects known unsafe placeholder secrets.
 - Fresh install, upgrade, backup, restore drill, and troubleshooting docs are clear and command-accurate.
 - Docker Compose remains the only supported production install path in docs.
 - No new SaaS dependency, hosted control plane, or external scheduler is introduced.
-- `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm doctor` pass in a safe local mode.
+- `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm run doctor` pass in a safe local mode.

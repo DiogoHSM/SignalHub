@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a safe `pnpm doctor` operator check, harden production placeholder configuration, and document the Compose-only self-hosted install, upgrade, backup, restore, and release workflow.
+**Goal:** Add a safe `pnpm run doctor` operator check, harden production placeholder configuration, and document the Compose-only self-hosted install, upgrade, backup, restore, and release workflow.
 
 **Architecture:** Keep the release-readiness work inside the existing TypeScript workspace. Shared production config safety lives in `packages/config`, while the doctor command is a root TypeScript script with pure validation helpers and thin adapters for filesystem, child-process, and HTTP checks. Documentation continues to live in `README.md` and `.claude/docs`.
 
@@ -33,7 +33,7 @@ Modify:
 - `packages/config/src/index.ts` - add production placeholder rejection while preserving existing test/development behavior.
 - `packages/config/test/config.test.ts` - add red/green tests for production placeholder rejection and explicit test-environment allowance.
 - `package.json` - add root `doctor` script.
-- `README.md` - document fresh Compose install, `pnpm doctor`, upgrade, restore drill, troubleshooting, and release baseline.
+- `README.md` - document fresh Compose install, `pnpm run doctor`, upgrade, restore drill, troubleshooting, and release baseline.
 - `.claude/docs/PROJECT-SUMMARY.md` - update current phase and implemented/release-readiness status.
 - `.claude/docs/DEPLOYMENT.md` - make Compose-only production path, doctor checks, upgrade, and restore drill explicit.
 - `.claude/docs/CONSTRAINTS.md` - record Compose-only production support and no Kubernetes/systemd support for this phase.
@@ -851,7 +851,7 @@ Expected: pass.
 Run:
 
 ```bash
-pnpm doctor
+pnpm run doctor
 ```
 
 Expected: exits `0` if there are only pass/warn results, or exits non-zero only if the local `.env` is missing or has failed checks. If the local workspace intentionally lacks `.env`, keep that behavior; do not make the command silently pass missing required setup.
@@ -888,11 +888,11 @@ Docker Compose is the supported production-oriented self-hosted install path for
 cp .env.example .env
 # edit .env before first start
 pnpm install
-pnpm doctor
+pnpm run doctor
 docker compose up -d postgres redis
 docker compose run --rm api pnpm seed:admin
 docker compose up --build
-pnpm doctor -- --compose --api-url http://localhost:3000
+pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 ````
 
@@ -904,11 +904,13 @@ Add a new `## Operator Doctor` section:
 Run the read-only doctor before first startup, after configuration changes, and after upgrades:
 
 ```sh
-pnpm doctor
-pnpm doctor -- --compose --api-url http://localhost:3000
+pnpm run doctor
+pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
-`pnpm doctor` checks local `.env` shape, dangerous production placeholders, URL formatting, password-encoding guidance, scheduler configuration, and Compose config when Docker is available. `--compose` also checks the running Compose stack and unauthenticated API health/readiness endpoints.
+`pnpm run doctor` checks local `.env` shape, dangerous production placeholders, URL formatting, password-encoding guidance, scheduler configuration, and Compose config when Docker is available. `--compose` also checks the running Compose stack and unauthenticated API health/readiness endpoints.
+
+Use `pnpm run doctor`, not `pnpm doctor`; `pnpm doctor` is pnpm's built-in diagnostic command and does not run project scripts.
 
 The command prints `PASS`, `WARN`, and `FAIL` lines. Warnings do not make the command fail. Failures return a non-zero exit code. The command is read-only and does not create users, projects, API keys, migrations, backups, restores, or telemetry.
 ````
@@ -930,7 +932,7 @@ docker compose build
 docker compose stop api worker
 docker compose run --rm api pnpm db:migrate
 docker compose up -d
-pnpm doctor -- --compose --api-url http://localhost:3000
+pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
 For source installs, keep `pnpm-lock.yaml` authoritative and run `pnpm install` after pulling. For image-based installs in the future, replace the build step with the documented image update step for that release.
@@ -943,7 +945,7 @@ Practice the restore path before an incident. Use a disposable environment or co
 docker compose stop api worker
 docker compose run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-YYYYMMDDTHHMMSSZ.dump --yes
 docker compose start api worker
-pnpm doctor -- --compose --api-url http://localhost:3000
+pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
 Restore is destructive. Stop writers first and verify the target backup file before running `backup:restore`.
@@ -971,7 +973,7 @@ Before tagging a release:
 pnpm test
 pnpm build
 docker compose config --quiet
-pnpm doctor
+pnpm run doctor
 ```
 
 Use semantic versioning from the root `package.json`. Keep release notes focused on install/upgrade impact, schema migrations, environment variables, and operator action required.
@@ -1001,7 +1003,7 @@ Expected: only explicit out-of-scope/deferred mentions.
 Run:
 
 ```bash
-rg -n "pnpm doctor|docker compose" README.md .claude/docs/DEPLOYMENT.md .claude/docs/INFRASTRUCTURE.md
+rg -n "pnpm run doctor|docker compose" README.md .claude/docs/DEPLOYMENT.md .claude/docs/INFRASTRUCTURE.md
 ```
 
 Expected: doctor and Compose commands are documented.
@@ -1054,10 +1056,10 @@ Expected: exit code `0`.
 Run:
 
 ```bash
-pnpm doctor
+pnpm run doctor
 ```
 
-Expected: exit code `0` when local `.env` has no failed checks. If the local `.env` is intentionally absent or unsafe, capture the output and either add a test fixture command for verification or create a safe temporary env file command using `pnpm doctor -- --env-file <path>` in `/tmp`.
+Expected: exit code `0` when local `.env` has no failed checks. If the local `.env` is intentionally absent or unsafe, capture the output and either add a test fixture command for verification or create a safe temporary env file command using `pnpm run doctor -- --env-file <path>` in `/tmp`.
 
 - [ ] **Step 5: Mark plan tasks complete**
 
@@ -1099,7 +1101,7 @@ Before calling the phase complete:
 - `pnpm test`
 - `pnpm build`
 - `docker compose config --quiet`
-- `pnpm doctor` or `pnpm doctor -- --env-file <safe-temp-env>`
+- `pnpm run doctor` or `pnpm run doctor -- --env-file <safe-temp-env>`
 - `git status -sb` in SignalHub
 - `git status -sb` in the config repo
 

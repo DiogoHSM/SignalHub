@@ -66,6 +66,20 @@ describe("doctor pure checks", () => {
     );
   });
 
+  it("warns for production IPv6 localhost public endpoints", () => {
+    const results = checkEnvValues({
+      ...validEnv,
+      SIGNALHUB_PUBLIC_ENDPOINT: "https://[::1]:3000"
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        status: "warn",
+        message: "SIGNALHUB_PUBLIC_ENDPOINT points to localhost in production"
+      })
+    );
+  });
+
   it("warns when S3 backups are enabled with missing settings", () => {
     const results = checkEnvValues({
       ...validEnv,

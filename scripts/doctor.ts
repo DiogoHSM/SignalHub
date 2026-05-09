@@ -1,11 +1,10 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { basename } from "node:path";
 
 void existsSync;
 void readFileSync;
 void spawn;
-void pathToFileURL;
 
 export type DoctorStatus = "pass" | "warn" | "fail";
 
@@ -66,7 +65,8 @@ function parseBoolean(value: string | undefined): boolean {
 function isLocalhostUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    const hostname = url.hostname.replace(/^\[|\]$/g, "");
+    return ["localhost", "127.0.0.1", "::1"].includes(hostname);
   } catch {
     return false;
   }
@@ -187,4 +187,9 @@ export function parseEnvFile(content: string): DoctorEnv {
     env[key] = value;
   }
   return env;
+}
+
+if (process.argv.slice(1).some((arg) => basename(arg) === "doctor.ts")) {
+  console.error("Doctor command is not wired yet; implementation continues in Phase 4D Task 3.");
+  process.exitCode = 1;
 }
