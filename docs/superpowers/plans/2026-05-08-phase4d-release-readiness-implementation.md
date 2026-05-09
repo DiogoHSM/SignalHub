@@ -181,7 +181,7 @@ git commit -m "fix: reject production placeholder secrets"
 - Create: `scripts/doctor.test.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Add failing doctor tests for pure checks**
+- [x] **Step 1: Add failing doctor tests for pure checks**
 
 Create `scripts/doctor.test.ts` with:
 
@@ -285,7 +285,7 @@ describe("doctor pure checks", () => {
 });
 ```
 
-- [ ] **Step 2: Run doctor tests and verify failure**
+- [x] **Step 2: Run doctor tests and verify failure**
 
 Run:
 
@@ -295,7 +295,7 @@ pnpm exec vitest run scripts/doctor.test.ts
 
 Expected: fail because `scripts/doctor.ts` does not exist.
 
-- [ ] **Step 3: Add doctor script skeleton and pure checks**
+- [x] **Step 3: Add doctor script skeleton and pure checks**
 
 Create `scripts/doctor.ts`:
 
@@ -487,7 +487,7 @@ export function parseEnvFile(content: string): DoctorEnv {
 
 Do not add the CLI `main()` yet; that comes in the next task.
 
-- [ ] **Step 4: Add root package script**
+- [x] **Step 4: Add root package script**
 
 Modify the `scripts` object in `package.json`:
 
@@ -497,7 +497,7 @@ Modify the `scripts` object in `package.json`:
 
 Place it near the other root operational scripts after `seed:admin`.
 
-- [ ] **Step 5: Run doctor tests and verify pass**
+- [x] **Step 5: Run doctor tests and verify pass**
 
 Run:
 
@@ -507,7 +507,7 @@ pnpm exec vitest run scripts/doctor.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add package.json scripts/doctor.ts scripts/doctor.test.ts
