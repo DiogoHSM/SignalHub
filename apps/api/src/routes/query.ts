@@ -938,6 +938,9 @@ async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: 
   if (!params.success || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  if (filters.errorGroupId && filters.errorGroupId !== params.data.id) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
 
   try {
     return sendListResult(reply, await options.query.listErrors({ ...filters, errorGroupId: params.data.id }));

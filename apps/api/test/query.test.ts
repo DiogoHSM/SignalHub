@@ -1143,6 +1143,24 @@ describe("query routes", () => {
     ]);
   });
 
+  it("rejects conflicting error group ids for occurrence queries", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listErrors: async () => []
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/error-groups/egrp_1/errors?project_id=prj_1&environment_id=env_1&error_group_id=egrp_2"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
   it("updates an error group status", async () => {
     const received: unknown[] = [];
 
