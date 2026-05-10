@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
 void existsSync;
@@ -166,11 +167,21 @@ export function renderResults(results: DoctorResult[]): string {
 }
 
 export function redactDoctorText(text: string, secrets: Array<string | undefined>): string {
-  return secrets.filter((secret): secret is string => Boolean(secret)).reduce((output, secret) => output.split(secret).join("[REDACTED]"), text);
+  const redactedSecrets = secrets
+    .filter((secret): secret is string => Boolean(secret))
+    .reduce((output, secret) => output.split(secret).join("[REDACTED]"), text);
+  return redactUrlUserInfo(redactedSecrets);
 }
 
 export function collectSecretValues(env: DoctorEnv): string[] {
   return secretEnvNames.map((name) => env[name]).filter((value): value is string => Boolean(value));
+}
+
+function redactUrlUserInfo(text: string): string {
+  return text.replace(/\bhttps?:\/\/[^\s/@]+(?::[^\s/@]*)?@/gi, (match) => {
+    const scheme = match.slice(0, match.indexOf("//") + 2);
+    return `${scheme}[REDACTED]@`;
+  });
 }
 
 export function parseEnvFile(content: string): DoctorEnv {
@@ -277,7 +288,8 @@ export async function checkApiHealth(apiUrl: string, fetchHealth: FetchHealth, r
           : createResult(required ? "fail" : "warn", `API ${path} returned HTTP ${response.status}`)
       );
     } catch (error) {
-      results.push(createResult(required ? "fail" : "warn", `API ${path} is unreachable`, error instanceof Error ? error.message : String(error)));
+      const detail = redactUrlUserInfo(error instanceof Error ? error.message : String(error));
+      results.push(createResult(required ? "fail" : "warn", `API ${path} is unreachable`, detail));
     }
   }
   return results;
@@ -316,29 +328,73 @@ export async function buildDoctorResults(dependencies: BuildDoctorDependencies):
   return results;
 }
 
-function runCommandWithTimeout(command: string[], timeoutMs = 5000): Promise<CommandResult> {
+type SpawnedProcess = {
+  stdout: Readable;
+  stderr: Readable;
+  kill: (signal?: NodeJS.Signals | number) => boolean;
+  on: (event: "error", listener: (error: Error) => void) => SpawnedProcess;
+  on: (event: "close", listener: (exitCode: number | null) => void) => SpawnedProcess;
+  removeListener: (event: "error", listener: (error: Error) => void) => SpawnedProcess;
+  removeListener: (event: "close", listener: (exitCode: number | null) => void) => SpawnedProcess;
+};
+
+type RunCommandWithTimeoutOptions = {
+  spawnProcess?: (command: string, args: string[]) => SpawnedProcess;
+  killGraceMs?: number;
+};
+
+export function runCommandWithTimeout(command: string[], timeoutMs = 5000, options: RunCommandWithTimeoutOptions = {}): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command[0]!, command.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error(`${command.join(" ")} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
+    const child = options.spawnProcess
+      ? options.spawnProcess(command[0]!, command.slice(1))
+      : spawn(command[0]!, command.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
+    const timeoutError = new Error(`${command.join(" ")} timed out after ${timeoutMs}ms`);
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    let settled = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      child.removeListener("error", onError);
+      child.removeListener("close", onClose);
+    };
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const onError = (error: Error) => {
+      settle(() => reject(timedOut ? timeoutError : error));
+    };
+    const onClose = (exitCode: number | null) => {
+      settle(() => {
+        if (timedOut) {
+          reject(timeoutError);
+        } else {
+          resolve({ exitCode: exitCode ?? 1, stdout, stderr });
+        }
+      });
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        if (!settled) child.kill("SIGKILL");
+      }, options.killGraceMs ?? 1000);
+    }, timeoutMs);
+
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
     });
     child.stderr.on("data", (chunk) => {
       stderr += String(chunk);
     });
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (exitCode) => {
-      clearTimeout(timer);
-      resolve({ exitCode: exitCode ?? 1, stdout, stderr });
-    });
+    child.on("error", onError);
+    child.on("close", onClose);
   });
 }
 

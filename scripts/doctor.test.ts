@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import {
   buildDoctorResults,
   checkApiHealth,
@@ -9,6 +11,7 @@ import {
   parseDoctorArgs,
   redactDoctorText,
   renderResults,
+  runCommandWithTimeout,
   runDoctor,
   type DoctorEnv
 } from "./doctor.js";
@@ -173,6 +176,18 @@ describe("doctor orchestration", () => {
     ]);
   });
 
+  it("does not render API URL username or password when health checks fail", async () => {
+    const results = await checkApiHealth("http://user:supersecret@localhost:9", async (url) => {
+      throw new Error(`fetch failed for ${url}`);
+    });
+    const output = renderResults(results);
+
+    expect(output).not.toContain("user");
+    expect(output).not.toContain("supersecret");
+    expect(output).not.toContain("http://user:supersecret@localhost:9");
+    expect(output).toContain("http://[REDACTED]@localhost:9");
+  });
+
   it("builds a failure when the env file is missing in host mode", async () => {
     const results = await buildDoctorResults({
       options: { compose: false, envFile: ".env" },
@@ -198,5 +213,80 @@ describe("doctor orchestration", () => {
     });
 
     expect(exitCode).toBe(1);
+  });
+
+  it("redacts credential-bearing API URLs provided through doctor options", async () => {
+    const outputs: string[] = [];
+    const exitCode = await runDoctor({
+      options: { compose: false, envFile: ".env", apiUrl: "http://user:supersecret@localhost:9" },
+      fileExists: () => true,
+      readFile: () => Object.entries(validEnv).map(([key, value]) => `${key}=${value ?? ""}`).join("\n"),
+      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      fetchHealth: async (url) => {
+        throw new Error(`fetch failed for ${url}`);
+      },
+      write: (output) => {
+        outputs.push(output);
+      }
+    });
+
+    const output = outputs.join("");
+    expect(exitCode).toBe(0);
+    expect(output).not.toContain("user");
+    expect(output).not.toContain("supersecret");
+    expect(output).not.toContain("http://user:supersecret@localhost:9");
+    expect(output).toContain("http://[REDACTED]@localhost:9");
+  });
+
+  it("waits for timed-out commands to close before rejecting", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: (signal: NodeJS.Signals) => boolean;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const killedSignals: NodeJS.Signals[] = [];
+    child.kill = (signal) => {
+      killedSignals.push(signal);
+      setTimeout(() => child.emit("close", null), 5);
+      return true;
+    };
+
+    const started = Date.now();
+    await expect(
+      runCommandWithTimeout(["sleep", "60"], 1, {
+        spawnProcess: () => child,
+        killGraceMs: 100
+      })
+    ).rejects.toThrow("sleep 60 timed out after 1ms");
+
+    expect(killedSignals).toEqual(["SIGTERM"]);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(5);
+  });
+
+  it("escalates timed-out commands to SIGKILL when they do not close after SIGTERM", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: (signal: NodeJS.Signals) => boolean;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    const killedSignals: NodeJS.Signals[] = [];
+    child.kill = (signal) => {
+      killedSignals.push(signal);
+      if (signal === "SIGKILL") setTimeout(() => child.emit("close", null), 1);
+      return true;
+    };
+
+    await expect(
+      runCommandWithTimeout(["sleep", "60"], 1, {
+        spawnProcess: () => child,
+        killGraceMs: 1
+      })
+    ).rejects.toThrow("sleep 60 timed out after 1ms");
+
+    expect(killedSignals).toEqual(["SIGTERM", "SIGKILL"]);
   });
 });
