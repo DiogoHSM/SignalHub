@@ -1033,6 +1033,73 @@ describe("repositories", () => {
     });
   });
 
+  it("does not reopen resolved groups for delayed older live errors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_grouping_delayed', 'Grouping Delayed')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_grouping_delayed', 'prj_grouping_delayed', 'production')
+      `.execute(db);
+
+      await insertError(db, {
+        id: "err_grouping_delayed_1",
+        projectId: "prj_grouping_delayed",
+        environmentId: "env_grouping_delayed",
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Delayed checkout failure",
+        severity: "error",
+        fingerprint: "delayed-checkout-failure",
+        release: "1.0.0"
+      });
+
+      const [group] = await listErrorGroups(db, {
+        projectId: "prj_grouping_delayed",
+        environmentId: "env_grouping_delayed",
+        limit: 10
+      });
+      const resolvedAt = new Date("2026-05-10T12:10:00.000Z");
+      await updateErrorGroupStatus(db, {
+        id: group!.id,
+        projectId: "prj_grouping_delayed",
+        environmentId: "env_grouping_delayed",
+        status: "resolved",
+        now: resolvedAt
+      });
+
+      await insertError(db, {
+        id: "err_grouping_delayed_2",
+        projectId: "prj_grouping_delayed",
+        environmentId: "env_grouping_delayed",
+        timestamp: new Date("2026-05-10T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:15:00.000Z"),
+        message: "Delayed checkout failure",
+        severity: "critical",
+        fingerprint: "delayed-checkout-failure",
+        release: "1.0.1"
+      });
+
+      const delayed = await getErrorGroup(db, {
+        id: group!.id,
+        projectId: "prj_grouping_delayed",
+        environmentId: "env_grouping_delayed"
+      });
+
+      expect(delayed).toEqual(
+        expect.objectContaining({
+          status: "resolved",
+          resolvedAt,
+          lastRegressedAt: null,
+          occurrenceCount: 2,
+          severity: "critical",
+          latestErrorId: "err_grouping_delayed_2",
+          latestRelease: "1.0.1"
+        })
+      );
+    });
+  });
+
   it("rolls back group updates when grouped raw error insertion fails", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -1241,7 +1308,7 @@ describe("repositories", () => {
         where id = 'err_backfill_resolved_older'
       `.execute(db);
 
-      expect(result).toEqual({ processed: 1 });
+      expect(result).toEqual({ processed: 1, selected: 1 });
       expect(attached.rows[0]).toEqual({
         error_group_id: group!.id,
         grouping_fingerprint: "backfill-resolved-failure"

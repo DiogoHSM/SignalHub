@@ -328,17 +328,29 @@ describe("backfillErrorGroupsUntilDrained", () => {
   it("drains backfill batches until the final partial batch", async () => {
     const backfill = vi
       .fn()
-      .mockResolvedValueOnce({ processed: 500 })
-      .mockResolvedValueOnce({ processed: 500 })
-      .mockResolvedValueOnce({ processed: 123 });
+      .mockResolvedValueOnce({ processed: 500, selected: 500 })
+      .mockResolvedValueOnce({ processed: 500, selected: 500 })
+      .mockResolvedValueOnce({ processed: 123, selected: 123 });
 
     const result = await backfillErrorGroupsUntilDrained(backfill, 500);
 
-    expect(result).toEqual({ processed: 1123, batches: 3 });
+    expect(result).toEqual({ processed: 1123, selected: 1123, batches: 3 });
     expect(backfill).toHaveBeenCalledTimes(3);
     expect(backfill).toHaveBeenNthCalledWith(1, { batchSize: 500 });
     expect(backfill).toHaveBeenNthCalledWith(2, { batchSize: 500 });
     expect(backfill).toHaveBeenNthCalledWith(3, { batchSize: 500 });
+  });
+
+  it("continues draining when a full selected batch was already processed elsewhere", async () => {
+    const backfill = vi
+      .fn()
+      .mockResolvedValueOnce({ processed: 0, selected: 500 })
+      .mockResolvedValueOnce({ processed: 25, selected: 25 });
+
+    const result = await backfillErrorGroupsUntilDrained(backfill, 500);
+
+    expect(result).toEqual({ processed: 25, selected: 525, batches: 2 });
+    expect(backfill).toHaveBeenCalledTimes(2);
   });
 });
 

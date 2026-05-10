@@ -163,6 +163,12 @@ export async function upsertErrorGroupForOccurrence(
 ): Promise<ErrorGroupingFingerprint & { groupId: string }> {
   const grouping = buildErrorGroupingFingerprint(input);
   const reopenResolved = options.reopenResolved ?? true;
+  const shouldReopenResolved = sql<boolean>`
+    ${reopenResolved}
+      and error_groups.status = 'resolved'
+      and error_groups.resolved_at is not null
+      and ${input.timestamp} > error_groups.resolved_at
+  `;
   const inserted = await db
     .insertInto("error_groups")
     .values({
@@ -209,14 +215,14 @@ export async function upsertErrorGroupForOccurrence(
         `,
         status: sql<ErrorGroupStatus>`
           case
-            when ${reopenResolved} and error_groups.status = 'resolved' then 'open'
+            when ${shouldReopenResolved} then 'open'
             else error_groups.status
           end
         `,
         last_seen_at: input.timestamp,
         last_regressed_at: sql<Date | null>`
           case
-            when ${reopenResolved} and error_groups.status = 'resolved' then ${input.timestamp}
+            when ${shouldReopenResolved} then ${input.timestamp}
             else error_groups.last_regressed_at
           end
         `,
@@ -225,7 +231,7 @@ export async function upsertErrorGroupForOccurrence(
         latest_release: sql<string | null>`coalesce(excluded.latest_release, error_groups.latest_release)`,
         resolved_at: sql<Date | null>`
           case
-            when ${reopenResolved} and error_groups.status = 'resolved' then null
+            when ${shouldReopenResolved} then null
             else error_groups.resolved_at
           end
         `,
@@ -348,7 +354,10 @@ export async function refreshErrorGroupStats(db: DbExecutor, groupId: string): P
   `.execute(db);
 }
 
-export async function backfillErrorGroups(db: Db, input: { batchSize?: number } = {}): Promise<{ processed: number }> {
+export async function backfillErrorGroups(
+  db: Db,
+  input: { batchSize?: number } = {}
+): Promise<{ processed: number; selected: number }> {
   const rows = await db
     .selectFrom("errors")
     .selectAll()
@@ -402,5 +411,5 @@ export async function backfillErrorGroups(db: Db, input: { batchSize?: number } 
     });
   }
 
-  return { processed };
+  return { processed, selected: rows.length };
 }

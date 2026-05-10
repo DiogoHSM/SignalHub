@@ -53,8 +53,6 @@ const writer: TelemetryWriter = {
   insertSpan: (input) => insertSpan(db, input)
 };
 
-await backfillErrorGroupsUntilDrained((input) => backfillErrorGroups(db, input), 500);
-
 const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]>(
   "telemetry",
   async (job) => {
@@ -62,6 +60,10 @@ const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]
   },
   { connection }
 );
+
+void backfillErrorGroupsUntilDrained((input) => backfillErrorGroups(db, input), 500).catch((error) => {
+  console.error("Error group backfill failed", error);
+});
 
 const stopHeartbeat = startHeartbeat({
   beat: () => upsertHeartbeat(db, { component: "worker", heartbeatAt: new Date() })
