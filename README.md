@@ -173,7 +173,7 @@ pnpm install
 pnpm run doctor
 docker compose up -d postgres redis
 docker compose run --rm api pnpm seed:admin
-docker compose up --build
+docker compose up -d --build
 pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 

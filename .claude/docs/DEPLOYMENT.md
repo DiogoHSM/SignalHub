@@ -33,7 +33,7 @@ Docker Compose is the only production-supported self-hosted installation path fo
 7. Start the stack:
 
    ```sh
-   docker compose up --build
+   docker compose up -d --build
    ```
 
 8. Run Compose-aware diagnostics:

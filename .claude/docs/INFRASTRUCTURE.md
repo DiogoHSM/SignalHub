@@ -29,7 +29,7 @@ The API and worker use Compose-internal service names:
 
 Local Node commands use `.env` values, usually:
 
-- `DATABASE_URL=postgres://signalhub@localhost:5432/signalhub`
+- `DATABASE_URL=postgres://signalhub:example-local-password-change-me@localhost:5432/signalhub`
 - `REDIS_URL=redis://localhost:6379`
 
 ## Data Durability
