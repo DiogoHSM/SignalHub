@@ -1044,6 +1044,185 @@ describe("query routes", () => {
     expect(invalidCursorResponse.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("lists error groups with filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listErrorGroups: async (filters) => {
+          receivedFilters.push(filters);
+          return [{ id: "egrp_1", status: "open" }];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/error-groups?project_id=prj_1&environment_id=env_1" +
+        "&status=open&severity=critical&fingerprint=fp_1&release=1.2.3&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: [{ id: "egrp_1", status: "open" }] });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        status: "open",
+        severity: "critical",
+        fingerprint: "fp_1",
+        release: "1.2.3",
+        limit: 25
+      }
+    ]);
+  });
+
+  it("gets an error group detail by id with project and environment scope", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getErrorGroup: async (id, filters) => {
+          received.push({ id, filters });
+          return { id: "egrp_1", status: "open" };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { id: "egrp_1", status: "open" } });
+    expect(received).toEqual([
+      {
+        id: "egrp_1",
+        filters: {
+          projectId: "prj_1",
+          environmentId: "env_1"
+        }
+      }
+    ]);
+  });
+
+  it("lists raw occurrences for an error group", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listErrors: async (filters) => {
+          receivedFilters.push(filters);
+          return [{ id: "err_1", errorGroupId: "egrp_1" }];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/error-groups/egrp_1/errors?project_id=prj_1&environment_id=env_1&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: [{ id: "err_1", errorGroupId: "egrp_1" }] });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        errorGroupId: "egrp_1",
+        limit: 25
+      }
+    ]);
+  });
+
+  it("updates an error group status", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        updateErrorGroupStatus: async (id, input) => {
+          received.push({ id, input });
+          return { id: "egrp_1", status: "resolved" };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "resolved" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { id: "egrp_1", status: "resolved" } });
+    expect(received).toEqual([
+      {
+        id: "egrp_1",
+        input: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status: "resolved"
+        }
+      }
+    ]);
+  });
+
+  it.each(["open", "investigating", "resolved", "ignored"])("accepts %s as an error group status", async (status) => {
+    const receivedStatuses: string[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        updateErrorGroupStatus: async (_id, input) => {
+          receivedStatuses.push(input.status);
+          return { id: "egrp_1", status: input.status };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { id: "egrp_1", status } });
+    expect(receivedStatuses).toEqual([status]);
+  });
+
+  it("rejects invalid error group statuses", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        updateErrorGroupStatus: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "closed" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
   it("returns 501 when overview query dependency is missing", async () => {
     app = await buildApp({
       readiness,

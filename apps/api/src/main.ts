@@ -57,6 +57,11 @@ import {
   listTraceSpans,
   listTraces
 } from "@signal-hub/db/repositories/telemetry-query.js";
+import {
+  getErrorGroup,
+  listErrorGroups,
+  updateErrorGroupStatus
+} from "@signal-hub/db/repositories/error-groups.js";
 import { getEntityTenantDetail, listEntityTenants } from "@signal-hub/db/repositories/entities-query.js";
 import { getUserDetail, listUsersActivity } from "@signal-hub/db/repositories/users-query.js";
 import { createTelemetryQueue, enqueueTelemetryJob } from "@signal-hub/queues";
@@ -369,6 +374,9 @@ const app = await buildApp({
   query: {
     listEvents: (filters) => listEvents(db, filters),
     listErrors: (filters) => listErrors(db, filters),
+    listErrorGroups: (filters) => listErrorGroups(db, filters),
+    getErrorGroup: (id, filters) => getErrorGroup(db, { id, ...filters }),
+    updateErrorGroupStatus: (id, input) => updateErrorGroupStatus(db, { id, ...input }),
     listLlmCalls: (filters) => listLlmCalls(db, filters),
     listTraces: (filters) => listTraces(db, filters),
     listTraceSpans: (_traceId, filters) => listTraceSpans(db, filters),
