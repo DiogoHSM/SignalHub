@@ -1189,7 +1189,7 @@ git commit -m "feat: expose error group raw occurrence filters"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Add failing API tests for group list/detail/status**
+- [x] **Step 1: Add failing API tests for group list/detail/status**
 
 In `apps/api/test/query.test.ts`, append:
 
@@ -1324,7 +1324,7 @@ In `apps/api/test/query.test.ts`, append:
   });
 ```
 
-- [ ] **Step 2: Run API tests and verify failure**
+- [x] **Step 2: Run API tests and verify failure**
 
 Run:
 
@@ -1334,7 +1334,7 @@ pnpm --filter @signal-hub/api test -- query.test.ts
 
 Expected: fail because query dependency types and routes do not exist.
 
-- [ ] **Step 3: Add query route types and parsers**
+- [x] **Step 3: Add query route types and parsers**
 
 In `apps/api/src/routes/query.ts`, import or define:
 
@@ -1422,7 +1422,7 @@ function parseErrorGroupScope(query: unknown): ErrorGroupScope | undefined {
 }
 ```
 
-- [ ] **Step 4: Add route handlers**
+- [x] **Step 4: Add route handlers**
 
 In `apps/api/src/routes/query.ts`, add handlers before `registerQueryRoutes`:
 
@@ -1495,7 +1495,7 @@ Register them before raw `/query/errors`:
   app.patch("/query/error-groups/:id", (request, reply) => handleErrorGroupStatusRoute(request, reply, options));
 ```
 
-- [ ] **Step 5: Wire repositories in API main**
+- [x] **Step 5: Wire repositories in API main**
 
 In `apps/api/src/main.ts`, import:
 
@@ -1515,7 +1515,7 @@ Add to the `query` object:
     updateErrorGroupStatus: (id, input) => updateErrorGroupStatus(db, { id, ...input }),
 ```
 
-- [ ] **Step 6: Run API tests and verify pass**
+- [x] **Step 6: Run API tests and verify pass**
 
 Run:
 
@@ -1525,7 +1525,7 @@ pnpm --filter @signal-hub/api test -- query.test.ts
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/query.ts apps/api/src/main.ts apps/api/test/query.test.ts packages/db/src/repositories/error-groups.ts packages/db/test/repositories.test.ts
