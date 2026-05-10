@@ -4,6 +4,7 @@ import { loadConfig } from "@signal-hub/config";
 import { createDb } from "@signal-hub/db";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
 import { recordBackupRun, withBackupLock } from "@signal-hub/db/repositories/backups.js";
+import { backfillErrorGroups } from "@signal-hub/db/repositories/error-groups.js";
 import {
   insertError,
   insertEvent,
@@ -46,6 +47,8 @@ const writer: TelemetryWriter = {
   insertTrace: (input) => insertTrace(db, input),
   insertSpan: (input) => insertSpan(db, input)
 };
+
+await backfillErrorGroups(db, { batchSize: 500 });
 
 const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]>(
   "telemetry",

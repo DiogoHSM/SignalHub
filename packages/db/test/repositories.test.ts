@@ -68,9 +68,13 @@ import {
 } from "../src/repositories/system.js";
 import { getBackupStatus, recordBackupRun, withBackupLock } from "../src/repositories/backups.js";
 import {
+  backfillErrorGroups,
   buildErrorGroupingFingerprint,
   extractTopStackFrame,
-  normalizeErrorGroupingInput
+  getErrorGroup,
+  listErrorGroups,
+  normalizeErrorGroupingInput,
+  updateErrorGroupStatus
 } from "../src/repositories/error-groups.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
@@ -900,6 +904,177 @@ describe("repositories", () => {
         lastSpanAt: spanAt,
         lastLlmCallAt: llmAt
       });
+    });
+  });
+
+  it("groups new error inserts and reopens resolved groups on recurrence", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_grouping', 'Grouping')`.execute(db);
+      await sql`insert into environments (id, project_id, name) values ('env_grouping', 'prj_grouping', 'production')`.execute(db);
+
+      await insertError(db, {
+        id: "err_grouping_1",
+        projectId: "prj_grouping",
+        environmentId: "env_grouping",
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Checkout failed for order 123456",
+        type: "CheckoutError",
+        severity: "critical",
+        stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
+        userId: "user_1",
+        tenantId: "tenant_1",
+        release: "1.0.0"
+      });
+
+      const groups = await listErrorGroups(db, {
+        projectId: "prj_grouping",
+        environmentId: "env_grouping",
+        limit: 10
+      });
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toEqual(
+        expect.objectContaining({
+          message: "Checkout failed for order 123456",
+          status: "open",
+          occurrenceCount: 1,
+          affectedUsersCount: 1,
+          affectedTenantsCount: 1,
+          latestErrorId: "err_grouping_1",
+          latestRelease: "1.0.0"
+        })
+      );
+
+      await updateErrorGroupStatus(db, {
+        id: groups[0]!.id,
+        projectId: "prj_grouping",
+        environmentId: "env_grouping",
+        status: "resolved",
+        now: new Date("2026-05-10T12:05:00.000Z")
+      });
+
+      await insertError(db, {
+        id: "err_grouping_2",
+        projectId: "prj_grouping",
+        environmentId: "env_grouping",
+        timestamp: new Date("2026-05-10T12:10:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:10:01.000Z"),
+        message: "Checkout failed for order 999999",
+        type: "CheckoutError",
+        severity: "error",
+        stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
+        userId: "user_2",
+        tenantId: "tenant_1",
+        release: "1.0.1"
+      });
+
+      const reopened = await getErrorGroup(db, {
+        id: groups[0]!.id,
+        projectId: "prj_grouping",
+        environmentId: "env_grouping"
+      });
+
+      expect(reopened).toEqual(
+        expect.objectContaining({
+          status: "open",
+          occurrenceCount: 2,
+          affectedUsersCount: 2,
+          affectedTenantsCount: 1,
+          latestErrorId: "err_grouping_2",
+          latestRelease: "1.0.1",
+          resolvedAt: null,
+          lastRegressedAt: expect.any(Date)
+        })
+      );
+    });
+  });
+
+  it("keeps ignored groups ignored when matching errors recur", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_ignored_group', 'Ignored Group')`.execute(db);
+      await sql`insert into environments (id, project_id, name) values ('env_ignored_group', 'prj_ignored_group', 'production')`.execute(db);
+
+      await insertError(db, {
+        id: "err_ignored_1",
+        projectId: "prj_ignored_group",
+        environmentId: "env_ignored_group",
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Known browser extension noise",
+        severity: "warning",
+        fingerprint: "browser-extension-noise"
+      });
+
+      const [group] = await listErrorGroups(db, {
+        projectId: "prj_ignored_group",
+        environmentId: "env_ignored_group",
+        limit: 10
+      });
+
+      await updateErrorGroupStatus(db, {
+        id: group!.id,
+        projectId: "prj_ignored_group",
+        environmentId: "env_ignored_group",
+        status: "ignored",
+        now: new Date("2026-05-10T12:05:00.000Z")
+      });
+
+      await insertError(db, {
+        id: "err_ignored_2",
+        projectId: "prj_ignored_group",
+        environmentId: "env_ignored_group",
+        timestamp: new Date("2026-05-10T12:10:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:10:01.000Z"),
+        message: "Known browser extension noise",
+        severity: "warning",
+        fingerprint: "browser-extension-noise"
+      });
+
+      const ignored = await getErrorGroup(db, {
+        id: group!.id,
+        projectId: "prj_ignored_group",
+        environmentId: "env_ignored_group"
+      });
+
+      expect(ignored).toEqual(expect.objectContaining({ status: "ignored", occurrenceCount: 2, lastRegressedAt: null }));
+    });
+  });
+
+  it("backfills existing errors into groups idempotently", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_backfill_groups', 'Backfill Groups')`.execute(db);
+      await sql`insert into environments (id, project_id, name) values ('env_backfill_groups', 'prj_backfill_groups', 'production')`.execute(db);
+
+      await sql`
+        insert into errors (
+          id, project_id, environment_id, timestamp, received_at, message, type, severity, stack, status, fingerprint, context
+        )
+        values
+          ('err_backfill_1', 'prj_backfill_groups', 'env_backfill_groups', '2026-05-10T12:00:00.000Z', '2026-05-10T12:00:01.000Z', 'Backfill failed for user 123456', 'BackfillError', 'error', 'BackfillError: failed\n    at run (/app/run.ts:1:1)', 'open', null, '{}'),
+          ('err_backfill_2', 'prj_backfill_groups', 'env_backfill_groups', '2026-05-10T12:05:00.000Z', '2026-05-10T12:05:01.000Z', 'Backfill failed for user 999999', 'BackfillError', 'critical', 'BackfillError: failed\n    at run (/app/run.ts:1:1)', 'open', null, '{}')
+      `.execute(db);
+
+      await backfillErrorGroups(db, { batchSize: 100 });
+      await backfillErrorGroups(db, { batchSize: 100 });
+
+      const groups = await listErrorGroups(db, {
+        projectId: "prj_backfill_groups",
+        environmentId: "env_backfill_groups",
+        limit: 10
+      });
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toEqual(
+        expect.objectContaining({
+          occurrenceCount: 2,
+          severity: "critical",
+          latestErrorId: "err_backfill_2"
+        })
+      );
     });
   });
 
