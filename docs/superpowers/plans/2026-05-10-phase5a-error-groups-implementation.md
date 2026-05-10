@@ -1540,7 +1540,7 @@ git commit -m "feat: add error group query api"
 - Modify: `apps/console/src/api/client.ts`
 - Test: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing console client tests**
+- [x] **Step 1: Add failing console client tests**
 
 In `apps/console/src/api/client.test.ts`, append:
 
@@ -1582,7 +1582,7 @@ In `apps/console/src/api/client.test.ts`, append:
   });
 ```
 
-- [ ] **Step 2: Run console client tests and verify failure**
+- [x] **Step 2: Run console client tests and verify failure**
 
 Run:
 
@@ -1592,7 +1592,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: fail because group client methods and types do not exist.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 In `apps/console/src/api/types.ts`, add:
 
@@ -1644,7 +1644,7 @@ export type UpdateErrorGroupStatusInput = {
 };
 ```
 
-- [ ] **Step 4: Add client methods**
+- [x] **Step 4: Add client methods**
 
 In `apps/console/src/api/client.ts`, import the new types and extend `ApiClient`:
 
@@ -1701,7 +1701,7 @@ Add methods to `createApiClient`:
       }),
 ```
 
-- [ ] **Step 5: Run console client tests and verify pass**
+- [x] **Step 5: Run console client tests and verify pass**
 
 Run:
 
@@ -1711,7 +1711,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
