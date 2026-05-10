@@ -1308,7 +1308,7 @@ describe("repositories", () => {
         where id = 'err_backfill_resolved_older'
       `.execute(db);
 
-      expect(result).toEqual({ processed: 1, selected: 1 });
+      expect(result).toEqual({ processed: 1, selected: 1, batchSize: 100 });
       expect(attached.rows[0]).toEqual({
         error_group_id: group!.id,
         grouping_fingerprint: "backfill-resolved-failure"

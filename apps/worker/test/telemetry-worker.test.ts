@@ -328,9 +328,9 @@ describe("backfillErrorGroupsUntilDrained", () => {
   it("drains backfill batches until the final partial batch", async () => {
     const backfill = vi
       .fn()
-      .mockResolvedValueOnce({ processed: 500, selected: 500 })
-      .mockResolvedValueOnce({ processed: 500, selected: 500 })
-      .mockResolvedValueOnce({ processed: 123, selected: 123 });
+      .mockResolvedValueOnce({ processed: 500, selected: 500, batchSize: 500 })
+      .mockResolvedValueOnce({ processed: 500, selected: 500, batchSize: 500 })
+      .mockResolvedValueOnce({ processed: 123, selected: 123, batchSize: 500 });
 
     const result = await backfillErrorGroupsUntilDrained(backfill, 500);
 
@@ -344,12 +344,24 @@ describe("backfillErrorGroupsUntilDrained", () => {
   it("continues draining when a full selected batch was already processed elsewhere", async () => {
     const backfill = vi
       .fn()
-      .mockResolvedValueOnce({ processed: 0, selected: 500 })
-      .mockResolvedValueOnce({ processed: 25, selected: 25 });
+      .mockResolvedValueOnce({ processed: 0, selected: 500, batchSize: 500 })
+      .mockResolvedValueOnce({ processed: 25, selected: 25, batchSize: 500 });
 
     const result = await backfillErrorGroupsUntilDrained(backfill, 500);
 
     expect(result).toEqual({ processed: 25, selected: 525, batches: 2 });
+    expect(backfill).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the repository effective batch size when deciding whether to continue", async () => {
+    const backfill = vi
+      .fn()
+      .mockResolvedValueOnce({ processed: 500, selected: 500, batchSize: 500 })
+      .mockResolvedValueOnce({ processed: 10, selected: 10, batchSize: 500 });
+
+    const result = await backfillErrorGroupsUntilDrained(backfill, 1000);
+
+    expect(result).toEqual({ processed: 510, selected: 510, batches: 2 });
     expect(backfill).toHaveBeenCalledTimes(2);
   });
 });

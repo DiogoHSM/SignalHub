@@ -24,7 +24,9 @@ export type TelemetryWriter = {
   insertSpan(input: InsertSpanInput): Promise<void>;
 };
 
-export type BackfillErrorGroups = (input: { batchSize: number }) => Promise<{ processed: number; selected: number }>;
+export type BackfillErrorGroups = (
+  input: { batchSize: number }
+) => Promise<{ processed: number; selected: number; batchSize: number }>;
 
 export async function backfillErrorGroupsUntilDrained(
   backfill: BackfillErrorGroups,
@@ -40,7 +42,7 @@ export async function backfillErrorGroupsUntilDrained(
     selected += result.selected;
     batches += 1;
 
-    if (result.selected < batchSize) {
+    if (result.selected < result.batchSize) {
       return { processed, selected, batches };
     }
   }

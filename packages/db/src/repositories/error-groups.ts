@@ -357,13 +357,14 @@ export async function refreshErrorGroupStats(db: DbExecutor, groupId: string): P
 export async function backfillErrorGroups(
   db: Db,
   input: { batchSize?: number } = {}
-): Promise<{ processed: number; selected: number }> {
+): Promise<{ processed: number; selected: number; batchSize: number }> {
+  const batchSize = resolveLimit(input.batchSize ?? 100);
   const rows = await db
     .selectFrom("errors")
     .selectAll()
     .where("error_group_id", "is", null)
     .orderBy("timestamp", "asc")
-    .limit(resolveLimit(input.batchSize ?? 100))
+    .limit(batchSize)
     .execute();
 
   let processed = 0;
@@ -410,5 +411,5 @@ export async function backfillErrorGroups(
     });
   }
 
-  return { processed, selected: rows.length };
+  return { processed, selected: rows.length, batchSize };
 }
