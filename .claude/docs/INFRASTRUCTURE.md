@@ -29,7 +29,7 @@ The API and worker use Compose-internal service names:
 
 Local Node commands use `.env` values, usually:
 
-- `DATABASE_URL=postgres://signalhub:...@localhost:5432/signalhub`
+- `DATABASE_URL=postgres://signalhub@localhost:5432/signalhub`
 - `REDIS_URL=redis://localhost:6379`
 
 ## Data Durability
@@ -40,6 +40,9 @@ Optional remote backup storage can use an S3-compatible private bucket such as C
 
 ## Operational Checks
 
-- `docker compose config` validates Compose rendering.
+- `pnpm run doctor` runs read-only local operator checks for prerequisites, `.env` shape, placeholder secrets, and safe configuration.
+- `pnpm run doctor -- --compose --api-url http://localhost:3000` adds Compose-aware checks against the running stack.
+- `docker compose config --quiet` validates Compose rendering.
+- Compose checks cover rendered configuration, required services, service reachability, and API health through the configured `--api-url`.
 - `GET /ready` checks Postgres and Redis from the API process.
 - Worker health is currently process-level; failed jobs are retried by BullMQ according to queue behavior.

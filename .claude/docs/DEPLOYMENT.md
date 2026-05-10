@@ -1,28 +1,59 @@
 # Deployment
 
-Docker Compose is the primary self-hosted installation path.
+Docker Compose is the only production-supported self-hosted installation path for Phase 4D. Kubernetes, Helm, systemd, and hosted SaaS deployment are out of scope for this release line.
 
 ## Local Compose
 
 1. Create `.env` from `.env.example`.
 2. Replace secrets and database password.
-3. Start dependencies:
+3. Install dependencies:
+
+   ```sh
+   pnpm install
+   ```
+
+4. Run local read-only diagnostics:
+
+   ```sh
+   pnpm run doctor
+   ```
+
+5. Start dependencies:
 
    ```sh
    docker compose up -d postgres redis
    ```
 
-4. Seed the bootstrap admin:
+6. Seed the bootstrap admin:
 
    ```sh
    docker compose run --rm api pnpm seed:admin
    ```
 
-5. Start the stack:
+7. Start the stack:
 
    ```sh
    docker compose up --build
    ```
+
+8. Run Compose-aware diagnostics:
+
+   ```sh
+   pnpm run doctor -- --compose --api-url http://localhost:3000
+   ```
+
+## Doctor
+
+SignalHub includes read-only operator diagnostics for install and release checks:
+
+```sh
+pnpm run doctor
+pnpm run doctor -- --compose --api-url http://localhost:3000
+```
+
+Results are reported as pass, warn, or fail. Failures produce a non-zero exit code; warnings do not. The checks validate environment shape, placeholder secrets, local prerequisites, Compose rendering, service reachability, and API health without mutating data or revealing secret values.
+
+Use `pnpm run doctor` to invoke the project script. `pnpm doctor` is pnpm's built-in diagnostic and does not run SignalHub's operator diagnostics.
 
 ## Services
 
@@ -105,7 +136,8 @@ Before deployment or release:
 ```sh
 pnpm test
 pnpm build
-docker compose config
+docker compose config --quiet
+pnpm run doctor
 ```
 
 ## Console Deployment

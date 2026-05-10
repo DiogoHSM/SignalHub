@@ -16,6 +16,7 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Worker-owned retention, heartbeat, and operational health reporting.
 - Worker-owned simple alerts with internal history and optional webhook delivery.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
+- Read-only operator doctor checks for local and Docker Compose installs.
 
 SignalHub does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, product object storage, or stored log telemetry.
 
@@ -161,14 +162,19 @@ Webhook secrets are write-only. Saved secret values are redacted and are never r
 
 ## Docker Compose Setup
 
+Docker Compose is the supported production-oriented self-hosted install path for this release line. Kubernetes, Helm, systemd, and hosted SaaS deployment are out of scope.
+
 Docker Compose starts Postgres, Redis, the API, and the telemetry worker. It loads `.env` when present and overrides `DATABASE_URL` and `REDIS_URL` for the internal Compose network.
 
 ```sh
 cp .env.example .env
 # edit .env before first start
+pnpm install
+pnpm run doctor
 docker compose up -d postgres redis
 docker compose run --rm api pnpm seed:admin
 docker compose up --build
+pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
 The API container serves the Integration Console at `http://localhost:3000/console`. Set `SIGNALHUB_PUBLIC_ENDPOINT` to the externally reachable API origin before deploying behind a domain, HTTPS reverse proxy, or non-default port so generated snippets point at the correct endpoint.
@@ -180,7 +186,46 @@ If `POSTGRES_PASSWORD` contains URL-reserved characters, set `POSTGRES_PASSWORD_
 Validate the Compose file with:
 
 ```sh
-docker compose config
+docker compose config --quiet
+```
+
+## Operator Doctor
+
+Run the read-only operator diagnostics before startup and after Compose is running:
+
+```sh
+pnpm run doctor
+pnpm run doctor -- --compose --api-url http://localhost:3000
+```
+
+Doctor results are reported as pass, warn, or fail. The command exits non-zero only when a failure is found; warnings are advisory and keep a zero exit code. The checks are read-only: they validate configuration shape, placeholder usage, local prerequisites, Compose rendering, service reachability, and API health without mutating data or secrets.
+
+Use `pnpm run doctor` to run the SignalHub project script. `pnpm doctor` is pnpm's built-in diagnostic command and does not run SignalHub's operator checks.
+
+## Upgrade Flow
+
+Create a backup before upgrading, stop writers during migration, then verify the upgraded stack:
+
+```sh
+docker compose run --rm worker pnpm backup:create
+git pull
+pnpm install
+docker compose build
+docker compose stop api worker
+docker compose run --rm api pnpm db:migrate
+docker compose up -d
+pnpm run doctor -- --compose --api-url http://localhost:3000
+```
+
+## Restore Drill
+
+Restore is destructive: it replaces the current database state from the selected dump. Practice this flow in a disposable or copied environment before relying on it during an incident.
+
+```sh
+docker compose stop api worker
+docker compose run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-YYYYMMDDTHHMMSSZ.dump --yes
+docker compose start api worker
+pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
 ## Admin Bootstrap
@@ -410,13 +455,20 @@ curl -b cookies.txt \
   "http://localhost:3000/query/aggregates/traces?project_id=prj_YOUR_PROJECT_ID&environment_id=env_YOUR_ENVIRONMENT_ID"
 ```
 
-## Verification
+## Troubleshooting
 
-Common checks before shipping changes:
+- If `pnpm run doctor` fails before Compose starts, fix `.env`, placeholder secrets, Node/pnpm versions, Docker availability, or Compose rendering before starting services.
+- If `pnpm run doctor -- --compose --api-url http://localhost:3000` fails after startup, check `docker compose ps`, API logs, worker logs, Postgres readiness, Redis readiness, and whether `SIGNALHUB_PUBLIC_ENDPOINT` matches the external origin.
+- If admin seeding fails, verify `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`, and database connectivity, then rerun `docker compose run --rm api pnpm seed:admin`.
+- If restore fails, keep API and worker stopped, inspect the restore command output, and retry only in the intended environment with the intended dump path.
+
+## Release Baseline
+
+Run this baseline before tagging or shipping a release:
 
 ```sh
 pnpm test
 pnpm build
-docker compose config
-git status -sb
+docker compose config --quiet
+pnpm run doctor
 ```

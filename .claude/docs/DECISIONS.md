@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-05-10: Add read-only operator diagnostics before release automation
+
+Decision: SignalHub adds a read-only operator doctor command before introducing broader release automation.
+
+Rationale: Phase 4D needs a repeatable install and release baseline that can identify configuration, placeholder secret, Compose, and health issues without mutating operator data or exposing secrets.
+
 ## 2026-05-02: Phase 2 SDK sends one request per signal
 
 Decision: The first JavaScript SDK targets the existing single-signal ingestion endpoints and does not add batch ingestion.
@@ -32,6 +38,6 @@ Rationale: queued ingestion payloads are accepted quickly, while persistence rem
 
 ## Compose as Primary Install Path
 
-Docker Compose is the primary Phase 1 installation and development path.
+Docker Compose is the supported production-oriented self-hosted installation path for this release line.
 
-Rationale: the stack has only API, worker, Postgres, and Redis, and Compose gives operators a reproducible local/self-hosted deployment without extra infrastructure.
+Rationale: the stack has only API, worker, Postgres, and Redis, and Compose gives operators a reproducible local/self-hosted deployment without extra infrastructure. Kubernetes, Helm, and systemd are deferred.

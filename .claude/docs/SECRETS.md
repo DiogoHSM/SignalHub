@@ -8,7 +8,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | --- | --- | --- | --- |
 | `NODE_ENV` | No | `development` | Runtime mode. Valid values are `development`, `test`, and `production`. |
 | `PORT` | No | `3000` | API listen port. |
-| `DATABASE_URL` | Yes | `postgres://signalhub:example-local-password@localhost:5432/signalhub` | Postgres URL for local Node commands. |
+| `DATABASE_URL` | Yes | `postgres://signalhub@localhost:5432/signalhub` | Postgres URL for local Node commands. Add credentials only in private environment files or secret managers. |
 | `REDIS_URL` | Yes | `redis://localhost:6379` | Redis URL for local Node commands. |
 | `POSTGRES_PASSWORD` | Yes for Compose | `example-local-password-change-me` | Compose Postgres user password. Replace before first database start. |
 | `POSTGRES_PASSWORD_URLENCODED` | Sometimes | `example-local-password-change-me` | URL-encoded password for Compose internal `DATABASE_URL` when the raw password has URL-reserved characters. |
@@ -55,3 +55,5 @@ Operational rules:
 - S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
+- Production startup and operator doctor checks reject placeholder values for required production secrets.
+- Doctor output redacts secret values and reports only variable names, status, and actionable remediation.

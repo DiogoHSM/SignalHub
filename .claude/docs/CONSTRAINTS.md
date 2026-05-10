@@ -13,3 +13,4 @@
 - Logs, ClickHouse, object storage, dashboards, SDKs, SaaS workspaces, billing, invites, and full RBAC are out of scope for Phase 1.
 - Root-level `SECRETS.md` is ignored and must not be committed.
 - `.claude/docs/SECRETS.md` may be committed only with sanitized variable names, descriptions, and example-safe values.
+- Docker Compose is the only supported production install path; Kubernetes, Helm, and systemd are deferred.

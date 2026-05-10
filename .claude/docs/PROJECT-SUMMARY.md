@@ -4,7 +4,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Current Phase
 
-Phase 4C: Operational Safety, Backups, and Restore.
+Phase 4D: Release Readiness and Install Hardening.
 
 Implemented capabilities:
 
@@ -28,6 +28,8 @@ Implemented capabilities:
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
 - Internal alert history with optional generic webhook notification channels and recorded delivery attempts.
 - Health and readiness endpoints.
+- Read-only operator doctor command for local and Docker Compose validation.
+- Docker Compose install hardening for the supported production-oriented self-hosted path.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 
 ## Out of Scope for Current Phase
