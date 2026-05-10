@@ -17,6 +17,7 @@ export type ErrorGroupingFingerprint = {
 
 const uuidPattern = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const longNumberPattern = /\b\d{5,}\b/g;
+const browserStackFramePattern = /^[^\s@]+@(?:https?:\/\/|file:\/\/|webpack:\/\/|\/).+:\d+:\d+$/;
 
 export function normalizeErrorGroupingInput(value: string | null | undefined): string {
   return (value ?? "")
@@ -32,7 +33,7 @@ export function extractTopStackFrame(stack: string | null | undefined): string |
   const frame = stack
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find((line) => line.startsWith("at ") || line.includes("@"));
+    .find((line) => line.startsWith("at ") || browserStackFramePattern.test(line));
   return frame ?? null;
 }
 

@@ -30,6 +30,9 @@ CREATE TABLE error_groups (
 CREATE UNIQUE INDEX error_groups_scope_fingerprint_idx
   ON error_groups(project_id, environment_id, grouping_fingerprint);
 
+CREATE UNIQUE INDEX error_groups_id_scope_idx
+  ON error_groups(id, project_id, environment_id);
+
 CREATE INDEX error_groups_scope_status_seen_idx
   ON error_groups(project_id, environment_id, status, last_seen_at DESC);
 
@@ -37,8 +40,11 @@ CREATE INDEX error_groups_scope_severity_seen_idx
   ON error_groups(project_id, environment_id, severity, last_seen_at DESC);
 
 ALTER TABLE errors
-  ADD COLUMN error_group_id text REFERENCES error_groups(id),
-  ADD COLUMN grouping_fingerprint text;
+  ADD COLUMN error_group_id text,
+  ADD COLUMN grouping_fingerprint text,
+  ADD CONSTRAINT errors_error_group_scope_fk
+    FOREIGN KEY (error_group_id, project_id, environment_id)
+    REFERENCES error_groups(id, project_id, environment_id);
 
 CREATE INDEX errors_group_time_idx ON errors(error_group_id, timestamp DESC);
 CREATE INDEX errors_grouping_fingerprint_idx ON errors(project_id, environment_id, grouping_fingerprint);

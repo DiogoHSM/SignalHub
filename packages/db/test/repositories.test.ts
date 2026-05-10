@@ -150,6 +150,68 @@ describe("repositories", () => {
     });
   });
 
+  it("rejects errors linked to error groups from a different scope", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`insert into projects (id, name) values ('prj_error_group_scope_a', 'Error Group Scope A')`.execute(db);
+      await sql`insert into projects (id, name) values ('prj_error_group_scope_b', 'Error Group Scope B')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_error_group_scope_a', 'prj_error_group_scope_a', 'production')
+      `.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_error_group_scope_b', 'prj_error_group_scope_b', 'production')
+      `.execute(db);
+      await sql`
+        insert into error_groups (
+          id,
+          project_id,
+          environment_id,
+          grouping_fingerprint,
+          message,
+          severity,
+          first_seen_at,
+          last_seen_at
+        )
+        values (
+          'egrp_cross_scope_a',
+          'prj_error_group_scope_a',
+          'env_error_group_scope_a',
+          'fp_cross_scope',
+          'Cross scope error',
+          'error',
+          '2026-05-10T12:00:00.000Z',
+          '2026-05-10T12:00:00.000Z'
+        )
+      `.execute(db);
+
+      await expect(sql`
+        insert into errors (
+          id,
+          project_id,
+          environment_id,
+          timestamp,
+          received_at,
+          message,
+          severity,
+          error_group_id
+        )
+        values (
+          'err_cross_scope_b',
+          'prj_error_group_scope_b',
+          'env_error_group_scope_b',
+          '2026-05-10T12:00:01.000Z',
+          '2026-05-10T12:00:02.000Z',
+          'Cross scope linked error',
+          'error',
+          'egrp_cross_scope_a'
+        )
+      `.execute(db)).rejects.toThrow(/foreign key constraint/);
+    });
+  });
+
   it("builds deterministic fallback error grouping fingerprints", () => {
     const first = buildErrorGroupingFingerprint({
       message: "Payment failed for user 123456",
@@ -185,6 +247,9 @@ describe("repositories", () => {
     );
     expect(extractTopStackFrame("Error: failed\n    at first (/app/a.ts:1:2)\n    at second (/app/b.ts:3:4)")).toBe(
       "at first (/app/a.ts:1:2)"
+    );
+    expect(extractTopStackFrame("Contact support@example.com for help\nfn@https://example.com/app.js:1:2")).toBe(
+      "fn@https://example.com/app.js:1:2"
     );
   });
 
