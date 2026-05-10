@@ -17,6 +17,7 @@ export type QueryFilters = {
   severity?: string;
   status?: string;
   fingerprint?: string;
+  errorGroupId?: string;
   from?: Date;
   to?: Date;
   limit: number;
@@ -226,6 +227,7 @@ function parseFilters(
     const severity = optionalNonEmpty(raw, "severity");
     const status = optionalNonEmpty(raw, "status");
     const fingerprint = optionalNonEmpty(raw, "fingerprint");
+    const errorGroupId = optionalNonEmpty(raw, "error_group_id");
 
     if (severity) {
       filters.severity = severity;
@@ -235,6 +237,9 @@ function parseFilters(
     }
     if (fingerprint) {
       filters.fingerprint = fingerprint;
+    }
+    if (errorGroupId) {
+      filters.errorGroupId = errorGroupId;
     }
   }
   if (options.includeLlmFilters) {

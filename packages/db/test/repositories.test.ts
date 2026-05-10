@@ -3328,6 +3328,44 @@ describe("repositories", () => {
     });
   });
 
+  it("lists raw errors with error group identifiers and filters by group", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Raw Group Filter" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertError(db, {
+        id: "err_raw_group_filter_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Grouped raw error",
+        severity: "error",
+        fingerprint: "grouped-raw-error"
+      });
+
+      const [raw] = await listErrors(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        limit: 10
+      });
+
+      expect(raw?.errorGroupId).toEqual(expect.stringMatching(/^egrp_/));
+      expect(raw?.groupingFingerprint).toBe("grouped-raw-error");
+
+      const filtered = await listErrors(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        errorGroupId: raw!.errorGroupId!,
+        limit: 10
+      });
+
+      expect(filtered.map((error) => error.id)).toEqual(["err_raw_group_filter_1"]);
+    });
+  });
+
   it("rejects telemetry whose environment belongs to another project", async () => {
     await withDb(async (db) => {
       await migrate(db);

@@ -71,6 +71,8 @@ export type ErrorRecord = {
   stack: string | null;
   status: string;
   fingerprint: string | null;
+  errorGroupId: string | null;
+  groupingFingerprint: string | null;
   context: unknown;
 };
 
@@ -678,6 +680,7 @@ export type QueryFilters = {
   severity?: string;
   status?: string;
   fingerprint?: string;
+  errorGroupId?: string;
   provider?: string;
   model?: string;
   promptName?: string;

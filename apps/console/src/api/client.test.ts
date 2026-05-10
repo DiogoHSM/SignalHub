@@ -467,11 +467,12 @@ describe("createApiClient", () => {
       environmentId: "env_1",
       severity: "critical",
       status: "open",
-      fingerprint: "fp_checkout_fetch"
+      fingerprint: "fp_checkout_fetch",
+      errorGroupId: "egrp_checkout"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/query/errors?project_id=prj_1&environment_id=env_1&severity=critical&status=open&fingerprint=fp_checkout_fetch",
+      "/query/errors?project_id=prj_1&environment_id=env_1&severity=critical&status=open&fingerprint=fp_checkout_fetch&error_group_id=egrp_checkout",
       expect.objectContaining({ method: "GET" })
     );
   });

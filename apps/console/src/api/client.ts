@@ -179,6 +179,7 @@ function queryPath(
     if (filters.severity) params.set("severity", filters.severity);
     if (filters.status) params.set("status", filters.status);
     if (filters.fingerprint) params.set("fingerprint", filters.fingerprint);
+    if (filters.errorGroupId) params.set("error_group_id", filters.errorGroupId);
   }
   if (options.includeLlmFilters) {
     if (filters.provider) params.set("provider", filters.provider);

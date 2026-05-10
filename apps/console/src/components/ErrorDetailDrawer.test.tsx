@@ -22,6 +22,8 @@ const error: ErrorRecord = {
   stack: "TypeError: Checkout fetch failed\n    at checkout.ts:12:3",
   status: "open",
   fingerprint: "fp_checkout_fetch",
+  errorGroupId: "egrp_checkout",
+  groupingFingerprint: "fp_checkout_fetch",
   context: { route: "/checkout" }
 };
 
