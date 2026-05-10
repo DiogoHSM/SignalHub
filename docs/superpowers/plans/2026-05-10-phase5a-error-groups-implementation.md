@@ -994,7 +994,7 @@ git commit -m "feat: group error occurrences during persistence"
 - Test: `apps/api/test/query.test.ts`
 - Test: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing tests for raw error group fields and filters**
+- [x] **Step 1: Add failing tests for raw error group fields and filters**
 
 In `packages/db/test/repositories.test.ts`, add an assertion to a raw error query test or append:
 
@@ -1087,7 +1087,7 @@ In `apps/console/src/api/client.test.ts`, update the existing error filter test 
     );
 ```
 
-- [ ] **Step 2: Run focused tests and verify failure**
+- [x] **Step 2: Run focused tests and verify failure**
 
 Run:
 
@@ -1099,7 +1099,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: fail because `errorGroupId` is not exposed or parsed.
 
-- [ ] **Step 3: Add `errorGroupId` to backend filter and raw records**
+- [x] **Step 3: Add `errorGroupId` to backend filter and raw records**
 
 In `packages/db/src/repositories/telemetry-query.ts`, extend `TelemetryFilters`:
 
@@ -1127,7 +1127,7 @@ Update `listErrors`:
   if (filters.errorGroupId) query = query.where("error_group_id", "=", filters.errorGroupId);
 ```
 
-- [ ] **Step 4: Parse and encode `error_group_id`**
+- [x] **Step 4: Parse and encode `error_group_id`**
 
 In `apps/api/src/routes/query.ts`, add `errorGroupId?: string;` to `QueryFilters`.
 
@@ -1160,7 +1160,7 @@ In `apps/console/src/api/client.ts`, inside `queryPath` for `includeErrorFilters
     if (filters.errorGroupId) params.set("error_group_id", filters.errorGroupId);
 ```
 
-- [ ] **Step 5: Run focused tests and verify pass**
+- [x] **Step 5: Run focused tests and verify pass**
 
 Run:
 
@@ -1172,7 +1172,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/db/src/repositories/telemetry-query.ts packages/db/test/repositories.test.ts apps/api/src/routes/query.ts apps/api/test/query.test.ts apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
