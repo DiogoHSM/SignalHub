@@ -1072,7 +1072,7 @@ git add docs/superpowers/plans/2026-05-08-phase4d-release-readiness-implementati
 git commit -m "docs: mark release readiness verification complete"
 ```
 
-- [ ] **Step 7: Update project memory**
+- [x] **Step 7: Update project memory**
 
 Update the SignalHub memory file in the config repository:
 
