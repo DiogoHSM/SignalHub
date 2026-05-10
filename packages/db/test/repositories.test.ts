@@ -1327,6 +1327,79 @@ describe("repositories", () => {
     });
   });
 
+  it("backfills newer errors as resolved group regressions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_backfill_regression', 'Backfill Regression')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_backfill_regression', 'prj_backfill_regression', 'production')
+      `.execute(db);
+
+      await insertError(db, {
+        id: "err_backfill_regression_initial",
+        projectId: "prj_backfill_regression",
+        environmentId: "env_backfill_regression",
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Backfill regression failure",
+        severity: "error",
+        fingerprint: "backfill-regression-failure"
+      });
+
+      const [group] = await listErrorGroups(db, {
+        projectId: "prj_backfill_regression",
+        environmentId: "env_backfill_regression",
+        limit: 10
+      });
+      const resolvedAt = new Date("2026-05-10T12:05:00.000Z");
+      await updateErrorGroupStatus(db, {
+        id: group!.id,
+        projectId: "prj_backfill_regression",
+        environmentId: "env_backfill_regression",
+        status: "resolved",
+        now: resolvedAt
+      });
+
+      await sql`
+        insert into errors (
+          id, project_id, environment_id, timestamp, received_at, message, severity, status, fingerprint, context
+        )
+        values (
+          'err_backfill_regression_newer',
+          'prj_backfill_regression',
+          'env_backfill_regression',
+          '2026-05-10T12:10:00.000Z',
+          '2026-05-10T12:10:01.000Z',
+          'Backfill regression failure',
+          'critical',
+          'open',
+          'backfill-regression-failure',
+          '{}'
+        )
+      `.execute(db);
+
+      await backfillErrorGroups(db, { batchSize: 100 });
+
+      const regressed = await getErrorGroup(db, {
+        id: group!.id,
+        projectId: "prj_backfill_regression",
+        environmentId: "env_backfill_regression"
+      });
+
+      expect(regressed).toEqual(
+        expect.objectContaining({
+          status: "open",
+          resolvedAt: null,
+          lastRegressedAt: new Date("2026-05-10T12:10:00.000Z"),
+          occurrenceCount: 2,
+          severity: "critical",
+          latestErrorId: "err_backfill_regression_newer"
+        })
+      );
+    });
+  });
+
   it("evaluates supported alert rule types", async () => {
     await withDb(async (db) => {
       await migrate(db);

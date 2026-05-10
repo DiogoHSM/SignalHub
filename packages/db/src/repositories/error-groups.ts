@@ -345,8 +345,8 @@ export async function refreshErrorGroupStats(db: DbExecutor, groupId: string): P
         count(distinct tenant_id) filter (where tenant_id is not null)::int as affected_tenants_count,
         min(timestamp) as first_seen_at,
         max(timestamp) as last_seen_at,
-        (array_agg(id order by timestamp desc, received_at desc))[1] as latest_error_id,
-        (array_agg(release order by timestamp desc, received_at desc) filter (where release is not null))[1] as latest_release
+        (array_agg(id order by timestamp desc, received_at desc, id desc))[1] as latest_error_id,
+        (array_agg(release order by timestamp desc, received_at desc, id desc) filter (where release is not null))[1] as latest_release
       from errors
       where error_group_id = ${groupId}
     ) stats
@@ -393,8 +393,7 @@ export async function backfillErrorGroups(
           tenantId: currentRow.tenant_id,
           release: currentRow.release,
           errorId: currentRow.id
-        },
-        { reopenResolved: false }
+        }
       );
 
       const updateResult = await trx

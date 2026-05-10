@@ -51,6 +51,16 @@ describe("SDK ingestion schema contracts", () => {
     ).not.toThrow();
   });
 
+  it("creates fatal error payloads accepted by the ingestion schema", () => {
+    expect(() =>
+      errorPayloadSchema.parse(
+        createErrorSignal("Process crashed", {
+          severity: "fatal"
+        }).payload
+      )
+    ).not.toThrow();
+  });
+
   it("creates LLM payloads accepted by the ingestion schema", () => {
     expect(() =>
       llmCallPayloadSchema.parse(

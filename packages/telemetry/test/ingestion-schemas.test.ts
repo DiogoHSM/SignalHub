@@ -209,4 +209,13 @@ describe("ingestion schemas", () => {
     expect(trace.metadata).toEqual({});
     expect(trace.status).toBe("pending");
   });
+
+  it("accepts fatal error severity", () => {
+    const error = errorPayloadSchema.parse({
+      message: "Process crashed",
+      severity: "fatal"
+    });
+
+    expect(error.severity).toBe("fatal");
+  });
 });
