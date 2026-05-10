@@ -89,7 +89,7 @@ Do not modify:
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing migration and fingerprint tests**
+- [x] **Step 1: Add failing migration and fingerprint tests**
 
 In `packages/db/test/repositories.test.ts`, add these imports:
 
@@ -152,7 +152,7 @@ Append these tests near the existing migration tests:
   });
 ```
 
-- [ ] **Step 2: Run repository tests and verify failure**
+- [x] **Step 2: Run repository tests and verify failure**
 
 Run:
 
@@ -162,7 +162,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because `error-groups.ts`, migration registration, schema fields, and tables do not exist.
 
-- [ ] **Step 3: Add error group migration**
+- [x] **Step 3: Add error group migration**
 
 Create `packages/db/migrations/0005_error_groups.sql`:
 
@@ -213,7 +213,7 @@ CREATE INDEX errors_group_time_idx ON errors(error_group_id, timestamp DESC);
 CREATE INDEX errors_grouping_fingerprint_idx ON errors(project_id, environment_id, grouping_fingerprint);
 ```
 
-- [ ] **Step 4: Register migration**
+- [x] **Step 4: Register migration**
 
 In `packages/db/src/migrate.ts`, append the migration to `migrations`:
 
@@ -233,7 +233,7 @@ const migrations = [
 ];
 ```
 
-- [ ] **Step 5: Update schema types**
+- [x] **Step 5: Update schema types**
 
 In `packages/db/src/schema.ts`, add these types above `ErrorsTable`:
 
@@ -278,7 +278,7 @@ Add the table mapping to `Database` before `errors`:
   error_groups: ErrorGroupsTable;
 ```
 
-- [ ] **Step 6: Implement fingerprint helpers**
+- [x] **Step 6: Implement fingerprint helpers**
 
 Create `packages/db/src/repositories/error-groups.ts`:
 
@@ -346,7 +346,7 @@ export function buildErrorGroupingFingerprint(input: ErrorGroupingInput): ErrorG
 }
 ```
 
-- [ ] **Step 7: Run repository tests and verify pass**
+- [x] **Step 7: Run repository tests and verify pass**
 
 Run:
 
@@ -356,7 +356,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass for migration and fingerprint helper tests.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/migrations/0005_error_groups.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/error-groups.ts packages/db/test/repositories.test.ts
