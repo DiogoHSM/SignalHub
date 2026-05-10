@@ -373,7 +373,7 @@ git commit -m "feat: add error group schema and fingerprints"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Add failing repository tests for grouping lifecycle**
+- [x] **Step 1: Add failing repository tests for grouping lifecycle**
 
 In `packages/db/test/repositories.test.ts`, extend the error-groups import:
 
@@ -564,7 +564,7 @@ Append these tests near the telemetry write/query tests:
   });
 ```
 
-- [ ] **Step 2: Run repository tests and verify failure**
+- [x] **Step 2: Run repository tests and verify failure**
 
 Run:
 
@@ -574,7 +574,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because group repositories and grouped insert behavior are not implemented.
 
-- [ ] **Step 3: Implement group repository functions**
+- [x] **Step 3: Implement group repository functions**
 
 In `packages/db/src/repositories/error-groups.ts`, keep the fingerprint helpers and add these exports:
 
@@ -885,7 +885,7 @@ In `backfillErrorGroups`, call the helper immediately after updating the raw err
     await refreshErrorGroupStats(db, grouping.groupId);
 ```
 
-- [ ] **Step 4: Group errors during insert**
+- [x] **Step 4: Group errors during insert**
 
 In `packages/db/src/repositories/telemetry-writes.ts`, import:
 
@@ -939,7 +939,7 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
 }
 ```
 
-- [ ] **Step 5: Run repository tests and verify pass**
+- [x] **Step 5: Run repository tests and verify pass**
 
 Run:
 
@@ -949,7 +949,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass for grouping lifecycle, ignored recurrence, and backfill tests.
 
-- [ ] **Step 6: Add worker startup backfill**
+- [x] **Step 6: Add worker startup backfill**
 
 In `apps/worker/src/main.ts`, import:
 
@@ -965,7 +965,7 @@ await backfillErrorGroups(db, { batchSize: 500 });
 
 This ensures existing errors are grouped before the worker processes new jobs.
 
-- [ ] **Step 7: Run worker tests**
+- [x] **Step 7: Run worker tests**
 
 Run:
 
@@ -975,7 +975,7 @@ pnpm --filter @signal-hub/worker test -- telemetry-worker.test.ts
 
 Expected: pass. The worker unit tests should still assert that grouping-relevant error fields are passed to `insertError`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/error-groups.ts packages/db/src/repositories/telemetry-writes.ts packages/db/test/repositories.test.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts
