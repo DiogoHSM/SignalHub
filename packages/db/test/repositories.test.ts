@@ -991,6 +991,48 @@ describe("repositories", () => {
     });
   });
 
+  it("does not downgrade fatal error groups on lower severity recurrence", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_grouping_fatal', 'Grouping Fatal')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_grouping_fatal', 'prj_grouping_fatal', 'production')
+      `.execute(db);
+
+      await insertError(db, {
+        id: "err_grouping_fatal_1",
+        projectId: "prj_grouping_fatal",
+        environmentId: "env_grouping_fatal",
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Fatal checkout failure",
+        severity: "fatal",
+        fingerprint: "fatal-checkout-failure"
+      });
+
+      await insertError(db, {
+        id: "err_grouping_fatal_2",
+        projectId: "prj_grouping_fatal",
+        environmentId: "env_grouping_fatal",
+        timestamp: new Date("2026-05-10T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:05:01.000Z"),
+        message: "Fatal checkout failure",
+        severity: "critical",
+        fingerprint: "fatal-checkout-failure"
+      });
+
+      const groups = await listErrorGroups(db, {
+        projectId: "prj_grouping_fatal",
+        environmentId: "env_grouping_fatal",
+        limit: 10
+      });
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toEqual(expect.objectContaining({ occurrenceCount: 2, severity: "fatal" }));
+    });
+  });
+
   it("rolls back group updates when grouped raw error insertion fails", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -1128,6 +1170,91 @@ describe("repositories", () => {
           occurrenceCount: 2,
           severity: "critical",
           latestErrorId: "err_backfill_2"
+        })
+      );
+    });
+  });
+
+  it("backfills older errors without reopening resolved groups", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_backfill_resolved', 'Backfill Resolved')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_backfill_resolved', 'prj_backfill_resolved', 'production')
+      `.execute(db);
+
+      await insertError(db, {
+        id: "err_backfill_resolved_latest",
+        projectId: "prj_backfill_resolved",
+        environmentId: "env_backfill_resolved",
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Backfill resolved failure",
+        severity: "error",
+        fingerprint: "backfill-resolved-failure",
+        release: "1.0.0"
+      });
+
+      const [group] = await listErrorGroups(db, {
+        projectId: "prj_backfill_resolved",
+        environmentId: "env_backfill_resolved",
+        limit: 10
+      });
+      const resolvedAt = new Date("2026-05-10T12:05:00.000Z");
+      await updateErrorGroupStatus(db, {
+        id: group!.id,
+        projectId: "prj_backfill_resolved",
+        environmentId: "env_backfill_resolved",
+        status: "resolved",
+        now: resolvedAt
+      });
+
+      await sql`
+        insert into errors (
+          id, project_id, environment_id, timestamp, received_at, message, severity, status, fingerprint, context
+        )
+        values (
+          'err_backfill_resolved_older',
+          'prj_backfill_resolved',
+          'env_backfill_resolved',
+          '2026-05-10T11:00:00.000Z',
+          '2026-05-10T11:00:01.000Z',
+          'Backfill resolved failure',
+          'critical',
+          'open',
+          'backfill-resolved-failure',
+          '{}'
+        )
+      `.execute(db);
+
+      const result = await backfillErrorGroups(db, { batchSize: 100 });
+
+      const resolved = await getErrorGroup(db, {
+        id: group!.id,
+        projectId: "prj_backfill_resolved",
+        environmentId: "env_backfill_resolved"
+      });
+      const attached = await sql<{ error_group_id: string | null; grouping_fingerprint: string | null }>`
+        select error_group_id, grouping_fingerprint
+        from errors
+        where id = 'err_backfill_resolved_older'
+      `.execute(db);
+
+      expect(result).toEqual({ processed: 1 });
+      expect(attached.rows[0]).toEqual({
+        error_group_id: group!.id,
+        grouping_fingerprint: "backfill-resolved-failure"
+      });
+      expect(resolved).toEqual(
+        expect.objectContaining({
+          status: "resolved",
+          resolvedAt,
+          lastRegressedAt: null,
+          occurrenceCount: 2,
+          severity: "critical",
+          latestErrorId: "err_backfill_resolved_latest",
+          latestRelease: "1.0.0"
         })
       );
     });

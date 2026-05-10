@@ -75,6 +75,10 @@ export type UpsertErrorGroupInput = {
   errorId: string;
 };
 
+type UpsertErrorGroupOptions = {
+  reopenResolved?: boolean;
+};
+
 const uuidPattern = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const longNumberPattern = /\b\d{5,}\b/g;
 const browserStackFramePattern = /^(?:[^\s@]*@)?(?:https?:\/\/|file:\/\/|webpack:\/\/|\/).+:\d+:\d+$/;
@@ -154,9 +158,11 @@ function resolveLimit(limit: number | undefined): number {
 
 export async function upsertErrorGroupForOccurrence(
   db: DbExecutor,
-  input: UpsertErrorGroupInput
+  input: UpsertErrorGroupInput,
+  options: UpsertErrorGroupOptions = {}
 ): Promise<ErrorGroupingFingerprint & { groupId: string }> {
   const grouping = buildErrorGroupingFingerprint(input);
+  const reopenResolved = options.reopenResolved ?? true;
   const inserted = await db
     .insertInto("error_groups")
     .values({
@@ -181,6 +187,7 @@ export async function upsertErrorGroupForOccurrence(
         severity: sql<string>`
           case
             when case excluded.severity
+              when 'fatal' then 5
               when 'critical' then 4
               when 'error' then 3
               when 'warning' then 2
@@ -188,6 +195,7 @@ export async function upsertErrorGroupForOccurrence(
               when 'debug' then 0
               else 0
             end > case error_groups.severity
+              when 'fatal' then 5
               when 'critical' then 4
               when 'error' then 3
               when 'warning' then 2
@@ -199,15 +207,28 @@ export async function upsertErrorGroupForOccurrence(
             else error_groups.severity
           end
         `,
-        status: sql<ErrorGroupStatus>`case when error_groups.status = 'resolved' then 'open' else error_groups.status end`,
+        status: sql<ErrorGroupStatus>`
+          case
+            when ${reopenResolved} and error_groups.status = 'resolved' then 'open'
+            else error_groups.status
+          end
+        `,
         last_seen_at: input.timestamp,
         last_regressed_at: sql<Date | null>`
-          case when error_groups.status = 'resolved' then ${input.timestamp} else error_groups.last_regressed_at end
+          case
+            when ${reopenResolved} and error_groups.status = 'resolved' then ${input.timestamp}
+            else error_groups.last_regressed_at
+          end
         `,
         occurrence_count: sql<number>`error_groups.occurrence_count + 1`,
         latest_error_id: input.errorId,
         latest_release: sql<string | null>`coalesce(excluded.latest_release, error_groups.latest_release)`,
-        resolved_at: sql<Date | null>`case when error_groups.status = 'resolved' then null else error_groups.resolved_at end`,
+        resolved_at: sql<Date | null>`
+          case
+            when ${reopenResolved} and error_groups.status = 'resolved' then null
+            else error_groups.resolved_at
+          end
+        `,
         updated_at: new Date()
       })
     )
@@ -251,7 +272,9 @@ export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promi
 
   const rows = await query
     .orderBy(sql<number>`case when status = 'open' and last_regressed_at is not null then 0 else 1 end`)
-    .orderBy(sql<number>`case severity when 'critical' then 0 when 'error' then 1 when 'warning' then 2 when 'info' then 3 when 'debug' then 4 else 5 end`)
+    .orderBy(
+      sql<number>`case severity when 'fatal' then 0 when 'critical' then 1 when 'error' then 2 when 'warning' then 3 when 'info' then 4 when 'debug' then 5 else 6 end`
+    )
     .orderBy(sql<number>`case status when 'open' then 0 when 'investigating' then 1 else 2 end`)
     .orderBy("last_seen_at", "desc")
     .limit(resolveLimit(filters.limit))
@@ -334,32 +357,50 @@ export async function backfillErrorGroups(db: Db, input: { batchSize?: number } 
     .limit(resolveLimit(input.batchSize ?? 100))
     .execute();
 
+  let processed = 0;
   for (const row of rows) {
     await db.transaction().execute(async (trx) => {
-      const grouping = await upsertErrorGroupForOccurrence(trx, {
-        projectId: row.project_id,
-        environmentId: row.environment_id,
-        message: row.message,
-        type: row.type,
-        severity: row.severity,
-        stack: row.stack,
-        fingerprint: row.fingerprint,
-        timestamp: row.timestamp,
-        userId: row.user_id,
-        tenantId: row.tenant_id,
-        release: row.release,
-        errorId: row.id
-      });
+      const currentRow = await trx
+        .selectFrom("errors")
+        .selectAll()
+        .where("id", "=", row.id)
+        .forUpdate()
+        .executeTakeFirst();
 
-      await trx
+      if (!currentRow || currentRow.error_group_id) return;
+
+      const grouping = await upsertErrorGroupForOccurrence(
+        trx,
+        {
+          projectId: currentRow.project_id,
+          environmentId: currentRow.environment_id,
+          message: currentRow.message,
+          type: currentRow.type,
+          severity: currentRow.severity,
+          stack: currentRow.stack,
+          fingerprint: currentRow.fingerprint,
+          timestamp: currentRow.timestamp,
+          userId: currentRow.user_id,
+          tenantId: currentRow.tenant_id,
+          release: currentRow.release,
+          errorId: currentRow.id
+        },
+        { reopenResolved: false }
+      );
+
+      const updateResult = await trx
         .updateTable("errors")
         .set({ error_group_id: grouping.groupId, grouping_fingerprint: grouping.fingerprint })
-        .where("id", "=", row.id)
+        .where("id", "=", currentRow.id)
+        .where("error_group_id", "is", null)
         .execute();
 
-      await refreshErrorGroupStats(trx, grouping.groupId);
+      if (updateResult[0]?.numUpdatedRows === 1n) {
+        await refreshErrorGroupStats(trx, grouping.groupId);
+        processed += 1;
+      }
     });
   }
 
-  return { processed: rows.length };
+  return { processed };
 }
