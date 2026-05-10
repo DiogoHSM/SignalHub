@@ -67,6 +67,11 @@ import {
   withRetentionLock
 } from "../src/repositories/system.js";
 import { getBackupStatus, recordBackupRun, withBackupLock } from "../src/repositories/backups.js";
+import {
+  buildErrorGroupingFingerprint,
+  extractTopStackFrame,
+  normalizeErrorGroupingInput
+} from "../src/repositories/error-groups.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
@@ -134,6 +139,53 @@ describe("repositories", () => {
 
       await sql`select id, status, trigger, filename, s3_key from backup_runs limit 0`.execute(db);
     });
+  });
+
+  it("runs error group migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, grouping_fingerprint, status from error_groups limit 0`.execute(db);
+      await sql`select error_group_id, grouping_fingerprint from errors limit 0`.execute(db);
+    });
+  });
+
+  it("builds deterministic fallback error grouping fingerprints", () => {
+    const first = buildErrorGroupingFingerprint({
+      message: "Payment failed for user 123456",
+      type: "PaymentError",
+      stack: "PaymentError: failed\n    at charge (/app/src/payments.ts:42:7)"
+    });
+    const second = buildErrorGroupingFingerprint({
+      message: " payment   failed for user 999999 ",
+      type: "paymenterror",
+      stack: "PaymentError: failed\n    at charge (/app/src/payments.ts:42:7)"
+    });
+
+    expect(first.fingerprint).toBe(second.fingerprint);
+    expect(first.source).toContain("paymenterror");
+    expect(first.topStackFrame).toBe("at charge (/app/src/payments.ts:42:7)");
+  });
+
+  it("uses explicit error fingerprints without hashing the fallback source", () => {
+    const result = buildErrorGroupingFingerprint({
+      fingerprint: "checkout-provider-timeout",
+      message: "Provider timeout",
+      type: "TimeoutError",
+      stack: "TimeoutError: provider timeout"
+    });
+
+    expect(result.fingerprint).toBe("checkout-provider-timeout");
+    expect(result.source).toBe("explicit:checkout-provider-timeout");
+  });
+
+  it("normalizes error grouping input and extracts top stack frames", () => {
+    expect(normalizeErrorGroupingInput("Checkout failed for request 018f1f31-8d48-7721-86b2-80f86fd87bb6")).toBe(
+      "checkout failed for request {uuid}"
+    );
+    expect(extractTopStackFrame("Error: failed\n    at first (/app/a.ts:1:2)\n    at second (/app/b.ts:3:4)")).toBe(
+      "at first (/app/a.ts:1:2)"
+    );
   });
 
   it("rejects alert events whose rule scope does not match the event scope", async () => {
