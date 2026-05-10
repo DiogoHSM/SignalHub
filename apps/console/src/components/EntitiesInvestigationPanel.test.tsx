@@ -179,6 +179,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     archiveAlertRule: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
+    listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
+    getErrorGroup: vi.fn(),
+    updateErrorGroupStatus: vi.fn(),
     ...overrides
   };
 }

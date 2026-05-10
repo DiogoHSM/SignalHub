@@ -51,7 +51,10 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
-    getAlertEvent: vi.fn()
+    getAlertEvent: vi.fn(),
+    listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
+    getErrorGroup: vi.fn(),
+    updateErrorGroupStatus: vi.fn()
   } satisfies ApiClient;
   const operationalClient = {
     getConsoleConfig: vi.fn(),
@@ -100,7 +103,10 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
-    getAlertEvent: vi.fn()
+    getAlertEvent: vi.fn(),
+    listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
+    getErrorGroup: vi.fn(),
+    updateErrorGroupStatus: vi.fn()
   } satisfies ApiClient;
   const createApiClient = vi.fn((apiBasePath?: string) => (apiBasePath === "/api" ? operationalClient : bootstrapClient));
 
