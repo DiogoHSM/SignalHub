@@ -251,6 +251,12 @@ describe("repositories", () => {
     expect(extractTopStackFrame("Contact support@example.com for help\nfn@https://example.com/app.js:1:2")).toBe(
       "fn@https://example.com/app.js:1:2"
     );
+    expect(extractTopStackFrame("Error: failed\nhttps://example.com/app.js:1:2")).toBe(
+      "https://example.com/app.js:1:2"
+    );
+    expect(extractTopStackFrame("Error: failed\n@https://example.com/app.js:1:2")).toBe(
+      "@https://example.com/app.js:1:2"
+    );
   });
 
   it("rejects alert events whose rule scope does not match the event scope", async () => {
