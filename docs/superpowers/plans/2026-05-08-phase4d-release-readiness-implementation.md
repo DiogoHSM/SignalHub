@@ -1021,7 +1021,7 @@ git commit -m "docs: document release readiness operations"
 
 - Modify: `docs/superpowers/plans/2026-05-08-phase4d-release-readiness-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 Run:
 
@@ -1031,7 +1031,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run build**
+- [x] **Step 2: Run build**
 
 Run:
 
@@ -1041,7 +1041,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 Run:
 
@@ -1051,7 +1051,7 @@ docker compose config --quiet
 
 Expected: exit code `0`.
 
-- [ ] **Step 4: Run doctor safe local mode**
+- [x] **Step 4: Run doctor safe local mode**
 
 Run:
 
@@ -1061,11 +1061,11 @@ pnpm run doctor
 
 Expected: exit code `0` when local `.env` has no failed checks. If the local `.env` is intentionally absent or unsafe, capture the output and either add a test fixture command for verification or create a safe temporary env file command using `pnpm run doctor -- --env-file <path>` in `/tmp`.
 
-- [ ] **Step 5: Mark plan tasks complete**
+- [x] **Step 5: Mark plan tasks complete**
 
 Update this plan file by changing all completed task checkboxes from `- [ ]` to `- [x]`.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-08-phase4d-release-readiness-implementation.md
