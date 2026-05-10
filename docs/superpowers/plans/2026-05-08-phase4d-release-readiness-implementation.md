@@ -875,7 +875,7 @@ git commit -m "feat: add operator doctor command"
 - Modify: `.claude/docs/SECRETS.md`
 - Modify: `.claude/docs/INFRASTRUCTURE.md`
 
-- [ ] **Step 1: Update README install and doctor sections**
+- [x] **Step 1: Update README install and doctor sections**
 
 In `README.md`, update the Docker Compose setup section so the primary flow includes doctor:
 
@@ -915,7 +915,7 @@ Use `pnpm run doctor`, not `pnpm doctor`; `pnpm doctor` is pnpm's built-in diagn
 The command prints `PASS`, `WARN`, and `FAIL` lines. Warnings do not make the command fail. Failures return a non-zero exit code. The command is read-only and does not create users, projects, API keys, migrations, backups, restores, or telemetry.
 ````
 
-- [ ] **Step 2: Add upgrade and restore drill docs**
+- [x] **Step 2: Add upgrade and restore drill docs**
 
 Add `## Upgrade Flow` and `## Restore Drill` sections to `README.md`:
 
@@ -951,7 +951,7 @@ pnpm run doctor -- --compose --api-url http://localhost:3000
 Restore is destructive. Stop writers first and verify the target backup file before running `backup:restore`.
 ````
 
-- [ ] **Step 3: Add troubleshooting and release baseline docs**
+- [x] **Step 3: Add troubleshooting and release baseline docs**
 
 Add concise sections:
 
@@ -979,7 +979,7 @@ pnpm run doctor
 Use semantic versioning from the root `package.json`. Keep release notes focused on install/upgrade impact, schema migrations, environment variables, and operator action required.
 ````
 
-- [ ] **Step 4: Update `.claude/docs` project docs**
+- [x] **Step 4: Update `.claude/docs` project docs**
 
 Apply these content updates:
 
@@ -990,7 +990,7 @@ Apply these content updates:
 - `.claude/docs/SECRETS.md`: document that production startup rejects known placeholder secrets and that doctor output redacts secret values.
 - `.claude/docs/INFRASTRUCTURE.md`: list the doctor host and Compose checks.
 
-- [ ] **Step 5: Run docs grep checks**
+- [x] **Step 5: Run docs grep checks**
 
 Run:
 
@@ -1008,7 +1008,7 @@ rg -n "pnpm run doctor|docker compose" README.md .claude/docs/DEPLOYMENT.md .cla
 
 Expected: doctor and Compose commands are documented.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add README.md .claude/docs/PROJECT-SUMMARY.md .claude/docs/DEPLOYMENT.md .claude/docs/CONSTRAINTS.md .claude/docs/DECISIONS.md .claude/docs/SECRETS.md .claude/docs/INFRASTRUCTURE.md
