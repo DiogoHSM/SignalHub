@@ -8,7 +8,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | --- | --- | --- | --- |
 | `NODE_ENV` | No | `development` | Runtime mode. Valid values are `development`, `test`, and `production`. |
 | `PORT` | No | `3000` | API listen port. |
-| `DATABASE_URL` | Yes | `postgres://signalhub:<encoded-password>@localhost:5432/signalhub` | Postgres URL for local Node commands. Use the same password as `POSTGRES_PASSWORD`; URL-encode reserved characters. |
+| `DATABASE_URL` | Yes | `Postgres URL with local host, database, and encoded password` | Postgres URL for local Node commands. Use the same password as `POSTGRES_PASSWORD`; URL-encode reserved characters. Do not commit the full URL. |
 | `REDIS_URL` | Yes | `redis://localhost:6379` | Redis URL for local Node commands. |
 | `POSTGRES_PASSWORD` | Yes for Compose | `example-local-password-change-me` | Compose Postgres user password. Replace before first database start. |
 | `POSTGRES_PASSWORD_URLENCODED` | Sometimes | `example-local-password-change-me` | URL-encoded password for Compose internal `DATABASE_URL` when the raw password has URL-reserved characters. |
