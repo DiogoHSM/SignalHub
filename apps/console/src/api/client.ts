@@ -10,6 +10,8 @@ import type {
   CreatedApiKey,
   CreateNotificationChannelInput,
   Environment,
+  ErrorGroupQuery,
+  ErrorGroupRecord,
   ErrorRecord,
   EventRecord,
   LlmAggregates,
@@ -33,6 +35,7 @@ import type {
   UserListQuery,
   UserListResponse,
   UpdateAlertRuleInput,
+  UpdateErrorGroupStatusInput,
   UpdateNotificationChannelInput
 } from "./types";
 
@@ -59,6 +62,15 @@ export type AlertApiClient = {
   archiveAlertRule: (id: string) => Promise<void>;
   listAlertEvents: (query: AlertEventListQuery) => Promise<QueryListResponse<AlertEventResponse>>;
   getAlertEvent: (id: string) => Promise<AggregateResponse<AlertEventResponse>>;
+};
+
+export type ErrorGroupApiClient = {
+  listErrorGroups: (query: ErrorGroupQuery) => Promise<QueryListResponse<ErrorGroupRecord>>;
+  getErrorGroup: (
+    id: string,
+    query: Pick<ErrorGroupQuery, "projectId" | "environmentId">
+  ) => Promise<AggregateResponse<ErrorGroupRecord>>;
+  updateErrorGroupStatus: (id: string, input: UpdateErrorGroupStatusInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
 };
 
 export type ApiClient = {
@@ -95,7 +107,8 @@ export type ApiClient = {
   createUser: (input: { email: string; password: string; isAdmin: boolean }) => Promise<{ user: User }>;
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
-} & AlertApiClient;
+} & AlertApiClient &
+  Partial<ErrorGroupApiClient>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -195,6 +208,33 @@ function queryPath(
   return `${route}?${params.toString()}`;
 }
 
+function errorGroupScopeParams(query: Pick<ErrorGroupQuery, "projectId" | "environmentId">): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return params;
+}
+
+function errorGroupQueryPath(query: ErrorGroupQuery): string {
+  const params = errorGroupScopeParams(query);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.status) params.set("status", query.status);
+  if (query.severity) params.set("severity", query.severity);
+  if (query.fingerprint) params.set("fingerprint", query.fingerprint);
+  if (query.release) params.set("release", query.release);
+  if (query.from) params.set("from", query.from instanceof Date ? query.from.toISOString() : query.from);
+  if (query.to) params.set("to", query.to instanceof Date ? query.to.toISOString() : query.to);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/error-groups?${params.toString()}`;
+}
+
+function errorGroupPath(id: string, query: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
+  return `/query/error-groups/${encodePathSegment(id)}?${errorGroupScopeParams(query).toString()}`;
+}
+
 function overviewPath(query: OverviewQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -271,7 +311,7 @@ function alertEventListPath(query: AlertEventListQuery): string {
   return `/alerts/events?${params.toString()}`;
 }
 
-export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
+export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & ErrorGroupApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
@@ -312,6 +352,14 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
       request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters, { includeEventName: true }))),
     listErrors: (filters) =>
       request<QueryListResponse<ErrorRecord>>(path(apiBasePath, queryPath("/query/errors", filters, { includeErrorFilters: true }))),
+    listErrorGroups: (query) => request<QueryListResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupQueryPath(query))),
+    getErrorGroup: (id, query) =>
+      request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupPath(id, query))),
+    updateErrorGroupStatus: (id, input) =>
+      request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupPath(id, input)), {
+        method: "PATCH",
+        body: { status: input.status }
+      }),
     listTraces: (filters) => request<QueryListResponse<TraceRecord>>(path(apiBasePath, queryPath("/query/traces", filters))),
     listTraceSpans: (traceId, filters) =>
       request<QueryListResponse<SpanRecord>>(

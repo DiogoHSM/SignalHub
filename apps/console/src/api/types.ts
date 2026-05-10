@@ -76,6 +76,52 @@ export type ErrorRecord = {
   context: unknown;
 };
 
+export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
+
+export type ErrorGroupRecord = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  groupingFingerprint: string;
+  message: string;
+  type: string | null;
+  topStackFrame: string | null;
+  severity: string;
+  status: ErrorGroupStatus;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastRegressedAt: string | null;
+  occurrenceCount: number;
+  affectedUsersCount: number;
+  affectedTenantsCount: number;
+  latestErrorId: string | null;
+  latestRelease: string | null;
+  resolvedAt: string | null;
+  ignoredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ErrorGroupQuery = {
+  projectId: string;
+  environmentId: string;
+  status?: ErrorGroupStatus;
+  severity?: string;
+  fingerprint?: string;
+  tenantId?: string;
+  userId?: string;
+  release?: string;
+  from?: Date | string;
+  to?: Date | string;
+  limit?: number;
+};
+
+export type UpdateErrorGroupStatusInput = {
+  projectId: string;
+  environmentId: string;
+  status: ErrorGroupStatus;
+};
+
 export type TraceRecord = {
   id: string;
   projectId: string;
