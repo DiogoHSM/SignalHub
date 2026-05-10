@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDoctorResults,
+  checkApiHealth,
+  checkCommand,
   checkEnvValues,
   createResult,
   getExitCode,
+  parseDoctorArgs,
   redactDoctorText,
   renderResults,
+  runDoctor,
   type DoctorEnv
 } from "./doctor.js";
 
@@ -107,5 +112,91 @@ describe("doctor pure checks", () => {
 
     expect(redactDoctorText(output, ["abc123secretvalue"])).toContain("[REDACTED]");
     expect(redactDoctorText(output, ["abc123secretvalue"])).not.toContain("abc123secretvalue");
+  });
+});
+
+describe("doctor orchestration", () => {
+  it("parses compose and api URL arguments", () => {
+    expect(parseDoctorArgs(["--compose", "--api-url", "http://localhost:3000"])).toEqual({
+      compose: true,
+      apiUrl: "http://localhost:3000",
+      envFile: ".env"
+    });
+  });
+
+  it("ignores the standalone separator forwarded by pnpm run", () => {
+    expect(parseDoctorArgs(["--", "--env-file", "/tmp/signalhub-doctor.env"])).toEqual({
+      compose: false,
+      envFile: "/tmp/signalhub-doctor.env"
+    });
+  });
+
+  it("fails unknown arguments", () => {
+    expect(() => parseDoctorArgs(["--unknown"])).toThrow("Unknown doctor argument: --unknown");
+  });
+
+  it("turns successful command execution into a pass", async () => {
+    const result = await checkCommand("Docker Compose config", ["docker", "compose", "config", "--quiet"], async () => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: ""
+    }));
+
+    expect(result).toEqual(expect.objectContaining({ status: "pass", message: "Docker Compose config passed" }));
+  });
+
+  it("turns failed command execution into a fail with concise detail", async () => {
+    const result = await checkCommand("Docker Compose config", ["docker", "compose", "config", "--quiet"], async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "invalid compose file"
+    }));
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "fail",
+        message: "Docker Compose config failed",
+        detail: "invalid compose file"
+      })
+    );
+  });
+
+  it("checks API health and readiness endpoints", async () => {
+    const results = await checkApiHealth("http://localhost:3000", async (url) => ({
+      ok: url.endsWith("/health") || url.endsWith("/ready"),
+      status: 200
+    }));
+
+    expect(results).toEqual([
+      expect.objectContaining({ status: "pass", message: "API /health responded successfully" }),
+      expect.objectContaining({ status: "pass", message: "API /ready responded successfully" })
+    ]);
+  });
+
+  it("builds a failure when the env file is missing in host mode", async () => {
+    const results = await buildDoctorResults({
+      options: { compose: false, envFile: ".env" },
+      fileExists: () => false,
+      readFile: () => "",
+      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      fetchHealth: async () => ({ ok: true, status: 200 })
+    });
+
+    expect(results).toContainEqual(expect.objectContaining({ status: "fail", message: ".env is missing; copy .env.example to .env" }));
+  });
+
+  it("redacts secrets when running the doctor", async () => {
+    const exitCode = await runDoctor({
+      options: { compose: false, envFile: ".env" },
+      fileExists: () => true,
+      readFile: () => "NODE_ENV=production\nSESSION_SECRET=abc123secretvalue\n",
+      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      fetchHealth: async () => ({ ok: true, status: 200 }),
+      write: (output) => {
+        expect(output).not.toContain("abc123secretvalue");
+      }
+    });
+
+    expect(exitCode).toBe(1);
   });
 });

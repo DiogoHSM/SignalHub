@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { pathToFileURL } from "node:url";
 
 void existsSync;
 void readFileSync;
@@ -16,13 +16,11 @@ export type DoctorResult = {
 
 export type DoctorEnv = Record<string, string | undefined>;
 
-type DoctorOptions = {
+export type DoctorOptions = {
   compose: boolean;
   apiUrl?: string;
   envFile: string;
 };
-
-void (undefined as DoctorOptions | undefined);
 
 const requiredEnv = [
   "DATABASE_URL",
@@ -189,7 +187,198 @@ export function parseEnvFile(content: string): DoctorEnv {
   return env;
 }
 
-if (process.argv.slice(1).some((arg) => basename(arg) === "doctor.ts")) {
-  console.error("Doctor command is not wired yet; implementation continues in Phase 4D Task 3.");
-  process.exitCode = 1;
+type CommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+type CommandRunner = (command: string[]) => Promise<CommandResult>;
+
+type FetchResult = {
+  ok: boolean;
+  status: number;
+};
+
+type FetchHealth = (url: string) => Promise<FetchResult>;
+
+type BuildDoctorDependencies = {
+  options: DoctorOptions;
+  fileExists: (path: string) => boolean;
+  readFile: (path: string) => string;
+  runCommand: CommandRunner;
+  fetchHealth: FetchHealth;
+};
+
+export function parseDoctorArgs(args: string[]): DoctorOptions {
+  const options: DoctorOptions = { compose: false, envFile: ".env" };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--") {
+      continue;
+    }
+    if (arg === "--compose") {
+      options.compose = true;
+      continue;
+    }
+    if (arg === "--api-url") {
+      const value = args[index + 1];
+      if (!value) throw new Error("--api-url requires a value");
+      options.apiUrl = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--env-file") {
+      const value = args[index + 1];
+      if (!value) throw new Error("--env-file requires a value");
+      options.envFile = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown doctor argument: ${arg}`);
+  }
+  return options;
+}
+
+function truncateOutput(value: string): string {
+  return value.trim().split(/\r?\n/).slice(0, 8).join("\n");
+}
+
+export async function checkCommand(
+  label: string,
+  command: string[],
+  runCommand: CommandRunner,
+  failedStatus: DoctorStatus = "fail"
+): Promise<DoctorResult> {
+  try {
+    const result = await runCommand(command);
+    if (result.exitCode === 0) {
+      return createResult("pass", `${label} passed`);
+    }
+    return createResult(failedStatus, `${label} failed`, truncateOutput(result.stderr || result.stdout));
+  } catch (error) {
+    return createResult(failedStatus, `${label} failed`, error instanceof Error ? error.message : String(error));
+  }
+}
+
+export async function checkApiHealth(apiUrl: string, fetchHealth: FetchHealth, required = false): Promise<DoctorResult[]> {
+  const base = apiUrl.replace(/\/$/, "");
+  const checks: Array<[string, string]> = [
+    ["/health", `${base}/health`],
+    ["/ready", `${base}/ready`]
+  ];
+  const results: DoctorResult[] = [];
+  for (const [path, url] of checks) {
+    try {
+      const response = await fetchHealth(url);
+      results.push(
+        response.ok
+          ? createResult("pass", `API ${path} responded successfully`)
+          : createResult(required ? "fail" : "warn", `API ${path} returned HTTP ${response.status}`)
+      );
+    } catch (error) {
+      results.push(createResult(required ? "fail" : "warn", `API ${path} is unreachable`, error instanceof Error ? error.message : String(error)));
+    }
+  }
+  return results;
+}
+
+export async function buildDoctorResults(dependencies: BuildDoctorDependencies): Promise<DoctorResult[]> {
+  const { options, fileExists, readFile, runCommand, fetchHealth } = dependencies;
+  const results: DoctorResult[] = [];
+  let env: DoctorEnv = {};
+
+  results.push(await checkCommand("Node.js version check", ["node", "--version"], runCommand));
+  results.push(await checkCommand("pnpm version check", ["pnpm", "--version"], runCommand));
+
+  if (!fileExists(options.envFile)) {
+    results.push(createResult("fail", `${options.envFile} is missing; copy .env.example to ${options.envFile}`));
+  } else {
+    env = parseEnvFile(readFile(options.envFile));
+    results.push(createResult("pass", `${options.envFile} exists`));
+    results.push(...checkEnvValues(env));
+  }
+
+  results.push(await checkCommand("Docker Compose config", ["docker", "compose", "config", "--quiet"], runCommand, "warn"));
+
+  if (options.compose) {
+    results.push(await checkCommand("Docker service list", ["docker", "compose", "ps"], runCommand));
+    for (const service of ["postgres", "redis", "api", "worker"]) {
+      results.push(await checkCommand(`Docker Compose ${service} service`, ["docker", "compose", "ps", service], runCommand));
+    }
+  }
+
+  const apiUrl = options.apiUrl ?? env.SIGNALHUB_PUBLIC_ENDPOINT;
+  if (apiUrl && (options.apiUrl || options.compose || isLocalhostUrl(apiUrl))) {
+    results.push(...(await checkApiHealth(apiUrl, fetchHealth, options.compose)));
+  }
+
+  return results;
+}
+
+function runCommandWithTimeout(command: string[], timeoutMs = 5000): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command[0]!, command.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`${command.join(" ")} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (exitCode) => {
+      clearTimeout(timer);
+      resolve({ exitCode: exitCode ?? 1, stdout, stderr });
+    });
+  });
+}
+
+async function fetchWithTimeout(url: string, timeoutMs = 5000): Promise<FetchResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return { ok: response.ok, status: response.status };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function runDoctor(input: BuildDoctorDependencies & { write: (output: string) => void }): Promise<number> {
+  const results = await buildDoctorResults(input);
+  const env = input.fileExists(input.options.envFile) ? parseEnvFile(input.readFile(input.options.envFile)) : {};
+  const output = redactDoctorText(renderResults(results), collectSecretValues(env));
+  input.write(`${output}\n`);
+  return getExitCode(results);
+}
+
+export async function main(args = process.argv.slice(2)): Promise<void> {
+  const options = parseDoctorArgs(args);
+  const exitCode = await runDoctor({
+    options,
+    fileExists: existsSync,
+    readFile: (path) => readFileSync(path, "utf8"),
+    runCommand: runCommandWithTimeout,
+    fetchHealth: fetchWithTimeout,
+    write: (output) => process.stdout.write(output)
+  });
+  process.exitCode = exitCode;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
