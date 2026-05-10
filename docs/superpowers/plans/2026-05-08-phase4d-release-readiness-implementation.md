@@ -521,7 +521,7 @@ git commit -m "feat: add doctor validation model"
 - Modify: `scripts/doctor.ts`
 - Test: `scripts/doctor.test.ts`
 
-- [ ] **Step 1: Add failing tests for adapters and orchestration**
+- [x] **Step 1: Add failing tests for adapters and orchestration**
 
 Append to `scripts/doctor.test.ts`:
 
@@ -614,7 +614,7 @@ describe("doctor orchestration", () => {
 });
 ```
 
-- [ ] **Step 2: Run focused doctor tests and verify failure**
+- [x] **Step 2: Run focused doctor tests and verify failure**
 
 Run:
 
@@ -624,7 +624,7 @@ pnpm exec vitest run scripts/doctor.test.ts
 
 Expected: fail because orchestration exports are missing.
 
-- [ ] **Step 3: Implement command and HTTP adapters**
+- [x] **Step 3: Implement command and HTTP adapters**
 
 Add these exports to `scripts/doctor.ts` after `parseEnvFile()`:
 
@@ -723,7 +723,7 @@ export async function checkApiHealth(apiUrl: string, fetchHealth: FetchHealth, r
 }
 ```
 
-- [ ] **Step 4: Implement doctor orchestration and CLI main**
+- [x] **Step 4: Implement doctor orchestration and CLI main**
 
 Append:
 
@@ -836,7 +836,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 ```
 
-- [ ] **Step 5: Run focused doctor tests and verify pass**
+- [x] **Step 5: Run focused doctor tests and verify pass**
 
 Run:
 
@@ -846,7 +846,7 @@ pnpm exec vitest run scripts/doctor.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Run the doctor in safe local mode**
+- [x] **Step 6: Run the doctor in safe local mode**
 
 Run:
 
@@ -856,7 +856,7 @@ pnpm run doctor
 
 Expected: exits `0` if there are only pass/warn results, or exits non-zero only if the local `.env` is missing or has failed checks. If the local workspace intentionally lacks `.env`, keep that behavior; do not make the command silently pass missing required setup.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/doctor.ts scripts/doctor.test.ts
