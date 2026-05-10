@@ -41,7 +41,8 @@ describe("ErrorDetailDrawer", () => {
     expect(screen.getByText("prj_1")).toBeInTheDocument();
     expect(screen.getByText("env_1")).toBeInTheDocument();
     expect(screen.getByText("trace_1")).toBeInTheDocument();
-    expect(screen.getByText("fp_checkout_fetch")).toBeInTheDocument();
+    expect(screen.getAllByText("fp_checkout_fetch")).toHaveLength(2);
+    expect(screen.getByText("egrp_checkout")).toBeInTheDocument();
     expect(screen.getByText(/at checkout\.ts:12:3/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Context JSON" })).toBeInTheDocument();
     expect(screen.getByText(/"route": "\/checkout"/)).toBeInTheDocument();

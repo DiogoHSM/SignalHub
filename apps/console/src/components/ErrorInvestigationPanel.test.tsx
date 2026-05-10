@@ -2,7 +2,8 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { ErrorRecord } from "../api/types";
+import type { ErrorGroupRecord, ErrorRecord } from "../api/types";
+import type { ErrorFilterValues } from "./ErrorFilters";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
 
 function error(overrides: Partial<ErrorRecord>): ErrorRecord {
@@ -28,6 +29,33 @@ function error(overrides: Partial<ErrorRecord>): ErrorRecord {
     errorGroupId: "egrp_checkout",
     groupingFingerprint: "fp_checkout_fetch",
     context: {},
+    ...overrides
+  };
+}
+
+function errorGroup(overrides: Partial<ErrorGroupRecord>): ErrorGroupRecord {
+  return {
+    id: "egrp_checkout",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    groupingFingerprint: "fp_checkout_fetch",
+    message: "Checkout fetch failed",
+    type: "TypeError",
+    topStackFrame: "checkout.ts:12:3",
+    severity: "critical",
+    status: "open",
+    firstSeenAt: "2026-05-04T11:00:00.000Z",
+    lastSeenAt: "2026-05-04T12:00:00.000Z",
+    lastRegressedAt: null,
+    occurrenceCount: 12,
+    affectedUsersCount: 4,
+    affectedTenantsCount: 2,
+    latestErrorId: "err_1",
+    latestRelease: "1.0.0",
+    resolvedAt: null,
+    ignoredAt: null,
+    createdAt: "2026-05-04T11:00:00.000Z",
+    updatedAt: "2026-05-04T12:00:00.000Z",
     ...overrides
   };
 }
@@ -96,14 +124,86 @@ afterEach(() => {
   cleanup();
 });
 
+async function renderRawPanel(
+  api: ApiClient,
+  options: { environmentId?: string; initialFilters?: Partial<ErrorFilterValues>; projectId?: string } = {}
+) {
+  const result = render(
+    <ErrorInvestigationPanel
+      client={api}
+      environmentId={options.environmentId ?? "env_1"}
+      initialFilters={options.initialFilters}
+      projectId={options.projectId ?? "prj_1"}
+    />
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Raw occurrences" }));
+  return result;
+}
+
 describe("ErrorInvestigationPanel", () => {
-  it("shows loading state while latest errors are unresolved", () => {
+  it("opens on grouped errors by default", async () => {
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [errorGroup({ id: "egrp_checkout", message: "Checkout fetch failed" })]
+      })
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(await screen.findByRole("button", { name: /Checkout fetch failed/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Groups" })).toHaveAttribute("aria-pressed", "true");
+    expect(api.listErrorGroups).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+    expect(api.listErrors).not.toHaveBeenCalled();
+  });
+
+  it("makes raw occurrences available as a peer tab", async () => {
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
+      listErrors: vi.fn().mockResolvedValue({ data: [error({ id: "err_1", message: "Checkout fetch failed" })] })
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await screen.findByText("No error groups found");
+    await userEvent.click(screen.getByRole("button", { name: "Raw occurrences" }));
+
+    expect(await screen.findByRole("button", { name: /Checkout fetch failed/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Raw occurrences" })).toHaveAttribute("aria-pressed", "true");
+    expect(api.listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+  });
+
+  it("updates group status with the active scope", async () => {
+    const updatedGroup = errorGroup({ status: "investigating" });
+    const updateErrorGroupStatus = vi.fn().mockResolvedValue({ data: updatedGroup });
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [errorGroup({ id: "egrp_checkout", status: "open" })]
+      }),
+      updateErrorGroupStatus
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout fetch failed/ }));
+    await userEvent.selectOptions(screen.getByLabelText("Group status"), "investigating");
+    await userEvent.click(screen.getByRole("button", { name: "Save status" }));
+
+    await waitFor(() =>
+      expect(updateErrorGroupStatus).toHaveBeenCalledWith("egrp_checkout", {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        status: "investigating"
+      })
+    );
+  });
+
+  it("shows loading state while latest errors are unresolved", async () => {
     const pending = deferred<{ data: ErrorRecord[] }>();
     const api = client({
       listErrors: vi.fn().mockReturnValue(pending.promise)
     });
 
-    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    await renderRawPanel(api);
 
     expect(screen.getByText("Loading errors")).toBeInTheDocument();
     expect(api.listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
@@ -114,7 +214,7 @@ describe("ErrorInvestigationPanel", () => {
       listErrors: vi.fn().mockResolvedValue({ data: [error({ id: "err_1", message: "Checkout fetch failed" })] })
     });
 
-    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    await renderRawPanel(api);
 
     expect(await screen.findByText("Checkout fetch failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Checkout fetch failed/ })).toHaveTextContent("trace_1");
@@ -126,14 +226,7 @@ describe("ErrorInvestigationPanel", () => {
       listErrors: vi.fn().mockResolvedValue({ data: [] })
     });
 
-    const { rerender } = render(
-      <ErrorInvestigationPanel
-        client={api}
-        environmentId="env_1"
-        initialFilters={{ severity: "critical", status: "open" }}
-        projectId="prj_1"
-      />
-    );
+    const { rerender } = await renderRawPanel(api, { initialFilters: { severity: "critical", status: "open" } });
 
     expect(await screen.findByText("No errors found")).toBeInTheDocument();
     expect(screen.getByLabelText("Severity")).toHaveValue("critical");
@@ -165,7 +258,7 @@ describe("ErrorInvestigationPanel", () => {
       listErrors: vi.fn().mockResolvedValue({ data: [] })
     });
 
-    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    await renderRawPanel(api);
 
     await screen.findByText("No errors found");
     await userEvent.type(screen.getByLabelText("Severity"), "critical");
@@ -193,7 +286,7 @@ describe("ErrorInvestigationPanel", () => {
       listErrors: vi.fn().mockResolvedValue({ data: [] })
     });
 
-    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    await renderRawPanel(api);
 
     await screen.findByText("No errors found");
     await userEvent.type(screen.getByLabelText("Severity"), "critical");
@@ -211,7 +304,7 @@ describe("ErrorInvestigationPanel", () => {
       listErrors: vi.fn().mockResolvedValue({ data: [] })
     });
 
-    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    await renderRawPanel(api);
 
     await screen.findByText("No errors found");
 
@@ -228,7 +321,7 @@ describe("ErrorInvestigationPanel", () => {
       listErrors: vi.fn().mockResolvedValue({ data: [error({ id: "err_1", message: "Checkout fetch failed" })] })
     });
 
-    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    await renderRawPanel(api);
 
     await userEvent.click(await screen.findByRole("button", { name: /Checkout fetch failed/ }));
 
@@ -242,7 +335,7 @@ describe("ErrorInvestigationPanel", () => {
       listErrors: vi.fn().mockRejectedValueOnce(new Error("query failed")).mockResolvedValueOnce({ data: [] })
     });
 
-    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    await renderRawPanel(api);
 
     expect(await screen.findByText("Errors unavailable")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -259,7 +352,7 @@ describe("ErrorInvestigationPanel", () => {
         .mockResolvedValueOnce({ data: [error({ id: "err_2", environmentId: "env_2", message: "New scope failed" })] })
     });
 
-    const { rerender } = render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+    const { rerender } = await renderRawPanel(api);
 
     rerender(<ErrorInvestigationPanel client={api} environmentId="env_2" projectId="prj_1" />);
 
