@@ -13,7 +13,12 @@ import {
 import { runBackupOnce } from "../src/backups.js";
 import { startHeartbeat } from "../src/heartbeat.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
-import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "../src/telemetry-worker.js";
+import {
+  backfillErrorGroupsUntilDrained,
+  buildDeadLetterJobInput,
+  processTelemetryJob,
+  type TelemetryWriter
+} from "../src/telemetry-worker.js";
 
 function createWriter(): TelemetryWriter {
   return {
@@ -316,6 +321,24 @@ describe("processTelemetryJob", () => {
         }
       })
     );
+  });
+});
+
+describe("backfillErrorGroupsUntilDrained", () => {
+  it("drains backfill batches until the final partial batch", async () => {
+    const backfill = vi
+      .fn()
+      .mockResolvedValueOnce({ processed: 500 })
+      .mockResolvedValueOnce({ processed: 500 })
+      .mockResolvedValueOnce({ processed: 123 });
+
+    const result = await backfillErrorGroupsUntilDrained(backfill, 500);
+
+    expect(result).toEqual({ processed: 1123, batches: 3 });
+    expect(backfill).toHaveBeenCalledTimes(3);
+    expect(backfill).toHaveBeenNthCalledWith(1, { batchSize: 500 });
+    expect(backfill).toHaveBeenNthCalledWith(2, { batchSize: 500 });
+    expect(backfill).toHaveBeenNthCalledWith(3, { batchSize: 500 });
   });
 });
 

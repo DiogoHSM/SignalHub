@@ -31,7 +31,12 @@ import {
 import { deliverWebhook, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";
-import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
+import {
+  backfillErrorGroupsUntilDrained,
+  buildDeadLetterJobInput,
+  processTelemetryJob,
+  type TelemetryWriter
+} from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 
 const config = loadConfig();
@@ -48,7 +53,7 @@ const writer: TelemetryWriter = {
   insertSpan: (input) => insertSpan(db, input)
 };
 
-await backfillErrorGroups(db, { batchSize: 500 });
+await backfillErrorGroupsUntilDrained((input) => backfillErrorGroups(db, input), 500);
 
 const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]>(
   "telemetry",

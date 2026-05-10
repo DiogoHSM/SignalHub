@@ -24,6 +24,26 @@ export type TelemetryWriter = {
   insertSpan(input: InsertSpanInput): Promise<void>;
 };
 
+export type BackfillErrorGroups = (input: { batchSize: number }) => Promise<{ processed: number }>;
+
+export async function backfillErrorGroupsUntilDrained(
+  backfill: BackfillErrorGroups,
+  batchSize: number
+): Promise<{ processed: number; batches: number }> {
+  let processed = 0;
+  let batches = 0;
+
+  while (true) {
+    const result = await backfill({ batchSize });
+    processed += result.processed;
+    batches += 1;
+
+    if (result.processed < batchSize) {
+      return { processed, batches };
+    }
+  }
+}
+
 export function buildDeadLetterJobInput(input: {
   queueName: string;
   jobName: string;

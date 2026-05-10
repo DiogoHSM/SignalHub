@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import type { Selectable } from "kysely";
+import type { Kysely, Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../client.js";
-import type { ErrorGroupsTable } from "../schema.js";
+import type { Database, ErrorGroupsTable } from "../schema.js";
 
 export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
 
 type ErrorGroupRow = Selectable<ErrorGroupsTable>;
+type DbExecutor = Kysely<Database> | Transaction<Database>;
 
 export type ErrorGroupingInput = {
   fingerprint?: string | null;
@@ -19,15 +20,6 @@ export type ErrorGroupingFingerprint = {
   fingerprint: string;
   source: string;
   topStackFrame: string | null;
-};
-
-const severityRank: Record<string, number> = {
-  debug: 0,
-  info: 1,
-  warning: 2,
-  error: 3,
-  critical: 4,
-  fatal: 5
 };
 
 export type ErrorGroupRecord = {
@@ -155,74 +147,74 @@ function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
   };
 }
 
-function strongerSeverity(current: string, next: string): string {
-  return (severityRank[next] ?? 0) > (severityRank[current] ?? 0) ? next : current;
-}
-
 function resolveLimit(limit: number | undefined): number {
   if (limit === undefined || !Number.isFinite(limit)) return 50;
   return Math.min(500, Math.max(1, Math.trunc(limit)));
 }
 
 export async function upsertErrorGroupForOccurrence(
-  db: Db,
+  db: DbExecutor,
   input: UpsertErrorGroupInput
 ): Promise<ErrorGroupingFingerprint & { groupId: string }> {
-  return db.transaction().execute(async (trx) => {
-    const grouping = buildErrorGroupingFingerprint(input);
-    const existing = await trx
-      .selectFrom("error_groups")
-      .selectAll()
-      .where("project_id", "=", input.projectId)
-      .where("environment_id", "=", input.environmentId)
-      .where("grouping_fingerprint", "=", grouping.fingerprint)
-      .executeTakeFirst();
-
-    if (!existing) {
-      const inserted = await trx
-        .insertInto("error_groups")
-        .values({
-          project_id: input.projectId,
-          environment_id: input.environmentId,
-          grouping_fingerprint: grouping.fingerprint,
-          message: input.message,
-          type: input.type ?? null,
-          top_stack_frame: grouping.topStackFrame,
-          severity: input.severity,
-          status: "open",
-          first_seen_at: input.timestamp,
-          last_seen_at: input.timestamp,
-          occurrence_count: 1,
-          affected_users_count: input.userId ? 1 : 0,
-          affected_tenants_count: input.tenantId ? 1 : 0,
-          latest_error_id: input.errorId,
-          latest_release: input.release ?? null
-        })
-        .returning(["id"])
-        .executeTakeFirstOrThrow();
-
-      return { ...grouping, groupId: inserted.id };
-    }
-
-    const wasResolved = existing.status === "resolved";
-    await trx
-      .updateTable("error_groups")
-      .set({
-        severity: strongerSeverity(existing.severity, input.severity),
-        status: wasResolved ? "open" : existing.status,
+  const grouping = buildErrorGroupingFingerprint(input);
+  const inserted = await db
+    .insertInto("error_groups")
+    .values({
+      project_id: input.projectId,
+      environment_id: input.environmentId,
+      grouping_fingerprint: grouping.fingerprint,
+      message: input.message,
+      type: input.type ?? null,
+      top_stack_frame: grouping.topStackFrame,
+      severity: input.severity,
+      status: "open",
+      first_seen_at: input.timestamp,
+      last_seen_at: input.timestamp,
+      occurrence_count: 1,
+      affected_users_count: input.userId ? 1 : 0,
+      affected_tenants_count: input.tenantId ? 1 : 0,
+      latest_error_id: input.errorId,
+      latest_release: input.release ?? null
+    })
+    .onConflict((oc) =>
+      oc.columns(["project_id", "environment_id", "grouping_fingerprint"]).doUpdateSet({
+        severity: sql<string>`
+          case
+            when case excluded.severity
+              when 'critical' then 4
+              when 'error' then 3
+              when 'warning' then 2
+              when 'info' then 1
+              when 'debug' then 0
+              else 0
+            end > case error_groups.severity
+              when 'critical' then 4
+              when 'error' then 3
+              when 'warning' then 2
+              when 'info' then 1
+              when 'debug' then 0
+              else 0
+            end
+            then excluded.severity
+            else error_groups.severity
+          end
+        `,
+        status: sql<ErrorGroupStatus>`case when error_groups.status = 'resolved' then 'open' else error_groups.status end`,
         last_seen_at: input.timestamp,
-        last_regressed_at: wasResolved ? input.timestamp : existing.last_regressed_at,
-        occurrence_count: sql<number>`occurrence_count + 1`,
+        last_regressed_at: sql<Date | null>`
+          case when error_groups.status = 'resolved' then ${input.timestamp} else error_groups.last_regressed_at end
+        `,
+        occurrence_count: sql<number>`error_groups.occurrence_count + 1`,
         latest_error_id: input.errorId,
-        latest_release: input.release ?? existing.latest_release,
-        resolved_at: wasResolved ? null : existing.resolved_at,
+        latest_release: sql<string | null>`coalesce(excluded.latest_release, error_groups.latest_release)`,
+        resolved_at: sql<Date | null>`case when error_groups.status = 'resolved' then null else error_groups.resolved_at end`,
         updated_at: new Date()
       })
-      .where("id", "=", existing.id)
-      .execute();
+    )
+    .returning(["id"])
+    .executeTakeFirstOrThrow();
 
-    return { ...grouping, groupId: existing.id };
-  });
+  return { ...grouping, groupId: inserted.id };
 }
 
 export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promise<ErrorGroupRecord[]> {
@@ -259,7 +251,7 @@ export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promi
 
   const rows = await query
     .orderBy(sql<number>`case when status = 'open' and last_regressed_at is not null then 0 else 1 end`)
-    .orderBy(sql<number>`case severity when 'critical' then 0 when 'error' then 1 else 2 end`)
+    .orderBy(sql<number>`case severity when 'critical' then 0 when 'error' then 1 when 'warning' then 2 when 'info' then 3 when 'debug' then 4 else 5 end`)
     .orderBy(sql<number>`case status when 'open' then 0 when 'investigating' then 1 else 2 end`)
     .orderBy("last_seen_at", "desc")
     .limit(resolveLimit(filters.limit))
@@ -305,7 +297,7 @@ export async function updateErrorGroupStatus(
   return row ? toGroup(row) : null;
 }
 
-export async function refreshErrorGroupStats(db: Db, groupId: string): Promise<void> {
+export async function refreshErrorGroupStats(db: DbExecutor, groupId: string): Promise<void> {
   await sql`
     update error_groups
     set
@@ -343,28 +335,30 @@ export async function backfillErrorGroups(db: Db, input: { batchSize?: number } 
     .execute();
 
   for (const row of rows) {
-    const grouping = await upsertErrorGroupForOccurrence(db, {
-      projectId: row.project_id,
-      environmentId: row.environment_id,
-      message: row.message,
-      type: row.type,
-      severity: row.severity,
-      stack: row.stack,
-      fingerprint: row.fingerprint,
-      timestamp: row.timestamp,
-      userId: row.user_id,
-      tenantId: row.tenant_id,
-      release: row.release,
-      errorId: row.id
+    await db.transaction().execute(async (trx) => {
+      const grouping = await upsertErrorGroupForOccurrence(trx, {
+        projectId: row.project_id,
+        environmentId: row.environment_id,
+        message: row.message,
+        type: row.type,
+        severity: row.severity,
+        stack: row.stack,
+        fingerprint: row.fingerprint,
+        timestamp: row.timestamp,
+        userId: row.user_id,
+        tenantId: row.tenant_id,
+        release: row.release,
+        errorId: row.id
+      });
+
+      await trx
+        .updateTable("errors")
+        .set({ error_group_id: grouping.groupId, grouping_fingerprint: grouping.fingerprint })
+        .where("id", "=", row.id)
+        .execute();
+
+      await refreshErrorGroupStats(trx, grouping.groupId);
     });
-
-    await db
-      .updateTable("errors")
-      .set({ error_group_id: grouping.groupId, grouping_fingerprint: grouping.fingerprint })
-      .where("id", "=", row.id)
-      .execute();
-
-    await refreshErrorGroupStats(db, grouping.groupId);
   }
 
   return { processed: rows.length };

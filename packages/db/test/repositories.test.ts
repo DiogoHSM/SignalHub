@@ -991,6 +991,61 @@ describe("repositories", () => {
     });
   });
 
+  it("rolls back group updates when grouped raw error insertion fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_grouping_rollback', 'Grouping Rollback')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_grouping_rollback', 'prj_grouping_rollback', 'production')
+      `.execute(db);
+
+      await insertError(db, {
+        id: "err_grouping_rollback",
+        projectId: "prj_grouping_rollback",
+        environmentId: "env_grouping_rollback",
+        timestamp: new Date("2026-05-10T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:00:01.000Z"),
+        message: "Checkout failed for order 123456",
+        type: "CheckoutError",
+        severity: "error",
+        stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
+        release: "1.0.0"
+      });
+
+      await expect(
+        insertError(db, {
+          id: "err_grouping_rollback",
+          projectId: "prj_grouping_rollback",
+          environmentId: "env_grouping_rollback",
+          timestamp: new Date("2026-05-10T12:10:00.000Z"),
+          receivedAt: new Date("2026-05-10T12:10:01.000Z"),
+          message: "Checkout failed for order 999999",
+          type: "CheckoutError",
+          severity: "critical",
+          stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
+          release: "1.0.1"
+        })
+      ).rejects.toThrow();
+
+      const groups = await listErrorGroups(db, {
+        projectId: "prj_grouping_rollback",
+        environmentId: "env_grouping_rollback",
+        limit: 10
+      });
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toEqual(
+        expect.objectContaining({
+          occurrenceCount: 1,
+          severity: "error",
+          latestErrorId: "err_grouping_rollback",
+          latestRelease: "1.0.0"
+        })
+      );
+    });
+  });
+
   it("keeps ignored groups ignored when matching errors recur", async () => {
     await withDb(async (db) => {
       await migrate(db);
