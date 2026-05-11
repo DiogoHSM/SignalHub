@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { ErrorGroupRecord, ErrorGroupStatus } from "../api/types";
 
@@ -7,6 +7,7 @@ type Props = {
   group?: ErrorGroupRecord;
   projectId: string;
   environmentId: string;
+  onShowOccurrences: (groupId: string) => void;
   onStatusUpdated: (group: ErrorGroupRecord) => void;
 };
 
@@ -22,11 +23,13 @@ function formatTimestamp(value: string | null | undefined): string {
   return value ? new Date(value).toLocaleString() : "none";
 }
 
-export function ErrorGroupDetail({ client, group, projectId, environmentId, onStatusUpdated }: Props) {
+export function ErrorGroupDetail({ client, group, projectId, environmentId, onShowOccurrences, onStatusUpdated }: Props) {
+  const saveRequestId = useRef(0);
   const [draftStatus, setDraftStatus] = useState<ErrorGroupStatus>("open");
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
   useEffect(() => {
+    saveRequestId.current += 1;
     setDraftStatus(group?.status ?? "open");
     setSaveState("idle");
   }, [group?.id, group?.status]);
@@ -42,6 +45,8 @@ export function ErrorGroupDetail({ client, group, projectId, environmentId, onSt
   function saveStatus() {
     if (!group) return;
 
+    const requestId = saveRequestId.current + 1;
+    saveRequestId.current = requestId;
     setSaveState("saving");
     void client
       .updateErrorGroupStatus(group.id, {
@@ -51,10 +56,12 @@ export function ErrorGroupDetail({ client, group, projectId, environmentId, onSt
       })
       .then(
         ({ data }) => {
+          if (saveRequestId.current !== requestId) return;
           onStatusUpdated(data);
           setSaveState("idle");
         },
         () => {
+          if (saveRequestId.current !== requestId) return;
           setSaveState("unavailable");
         }
       );
@@ -78,6 +85,9 @@ export function ErrorGroupDetail({ client, group, projectId, environmentId, onSt
         </label>
         <button disabled={saveState === "saving"} onClick={saveStatus} type="button">
           {saveState === "saving" ? "Saving" : "Save status"}
+        </button>
+        <button onClick={() => onShowOccurrences(group.id)} type="button">
+          Show raw occurrences
         </button>
       </div>
       {saveState === "unavailable" ? <p className="muted-text">Status update failed.</p> : null}

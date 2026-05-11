@@ -924,7 +924,8 @@ select {
   padding: 7px 10px;
 }
 
-.investigation-tabs button[aria-pressed="true"] {
+.investigation-tabs button[aria-pressed="true"],
+.investigation-tabs button[aria-selected="true"] {
   border-color: #2563eb;
   background: #dbeafe;
   color: #1d4ed8;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { ErrorGroupQuery, ErrorGroupRecord } from "../api/types";
+import type { ErrorGroupQuery, ErrorGroupRecord, ErrorGroupStatus } from "../api/types";
 import type { ErrorFilterValues } from "./ErrorFilters";
 import { ErrorGroupDetail } from "./ErrorGroupDetail";
 import { ErrorGroupFilters, type ErrorGroupFilterValues } from "./ErrorGroupFilters";
@@ -11,6 +11,7 @@ type Props = {
   projectId: string;
   environmentId: string;
   initialFilters?: Partial<ErrorFilterValues>;
+  onShowOccurrences: (groupId: string) => void;
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
@@ -41,10 +42,13 @@ function toLimit(value: string): number {
   return Math.min(500, Math.max(1, Math.trunc(parsed)));
 }
 
+function isErrorGroupStatus(value: string | undefined): value is ErrorGroupStatus {
+  return value === "open" || value === "investigating" || value === "resolved" || value === "ignored";
+}
+
 function queryFromValues(projectId: string, environmentId: string, values: ErrorGroupFilterValues): ErrorGroupQuery {
   const query: ErrorGroupQuery = { projectId, environmentId, limit: toLimit(values.limit) };
   const severity = values.severity.trim();
-  const status = values.status.trim();
   const fingerprint = values.fingerprint.trim();
   const tenantId = values.tenantId.trim();
   const userId = values.userId.trim();
@@ -53,7 +57,7 @@ function queryFromValues(projectId: string, environmentId: string, values: Error
   const to = toIso(values.to);
 
   if (severity) query.severity = severity;
-  if (status) query.status = status as ErrorGroupQuery["status"];
+  if (values.status) query.status = values.status;
   if (fingerprint) query.fingerprint = fingerprint;
   if (tenantId) query.tenantId = tenantId;
   if (userId) query.userId = userId;
@@ -67,7 +71,7 @@ function filtersWithDefaults(initialFilters?: Partial<ErrorFilterValues>): Error
   return {
     ...defaultFilters,
     severity: initialFilters?.severity ?? defaultFilters.severity,
-    status: initialFilters?.status ?? defaultFilters.status,
+    status: isErrorGroupStatus(initialFilters?.status) ? initialFilters.status : defaultFilters.status,
     fingerprint: initialFilters?.fingerprint ?? defaultFilters.fingerprint,
     tenantId: initialFilters?.tenantId ?? defaultFilters.tenantId,
     userId: initialFilters?.userId ?? defaultFilters.userId,
@@ -77,9 +81,26 @@ function filtersWithDefaults(initialFilters?: Partial<ErrorFilterValues>): Error
   };
 }
 
-export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilters }: Props) {
+function groupMatchesFilters(group: ErrorGroupRecord, filters: ErrorGroupFilterValues): boolean {
+  const severity = filters.severity.trim();
+  const fingerprint = filters.fingerprint.trim();
+  const release = filters.release.trim();
+  const from = toIso(filters.from);
+  const to = toIso(filters.to);
+
+  if (severity && group.severity !== severity) return false;
+  if (filters.status && group.status !== filters.status) return false;
+  if (fingerprint && group.groupingFingerprint !== fingerprint) return false;
+  if (release && group.latestRelease !== release) return false;
+  if (from && group.lastSeenAt < from) return false;
+  if (to && group.lastSeenAt >= to) return false;
+  return true;
+}
+
+export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilters, onShowOccurrences }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
+  const groupsRef = useRef<ErrorGroupRecord[]>([]);
   const [draftFilters, setDraftFilters] = useState<ErrorGroupFilterValues>(() => filtersWithDefaults(initialFilters));
   const [appliedFilters, setAppliedFilters] = useState<ErrorGroupFilterValues>(() => filtersWithDefaults(initialFilters));
   const [reloadToken, setReloadToken] = useState(0);
@@ -99,11 +120,13 @@ export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilt
     void client.listErrorGroups(query).then(
       ({ data }) => {
         if (cancelled) return;
+        groupsRef.current = data;
         setGroups(data);
         setState(data.length > 0 ? "ready" : "empty");
       },
       () => {
         if (cancelled) return;
+        groupsRef.current = [];
         setGroups([]);
         setState("unavailable");
       }
@@ -130,6 +153,7 @@ export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilt
   }
 
   function resetFilters() {
+    groupsRef.current = [];
     setDraftFilters(defaultFilters);
     setAppliedFilters({ ...defaultFilters });
     setReloadToken((current) => current + 1);
@@ -140,8 +164,15 @@ export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilt
   }
 
   function updateGroup(updatedGroup: ErrorGroupRecord) {
-    setSelectedGroup(updatedGroup);
-    setGroups((current) => current.map((group) => (group.id === updatedGroup.id ? updatedGroup : group)));
+    const matchesFilters = groupMatchesFilters(updatedGroup, appliedFilters);
+    const nextGroups = matchesFilters
+      ? groupsRef.current.map((group) => (group.id === updatedGroup.id ? updatedGroup : group))
+      : groupsRef.current.filter((group) => group.id !== updatedGroup.id);
+
+    groupsRef.current = nextGroups;
+    setGroups(nextGroups);
+    setState(nextGroups.length > 0 ? "ready" : "empty");
+    setSelectedGroup((current) => (current?.id === updatedGroup.id ? (matchesFilters ? updatedGroup : undefined) : current));
   }
 
   return (
@@ -169,6 +200,7 @@ export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilt
         client={client}
         environmentId={environmentId}
         group={selectedGroup}
+        onShowOccurrences={onShowOccurrences}
         onStatusUpdated={updateGroup}
         projectId={projectId}
       />

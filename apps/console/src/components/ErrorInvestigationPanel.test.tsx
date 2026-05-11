@@ -136,7 +136,7 @@ async function renderRawPanel(
       projectId={options.projectId ?? "prj_1"}
     />
   );
-  await userEvent.click(screen.getByRole("button", { name: "Raw occurrences" }));
+  await userEvent.click(screen.getByRole("tab", { name: "Raw occurrences" }));
   return result;
 }
 
@@ -151,7 +151,7 @@ describe("ErrorInvestigationPanel", () => {
     render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
     expect(await screen.findByRole("button", { name: /Checkout fetch failed/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Groups" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
     expect(api.listErrorGroups).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
     expect(api.listErrors).not.toHaveBeenCalled();
   });
@@ -165,10 +165,10 @@ describe("ErrorInvestigationPanel", () => {
     render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
     await screen.findByText("No error groups found");
-    await userEvent.click(screen.getByRole("button", { name: "Raw occurrences" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Raw occurrences" }));
 
     expect(await screen.findByRole("button", { name: /Checkout fetch failed/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Raw occurrences" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tab", { name: "Raw occurrences" })).toHaveAttribute("aria-selected", "true");
     expect(api.listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
 
@@ -195,6 +195,83 @@ describe("ErrorInvestigationPanel", () => {
         status: "investigating"
       })
     );
+  });
+
+  it("opens raw occurrences filtered to the selected group", async () => {
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [errorGroup({ id: "egrp_checkout", message: "Checkout fetch failed" })]
+      }),
+      listErrors: vi.fn().mockResolvedValue({
+        data: [error({ id: "err_1", message: "Checkout fetch failed", errorGroupId: "egrp_checkout" })]
+      })
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout fetch failed/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Show raw occurrences" }));
+
+    expect(screen.getByRole("tab", { name: "Raw occurrences" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("button", { name: /Checkout fetch failed/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Error group")).toHaveValue("egrp_checkout");
+    expect(api.listErrors).toHaveBeenLastCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorGroupId: "egrp_checkout",
+      limit: 50
+    });
+  });
+
+  it("ignores stale status updates after another group is selected", async () => {
+    const save = deferred<{ data: ErrorGroupRecord }>();
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [
+          errorGroup({ id: "egrp_a", message: "Checkout failed A" }),
+          errorGroup({ id: "egrp_b", message: "Checkout failed B" })
+        ]
+      }),
+      updateErrorGroupStatus: vi.fn().mockReturnValue(save.promise)
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout failed A/ }));
+    await userEvent.selectOptions(screen.getByLabelText("Group status"), "investigating");
+    await userEvent.click(screen.getByRole("button", { name: "Save status" }));
+    await userEvent.click(screen.getByRole("button", { name: /Checkout failed B/ }));
+
+    await act(async () => {
+      save.resolve({ data: errorGroup({ id: "egrp_a", message: "Checkout failed A", status: "investigating" }) });
+      await save.promise;
+    });
+
+    expect(screen.getByRole("heading", { name: "Checkout failed B" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Checkout failed A" })).not.toBeInTheDocument();
+  });
+
+  it("removes updated groups that no longer match the active status filter", async () => {
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [errorGroup({ id: "egrp_checkout", message: "Checkout fetch failed", status: "open" })]
+      }),
+      updateErrorGroupStatus: vi.fn().mockResolvedValue({
+        data: errorGroup({ id: "egrp_checkout", message: "Checkout fetch failed", status: "resolved" })
+      })
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await screen.findByRole("button", { name: /Checkout fetch failed/ });
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "open");
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    await userEvent.click(screen.getByRole("button", { name: /Checkout fetch failed/ }));
+    await userEvent.selectOptions(screen.getByLabelText("Group status"), "resolved");
+    await userEvent.click(screen.getByRole("button", { name: "Save status" }));
+
+    expect(await screen.findByText("No error groups found")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Checkout fetch failed/ })).not.toBeInTheDocument();
   });
 
   it("shows loading state while latest errors are unresolved", async () => {

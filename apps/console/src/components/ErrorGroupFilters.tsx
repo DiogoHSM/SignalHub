@@ -1,8 +1,9 @@
 import type { FormEvent } from "react";
+import type { ErrorGroupStatus } from "../api/types";
 
 export type ErrorGroupFilterValues = {
   severity: string;
-  status: string;
+  status: "" | ErrorGroupStatus;
   fingerprint: string;
   tenantId: string;
   userId: string;
@@ -19,7 +20,13 @@ type Props = {
   onReset: () => void;
 };
 
-function update(values: ErrorGroupFilterValues, key: keyof ErrorGroupFilterValues, value: string): ErrorGroupFilterValues {
+const statusOptions: ErrorGroupStatus[] = ["open", "investigating", "resolved", "ignored"];
+
+function update<K extends keyof ErrorGroupFilterValues>(
+  values: ErrorGroupFilterValues,
+  key: K,
+  value: ErrorGroupFilterValues[K]
+): ErrorGroupFilterValues {
   return { ...values, [key]: value };
 }
 
@@ -37,7 +44,17 @@ export function ErrorGroupFilters({ values, onChange, onApply, onReset }: Props)
       </label>
       <label>
         Status
-        <input value={values.status} onChange={(event) => onChange(update(values, "status", event.target.value))} />
+        <select
+          value={values.status}
+          onChange={(event) => onChange(update(values, "status", event.target.value as ErrorGroupFilterValues["status"]))}
+        >
+          <option value="">Any</option>
+          {statusOptions.map((status) => (
+            <option key={status} value={status}>
+              {status}
+            </option>
+          ))}
+        </select>
       </label>
       <label>
         Fingerprint
