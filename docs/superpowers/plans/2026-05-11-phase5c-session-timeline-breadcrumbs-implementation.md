@@ -1974,7 +1974,7 @@ git commit -m "feat: show session context for errors"
 - Modify: `CLAUDE.md`
 - Modify external memory: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 Add a `Breadcrumbs and Session Context` section:
 
@@ -1997,7 +1997,7 @@ client.breadcrumb({
 Breadcrumbs must not include secrets, raw form values, request bodies, response bodies, cookies, or headers. Browser auto-capture helpers sanitize URLs and element summaries, and network capture is disabled by default.
 ````
 
-- [ ] **Step 2: Update architecture docs**
+- [x] **Step 2: Update architecture docs**
 
 Add to `.claude/docs/ARCHITECTURE.md`:
 
@@ -2005,7 +2005,7 @@ Add to `.claude/docs/ARCHITECTURE.md`:
 Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
 ```
 
-- [ ] **Step 3: Update project summary**
+- [x] **Step 3: Update project summary**
 
 Set current phase to:
 
@@ -2019,7 +2019,7 @@ Add implemented capability:
 - Lightweight breadcrumb ingestion, short retention, SDK manual breadcrumbs, optional safe browser breadcrumb helper, and error-detail session context timeline.
 ```
 
-- [ ] **Step 4: Update secrets and UI docs**
+- [x] **Step 4: Update secrets and UI docs**
 
 Add to `.claude/docs/SECRETS.md`:
 
@@ -2045,7 +2045,7 @@ Add to `CLAUDE.md`:
 - Current phase: Phase 5C Session Timeline and Breadcrumbs.
 ```
 
-- [ ] **Step 5: Update memory**
+- [x] **Step 5: Update memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
@@ -2053,7 +2053,7 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 - Implemented Phase 5C Session Timeline and Breadcrumbs: breadcrumb ingestion/storage, SDK manual breadcrumbs and safe browser helper, short retention, session timeline query, and raw error session context. Full visual replay and full Sessions investigation remain deferred.
 ```
 
-- [ ] **Step 6: Commit SignalHub docs**
+- [x] **Step 6: Commit SignalHub docs**
 
 Run:
 
@@ -2064,7 +2064,7 @@ git commit -m "docs: document session breadcrumbs"
 
 Expected: commit succeeds.
 
-- [ ] **Step 7: Commit memory**
+- [x] **Step 7: Commit memory**
 
 Run:
 
