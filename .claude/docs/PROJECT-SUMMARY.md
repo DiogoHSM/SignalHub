@@ -4,7 +4,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Current Phase
 
-Phase 5A: Error Groups and Status Workflow.
+Phase 5B: Source Maps and Release Artifacts.
 
 Implemented capabilities:
 
@@ -16,6 +16,7 @@ Implemented capabilities:
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
 - Deterministic error grouping with operational group status workflow.
+- Local-first source-map artifact storage, admin `.map` / `.zip` uploads, and on-demand raw error stack resolution.
 - Read-only Overview dashboard for project/environment KPIs, trends, top lists, and recent important signals.
 - Read-only Events investigation workspace with exact event-name filtering.
 - Errors investigation workspace with grouped triage, status updates, and raw occurrence drilldown/filtering.
@@ -40,6 +41,7 @@ Implemented capabilities:
 - End-user product UI outside the operational console.
 - Batch ingestion.
 - ClickHouse and object storage adapters beyond optional backup upload.
+- Object storage, CLI/CI uploaders, source-code viewing, and retention scheduling for source-map artifacts.
 - Stored log telemetry.
 - Retention for operational metadata, projects, environments, users, or API keys.
 - Native email, Telegram, Discord, escalation, silencing, acknowledgement, and alert retry workflows.

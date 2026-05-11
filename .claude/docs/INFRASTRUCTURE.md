@@ -16,6 +16,7 @@
 - Postgres volume: `postgres_data`.
 - Redis volume: `redis_data`.
 - Backup volume: `backup_data`, mounted into the worker at `/var/lib/signalhub/backups`.
+- Source-map volume: `source_map_data`, mounted into the API at `/var/lib/signalhub/source-maps`.
 - Postgres host binding: `127.0.0.1:${POSTGRES_PORT:-5432}`.
 - Redis host binding: `127.0.0.1:${REDIS_PORT:-6379}`.
 - API host binding: `3000:3000`.
@@ -34,9 +35,11 @@ Local Node commands use `.env` values, usually:
 
 ## Data Durability
 
-Postgres data is stored in `postgres_data`. Redis uses append-only persistence and stores data in `redis_data`. Local backup dumps are stored in `backup_data`.
+Postgres data is stored in `postgres_data`. Redis uses append-only persistence and stores data in `redis_data`. Local backup dumps are stored in `backup_data`. Uploaded source-map artifacts are stored in `source_map_data`; their metadata and cached resolved-frame rows are stored in Postgres.
 
 Optional remote backup storage can use an S3-compatible private bucket such as Cloudflare R2. The worker uploads backup dumps when `BACKUPS_S3_ENABLED=true`; remote retention is controlled by bucket lifecycle rules.
+
+Source-map storage does not use object storage in this release line. The API owns local source-map writes, reads, and deletes under `SOURCE_MAPS_LOCAL_DIR`.
 
 ## Operational Checks
 

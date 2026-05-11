@@ -1735,7 +1735,7 @@ git commit -m "feat: show source map resolution in errors"
 - Modify: `docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md`
 - Modify external memory: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update project docs**
+- [x] **Step 1: Update project docs**
 
 Document:
 
@@ -1748,11 +1748,11 @@ Document:
 - no source-content display,
 - local-first decision.
 
-- [ ] **Step 2: Update memory**
+- [x] **Step 2: Update memory**
 
 Append a `2026-05-10` memory entry noting Phase 5B implementation, verification status, and any deferred items.
 
-- [ ] **Step 3: Mark completed plan tasks**
+- [x] **Step 3: Mark completed plan tasks**
 
 Update this plan file checkboxes for completed tasks through Task 9.
 

@@ -1,6 +1,6 @@
 # Deployment
 
-Docker Compose is the only production-supported self-hosted installation path for Phase 4D. Kubernetes, Helm, systemd, and hosted SaaS deployment are out of scope for this release line.
+Docker Compose is the only production-supported self-hosted installation path for this release line. Kubernetes, Helm, systemd, and hosted SaaS deployment are out of scope.
 
 ## Local Compose
 
@@ -73,6 +73,12 @@ Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the worke
 Simple alert evaluation is built into the worker. Set `ALERTS_ENABLED`, `ALERTS_INTERVAL_MINUTES`, and `ALERTS_WEBHOOK_TIMEOUT_MS` in `.env` to control worker-owned alert scheduling and webhook delivery timeout. No extra cron job or external scheduler is needed.
 
 Set `ALERTS_ENABLED=false` to stop scheduled alert evaluation while keeping the worker available for ingestion and retention.
+
+## Source Maps
+
+Source-map artifact storage is local-first. Set `SOURCE_MAPS_LOCAL_DIR` and `SOURCE_MAPS_MAX_UPLOAD_MB` in `.env` to control where the API stores uploaded `.map` files and the maximum upload size. Docker Compose mounts the `source_map_data` volume into the API at `/var/lib/signalhub/source-maps`, which matches the default `SOURCE_MAPS_LOCAL_DIR`.
+
+Admins upload source maps from the console `Artifacts` mode after selecting a project and environment. Single `.map` files and `.zip` bundles are supported. Stack resolution uses strict project, environment, release, and minified filename matching; release values in ingested error payloads must match the uploaded artifact release.
 
 ## Backups and Restore
 
