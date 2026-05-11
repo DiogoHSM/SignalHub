@@ -122,6 +122,45 @@ export type UpdateErrorGroupStatusInput = {
   status: ErrorGroupStatus;
 };
 
+export type SourceMapArtifact = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  release: string;
+  minifiedFile: string;
+  originalFilename: string;
+  byteSize: number;
+  sha256: string;
+  createdAt: string;
+  uploadedByUserId: string;
+};
+
+export type SourceMapArtifactQuery = {
+  projectId: string;
+  environmentId: string;
+  release?: string;
+};
+
+export type SourceMapResolutionFrame = {
+  frameIndex: number;
+  minifiedFile: string;
+  minifiedLine: number;
+  minifiedColumn: number;
+  originalSource: string;
+  originalLine: number;
+  originalColumn: number;
+  originalName: string | null;
+  sourceMapArtifactId: string;
+};
+
+export type SourceMapResolution = {
+  errorId: string;
+  release: string | null;
+  status: "resolved" | "partially_resolved" | "unresolved" | "unavailable";
+  frames: SourceMapResolutionFrame[];
+  unresolvedFrameCount: number;
+};
+
 export type TraceRecord = {
   id: string;
   projectId: string;

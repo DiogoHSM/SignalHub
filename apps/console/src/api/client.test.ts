@@ -749,4 +749,138 @@ describe("createApiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/alerts/events/evt%2F1", expect.objectContaining({ method: "GET" }));
   });
+
+  it("lists source map artifacts with scoped query filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { artifacts: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").listSourceMapArtifacts({
+        projectId: "prj/1",
+        environmentId: "env 1",
+        release: "web@1.0.0"
+      })
+    ).resolves.toEqual([]);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/source-maps?project_id=prj%2F1&environment_id=env+1&release=web%401.0.0", {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: undefined
+    });
+  });
+
+  it("gets source map resolution for an error with scoped query filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        data: {
+          errorId: "err/1",
+          release: null,
+          status: "unavailable",
+          frames: [],
+          unresolvedFrameCount: 0
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").getErrorSourceMapResolution("err/1", {
+        projectId: "prj/1",
+        environmentId: "env 1"
+      })
+    ).resolves.toMatchObject({ errorId: "err/1", status: "unavailable" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/query/errors/err%2F1/source-map-resolution?project_id=prj%2F1&environment_id=env+1", {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: undefined
+    });
+  });
+
+  it("uploads a source map without setting multipart content type", async () => {
+    const sourceMap = new File(["{}"], "app.js.map", { type: "application/json" });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { artifacts: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").uploadSourceMap({
+        projectId: "prj/1",
+        environmentId: "env 1",
+        release: "web@1.0.0",
+        minifiedFile: "app.js",
+        file: sourceMap
+      })
+    ).resolves.toEqual([]);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/source-maps", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json"
+      },
+      body: expect.any(FormData)
+    });
+
+    const form = fetchMock.mock.calls[0][1].body as FormData;
+    expect(form.get("project_id")).toBe("prj/1");
+    expect(form.get("environment_id")).toBe("env 1");
+    expect(form.get("release")).toBe("web@1.0.0");
+    expect(form.get("minified_file")).toBe("app.js");
+    expect(form.get("file")).toBe(sourceMap);
+  });
+
+  it("uploads a source map bundle without setting multipart content type", async () => {
+    const bundle = new File(["bundle"], "source-maps.zip", { type: "application/zip" });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { artifacts: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").uploadSourceMapBundle({
+        projectId: "prj/1",
+        environmentId: "env 1",
+        release: "web@1.0.0",
+        bundle
+      })
+    ).resolves.toEqual([]);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/source-maps", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json"
+      },
+      body: expect.any(FormData)
+    });
+
+    const form = fetchMock.mock.calls[0][1].body as FormData;
+    expect(form.get("project_id")).toBe("prj/1");
+    expect(form.get("environment_id")).toBe("env 1");
+    expect(form.get("release")).toBe("web@1.0.0");
+    expect(form.get("bundle")).toBe(bundle);
+  });
+
+  it("deletes source map artifacts with scoped query filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(emptyResponse(204));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").deleteSourceMapArtifact("art/1", {
+        projectId: "prj/1",
+        environmentId: "env 1"
+      })
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/source-maps/art%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
 });

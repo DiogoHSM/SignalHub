@@ -22,6 +22,9 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  SourceMapArtifact,
+  SourceMapArtifactQuery,
+  SourceMapResolution,
   SpanRecord,
   SystemHealthResponse,
   TenantDetailQuery,
@@ -73,6 +76,28 @@ export type ErrorGroupApiClient = {
   updateErrorGroupStatus: (id: string, input: UpdateErrorGroupStatusInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
 };
 
+export type SourceMapUploadInput = Pick<SourceMapArtifactQuery, "projectId" | "environmentId"> & {
+  release: string;
+  minifiedFile?: string;
+  file: Blob;
+};
+
+export type SourceMapBundleUploadInput = Pick<SourceMapArtifactQuery, "projectId" | "environmentId"> & {
+  release: string;
+  bundle: Blob;
+};
+
+export type SourceMapApiClient = {
+  listSourceMapArtifacts: (query: SourceMapArtifactQuery) => Promise<SourceMapArtifact[]>;
+  uploadSourceMap: (input: SourceMapUploadInput) => Promise<SourceMapArtifact[]>;
+  uploadSourceMapBundle: (input: SourceMapBundleUploadInput) => Promise<SourceMapArtifact[]>;
+  deleteSourceMapArtifact: (id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">) => Promise<void>;
+  getErrorSourceMapResolution: (
+    id: string,
+    query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">
+  ) => Promise<SourceMapResolution>;
+};
+
 export type ApiClient = {
   getConsoleConfig: () => Promise<ConsoleConfig>;
   getMe: () => Promise<{ user: User }>;
@@ -108,7 +133,8 @@ export type ApiClient = {
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
 } & AlertApiClient &
-  ErrorGroupApiClient;
+  ErrorGroupApiClient &
+  Partial<SourceMapApiClient>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -147,6 +173,37 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
       "Content-Type": "application/json"
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  });
+
+  if (!response.ok) {
+    let code = "request_failed";
+    try {
+      const body = (await parseJson(response)) as { error?: unknown } | undefined;
+      if (typeof body?.error === "string") {
+        code = body.error;
+      }
+    } catch {
+      code = "request_failed";
+    }
+
+    throw new ApiError(response.status, code);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await parseJson(response)) as T;
+}
+
+async function multipartRequest<T>(url: string, options: { method: "POST"; body: FormData }): Promise<T> {
+  const response = await fetch(url, {
+    method: options.method,
+    credentials: "include",
+    headers: {
+      Accept: "application/json"
+    },
+    body: options.body
   });
 
   if (!response.ok) {
@@ -235,6 +292,50 @@ function errorGroupPath(id: string, query: Pick<ErrorGroupQuery, "projectId" | "
   return `/query/error-groups/${encodePathSegment(id)}?${errorGroupScopeParams(query).toString()}`;
 }
 
+function sourceMapScopeParams(query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return params;
+}
+
+function sourceMapArtifactsPath(query: SourceMapArtifactQuery): string {
+  const params = sourceMapScopeParams(query);
+  if (query.release) params.set("release", query.release);
+
+  return `/admin/source-maps?${params.toString()}`;
+}
+
+function sourceMapArtifactPath(id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): string {
+  return `/admin/source-maps/${encodePathSegment(id)}?${sourceMapScopeParams(query).toString()}`;
+}
+
+function errorSourceMapResolutionPath(id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): string {
+  return `/query/errors/${encodePathSegment(id)}/source-map-resolution?${sourceMapScopeParams(query).toString()}`;
+}
+
+function sourceMapUploadFormData(input: SourceMapUploadInput): FormData {
+  const form = new FormData();
+  form.set("project_id", input.projectId);
+  form.set("environment_id", input.environmentId);
+  form.set("release", input.release);
+  if (input.minifiedFile) form.set("minified_file", input.minifiedFile);
+  form.set("file", input.file);
+
+  return form;
+}
+
+function sourceMapBundleUploadFormData(input: SourceMapBundleUploadInput): FormData {
+  const form = new FormData();
+  form.set("project_id", input.projectId);
+  form.set("environment_id", input.environmentId);
+  form.set("release", input.release);
+  form.set("bundle", input.bundle);
+
+  return form;
+}
+
 function overviewPath(query: OverviewQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -311,7 +412,7 @@ function alertEventListPath(query: AlertEventListQuery): string {
   return `/alerts/events?${params.toString()}`;
 }
 
-export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
+export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & SourceMapApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
@@ -360,6 +461,32 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient {
         method: "PATCH",
         body: { status: input.status }
       }),
+    listSourceMapArtifacts: async (query) => {
+      const response = await request<{ artifacts: SourceMapArtifact[] }>(path(apiBasePath, sourceMapArtifactsPath(query)));
+      return response.artifacts;
+    },
+    uploadSourceMap: async (input) => {
+      const response = await multipartRequest<{ artifacts: SourceMapArtifact[] }>(path(apiBasePath, "/admin/source-maps"), {
+        method: "POST",
+        body: sourceMapUploadFormData(input)
+      });
+      return response.artifacts;
+    },
+    uploadSourceMapBundle: async (input) => {
+      const response = await multipartRequest<{ artifacts: SourceMapArtifact[] }>(path(apiBasePath, "/admin/source-maps"), {
+        method: "POST",
+        body: sourceMapBundleUploadFormData(input)
+      });
+      return response.artifacts;
+    },
+    deleteSourceMapArtifact: (id, query) =>
+      request<void>(path(apiBasePath, sourceMapArtifactPath(id, query)), { method: "DELETE" }),
+    getErrorSourceMapResolution: async (id, query) => {
+      const response = await request<AggregateResponse<SourceMapResolution>>(
+        path(apiBasePath, errorSourceMapResolutionPath(id, query))
+      );
+      return response.data;
+    },
     listTraces: (filters) => request<QueryListResponse<TraceRecord>>(path(apiBasePath, queryPath("/query/traces", filters))),
     listTraceSpans: (traceId, filters) =>
       request<QueryListResponse<SpanRecord>>(
