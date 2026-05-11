@@ -98,7 +98,7 @@ Do not modify:
 - Modify: `scripts/doctor.ts`
 - Modify: `scripts/doctor.test.ts`
 
-- [ ] **Step 1: Add source-map dependencies**
+- [x] **Step 1: Add source-map dependencies**
 
 Run:
 
@@ -108,7 +108,7 @@ pnpm add -w @fastify/multipart @jridgewell/trace-mapping fflate
 
 Expected: `package.json` gains the three dependencies and `pnpm-lock.yaml` updates.
 
-- [ ] **Step 2: Add failing config tests**
+- [x] **Step 2: Add failing config tests**
 
 In `packages/config/test/config.test.ts`, add:
 
@@ -136,7 +136,7 @@ it("loads custom source map storage config", () => {
 });
 ```
 
-- [ ] **Step 3: Run config tests and verify failure**
+- [x] **Step 3: Run config tests and verify failure**
 
 Run:
 
@@ -146,7 +146,7 @@ pnpm --filter @signal-hub/config test -- config.test.ts
 
 Expected: fail because `config.sourceMaps` does not exist.
 
-- [ ] **Step 4: Implement source-map config**
+- [x] **Step 4: Implement source-map config**
 
 In `packages/config/src/index.ts`, add to `rawConfigSchema`:
 
@@ -164,7 +164,7 @@ sourceMaps: {
 },
 ```
 
-- [ ] **Step 5: Update `.env.example`**
+- [x] **Step 5: Update `.env.example`**
 
 Add:
 
@@ -173,7 +173,7 @@ SOURCE_MAPS_LOCAL_DIR=/var/lib/signalhub/source-maps
 SOURCE_MAPS_MAX_UPLOAD_MB=50
 ```
 
-- [ ] **Step 6: Update Compose volume**
+- [x] **Step 6: Update Compose volume**
 
 In `docker-compose.yml`, add an API volume:
 
@@ -190,7 +190,7 @@ Add the named volume:
 
 Expected: only the API needs this volume in Phase 5B because uploads and resolution are API-owned.
 
-- [ ] **Step 7: Add failing doctor tests**
+- [x] **Step 7: Add failing doctor tests**
 
 In `scripts/doctor.test.ts`, add this test in the `doctor orchestration` describe block:
 
@@ -216,7 +216,7 @@ it("warns when source map directory is missing", async () => {
 });
 ```
 
-- [ ] **Step 8: Implement doctor directory warning**
+- [x] **Step 8: Implement doctor directory warning**
 
 In `scripts/doctor.ts`, add non-secret env parsing awareness for `SOURCE_MAPS_LOCAL_DIR`. The check should:
 
@@ -230,7 +230,7 @@ Use this message:
 createResult("warn", "SOURCE_MAPS_LOCAL_DIR is missing or not writable")
 ```
 
-- [ ] **Step 9: Run focused tests**
+- [x] **Step 9: Run focused tests**
 
 Run:
 
@@ -242,7 +242,7 @@ docker compose config --quiet
 
 Expected: all pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add package.json pnpm-lock.yaml .env.example docker-compose.yml packages/config/src/index.ts packages/config/test/config.test.ts scripts/doctor.ts scripts/doctor.test.ts
