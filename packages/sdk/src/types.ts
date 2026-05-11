@@ -1,5 +1,7 @@
 export type SignalStatus = "success" | "error" | "pending";
 export type ErrorSeverity = "debug" | "info" | "warning" | "error" | "critical" | "fatal";
+export type BreadcrumbType = "navigation" | "click" | "console" | "network" | "custom";
+export type BreadcrumbLevel = "debug" | "info" | "warning" | "error" | "fatal";
 
 export type JsonValue =
   | string
@@ -44,6 +46,15 @@ export type ErrorInput = SignalContext &
   severity?: ErrorSeverity;
   fingerprint?: string;
   context?: SignalMetadata;
+};
+
+export type BreadcrumbInput = {
+  type: BreadcrumbType;
+  category?: string;
+  message: string;
+  level?: BreadcrumbLevel;
+  data?: SignalMetadata;
+  timestamp?: Date | string;
 };
 
 export type LlmInput = {
@@ -125,6 +136,7 @@ export type SignalHubError = {
 export type SignalHubClient = {
   track: (name: string, properties?: SignalMetadata, context?: SignalContext & EventInput) => void;
   captureError: (error: unknown, input?: ErrorInput) => void;
+  breadcrumb: (input: BreadcrumbInput, context?: SignalContext) => void;
   llm: (input: LlmInput, context?: SignalContext) => void;
   trace: (input: TraceInput, context?: SignalContext) => void;
   startTrace: (name: string, input?: StartTraceInput & SignalContext) => ActiveTrace;
@@ -134,7 +146,7 @@ export type SignalHubClient = {
   shutdown: (options?: FlushOptions) => Promise<FlushResult>;
 };
 
-export type SignalKind = "event" | "error" | "llm" | "trace" | "span";
+export type SignalKind = "event" | "error" | "llm" | "trace" | "span" | "breadcrumb";
 
 export type QueuedSignal = {
   kind: SignalKind;

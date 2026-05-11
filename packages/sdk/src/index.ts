@@ -1,5 +1,8 @@
 export type {
   ActiveTrace,
+  BreadcrumbInput,
+  BreadcrumbLevel,
+  BreadcrumbType,
   EndTraceInput,
   ErrorInput,
   ErrorSeverity,
@@ -25,6 +28,7 @@ export {
 } from "./client.js";
 
 export {
+  createBreadcrumbSignal,
   createErrorSignal,
   createEventSignal,
   createLlmSignal,
@@ -33,3 +37,9 @@ export {
   mergeContext,
   serializeDate
 } from "./mapping.js";
+
+export {
+  createBrowserBreadcrumbs,
+  sanitizeBreadcrumbUrl,
+  summarizeClickedElement
+} from "./browser-breadcrumbs.js";

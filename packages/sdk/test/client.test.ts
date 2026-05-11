@@ -429,6 +429,34 @@ describe("createSignalHubClient", () => {
     ]);
   });
 
+  it("queues manual breadcrumbs", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalHubClient({
+      endpoint: "https://signalhub.example.com",
+      apiKey: "sh_test",
+      fetch: fetchImpl,
+      defaultContext: { sessionId: "sess_1" },
+      maxRetries: 0
+    });
+
+    client.breadcrumb({ type: "custom", message: "Opened checkout" });
+    await client.flush();
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://signalhub.example.com/v1/breadcrumbs",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"session_id":"sess_1"')
+      })
+    );
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({
+      type: "custom",
+      message: "Opened checkout",
+      session_id: "sess_1",
+      data: {}
+    });
+  });
+
   it("shares overlapping flush calls with the in-flight promise and avoids duplicate sends", async () => {
     let resolveFetch: (response: Response) => void = () => undefined;
     const fetchImpl = vi.fn<typeof fetch>(
