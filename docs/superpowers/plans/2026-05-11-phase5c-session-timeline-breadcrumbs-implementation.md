@@ -1124,7 +1124,7 @@ git commit -m "feat: add session timeline query api"
 - Test: `packages/sdk/test/mapping.test.ts`
 - Create: `packages/sdk/test/browser-breadcrumbs.test.ts`
 
-- [ ] **Step 1: Write failing SDK mapping/client tests**
+- [x] **Step 1: Write failing SDK mapping/client tests**
 
 Add to `packages/sdk/test/mapping.test.ts`:
 
@@ -1178,7 +1178,7 @@ it("queues manual breadcrumbs", async () => {
 });
 ```
 
-- [ ] **Step 2: Write failing browser helper tests**
+- [x] **Step 2: Write failing browser helper tests**
 
 Create `packages/sdk/test/browser-breadcrumbs.test.ts`:
 
@@ -1217,7 +1217,7 @@ describe("browser breadcrumbs", () => {
 });
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -1227,7 +1227,7 @@ pnpm exec vitest run packages/sdk/test/mapping.test.ts packages/sdk/test/client.
 
 Expected: failures for missing breadcrumb types, signal mapping, client method, and browser helper.
 
-- [ ] **Step 4: Add SDK types**
+- [x] **Step 4: Add SDK types**
 
 Modify `packages/sdk/src/types.ts`:
 
@@ -1257,7 +1257,7 @@ Update `SignalKind`:
 export type SignalKind = "event" | "error" | "llm" | "trace" | "span" | "breadcrumb";
 ```
 
-- [ ] **Step 5: Add mapping**
+- [x] **Step 5: Add mapping**
 
 Modify `packages/sdk/src/mapping.ts`:
 
@@ -1301,7 +1301,7 @@ export function createBreadcrumbSignal(
 }
 ```
 
-- [ ] **Step 6: Add client method**
+- [x] **Step 6: Add client method**
 
 Modify `packages/sdk/src/client.ts` imports and returned client:
 
@@ -1326,7 +1326,7 @@ breadcrumb(input: BreadcrumbInput, context?: SignalContext): void {
 },
 ```
 
-- [ ] **Step 7: Add browser helper**
+- [x] **Step 7: Add browser helper**
 
 Create `packages/sdk/src/browser-breadcrumbs.ts`:
 
@@ -1423,7 +1423,7 @@ export function createBrowserBreadcrumbs(client: Pick<SignalHubClient, "breadcru
 }
 ```
 
-- [ ] **Step 8: Export SDK additions**
+- [x] **Step 8: Export SDK additions**
 
 Modify `packages/sdk/src/index.ts`:
 
@@ -1445,7 +1445,7 @@ export {
 } from "./browser-breadcrumbs.js";
 ```
 
-- [ ] **Step 9: Run SDK tests and build**
+- [x] **Step 9: Run SDK tests and build**
 
 Run:
 
@@ -1456,7 +1456,7 @@ pnpm --filter @signal-hub/sdk build
 
 Expected: tests and SDK build pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/sdk/src/types.ts packages/sdk/src/mapping.ts packages/sdk/src/client.ts packages/sdk/src/browser-breadcrumbs.ts packages/sdk/src/index.ts packages/sdk/test/mapping.test.ts packages/sdk/test/client.test.ts packages/sdk/test/browser-breadcrumbs.test.ts
