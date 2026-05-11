@@ -2353,14 +2353,14 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 - Approved direction: grouped error issues over immutable raw errors, deterministic fingerprinting with explicit fingerprint precedence, group statuses `open` / `investigating` / `resolved` / `ignored`, resolved-group regression reopening, ignored groups staying ignored, and the console layout `Groups + Raw occurrences`.
 ```
 
-- [ ] **Step 3: Commit SignalHub docs**
+- [x] **Step 3: Commit SignalHub docs**
 
 ```bash
 git add .claude/docs/ARCHITECTURE.md .claude/docs/PROJECT-SUMMARY.md .claude/docs/UI-UX.md .claude/docs/DECISIONS.md README.md
 git commit -m "docs: document grouped error workflow"
 ```
 
-- [ ] **Step 4: Commit memory**
+- [x] **Step 4: Commit memory**
 
 From `/Users/diogo/Developer/Github/claude-config`:
 
@@ -2375,7 +2375,7 @@ git commit -m "docs: update signalhub phase 5a memory"
 
 - Modify: `docs/superpowers/plans/2026-05-10-phase5a-error-groups-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 Run:
 
@@ -2385,7 +2385,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run build**
+- [x] **Step 2: Run build**
 
 Run:
 
@@ -2395,7 +2395,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 Run:
 
@@ -2405,7 +2405,7 @@ docker compose config --quiet
 
 Expected: exit code `0`.
 
-- [ ] **Step 4: Run doctor safe local mode**
+- [x] **Step 4: Run doctor safe local mode**
 
 Run:
 
@@ -2416,11 +2416,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code `0`. API health warnings are acceptable if no local API is running.
 
-- [ ] **Step 5: Mark plan tasks complete**
+- [x] **Step 5: Mark plan tasks complete**
 
 Update this plan file by changing all completed checkboxes from `- [ ]` to `- [x]`.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-10-phase5a-error-groups-implementation.md
