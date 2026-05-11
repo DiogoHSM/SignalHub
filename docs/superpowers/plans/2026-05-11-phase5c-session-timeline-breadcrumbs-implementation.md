@@ -51,7 +51,7 @@
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `packages/config/test/config.test.ts`
 
-- [ ] **Step 1: Write failing DB migration test**
+- [x] **Step 1: Write failing DB migration test**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -62,7 +62,7 @@ it("runs breadcrumb migrations", async () => {
 });
 ```
 
-- [ ] **Step 2: Write failing config test**
+- [x] **Step 2: Write failing config test**
 
 Add to `packages/config/test/config.test.ts`:
 
@@ -76,7 +76,7 @@ it("loads breadcrumb retention config with defaults and overrides", () => {
 });
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -86,7 +86,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts packages/config/test/
 
 Expected: migration test fails because `breadcrumbs` does not exist; config test fails because `breadcrumbsDays` is missing.
 
-- [ ] **Step 4: Add migration 0007**
+- [x] **Step 4: Add migration 0007**
 
 Create `packages/db/migrations/0007_breadcrumbs.sql`:
 
@@ -125,7 +125,7 @@ ALTER TABLE retention_runs
   ADD COLUMN IF NOT EXISTS breadcrumbs_days integer NOT NULL DEFAULT 30;
 ```
 
-- [ ] **Step 5: Register migration**
+- [x] **Step 5: Register migration**
 
 Modify `packages/db/src/migrate.ts`:
 
@@ -141,7 +141,7 @@ const migrations = [
 ];
 ```
 
-- [ ] **Step 6: Update schema types**
+- [x] **Step 6: Update schema types**
 
 Add to `packages/db/src/schema.ts`:
 
@@ -180,7 +180,7 @@ Update `Database`:
 breadcrumbs: BreadcrumbsTable;
 ```
 
-- [ ] **Step 7: Update config**
+- [x] **Step 7: Update config**
 
 Modify `packages/config/src/index.ts`:
 
@@ -210,7 +210,7 @@ Add to `.env.example`:
 RETENTION_BREADCRUMBS_DAYS=30
 ```
 
-- [ ] **Step 8: Run focused tests**
+- [x] **Step 8: Run focused tests**
 
 Run:
 
@@ -220,7 +220,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts packages/config/test/
 
 Expected: tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add .env.example packages/config/src/index.ts packages/config/test/config.test.ts packages/db/migrations/0007_breadcrumbs.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/test/repositories.test.ts
