@@ -1,7 +1,10 @@
-import type { ErrorRecord } from "../api/types";
+import type { ErrorRecord, SourceMapResolution } from "../api/types";
+import { ErrorSourceMapResolution } from "./ErrorSourceMapResolution";
 
 type Props = {
   error?: ErrorRecord;
+  sourceMapResolution?: SourceMapResolution;
+  isResolvingSourceMap?: boolean;
 };
 
 function formatJson(value: unknown): string {
@@ -16,7 +19,7 @@ function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-export function ErrorDetailDrawer({ error }: Props) {
+export function ErrorDetailDrawer({ error, sourceMapResolution, isResolvingSourceMap }: Props) {
   if (!error) {
     return (
       <aside className="detail-drawer">
@@ -74,6 +77,7 @@ export function ErrorDetailDrawer({ error }: Props) {
           <code>{error.stack ?? "none"}</code>
         </pre>
       </section>
+      <ErrorSourceMapResolution resolution={sourceMapResolution} isLoading={isResolvingSourceMap} />
       <section className="json-section">
         <h3>Context JSON</h3>
         <pre>

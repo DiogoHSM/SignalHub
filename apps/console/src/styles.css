@@ -1343,6 +1343,94 @@ select {
   white-space: pre;
 }
 
+.source-map-resolution {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.source-map-resolution__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.source-map-resolution h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.source-map-resolution p {
+  margin: 0;
+}
+
+.source-map-resolution__frames {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.source-map-resolution__frame {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.source-map-resolution__frame div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.source-map-resolution__frame strong,
+.source-map-resolution__frame span {
+  overflow-wrap: anywhere;
+}
+
+.source-map-resolution__frame strong {
+  color: #111827;
+  font-size: 12px;
+}
+
+.source-map-resolution__frame span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.source-map-resolution__frame code {
+  color: #64748b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.status-pill--source-map-resolved {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.status-pill--source-map-partially_resolved {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.status-pill--source-map-unresolved,
+.status-pill--source-map-unavailable {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
 .span-timeline {
   display: grid;
   gap: 0.75rem;
