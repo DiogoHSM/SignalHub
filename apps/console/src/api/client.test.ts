@@ -204,6 +204,52 @@ describe("createApiClient", () => {
     );
   });
 
+  it("gets a session timeline with optional filters and serialized Date values", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { data: { sessionId: "sess_1", items: [], page: { nextCursor: null, previousCursor: null } } })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getSessionTimeline("sess_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      tenantId: "tenant/1",
+      userId: "user 1",
+      from: new Date("2026-05-11T11:50:00.000Z"),
+      to: new Date("2026-05-11T12:10:00.000Z"),
+      center: new Date("2026-05-11T12:00:00.000Z")
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&tenant_id=tenant%2F1&user_id=user+1&from=2026-05-11T11%3A50%3A00.000Z&to=2026-05-11T12%3A10%3A00.000Z&center=2026-05-11T12%3A00%3A00.000Z",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("does not encode unsupported session timeline cursors", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { data: { sessionId: "sess_1", items: [], page: { nextCursor: null, previousCursor: null } } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryWithUnsupportedCursor = {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      cursor: "cursor_1"
+    };
+
+    await createApiClient("/api").getSessionTimeline("sess_1", queryWithUnsupportedCursor);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes LLM call query filters", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);

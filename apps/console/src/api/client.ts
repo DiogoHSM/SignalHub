@@ -140,7 +140,7 @@ export type ApiClient = {
   archiveUser: (id: string) => Promise<void>;
 } & AlertApiClient &
   ErrorGroupApiClient &
-  Partial<SessionTimelineApiClient> &
+  SessionTimelineApiClient &
   Partial<SourceMapApiClient>;
 
 type RequestOptions = {
@@ -414,7 +414,6 @@ function sessionTimelinePath(sessionId: string, query: SessionTimelineQuery): st
   if (query.afterSeconds !== undefined) params.set("after", String(query.afterSeconds));
   if (query.types?.length) params.set("types", query.types.join(","));
   if (query.limit !== undefined) params.set("limit", String(query.limit));
-  if (query.cursor) params.set("cursor", query.cursor);
 
   return `/query/sessions/${encodePathSegment(sessionId)}/timeline?${params.toString()}`;
 }

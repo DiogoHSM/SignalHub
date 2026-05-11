@@ -776,7 +776,6 @@ export type SessionTimelineQuery = {
   afterSeconds?: number;
   types?: SessionTimelineItemType[];
   limit?: number;
-  cursor?: string;
 };
 
 export type SessionTimelineResponse = {
