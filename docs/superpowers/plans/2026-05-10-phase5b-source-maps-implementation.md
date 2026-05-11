@@ -1832,7 +1832,7 @@ git add docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md
 git commit -m "docs: complete source map plan"
 ```
 
-- [ ] **Step 7: Merge and push**
+- [x] **Step 7: Merge and push**
 
 From the main SignalHub checkout:
 
