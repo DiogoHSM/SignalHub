@@ -6,6 +6,7 @@ import type { TelemetryJobPayload } from "@signal-hub/queues";
 import { recordBackupRun, withBackupLock } from "@signal-hub/db/repositories/backups.js";
 import { backfillErrorGroups } from "@signal-hub/db/repositories/error-groups.js";
 import {
+  insertBreadcrumb,
   insertError,
   insertEvent,
   insertLlmCall,
@@ -50,7 +51,8 @@ const writer: TelemetryWriter = {
   insertError: (input) => insertError(db, input),
   insertLlmCall: (input) => insertLlmCall(db, input),
   insertTrace: (input) => insertTrace(db, input),
-  insertSpan: (input) => insertSpan(db, input)
+  insertSpan: (input) => insertSpan(db, input),
+  insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 };
 
 const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]>(

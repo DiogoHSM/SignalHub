@@ -43,7 +43,14 @@ import {
   listUsers,
   updateUser
 } from "../src/repositories/users.js";
-import { insertError, insertEvent, insertLlmCall, insertSpan, insertTrace } from "../src/repositories/telemetry-writes.js";
+import {
+  insertBreadcrumb,
+  insertError,
+  insertEvent,
+  insertLlmCall,
+  insertSpan,
+  insertTrace
+} from "../src/repositories/telemetry-writes.js";
 import {
   getErrorAggregates,
   getEventAggregates,
@@ -277,6 +284,52 @@ describe("repositories", () => {
           )
         `.execute(db)
       ).rejects.toThrow();
+    });
+  });
+
+  it("persists breadcrumbs through the telemetry write repository", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Breadcrumb Writes" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertBreadcrumb(db, {
+        id: "brd_repository",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        traceId: "trc_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:01.000Z"),
+        source: "sdk-js",
+        release: "1.2.3",
+        metadata: { page: "checkout" },
+        type: "navigation",
+        category: "route",
+        message: "Navigated to /checkout",
+        level: "info",
+        data: { from: "/cart", to: "/checkout" }
+      });
+
+      const row = await db
+        .selectFrom("breadcrumbs")
+        .select(["id", "session_id", "trace_id", "type", "category", "message", "level", "data"])
+        .where("id", "=", "brd_repository")
+        .executeTakeFirstOrThrow();
+
+      expect(row).toMatchObject({
+        id: "brd_repository",
+        session_id: "sess_1",
+        trace_id: "trc_1",
+        type: "navigation",
+        category: "route",
+        message: "Navigated to /checkout",
+        level: "info",
+        data: { from: "/cart", to: "/checkout" }
+      });
     });
   });
 

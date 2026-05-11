@@ -67,6 +67,14 @@ export interface InsertSpanInput extends TelemetryBaseInput {
   costUsd?: string;
 }
 
+export interface InsertBreadcrumbInput extends TelemetryBaseInput {
+  type: "navigation" | "click" | "console" | "network" | "custom";
+  category?: string;
+  message: string;
+  level: "debug" | "info" | "warning" | "error" | "fatal";
+  data?: unknown;
+}
+
 function nullable<T>(value: T | undefined): T | null {
   return value ?? null;
 }
@@ -186,6 +194,20 @@ export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> 
       output: nullable(input.output),
       error: nullable(input.error),
       cost_usd: nullable(input.costUsd)
+    })
+    .execute();
+}
+
+export async function insertBreadcrumb(db: Db, input: InsertBreadcrumbInput): Promise<void> {
+  await db
+    .insertInto("breadcrumbs")
+    .values({
+      ...baseColumns(input),
+      type: input.type,
+      category: nullable(input.category),
+      message: input.message,
+      level: input.level,
+      data: input.data ?? {}
     })
     .execute();
 }

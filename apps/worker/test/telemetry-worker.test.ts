@@ -26,7 +26,8 @@ function createWriter(): TelemetryWriter {
     insertError: vi.fn(async () => undefined),
     insertLlmCall: vi.fn(async () => undefined),
     insertTrace: vi.fn(async () => undefined),
-    insertSpan: vi.fn(async () => undefined)
+    insertSpan: vi.fn(async () => undefined),
+    insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
 
@@ -318,6 +319,42 @@ describe("processTelemetryJob", () => {
           headers: {
             session_token: "[REDACTED]"
           }
+        }
+      })
+    );
+  });
+
+  it("persists sanitized breadcrumb jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "breadcrumb",
+      id: "brd_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        session_id: "sess_1",
+        type: "console",
+        category: "browser",
+        message: "Failed password=secret",
+        level: "error",
+        data: { token: "abc", nested: { authorization: "Bearer secret" } }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "brd_1",
+        sessionId: "sess_1",
+        type: "console",
+        category: "browser",
+        message: "Failed password=[REDACTED]",
+        level: "error",
+        data: {
+          token: "[REDACTED]",
+          nested: { authorization: "[REDACTED]" }
         }
       })
     );

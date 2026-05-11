@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  breadcrumbPayloadSchema,
   errorPayloadSchema,
   eventPayloadSchema,
   llmCallPayloadSchema,
@@ -217,5 +218,25 @@ describe("ingestion schemas", () => {
     });
 
     expect(error.severity).toBe("fatal");
+  });
+
+  it("validates breadcrumb payloads", () => {
+    const parsed = breadcrumbPayloadSchema.parse({
+      timestamp: "2026-05-11T12:00:00.000Z",
+      session_id: "sess_1",
+      type: "navigation",
+      category: "route",
+      message: "Navigated to /checkout",
+      data: { from: "/cart", to: "/checkout" }
+    });
+
+    expect(parsed.level).toBe("info");
+    expect(parsed.metadata).toEqual({});
+    expect(parsed.data).toEqual({ from: "/cart", to: "/checkout" });
+  });
+
+  it("rejects unsupported breadcrumb types and oversized messages", () => {
+    expect(() => breadcrumbPayloadSchema.parse({ type: "dom", message: "bad" })).toThrow();
+    expect(() => breadcrumbPayloadSchema.parse({ type: "custom", message: "x".repeat(2001) })).toThrow();
   });
 });
