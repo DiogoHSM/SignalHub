@@ -523,7 +523,7 @@ git commit -m "feat: add breadcrumb ingestion"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Write failing retention repository test**
+- [x] **Step 1: Write failing retention repository test**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -571,7 +571,7 @@ it("deletes expired breadcrumbs during retention", async () => {
 });
 ```
 
-- [ ] **Step 2: Run retention tests to verify failure**
+- [x] **Step 2: Run retention tests to verify failure**
 
 Run:
 
@@ -581,7 +581,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts apps/worker/test/tele
 
 Expected: failures for missing `breadcrumbs` deleted counts and policy fields.
 
-- [ ] **Step 3: Update retention types and deletion**
+- [x] **Step 3: Update retention types and deletion**
 
 Modify `packages/db/src/repositories/system.ts`:
 
@@ -645,7 +645,7 @@ deleted_breadcrumbs: input.deleted.breadcrumbs,
 breadcrumbs_days: input.policy.breadcrumbsDays
 ```
 
-- [ ] **Step 4: Update worker zero counts and policy**
+- [x] **Step 4: Update worker zero counts and policy**
 
 Modify `apps/worker/src/retention.ts`:
 
@@ -659,7 +659,7 @@ Modify `apps/worker/src/main.ts` retention policy:
 breadcrumbsDays: config.retention.breadcrumbsDays
 ```
 
-- [ ] **Step 5: Update system health types/tests**
+- [x] **Step 5: Update system health types/tests**
 
 Where `policy` is asserted in `apps/api/test/system.test.ts`, add:
 
@@ -675,7 +675,7 @@ breadcrumbs: 0
 
 Update `apps/console/src/api/types.ts` system health retention types so `policy` and `deleted` include `breadcrumbsDays` and `breadcrumbs`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -685,7 +685,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts apps/worker/test/tele
 
 Expected: tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/src/repositories/system.ts packages/db/test/repositories.test.ts apps/worker/src/retention.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts apps/api/src/system-health.ts apps/api/test/system.test.ts apps/console/src/api/types.ts apps/console/src/components/SystemHealthPanel.test.tsx
