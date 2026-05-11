@@ -169,8 +169,9 @@ export async function resolveErrorStackWithSourceMaps(
     }
   }
 
+  const fullyResolved = resolvedFrames.length === parsedFrames.length;
   const frames =
-    resolvedFrames.length > 0
+    fullyResolved && resolvedFrames.length > 0
       ? (
           await input.replaceErrorStackResolutions({
             errorId: error.id,
@@ -180,7 +181,7 @@ export async function resolveErrorStackWithSourceMaps(
             frames: resolvedFrames
           })
         ).map(toResponseFrame)
-      : [];
+      : resolvedFrames.map(toResponseFrame);
 
   return {
     errorId: error.id,

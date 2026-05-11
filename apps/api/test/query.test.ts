@@ -12,7 +12,7 @@ import {
   parseSourceMapJson,
   parseStackFrames
 } from "../src/source-maps/parser.js";
-import { resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
+import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
 
 vi.mock("@signal-hub/db/repositories/source-maps.js", () => ({
@@ -266,6 +266,125 @@ describe("source map helpers", () => {
       originalLine: 1,
       originalColumn: 0,
       originalName: "first"
+    });
+  });
+
+  it("does not cache partially resolved error stacks", async () => {
+    const map = JSON.stringify({
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/app.ts"],
+      names: ["checkout"],
+      mappings: "AAAAA"
+    });
+    const replaceErrorStackResolutions = vi.fn(async (input) => input.frames);
+
+    const resolution = await resolveErrorStackWithSourceMaps({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      getErrorForSourceMapResolution: async () => ({
+        id: "err_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "2026.05.11",
+        stack: [
+          "TypeError: failed",
+          "    at checkout (https://cdn.example.com/assets/app.min.js:1:1)",
+          "    at vendor (https://cdn.example.com/assets/vendor.min.js:1:1)"
+        ].join("\n")
+      }),
+      getCachedErrorStackResolution: async () => [],
+      findSourceMapArtifactForFrame: async (input) =>
+        input.minifiedFile === "app.min.js" ? { id: "smap_1", storagePath: "/source-maps/app.min.js.map" } : null,
+      readSourceMapFile: async () => map,
+      replaceErrorStackResolutions
+    });
+
+    expect(resolution).toEqual({
+      errorId: "err_1",
+      release: "2026.05.11",
+      status: "partially_resolved",
+      frames: [
+        {
+          sourceMapArtifactId: "smap_1",
+          frameIndex: 0,
+          minifiedFile: "app.min.js",
+          minifiedLine: 1,
+          minifiedColumn: 1,
+          originalSource: "src/app.ts",
+          originalLine: 1,
+          originalColumn: 0,
+          originalName: "checkout"
+        }
+      ],
+      unresolvedFrameCount: 1
+    });
+    expect(replaceErrorStackResolutions).not.toHaveBeenCalled();
+  });
+
+  it("caches fully resolved error stacks", async () => {
+    const maps = new Map([
+      [
+        "/source-maps/app.min.js.map",
+        JSON.stringify({
+          version: 3,
+          file: "app.min.js",
+          sources: ["src/app.ts"],
+          names: ["checkout"],
+          mappings: "AAAAA"
+        })
+      ],
+      [
+        "/source-maps/vendor.min.js.map",
+        JSON.stringify({
+          version: 3,
+          file: "vendor.min.js",
+          sources: ["src/vendor.ts"],
+          names: ["vendor"],
+          mappings: "AAAAA"
+        })
+      ]
+    ]);
+    const replaceErrorStackResolutions = vi.fn(async (input) => input.frames);
+
+    const resolution = await resolveErrorStackWithSourceMaps({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      getErrorForSourceMapResolution: async () => ({
+        id: "err_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "2026.05.11",
+        stack: [
+          "TypeError: failed",
+          "    at checkout (https://cdn.example.com/assets/app.min.js:1:1)",
+          "    at vendor (https://cdn.example.com/assets/vendor.min.js:1:1)"
+        ].join("\n")
+      }),
+      getCachedErrorStackResolution: async () => [],
+      findSourceMapArtifactForFrame: async (input) => ({
+        id: input.minifiedFile === "app.min.js" ? "smap_1" : "smap_2",
+        storagePath: `/source-maps/${input.minifiedFile}.map`
+      }),
+      readSourceMapFile: async ({ storagePath }) => maps.get(storagePath) ?? "",
+      replaceErrorStackResolutions
+    });
+
+    expect(resolution?.status).toBe("resolved");
+    expect(resolution?.unresolvedFrameCount).toBe(0);
+    expect(resolution?.frames).toHaveLength(2);
+    expect(replaceErrorStackResolutions).toHaveBeenCalledTimes(1);
+    expect(replaceErrorStackResolutions).toHaveBeenCalledWith({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "2026.05.11",
+      frames: expect.arrayContaining([
+        expect.objectContaining({ frameIndex: 0, sourceMapArtifactId: "smap_1" }),
+        expect.objectContaining({ frameIndex: 1, sourceMapArtifactId: "smap_2" })
+      ])
     });
   });
 });
