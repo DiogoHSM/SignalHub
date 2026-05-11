@@ -1470,7 +1470,7 @@ git commit -m "feat: add sdk breadcrumbs"
 - Modify: `apps/console/src/api/client.ts`
 - Test: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Write failing console client test**
+- [x] **Step 1: Write failing console client test**
 
 Add to `apps/console/src/api/client.test.ts`:
 
@@ -1497,7 +1497,7 @@ it("gets a session timeline with scoped filters", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run:
 
@@ -1507,7 +1507,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts
 
 Expected: `getSessionTimeline` is missing.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 Add to `apps/console/src/api/types.ts`:
 
@@ -1554,7 +1554,7 @@ export type SessionTimelineResponse = {
 };
 ```
 
-- [ ] **Step 4: Add client method**
+- [x] **Step 4: Add client method**
 
 Modify imports and `ApiClient` in `apps/console/src/api/client.ts`:
 
@@ -1595,7 +1595,7 @@ getSessionTimeline: (sessionId, query) =>
   request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
 ```
 
-- [ ] **Step 5: Run client tests**
+- [x] **Step 5: Run client tests**
 
 Run:
 
@@ -1605,7 +1605,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts
 
 Expected: tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
