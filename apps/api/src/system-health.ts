@@ -15,6 +15,7 @@ type RetentionDeletedCounts = {
   traces: number;
   spans: number;
   llmCalls: number;
+  breadcrumbs: number;
 };
 type RetentionRun = {
   id: string;

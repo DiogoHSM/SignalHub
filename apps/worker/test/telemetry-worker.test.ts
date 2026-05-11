@@ -486,11 +486,12 @@ describe("runRetentionOnce", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       },
       withLock: async (run) => {
         const result = await run({
-          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 })
+          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 })
         });
         calls.push("released");
         return { locked: true, result };
@@ -514,7 +515,8 @@ describe("runRetentionOnce", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       },
       withLock: async () => ({ locked: false }),
       recordRetentionRun: async () => {
@@ -534,7 +536,8 @@ describe("runRetentionOnce", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       },
       withLock: async (run) => {
         try {
@@ -553,7 +556,7 @@ describe("runRetentionOnce", () => {
       recordRetentionRun: async (input) => {
         expect(input.status).toBe("failed");
         expect(input.errorMessage).toBe("authorization: [REDACTED]");
-        expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0 });
+        expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0, breadcrumbs: 0 });
         calls.push("recorded");
       }
     });
@@ -574,24 +577,25 @@ describe("runRetentionOnce", () => {
           errorsDays: 180,
           tracesDays: 90,
           spansDays: 90,
-          llmCallsDays: 180
-      },
-      withLock: async (run) => {
-        try {
-          const result = await run({
-            deleteExpiredTelemetry: async () => {
-              calls.push("deleted");
-              return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
-            }
-          });
-          return { locked: true, result };
-        } finally {
-          calls.push("released");
-        }
-      },
-      recordRetentionRun: async (input) => {
-        calls.push(`recorded:${input.status}:${input.deleted.events}`);
-        throw recordError;
+          llmCallsDays: 180,
+          breadcrumbsDays: 30
+        },
+        withLock: async (run) => {
+          try {
+            const result = await run({
+              deleteExpiredTelemetry: async () => {
+                calls.push("deleted");
+                return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 };
+              }
+            });
+            return { locked: true, result };
+          } finally {
+            calls.push("released");
+          }
+        },
+        recordRetentionRun: async (input) => {
+          calls.push(`recorded:${input.status}:${input.deleted.events}`);
+          throw recordError;
         }
       })
     ).rejects.toThrow(recordError);

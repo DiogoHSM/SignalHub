@@ -2006,8 +2006,15 @@ describe("repositories", () => {
 
       const startedAt = new Date("2026-05-06T12:00:00.000Z");
       const finishedAt = new Date("2026-05-06T12:00:05.000Z");
-      const deleted = { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
-      const policy = { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 };
+      const deleted = { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 };
+      const policy = {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
+      };
 
       const run = await recordRetentionRun(db, {
         startedAt,
@@ -2156,7 +2163,8 @@ describe("repositories", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       });
 
       expect(deleted).toEqual({
@@ -2164,7 +2172,8 @@ describe("repositories", () => {
         errors: 1,
         traces: 1,
         spans: 1,
-        llmCalls: 1
+        llmCalls: 1,
+        breadcrumbs: 0
       });
 
       const filters = { projectId: project.id, environmentId: environment.id, limit: 10 };
@@ -2177,6 +2186,59 @@ describe("repositories", () => {
       await expect(listLlmCalls(db, filters)).resolves.toEqual([
         expect.objectContaining({ id: "llm_fresh_retention" })
       ]);
+    });
+  });
+
+  it("deletes expired breadcrumbs during retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Breadcrumb Retention Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertBreadcrumb(db, {
+        id: "brd_old",
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "sess_1",
+        timestamp: new Date("2026-04-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-04-01T00:00:00.000Z"),
+        type: "custom",
+        message: "old",
+        level: "info",
+        data: {}
+      });
+      await insertBreadcrumb(db, {
+        id: "brd_new",
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-10T00:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T00:00:00.000Z"),
+        type: "custom",
+        message: "new",
+        level: "info",
+        data: {}
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        now: new Date("2026-05-11T00:00:00.000Z"),
+        batchSize: 100,
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
+      });
+
+      expect(deleted.breadcrumbs).toBe(1);
+      await expect(
+        db.selectFrom("breadcrumbs").select("id").where("id", "=", "brd_old").executeTakeFirst()
+      ).resolves.toBeUndefined();
+      await expect(
+        db.selectFrom("breadcrumbs").select("id").where("id", "=", "brd_new").executeTakeFirst()
+      ).resolves.toBeTruthy();
     });
   });
 
@@ -2214,7 +2276,8 @@ describe("repositories", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       });
 
       expect(deleted.events).toBe(1);

@@ -58,6 +58,7 @@ export type SystemHealthSnapshot = {
         traces: number;
         spans: number;
         llmCalls: number;
+        breadcrumbs: number;
       };
       errorMessage: string | null;
     } | null;
@@ -67,6 +68,7 @@ export type SystemHealthSnapshot = {
       tracesDays: number;
       spansDays: number;
       llmCallsDays: number;
+      breadcrumbsDays: number;
     };
   };
   backups: {

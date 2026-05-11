@@ -30,7 +30,8 @@ const retentionPolicyLabels: Array<[keyof SystemHealthResponse["retention"]["pol
   ["errorsDays", "errors"],
   ["tracesDays", "traces"],
   ["spansDays", "spans"],
-  ["llmCallsDays", "LLM calls"]
+  ["llmCallsDays", "LLM calls"],
+  ["breadcrumbsDays", "breadcrumbs"]
 ];
 
 function statusClass(status: ServiceStatus): string {
@@ -243,7 +244,8 @@ export function SystemHealthPanel({ client }: Props) {
                       <dd>
                         events {health.retention.lastRun.deleted.events}, errors {health.retention.lastRun.deleted.errors}, traces{" "}
                         {health.retention.lastRun.deleted.traces}, spans {health.retention.lastRun.deleted.spans}, LLM calls{" "}
-                        {health.retention.lastRun.deleted.llmCalls}
+                        {health.retention.lastRun.deleted.llmCalls}, breadcrumbs{" "}
+                        {health.retention.lastRun.deleted.breadcrumbs}
                       </dd>
                     </div>
                     {health.retention.lastRun.errorMessage ? (

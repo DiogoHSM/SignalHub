@@ -632,10 +632,17 @@ export type SystemHealthResponse = {
       status: "success" | "failed";
       startedAt: string;
       finishedAt: string | null;
-      deleted: { events: number; errors: number; traces: number; spans: number; llmCalls: number };
+      deleted: { events: number; errors: number; traces: number; spans: number; llmCalls: number; breadcrumbs: number };
       errorMessage: string | null;
     } | null;
-    policy: { eventsDays: number; errorsDays: number; tracesDays: number; spansDays: number; llmCallsDays: number };
+    policy: {
+      eventsDays: number;
+      errorsDays: number;
+      tracesDays: number;
+      spansDays: number;
+      llmCallsDays: number;
+      breadcrumbsDays: number;
+    };
   };
   backups: {
     enabled: boolean;

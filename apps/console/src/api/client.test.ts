@@ -272,7 +272,7 @@ describe("createApiClient", () => {
               enabled: true,
               intervalMinutes: 60,
               lastRun: null,
-              policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+              policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
             },
             backups: {
               enabled: true,

@@ -76,7 +76,8 @@ const retentionPolicy = {
   errorsDays: config.retention.errorsDays,
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
-  llmCallsDays: config.retention.llmCallsDays
+  llmCallsDays: config.retention.llmCallsDays,
+  breadcrumbsDays: config.retention.breadcrumbsDays
 };
 
 const stopRetention = config.retention.enabled

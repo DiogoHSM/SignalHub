@@ -182,7 +182,8 @@ const retentionPolicy = {
   errorsDays: config.retention.errorsDays,
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
-  llmCallsDays: config.retention.llmCallsDays
+  llmCallsDays: config.retention.llmCallsDays,
+  breadcrumbsDays: config.retention.breadcrumbsDays
 };
 
 function setSessionCookie(reply: CookieCapableReply, userId: string): void {
