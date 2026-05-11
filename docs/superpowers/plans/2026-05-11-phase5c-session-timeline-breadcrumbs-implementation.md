@@ -917,7 +917,7 @@ git commit -m "feat: add session timeline repository"
 - Modify: `apps/api/src/main.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Write failing route tests**
+- [x] **Step 1: Write failing route tests**
 
 Add to `apps/api/test/query.test.ts`:
 
@@ -959,7 +959,7 @@ it("rejects invalid session timeline queries", async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -969,7 +969,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: failure because the session timeline route is not registered yet.
 
-- [ ] **Step 3: Add query dependency and parser**
+- [x] **Step 3: Add query dependency and parser**
 
 Modify `apps/api/src/routes/query.ts`:
 
@@ -1050,7 +1050,7 @@ function parseSessionTimelineFilters(query: unknown, sessionId: string): Session
 }
 ```
 
-- [ ] **Step 4: Add route handler**
+- [x] **Step 4: Add route handler**
 
 Add before aggregate routes in `registerQueryRoutes`:
 
@@ -1081,7 +1081,7 @@ app.get("/query/sessions/:sessionId/timeline", async (request, reply) => {
 });
 ```
 
-- [ ] **Step 5: Wire main**
+- [x] **Step 5: Wire main**
 
 Modify `apps/api/src/main.ts` imports:
 
@@ -1095,7 +1095,7 @@ Add to query dependencies:
 getSessionTimeline: (filters) => getSessionTimeline(db, filters)
 ```
 
-- [ ] **Step 6: Run query tests**
+- [x] **Step 6: Run query tests**
 
 Run:
 
@@ -1105,7 +1105,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/query.ts apps/api/src/main.ts apps/api/test/query.test.ts
