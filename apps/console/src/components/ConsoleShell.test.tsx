@@ -55,6 +55,11 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
     getErrorGroup: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
+    listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+    uploadSourceMap: vi.fn(),
+    uploadSourceMapBundle: vi.fn(),
+    deleteSourceMapArtifact: vi.fn(),
+    getErrorSourceMapResolution: vi.fn(),
     ...overrides
   };
 }
@@ -530,6 +535,29 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
     expect(screen.getByText("Postgres")).toBeInTheDocument();
+  });
+
+  it("loads source map artifacts only after Artifacts mode is opened", async () => {
+    const listSourceMapArtifacts = vi.fn().mockResolvedValue([]);
+    const api = client({
+      listSourceMapArtifacts,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    expect(listSourceMapArtifacts).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Artifacts" }));
+
+    expect(await screen.findByText("No source maps uploaded.")).toBeInTheDocument();
+    expect(listSourceMapArtifacts).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
   });
 
   it("preserves in-progress setup form state across mode switches while hiding inactive setup controls", async () => {

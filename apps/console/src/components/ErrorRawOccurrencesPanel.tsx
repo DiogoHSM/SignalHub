@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { ErrorRecord, QueryFilters } from "../api/types";
+import type { ErrorRecord, QueryFilters, SourceMapResolution } from "../api/types";
 import { ErrorDetailDrawer } from "./ErrorDetailDrawer";
 import { ErrorFilters, type ErrorFilterValues } from "./ErrorFilters";
 import { ErrorList } from "./ErrorList";
@@ -86,6 +86,8 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
   const [reloadToken, setReloadToken] = useState(0);
   const [errors, setErrors] = useState<ErrorRecord[]>([]);
   const [selectedError, setSelectedError] = useState<ErrorRecord | undefined>();
+  const [sourceMapResolution, setSourceMapResolution] = useState<SourceMapResolution | undefined>();
+  const [isResolvingSourceMap, setIsResolvingSourceMap] = useState(false);
   const [state, setState] = useState<LoadState>("loading");
   const query = useMemo(
     () => queryFromValues(projectId, environmentId, appliedFilters),
@@ -126,6 +128,43 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
     setAppliedFilters(next);
   }, [initialFilterKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setSourceMapResolution(undefined);
+    setIsResolvingSourceMap(false);
+
+    if (!selectedError) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const resolveSourceMap = client.getErrorSourceMapResolution;
+    if (!resolveSourceMap) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setIsResolvingSourceMap(true);
+    void resolveSourceMap(selectedError.id, { projectId, environmentId }).then(
+      (resolution) => {
+        if (cancelled) return;
+        setSourceMapResolution(resolution);
+        setIsResolvingSourceMap(false);
+      },
+      () => {
+        if (cancelled) return;
+        setSourceMapResolution(undefined);
+        setIsResolvingSourceMap(false);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selectedError]);
+
   function applyFilters() {
     setAppliedFilters({ ...draftFilters });
   }
@@ -159,7 +198,7 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
         {state === "empty" ? <p className="muted-text">No errors found</p> : null}
         {state === "ready" ? <ErrorList errors={errors} onSelect={setSelectedError} selectedErrorId={selectedError?.id} /> : null}
       </div>
-      <ErrorDetailDrawer error={selectedError} />
+      <ErrorDetailDrawer error={selectedError} isResolvingSourceMap={isResolvingSourceMap} sourceMapResolution={sourceMapResolution} />
     </section>
   );
 }

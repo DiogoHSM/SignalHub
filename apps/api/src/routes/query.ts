@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
+import type { SourceMapResolutionResponse } from "../source-maps/resolver.js";
 import type { AuthDependencies } from "./auth.js";
 
 export type QueryFilters = {
@@ -138,6 +139,11 @@ export type QueryDependencies = {
     id: string,
     input: ErrorGroupScope & { status: ErrorGroupStatus }
   ) => Promise<unknown | null>;
+  resolveErrorStack?: (input: {
+    errorId: string;
+    projectId: string;
+    environmentId: string;
+  }) => Promise<SourceMapResolutionResponse | null>;
 };
 
 export type QueryRouteOptions = {
@@ -148,6 +154,7 @@ export type QueryRouteOptions = {
 const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
 const entityTenantParamsSchema = z.object({ tenantKey: z.string().trim().min(1) });
 const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
+const errorParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupStatusSchema = z.enum(["open", "investigating", "resolved", "ignored"]);
 
@@ -949,6 +956,38 @@ async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: 
   }
 }
 
+async function handleErrorSourceMapResolutionRoute(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: QueryRouteOptions
+) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.resolveErrorStack) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupScope(request.query);
+  if (!params.success || !scope) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const resolution = await options.query.resolveErrorStack({
+      errorId: params.data.id,
+      projectId: scope.projectId,
+      environmentId: scope.environmentId
+    });
+    return resolution ? reply.send({ data: resolution }) : reply.status(404).send({ error: "error_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -989,6 +1028,9 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   );
   app.get("/query/error-groups/:id", (request, reply) => handleErrorGroupDetailRoute(request, reply, options));
   app.patch("/query/error-groups/:id", (request, reply) => handleErrorGroupStatusRoute(request, reply, options));
+  app.get("/query/errors/:id/source-map-resolution", (request, reply) =>
+    handleErrorSourceMapResolutionRoute(request, reply, options)
+  );
 
   app.get("/query/events", (request, reply) =>
     handleListRoute(

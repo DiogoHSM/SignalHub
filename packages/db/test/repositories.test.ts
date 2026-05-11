@@ -76,6 +76,13 @@ import {
   normalizeErrorGroupingInput,
   updateErrorGroupStatus
 } from "../src/repositories/error-groups.js";
+import {
+  createSourceMapArtifact,
+  deleteSourceMapArtifact,
+  getCachedErrorStackResolution,
+  listSourceMapArtifacts,
+  replaceErrorStackResolutions
+} from "../src/repositories/source-maps.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
@@ -108,6 +115,56 @@ describe("repositories", () => {
 
   function decodeUserCursorForTest(cursor: string): UserCursor {
     return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as UserCursor;
+  }
+
+  async function seedSourceMapScope(db: Db): Promise<void> {
+    await sql`insert into projects (id, name) values ('prj_1', 'Source Map Project') on conflict (id) do nothing`.execute(
+      db
+    );
+    await sql`
+      insert into environments (id, project_id, name)
+      values ('env_1', 'prj_1', 'Production')
+      on conflict (id) do nothing
+    `.execute(db);
+  }
+
+  async function seedSourceMapUser(db: Db): Promise<{ id: string }> {
+    await sql`
+      insert into users (id, email, password_hash, is_admin)
+      values ('usr_source_maps', 'source-maps@example.com', 'hash', true)
+      on conflict (id) do nothing
+    `.execute(db);
+    return { id: "usr_source_maps" };
+  }
+
+  async function insertSourceMapError(
+    db: Db,
+    input: { id: string; projectId: string; environmentId: string; release: string }
+  ): Promise<void> {
+    await sql`
+      insert into errors (
+        id,
+        project_id,
+        environment_id,
+        timestamp,
+        received_at,
+        message,
+        severity,
+        release,
+        stack
+      )
+      values (
+        ${input.id},
+        ${input.projectId},
+        ${input.environmentId},
+        '2026-05-10T12:00:00.000Z',
+        '2026-05-10T12:00:01.000Z',
+        'Source mapped error',
+        'error',
+        ${input.release},
+        'TypeError: failed'
+      )
+    `.execute(db);
   }
 
   it("runs migrations idempotently", async () => {
@@ -151,6 +208,341 @@ describe("repositories", () => {
 
       await sql`select id, grouping_fingerprint, status from error_groups limit 0`.execute(db);
       await sql`select error_group_id, grouping_fingerprint from errors limit 0`.execute(db);
+    });
+  });
+
+  it("runs source map migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, release, minified_file from source_map_artifacts limit 0`.execute(db);
+      await sql`select error_id, frame_index, original_source from error_stack_resolutions limit 0`.execute(db);
+    });
+  });
+
+  it("creates lists and soft deletes source map artifacts", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        minifiedFile: "app.min.js",
+        originalFilename: "app.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "abc123",
+        storagePath: "/tmp/app.min.js.map",
+        uploadedByUserId: user.id
+      });
+
+      expect(artifact.id).toMatch(/^smap_/);
+      await expect(
+        createSourceMapArtifact(db, {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@1.0.0",
+          minifiedFile: "app.min.js",
+          originalFilename: "dupe.map",
+          contentType: "application/json",
+          byteSize: 10,
+          sha256: "def456",
+          storagePath: "/tmp/dupe.map",
+          uploadedByUserId: user.id
+        })
+      ).rejects.toThrow();
+
+      expect(await listSourceMapArtifacts(db, { projectId: "prj_1", environmentId: "env_1" })).toHaveLength(1);
+
+      await deleteSourceMapArtifact(db, {
+        id: artifact.id,
+        projectId: "prj_1",
+        environmentId: "env_1"
+      });
+
+      expect(await listSourceMapArtifacts(db, { projectId: "prj_1", environmentId: "env_1" })).toEqual([]);
+    });
+  });
+
+  it("stores cached stack resolutions and clears them when an artifact is deleted", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        minifiedFile: "app.min.js",
+        originalFilename: "app.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "abc123",
+        storagePath: "/tmp/app.min.js.map",
+        uploadedByUserId: user.id
+      });
+      await insertSourceMapError(db, {
+        id: "err_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0"
+      });
+
+      await replaceErrorStackResolutions(db, {
+        errorId: "err_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        frames: [
+          {
+            sourceMapArtifactId: artifact.id,
+            frameIndex: 0,
+            minifiedFile: "app.min.js",
+            minifiedLine: 1,
+            minifiedColumn: 42,
+            originalSource: "src/app.ts",
+            originalLine: 10,
+            originalColumn: 3,
+            originalName: "checkout"
+          }
+        ]
+      });
+
+      expect(await getCachedErrorStackResolution(db, "err_1")).toHaveLength(1);
+      await deleteSourceMapArtifact(db, { id: artifact.id, projectId: "prj_1", environmentId: "env_1" });
+      expect(await getCachedErrorStackResolution(db, "err_1")).toEqual([]);
+
+      await sql`delete from errors where id = 'err_1'`.execute(db);
+    });
+  });
+
+  it("rejects stack resolution replacement when the target error scope or release does not match", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      await insertSourceMapError(db, {
+        id: "err_source_map_scope_mismatch",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0"
+      });
+
+      await expect(
+        replaceErrorStackResolutions(db, {
+          errorId: "err_source_map_scope_mismatch",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@2.0.0",
+          frames: []
+        })
+      ).rejects.toThrow(/does not match source map scope/);
+      await expect(getCachedErrorStackResolution(db, "err_source_map_scope_mismatch")).resolves.toEqual([]);
+
+      await sql`delete from errors where id = 'err_source_map_scope_mismatch'`.execute(db);
+    });
+  });
+
+  it("rejects stack resolution frames for wrong-scope deleted or mismatched-file artifacts", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+      await sql`insert into projects (id, name) values ('prj_source_maps_other', 'Other Source Map Project') on conflict (id) do nothing`.execute(
+        db
+      );
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_source_maps_other', 'prj_source_maps_other', 'Production')
+        on conflict (id) do nothing
+      `.execute(db);
+      await insertSourceMapError(db, {
+        id: "err_source_map_artifact_validation",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0"
+      });
+
+      const validArtifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        minifiedFile: "artifact-validation-valid.min.js",
+        originalFilename: "artifact-validation-valid.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "artifact-validation-valid",
+        storagePath: "/tmp/artifact-validation-valid.min.js.map",
+        uploadedByUserId: user.id
+      });
+      const otherScopeArtifact = await createSourceMapArtifact(db, {
+        projectId: "prj_source_maps_other",
+        environmentId: "env_source_maps_other",
+        release: "web@1.0.0",
+        minifiedFile: "artifact-validation-other.min.js",
+        originalFilename: "artifact-validation-other.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "artifact-validation-other",
+        storagePath: "/tmp/artifact-validation-other.min.js.map",
+        uploadedByUserId: user.id
+      });
+      const deletedArtifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        minifiedFile: "artifact-validation-deleted.min.js",
+        originalFilename: "artifact-validation-deleted.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "artifact-validation-deleted",
+        storagePath: "/tmp/artifact-validation-deleted.min.js.map",
+        uploadedByUserId: user.id
+      });
+      await deleteSourceMapArtifact(db, {
+        id: deletedArtifact.id,
+        projectId: "prj_1",
+        environmentId: "env_1"
+      });
+
+      const invalidFrames = [
+        { sourceMapArtifactId: otherScopeArtifact.id, minifiedFile: "artifact-validation-other.min.js" },
+        { sourceMapArtifactId: deletedArtifact.id, minifiedFile: "artifact-validation-deleted.min.js" },
+        { sourceMapArtifactId: validArtifact.id, minifiedFile: "wrong-file.min.js" }
+      ];
+
+      for (const [index, frame] of invalidFrames.entries()) {
+        await expect(
+          replaceErrorStackResolutions(db, {
+            errorId: "err_source_map_artifact_validation",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1.0.0",
+            frames: [
+              {
+                sourceMapArtifactId: frame.sourceMapArtifactId,
+                frameIndex: index,
+                minifiedFile: frame.minifiedFile,
+                minifiedLine: 1,
+                minifiedColumn: 42,
+                originalSource: "src/app.ts",
+                originalLine: 10,
+                originalColumn: 3,
+                originalName: "checkout"
+              }
+            ]
+          })
+        ).rejects.toThrow(/invalid source map artifact/);
+      }
+
+      await expect(getCachedErrorStackResolution(db, "err_source_map_artifact_validation")).resolves.toEqual([]);
+      await sql`delete from errors where id = 'err_source_map_artifact_validation'`.execute(db);
+    });
+  });
+
+  it("clears stack resolutions with empty frames after validating the error scope", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.1",
+        minifiedFile: "empty-clear.min.js",
+        originalFilename: "empty-clear.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "empty-clear",
+        storagePath: "/tmp/empty-clear.min.js.map",
+        uploadedByUserId: user.id
+      });
+      await insertSourceMapError(db, {
+        id: "err_source_map_empty_clear",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.1"
+      });
+      await replaceErrorStackResolutions(db, {
+        errorId: "err_source_map_empty_clear",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.1",
+        frames: [
+          {
+            sourceMapArtifactId: artifact.id,
+            frameIndex: 0,
+            minifiedFile: "empty-clear.min.js",
+            minifiedLine: 1,
+            minifiedColumn: 42,
+            originalSource: "src/app.ts",
+            originalLine: 10,
+            originalColumn: 3,
+            originalName: "checkout"
+          }
+        ]
+      });
+
+      await expect(
+        replaceErrorStackResolutions(db, {
+          errorId: "err_source_map_empty_clear",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@wrong",
+          frames: []
+        })
+      ).rejects.toThrow(/does not match source map scope/);
+      await expect(getCachedErrorStackResolution(db, "err_source_map_empty_clear")).resolves.toHaveLength(1);
+
+      await expect(
+        replaceErrorStackResolutions(db, {
+          errorId: "err_source_map_empty_clear",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@1.0.1",
+          frames: []
+        })
+      ).resolves.toEqual([]);
+      await expect(getCachedErrorStackResolution(db, "err_source_map_empty_clear")).resolves.toEqual([]);
+
+      await sql`delete from errors where id = 'err_source_map_empty_clear'`.execute(db);
+    });
+  });
+
+  it("returns null when deleting an already deleted source map artifact", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.2",
+        minifiedFile: "already-deleted.min.js",
+        originalFilename: "already-deleted.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "already-deleted",
+        storagePath: "/tmp/already-deleted.min.js.map",
+        uploadedByUserId: user.id
+      });
+
+      const deleted = await deleteSourceMapArtifact(db, {
+        id: artifact.id,
+        projectId: "prj_1",
+        environmentId: "env_1"
+      });
+
+      expect(deleted?.storagePath).toBe("/tmp/already-deleted.min.js.map");
+      await expect(
+        deleteSourceMapArtifact(db, {
+          id: artifact.id,
+          projectId: "prj_1",
+          environmentId: "env_1"
+        })
+      ).resolves.toBeNull();
     });
   });
 

@@ -98,7 +98,12 @@ const rawConfigSchema = z.object({
   BACKUPS_S3_BUCKET: optionalEnvString,
   BACKUPS_S3_ACCESS_KEY_ID: optionalEnvString,
   BACKUPS_S3_SECRET_ACCESS_KEY: optionalEnvString,
-  BACKUPS_S3_PREFIX: z.preprocess(emptyStringToUndefined, z.string().default("signalhub"))
+  BACKUPS_S3_PREFIX: z.preprocess(emptyStringToUndefined, z.string().default("signalhub")),
+  SOURCE_MAPS_LOCAL_DIR: z.preprocess(
+    emptyStringToUndefined,
+    z.string().min(1).default("/var/lib/signalhub/source-maps")
+  ),
+  SOURCE_MAPS_MAX_UPLOAD_MB: optionalPositiveInteger(50)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -187,6 +192,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         secretAccessKey: parsed.BACKUPS_S3_SECRET_ACCESS_KEY ?? "",
         prefix: parsed.BACKUPS_S3_PREFIX
       }
+    },
+    sourceMaps: {
+      localDir: parsed.SOURCE_MAPS_LOCAL_DIR,
+      maxUploadMb: parsed.SOURCE_MAPS_MAX_UPLOAD_MB
     }
   };
 }

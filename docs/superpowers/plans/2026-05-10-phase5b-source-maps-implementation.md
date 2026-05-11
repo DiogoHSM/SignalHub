@@ -98,7 +98,7 @@ Do not modify:
 - Modify: `scripts/doctor.ts`
 - Modify: `scripts/doctor.test.ts`
 
-- [ ] **Step 1: Add source-map dependencies**
+- [x] **Step 1: Add source-map dependencies**
 
 Run:
 
@@ -108,7 +108,7 @@ pnpm add -w @fastify/multipart @jridgewell/trace-mapping fflate
 
 Expected: `package.json` gains the three dependencies and `pnpm-lock.yaml` updates.
 
-- [ ] **Step 2: Add failing config tests**
+- [x] **Step 2: Add failing config tests**
 
 In `packages/config/test/config.test.ts`, add:
 
@@ -136,7 +136,7 @@ it("loads custom source map storage config", () => {
 });
 ```
 
-- [ ] **Step 3: Run config tests and verify failure**
+- [x] **Step 3: Run config tests and verify failure**
 
 Run:
 
@@ -146,7 +146,7 @@ pnpm --filter @signal-hub/config test -- config.test.ts
 
 Expected: fail because `config.sourceMaps` does not exist.
 
-- [ ] **Step 4: Implement source-map config**
+- [x] **Step 4: Implement source-map config**
 
 In `packages/config/src/index.ts`, add to `rawConfigSchema`:
 
@@ -164,7 +164,7 @@ sourceMaps: {
 },
 ```
 
-- [ ] **Step 5: Update `.env.example`**
+- [x] **Step 5: Update `.env.example`**
 
 Add:
 
@@ -173,7 +173,7 @@ SOURCE_MAPS_LOCAL_DIR=/var/lib/signalhub/source-maps
 SOURCE_MAPS_MAX_UPLOAD_MB=50
 ```
 
-- [ ] **Step 6: Update Compose volume**
+- [x] **Step 6: Update Compose volume**
 
 In `docker-compose.yml`, add an API volume:
 
@@ -190,7 +190,7 @@ Add the named volume:
 
 Expected: only the API needs this volume in Phase 5B because uploads and resolution are API-owned.
 
-- [ ] **Step 7: Add failing doctor tests**
+- [x] **Step 7: Add failing doctor tests**
 
 In `scripts/doctor.test.ts`, add this test in the `doctor orchestration` describe block:
 
@@ -216,7 +216,7 @@ it("warns when source map directory is missing", async () => {
 });
 ```
 
-- [ ] **Step 8: Implement doctor directory warning**
+- [x] **Step 8: Implement doctor directory warning**
 
 In `scripts/doctor.ts`, add non-secret env parsing awareness for `SOURCE_MAPS_LOCAL_DIR`. The check should:
 
@@ -230,7 +230,7 @@ Use this message:
 createResult("warn", "SOURCE_MAPS_LOCAL_DIR is missing or not writable")
 ```
 
-- [ ] **Step 9: Run focused tests**
+- [x] **Step 9: Run focused tests**
 
 Run:
 
@@ -242,7 +242,7 @@ docker compose config --quiet
 
 Expected: all pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add package.json pnpm-lock.yaml .env.example docker-compose.yml packages/config/src/index.ts packages/config/test/config.test.ts scripts/doctor.ts scripts/doctor.test.ts
@@ -259,7 +259,7 @@ git commit -m "feat: add source map storage config"
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing migration and repository tests**
+- [x] **Step 1: Add failing migration and repository tests**
 
 In `packages/db/test/repositories.test.ts`, import:
 
@@ -433,7 +433,7 @@ const user = await seedSourceMapUser(db);
 await insertSourceMapError(db, { id: "err_1", projectId: "prj_1", environmentId: "env_1", release: "web@1.0.0" });
 ```
 
-- [ ] **Step 2: Run DB tests and verify failure**
+- [x] **Step 2: Run DB tests and verify failure**
 
 ```bash
 pnpm --filter @signal-hub/db test -- repositories.test.ts
@@ -441,7 +441,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because migration and repository do not exist.
 
-- [ ] **Step 3: Add migration**
+- [x] **Step 3: Add migration**
 
 Create `packages/db/migrations/0006_source_maps.sql`:
 
@@ -503,7 +503,7 @@ CREATE INDEX error_stack_resolutions_artifact_idx
   ON error_stack_resolutions(source_map_artifact_id);
 ```
 
-- [ ] **Step 4: Register migration and schema**
+- [x] **Step 4: Register migration and schema**
 
 In `packages/db/src/migrate.ts`, append:
 
@@ -518,7 +518,7 @@ source_map_artifacts: SourceMapArtifactsTable;
 error_stack_resolutions: ErrorStackResolutionsTable;
 ```
 
-- [ ] **Step 5: Implement repository**
+- [x] **Step 5: Implement repository**
 
 Create `packages/db/src/repositories/source-maps.ts` with:
 
@@ -584,7 +584,7 @@ Repository delete must run in a transaction:
 3. set `deleted_at = now()`,
 4. return artifact metadata including `storagePath`.
 
-- [ ] **Step 6: Run DB tests**
+- [x] **Step 6: Run DB tests**
 
 ```bash
 pnpm --filter @signal-hub/db test -- repositories.test.ts
@@ -593,7 +593,7 @@ pnpm --filter @signal-hub/db build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/migrations/0006_source_maps.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/source-maps.ts packages/db/test/repositories.test.ts
@@ -609,7 +609,7 @@ git commit -m "feat: add source map metadata storage"
 - Create: `apps/api/src/source-maps/resolver.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Add failing parser and resolver tests**
+- [x] **Step 1: Add failing parser and resolver tests**
 
 In `apps/api/test/query.test.ts`, add imports for the helpers that this task creates:
 
@@ -663,7 +663,7 @@ it("resolves a generated frame with a regular source map", async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts
@@ -671,7 +671,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: fail because helper modules do not exist.
 
-- [ ] **Step 3: Implement local storage helpers**
+- [x] **Step 3: Implement local storage helpers**
 
 Create `apps/api/src/source-maps/storage.ts`:
 
@@ -718,7 +718,7 @@ export async function deleteSourceMapFile(storagePath: string): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: Implement parser helpers**
+- [x] **Step 4: Implement parser helpers**
 
 Create `apps/api/src/source-maps/parser.ts`:
 
@@ -806,7 +806,7 @@ export function parseStackFrames(stack: string): ParsedStackFrame[] {
 }
 ```
 
-- [ ] **Step 5: Implement resolver helpers**
+- [x] **Step 5: Implement resolver helpers**
 
 Create `apps/api/src/source-maps/resolver.ts`:
 
@@ -850,7 +850,7 @@ export function resolveFrameWithSourceMap(sourceMapContent: string, frame: Parse
 
 In a later task this module will also expose the DB-backed orchestration function.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts
@@ -859,7 +859,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/source-maps/storage.ts apps/api/src/source-maps/parser.ts apps/api/src/source-maps/resolver.ts apps/api/test/query.test.ts
@@ -875,7 +875,7 @@ git commit -m "feat: add source map parsing helpers"
 - Modify: `apps/api/src/routes/admin.ts`
 - Test: `apps/api/test/admin.test.ts`
 
-- [ ] **Step 1: Add failing admin route tests**
+- [x] **Step 1: Add failing admin route tests**
 
 In `apps/api/test/admin.test.ts`, extend the test dependency factory with a `sourceMaps` dependency object.
 
@@ -956,7 +956,7 @@ it("uploads a single source map for admins", async () => {
 });
 ```
 
-- [ ] **Step 2: Run admin tests and verify failure**
+- [x] **Step 2: Run admin tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/api/test/admin.test.ts
@@ -964,7 +964,7 @@ pnpm exec vitest run apps/api/test/admin.test.ts
 
 Expected: fail because source-map admin dependencies and routes do not exist.
 
-- [ ] **Step 3: Register multipart**
+- [x] **Step 3: Register multipart**
 
 In `apps/api/src/app.ts`, import and register:
 
@@ -988,7 +988,7 @@ Extend `BuildAppOptions`:
 sourceMaps?: SourceMapRouteDependencies & { maxUploadBytes?: number };
 ```
 
-- [ ] **Step 4: Add admin dependency types and routes**
+- [x] **Step 4: Add admin dependency types and routes**
 
 In `apps/api/src/routes/admin.ts`, add:
 
@@ -1017,7 +1017,7 @@ Use existing auth helpers in `admin.ts` for admin checks and error responses. Re
 
 for upload/list, and 204 for delete.
 
-- [ ] **Step 5: Wire real dependencies in `main.ts`**
+- [x] **Step 5: Wire real dependencies in `main.ts`**
 
 In `apps/api/src/main.ts`, import repository/storage/parser helpers and wire:
 
@@ -1033,7 +1033,7 @@ maxUploadBytes: config.sourceMaps.maxUploadMb * 1024 * 1024
 
 Implement `uploadSingleSourceMap`, `uploadSourceMapBundle`, and `deleteSourceMapArtifactAndFile` in `apps/api/src/source-maps/storage.ts`.
 
-- [ ] **Step 6: Run admin tests**
+- [x] **Step 6: Run admin tests**
 
 ```bash
 pnpm exec vitest run apps/api/test/admin.test.ts
@@ -1042,7 +1042,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/app.ts apps/api/src/main.ts apps/api/src/routes/admin.ts apps/api/src/source-maps apps/api/test/admin.test.ts
@@ -1059,7 +1059,7 @@ git commit -m "feat: add source map admin api"
 - Modify: `apps/api/src/main.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Add failing query route tests**
+- [x] **Step 1: Add failing query route tests**
 
 In `apps/api/test/query.test.ts`, add:
 
@@ -1127,7 +1127,7 @@ it("returns cached resolved source map frames", async () => {
 });
 ```
 
-- [ ] **Step 2: Run query tests and verify failure**
+- [x] **Step 2: Run query tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts
@@ -1135,7 +1135,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: fail because route/dependency does not exist.
 
-- [ ] **Step 3: Add raw error lookup for resolution**
+- [x] **Step 3: Add raw error lookup for resolution**
 
 In `packages/db/src/repositories/telemetry-query.ts`, add:
 
@@ -1166,7 +1166,7 @@ export async function getErrorForSourceMapResolution(
 }
 ```
 
-- [ ] **Step 4: Implement DB-backed resolver orchestration**
+- [x] **Step 4: Implement DB-backed resolver orchestration**
 
 In `apps/api/src/source-maps/resolver.ts`, add:
 
@@ -1195,7 +1195,7 @@ Implement `resolveErrorStack(input)` using injected dependencies:
 9. cache resolved frames with `replaceErrorStackResolutions`,
 10. return `resolved`, `partially_resolved`, or `unresolved`.
 
-- [ ] **Step 5: Add query route**
+- [x] **Step 5: Add query route**
 
 In `apps/api/src/routes/query.ts`, extend `QueryDependencies`:
 
@@ -1225,7 +1225,7 @@ The handler must:
 - return 404 if dependency returns `null`,
 - return `{ data }` on success.
 
-- [ ] **Step 6: Wire `main.ts`**
+- [x] **Step 6: Wire `main.ts`**
 
 Wire `resolveErrorStack` using DB repositories and local storage:
 
@@ -1242,7 +1242,7 @@ resolveErrorStack: (input) =>
   })
 ```
 
-- [ ] **Step 7: Run API tests**
+- [x] **Step 7: Run API tests**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts apps/api/test/admin.test.ts
@@ -1251,7 +1251,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/telemetry-query.ts apps/api/src/source-maps/resolver.ts apps/api/src/routes/query.ts apps/api/src/main.ts apps/api/test/query.test.ts
@@ -1266,7 +1266,7 @@ git commit -m "feat: resolve error stacks with source maps"
 - Modify: `apps/console/src/api/client.ts`
 - Modify: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing client tests**
+- [x] **Step 1: Add failing client tests**
 
 In `apps/console/src/api/client.test.ts`, add:
 
@@ -1323,7 +1323,7 @@ it("uploads source map files with multipart form data", async () => {
 });
 ```
 
-- [ ] **Step 2: Run client tests and verify failure**
+- [x] **Step 2: Run client tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/console/src/api/client.test.ts
@@ -1331,7 +1331,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts
 
 Expected: fail because client methods/types do not exist.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 In `apps/console/src/api/types.ts`, add:
 
@@ -1376,7 +1376,7 @@ export type SourceMapResolution = {
 };
 ```
 
-- [ ] **Step 4: Add multipart request helper and methods**
+- [x] **Step 4: Add multipart request helper and methods**
 
 In `apps/console/src/api/client.ts`, add `multipartRequest<T>()` that sends:
 
@@ -1394,7 +1394,7 @@ Add methods:
 - `deleteSourceMapArtifact(id, query)`
 - `getErrorSourceMapResolution(id, query)`
 
-- [ ] **Step 5: Run client tests**
+- [x] **Step 5: Run client tests**
 
 ```bash
 pnpm exec vitest run apps/console/src/api/client.test.ts
@@ -1403,7 +1403,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
@@ -1421,7 +1421,7 @@ git commit -m "feat: add source map console client"
 - Modify: `apps/console/src/components/ConsoleShell.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Add failing console tests**
+- [x] **Step 1: Add failing console tests**
 
 In `apps/console/src/components/ConsoleModeTabs.test.tsx`, expect an `Artifacts` button.
 
@@ -1479,7 +1479,7 @@ it("uploads a source map file", async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.test.tsx
@@ -1487,7 +1487,7 @@ pnpm exec vitest run apps/console/src/components/ConsoleModeTabs.test.tsx apps/c
 
 Expected: fail because Artifacts mode does not exist.
 
-- [ ] **Step 3: Add mode tab**
+- [x] **Step 3: Add mode tab**
 
 In `ConsoleModeTabs.tsx`, extend:
 
@@ -1497,7 +1497,7 @@ export type ConsoleMode = "setup" | "overview" | "investigate" | "alerts" | "art
 
 Render an `Artifacts` button between `Alerts` and `System`.
 
-- [ ] **Step 4: Implement `ArtifactsPanel`**
+- [x] **Step 4: Implement `ArtifactsPanel`**
 
 Create `apps/console/src/components/ArtifactsPanel.tsx` with props:
 
@@ -1529,7 +1529,7 @@ Use exact visible labels:
 - `Upload bundle`
 - `No source maps uploaded.`
 
-- [ ] **Step 5: Render mode in `ConsoleShell`**
+- [x] **Step 5: Render mode in `ConsoleShell`**
 
 Add:
 
@@ -1539,7 +1539,7 @@ Add:
 ) : null}
 ```
 
-- [ ] **Step 6: Add styles**
+- [x] **Step 6: Add styles**
 
 In `apps/console/src/styles.css`, add compact operational styles:
 
@@ -1551,7 +1551,7 @@ In `apps/console/src/styles.css`, add compact operational styles:
 
 Keep cards at existing radius conventions and ensure mobile stacking.
 
-- [ ] **Step 7: Run console tests**
+- [x] **Step 7: Run console tests**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.test.tsx
@@ -1560,7 +1560,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/console/src/components/ArtifactsPanel.tsx apps/console/src/components/ConsoleModeTabs.tsx apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.tsx apps/console/src/components/ConsoleShell.test.tsx apps/console/src/styles.css
@@ -1578,7 +1578,7 @@ git commit -m "feat: add source map artifacts console"
 - Modify: `apps/console/src/components/ErrorRawOccurrencesPanel.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Add failing error detail tests**
+- [x] **Step 1: Add failing error detail tests**
 
 In `apps/console/src/components/ErrorDetailDrawer.test.tsx`, add:
 
@@ -1626,7 +1626,7 @@ it("shows resolved source map frame metadata", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ErrorDetailDrawer.test.tsx
@@ -1634,7 +1634,7 @@ pnpm exec vitest run apps/console/src/components/ErrorDetailDrawer.test.tsx
 
 Expected: fail because source-map resolution props/component do not exist.
 
-- [ ] **Step 3: Create resolution component**
+- [x] **Step 3: Create resolution component**
 
 Create `apps/console/src/components/ErrorSourceMapResolution.tsx`:
 
@@ -1675,7 +1675,7 @@ export function ErrorSourceMapResolution({ resolution, isLoading }: Props) {
 }
 ```
 
-- [ ] **Step 4: Pass resolution into detail drawer**
+- [x] **Step 4: Pass resolution into detail drawer**
 
 Update `ErrorDetailDrawer.tsx` props:
 
@@ -1686,7 +1686,7 @@ isResolvingSourceMap?: boolean;
 
 Render `<ErrorSourceMapResolution />` below the raw stack block.
 
-- [ ] **Step 5: Load resolution in raw occurrences panel**
+- [x] **Step 5: Load resolution in raw occurrences panel**
 
 In `ErrorRawOccurrencesPanel.tsx`, add state:
 
@@ -1705,7 +1705,7 @@ When `selectedError` changes:
 
 Pass resolution/loading into `ErrorDetailDrawer`.
 
-- [ ] **Step 6: Run focused console tests**
+- [x] **Step 6: Run focused console tests**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ErrorDetailDrawer.test.tsx apps/console/src/components/ErrorInvestigationPanel.test.tsx
@@ -1714,7 +1714,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/console/src/components/ErrorSourceMapResolution.tsx apps/console/src/components/ErrorDetailDrawer.tsx apps/console/src/components/ErrorDetailDrawer.test.tsx apps/console/src/components/ErrorRawOccurrencesPanel.tsx apps/console/src/components/ErrorInvestigationPanel.tsx apps/console/src/styles.css
@@ -1735,7 +1735,7 @@ git commit -m "feat: show source map resolution in errors"
 - Modify: `docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md`
 - Modify external memory: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update project docs**
+- [x] **Step 1: Update project docs**
 
 Document:
 
@@ -1748,22 +1748,22 @@ Document:
 - no source-content display,
 - local-first decision.
 
-- [ ] **Step 2: Update memory**
+- [x] **Step 2: Update memory**
 
 Append a `2026-05-10` memory entry noting Phase 5B implementation, verification status, and any deferred items.
 
-- [ ] **Step 3: Mark completed plan tasks**
+- [x] **Step 3: Mark completed plan tasks**
 
 Update this plan file checkboxes for completed tasks through Task 9.
 
-- [ ] **Step 4: Commit SignalHub docs**
+- [x] **Step 4: Commit SignalHub docs**
 
 ```bash
 git add README.md .claude/docs docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md
 git commit -m "docs: document source map workflow"
 ```
 
-- [ ] **Step 5: Commit memory**
+- [x] **Step 5: Commit memory**
 
 ```bash
 cd /Users/diogo/Developer/Github/claude-config
@@ -1777,7 +1777,7 @@ git commit -m "docs: update SignalHub phase 5B memory"
 
 - Modify: `docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 ```bash
 pnpm test
@@ -1785,7 +1785,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run full build**
+- [x] **Step 2: Run full build**
 
 ```bash
 pnpm build
@@ -1793,7 +1793,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 ```bash
 docker compose config --quiet
@@ -1801,7 +1801,7 @@ docker compose config --quiet
 
 Expected: exit code 0.
 
-- [ ] **Step 4: Run doctor safe local mode**
+- [x] **Step 4: Run doctor safe local mode**
 
 If `.env` is present:
 
@@ -1821,11 +1821,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code 0. API reachability warnings are acceptable if no local API is running.
 
-- [ ] **Step 5: Mark plan complete**
+- [x] **Step 5: Mark plan complete**
 
 Update this plan file so completed verification and integration checkboxes are checked.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md

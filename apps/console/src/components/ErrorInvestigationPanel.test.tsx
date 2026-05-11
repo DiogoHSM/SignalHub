@@ -2,9 +2,17 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { ErrorGroupRecord, ErrorRecord } from "../api/types";
+import type { ErrorGroupRecord, ErrorRecord, SourceMapResolution } from "../api/types";
 import type { ErrorFilterValues } from "./ErrorFilters";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
+
+const unavailableResolution = {
+  errorId: "err_1",
+  release: null,
+  status: "unavailable" as const,
+  frames: [],
+  unresolvedFrameCount: 0
+};
 
 function error(overrides: Partial<ErrorRecord>): ErrorRecord {
   return {
@@ -108,6 +116,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
     getErrorGroup: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
+    getErrorSourceMapResolution: vi.fn().mockResolvedValue(unavailableResolution),
     ...overrides
   };
 }
@@ -405,6 +414,47 @@ describe("ErrorInvestigationPanel", () => {
     expect(screen.getByRole("heading", { name: "Checkout fetch failed" })).toBeInTheDocument();
     expect(screen.getAllByText("trace_1")).toHaveLength(2);
     expect(screen.getByText(/at checkout\.ts:12:3/)).toBeInTheDocument();
+  });
+
+  it("loads source map resolution for the selected raw error", async () => {
+    const resolution = deferred<SourceMapResolution>();
+    const getErrorSourceMapResolution = vi.fn().mockReturnValue(resolution.promise);
+    const api = client({
+      listErrors: vi.fn().mockResolvedValue({ data: [error({ id: "err_1", message: "Checkout fetch failed" })] }),
+      getErrorSourceMapResolution
+    });
+
+    await renderRawPanel(api);
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout fetch failed/ }));
+
+    expect(screen.getByText("Resolving source map frames")).toBeInTheDocument();
+    expect(getErrorSourceMapResolution).toHaveBeenCalledWith("err_1", { projectId: "prj_1", environmentId: "env_1" });
+
+    await act(async () => {
+      resolution.resolve({
+        errorId: "err_1",
+        release: "1.0.0",
+        status: "resolved",
+        frames: [
+          {
+            frameIndex: 0,
+            minifiedFile: "assets/app.min.js",
+            minifiedLine: 1,
+            minifiedColumn: 881,
+            originalSource: "src/app.ts",
+            originalLine: 42,
+            originalColumn: 4,
+            originalName: "checkout",
+            sourceMapArtifactId: "smap_1"
+          }
+        ],
+        unresolvedFrameCount: 0
+      });
+      await resolution.promise;
+    });
+
+    expect(await screen.findByText("src/app.ts:42:4")).toBeInTheDocument();
+    expect(screen.getByText("checkout")).toBeInTheDocument();
   });
 
   it("shows unavailable state and retries after query failure", async () => {

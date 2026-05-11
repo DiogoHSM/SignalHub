@@ -13,6 +13,7 @@ SignalHub includes an admin-only Integration Console.
 
 - Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
+- Keep `Artifacts` as a compact admin mode for source-map upload, filtering, and deletion for the active project/environment.
 - Keep `System` as a quiet operational mode for service health, queue depth, ingestion freshness, retention status, and backup status.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
@@ -28,7 +29,8 @@ SignalHub includes an admin-only Integration Console.
 - Grouped Errors use a list/detail layout with filters above the group list, operator-editable group status, occurrence/user/tenant counts, fingerprint context, and a direct raw occurrence drilldown for the selected group.
 - Error group status filters should be constrained to supported workflow statuses: open, investigating, resolved, and ignored.
 - Raw Error rows should prioritize severity, status, message, error group id, and trace/session context.
-- Raw Error details should show stack, context JSON, metadata JSON, error group id, and immutable identifiers.
+- Raw Error details should show stack, source-map resolution metadata, context JSON, metadata JSON, error group id, and immutable identifiers.
+- Source-map resolution UI should show status, original file/line/column, symbol name, minified frame, and unresolved frame count. It must not display original source code snippets or `sourcesContent`.
 - Keep Traces as a peer tab with Events and Errors inside `Investigate`.
 - Traces use the same filter/list/detail pattern, with spans loaded only after trace selection.
 - Trace rows should prioritize name, status, duration, started time, user, tenant, and trace id.
@@ -53,3 +55,10 @@ SignalHub includes an admin-only Integration Console.
 - Alerts should stay dense and operational: rules, channels, recent events, and delivery status should be visible without a marketing-style layout.
 - Alert rule controls should remain scoped to the active project and environment.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
+
+## Artifacts UX
+
+- Artifacts should stay operational: release filter, single-map upload, bundle upload, uploaded artifact list, and delete actions should fit the active project/environment workspace.
+- Upload controls should support single `.map` files and `.zip` bundles.
+- Operators must provide release metadata because resolution uses strict release matching and does not guess across releases.
+- Artifact rows should prioritize release, minified file, original filename, size, upload time, and a short delete action.

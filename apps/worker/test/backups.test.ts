@@ -229,6 +229,7 @@ describe("uploadBackupToS3", () => {
   it("uses configured S3 client options and uploads as an octet stream", async () => {
     const send = vi.fn(async (_command: { input: unknown }) => undefined);
     const createClient = vi.fn(() => ({ send }));
+    const stream = Readable.from(["backup-content"]);
 
     await uploadBackupToS3({
       filePath: "/tmp/signalhub.dump",
@@ -242,7 +243,8 @@ describe("uploadBackupToS3", () => {
         secretAccessKey: "secret",
         prefix: "prod/signalhub"
       },
-      createClient
+      createClient,
+      createReadStreamFn: () => stream
     });
 
     expect(createClient).toHaveBeenCalledWith({

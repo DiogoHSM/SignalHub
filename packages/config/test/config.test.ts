@@ -20,6 +20,7 @@ describe("loadConfig", () => {
     GOOGLE_CLIENT_SECRET: "google-client-secret",
     GOOGLE_REDIRECT_URI: "http://localhost:3000/auth/google/callback"
   };
+  const baseEnv = () => ({ ...validEnv });
 
   it("parses required runtime configuration", () => {
     const config = loadConfig({
@@ -224,6 +225,28 @@ describe("loadConfig", () => {
 
   it.each(["BACKUPS_INTERVAL_HOURS", "BACKUPS_RETENTION_DAYS"] as const)("rejects non-positive %s", (fieldName) => {
     expect(() => loadConfig({ ...validEnv, [fieldName]: "0" })).toThrow();
+  });
+
+  it("loads source map storage config with defaults", () => {
+    const config = loadConfig(baseEnv());
+
+    expect(config.sourceMaps).toEqual({
+      localDir: "/var/lib/signalhub/source-maps",
+      maxUploadMb: 50
+    });
+  });
+
+  it("loads custom source map storage config", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      SOURCE_MAPS_LOCAL_DIR: "/tmp/signalhub-source-maps",
+      SOURCE_MAPS_MAX_UPLOAD_MB: "12"
+    });
+
+    expect(config.sourceMaps).toEqual({
+      localDir: "/tmp/signalhub-source-maps",
+      maxUploadMb: 12
+    });
   });
 
   it("requires S3 settings when backup S3 upload is enabled", () => {

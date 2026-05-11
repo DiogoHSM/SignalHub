@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-05-10: Store source maps locally and resolve stacks on demand
+
+Decision: SignalHub supports source-map artifacts as a local-first admin workflow. The API stores uploaded `.map` files under `SOURCE_MAPS_LOCAL_DIR`, stores artifact metadata and cached resolved frames in Postgres, and resolves raw error stacks on demand.
+
+Rationale: Self-hosted operators need production stack resolution without introducing SaaS dependencies or object storage as a first requirement. Strict project, environment, release, and minified-file matching avoids unsafe guessing. The console shows resolved frame metadata but not original source code or `sourcesContent`.
+
 ## 2026-05-10: Store grouped error workflow separately from raw occurrences
 
 Decision: SignalHub adds an `error_groups` table for operational error triage while preserving immutable raw `errors` records linked by `error_group_id`.

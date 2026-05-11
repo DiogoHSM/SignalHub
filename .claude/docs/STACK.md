@@ -11,6 +11,8 @@
 - Fastify 5.
 - Zod for payload and configuration validation.
 - `@fastify/cookie` for signed human session transport.
+- `@fastify/multipart` for admin source-map artifact uploads.
+- `@jridgewell/trace-mapping` and `fflate` for source-map frame resolution and ZIP bundle extraction.
 - Optional Google OAuth uses Google authorization-code flow through Node `fetch` and links only existing local users.
 
 ## Data and Queue

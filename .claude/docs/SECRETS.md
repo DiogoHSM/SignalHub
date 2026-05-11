@@ -18,6 +18,8 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
 | `SIGNALHUB_PUBLIC_ENDPOINT` | No | `https://signalhub.example.com` | Public API origin used in console snippets. Defaults to the browser origin when blank. |
+| `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/signalhub/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
+| `SOURCE_MAPS_MAX_UPLOAD_MB` | No | `50` | Non-secret operational config. Maximum source-map upload size in MiB. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | `admin@example.com` | Email used by `pnpm seed:admin`. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Initial admin login password. |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enables Google OAuth when set to `true` and all Google settings are present. |
@@ -55,5 +57,6 @@ Operational rules:
 - S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
+- Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalHub stores them locally and the console displays resolved frame metadata only, not source content.
 - Production startup and operator doctor checks reject placeholder values for required production secrets.
 - Doctor output redacts secret values and reports only variable names, status, and actionable remediation.

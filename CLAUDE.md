@@ -22,6 +22,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 - Keep ingestion contracts scoped by project and environment API keys.
 - Keep the admin console in `apps/console` and serve its production build from the API at `/console`.
 - Keep Overview and investigation console views read-only unless a design explicitly introduces a mutation workflow.
+- Keep source-map artifact storage local-first for the current release line. Resolution must use strict project, environment, release, and minified-file matching, and the console must not display original source content.
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
 
 ## Verification

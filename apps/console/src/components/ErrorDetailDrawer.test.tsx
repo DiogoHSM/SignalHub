@@ -55,4 +55,54 @@ describe("ErrorDetailDrawer", () => {
 
     expect(screen.getByText("Select an error to inspect its details.")).toBeInTheDocument();
   });
+
+  it("renders unresolved source map state without source content", () => {
+    render(
+      <ErrorDetailDrawer
+        error={error}
+        sourceMapResolution={{
+          errorId: error.id,
+          release: error.release,
+          status: "unresolved",
+          frames: [],
+          unresolvedFrameCount: 2
+        }}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Source map resolution" })).toBeInTheDocument();
+    expect(screen.getByText("Unresolved")).toBeInTheDocument();
+    expect(screen.queryByText(/function checkout\(\)/)).not.toBeInTheDocument();
+  });
+
+  it("renders resolved source map frame metadata", () => {
+    render(
+      <ErrorDetailDrawer
+        error={error}
+        sourceMapResolution={{
+          errorId: error.id,
+          release: error.release,
+          status: "resolved",
+          frames: [
+            {
+              frameIndex: 0,
+              minifiedFile: "assets/app.min.js",
+              minifiedLine: 1,
+              minifiedColumn: 881,
+              originalSource: "src/app.ts",
+              originalLine: 42,
+              originalColumn: 4,
+              originalName: "checkout",
+              sourceMapArtifactId: "smap_1"
+            }
+          ],
+          unresolvedFrameCount: 0
+        }}
+      />
+    );
+
+    expect(screen.getByText("Resolved")).toBeInTheDocument();
+    expect(screen.getByText("src/app.ts:42:4")).toBeInTheDocument();
+    expect(screen.getByText("checkout")).toBeInTheDocument();
+  });
 });

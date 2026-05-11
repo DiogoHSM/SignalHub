@@ -1,6 +1,25 @@
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { zipSync } from "fflate";
+import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
+import {
+  extractSourceMapsFromZip,
+  inferMinifiedFileFromMap,
+  MAX_SOURCE_MAP_UPLOAD_BYTES,
+  parseSourceMapJson,
+  parseStackFrames
+} from "../src/source-maps/parser.js";
+import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
+import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
+
+vi.mock("@signal-hub/db/repositories/source-maps.js", () => ({
+  createSourceMapArtifact: vi.fn(),
+  deleteSourceMapArtifact: vi.fn(),
+  getSourceMapArtifact: vi.fn()
+}));
 
 let app: FastifyInstance | undefined;
 
@@ -14,6 +33,360 @@ const readiness = async () => ({ postgres: true, redis: true });
 afterEach(async () => {
   await app?.close();
   app = undefined;
+});
+
+describe("source map helpers", () => {
+  it("parses browser stack frames for source map resolution", () => {
+    expect(
+      parseStackFrames(
+        [
+          "TypeError: failed",
+          "    at checkout (https://cdn.example.com/assets/app.abc123.js:10:1234)",
+          "    at https://cdn.example.com/assets/vendor.js:2:45",
+          "render@https://cdn.example.com/assets/chunk.js:3:9"
+        ].join("\n")
+      )
+    ).toEqual([
+      {
+        frameIndex: 0,
+        functionName: "checkout",
+        minifiedFile: "app.abc123.js",
+        minifiedLine: 10,
+        minifiedColumn: 1234
+      },
+      { frameIndex: 1, functionName: null, minifiedFile: "vendor.js", minifiedLine: 2, minifiedColumn: 45 },
+      { frameIndex: 2, functionName: "render", minifiedFile: "chunk.js", minifiedLine: 3, minifiedColumn: 9 }
+    ]);
+  });
+
+  it("infers minified file from a source map file property", () => {
+    expect(inferMinifiedFileFromMap({ version: 3, file: "assets/app.abc123.js", sources: [], names: [], mappings: "" })).toBe(
+      "app.abc123.js"
+    );
+  });
+
+  it("rejects invalid and indexed source maps", () => {
+    expect(() => parseSourceMapJson(JSON.stringify({ version: 2, sources: [], names: [], mappings: "" }))).toThrow(
+      "invalid_source_map"
+    );
+    expect(() =>
+      parseSourceMapJson(JSON.stringify({ version: 3, sections: [], sources: [], names: [], mappings: "" }))
+    ).toThrow("indexed_source_maps_unsupported");
+  });
+
+  it("accepts null entries in source map sourcesContent", () => {
+    expect(
+      parseSourceMapJson(
+        JSON.stringify({
+          version: 3,
+          sources: ["src/missing.ts", "src/app.ts"],
+          sourcesContent: [null, "export const app = true;"],
+          names: [],
+          mappings: ""
+        })
+      ).sourcesContent
+    ).toEqual([null, "export const app = true;"]);
+  });
+
+  it("extracts source maps from zip uploads", () => {
+    const map = JSON.stringify({ version: 3, file: "assets/app.min.js", sources: [], names: [], mappings: "" });
+    const zip = Buffer.from(
+      zipSync({
+        "assets/app.min.js.map": new TextEncoder().encode(map),
+        "assets/ignored.txt": new TextEncoder().encode("ignored")
+      })
+    );
+
+    expect(extractSourceMapsFromZip(zip)).toEqual([
+      {
+        originalFilename: "app.min.js.map",
+        content: Buffer.from(map),
+        minifiedFile: "app.min.js"
+      }
+    ]);
+  });
+
+  it("rejects zip uploads with more than 100 total entries", () => {
+    const entries: Record<string, Uint8Array> = {};
+    for (let index = 0; index < 101; index += 1) {
+      entries[`ignored-${index}.txt`] = new TextEncoder().encode("ignored");
+    }
+
+    expect(() => extractSourceMapsFromZip(Buffer.from(zipSync(entries)))).toThrow("source_map_zip_too_many_entries");
+  });
+
+  it("extracts only source map entries from zip uploads with non-map entries", () => {
+    const entries: Record<string, Uint8Array> = {
+      "assets/app.min.js.map": new TextEncoder().encode(
+        JSON.stringify({ version: 3, file: "assets/app.min.js", sources: [], names: [], mappings: "" })
+      )
+    };
+    for (let index = 0; index < 50; index += 1) {
+      entries[`assets/ignored-${index}.txt`] = new TextEncoder().encode("ignored");
+    }
+
+    expect(extractSourceMapsFromZip(Buffer.from(zipSync(entries))).map((entry) => entry.originalFilename)).toEqual([
+      "app.min.js.map"
+    ]);
+  });
+
+  it("rejects source map zip uploads above the compressed size limit", () => {
+    expect(() => extractSourceMapsFromZip(Buffer.alloc(MAX_SOURCE_MAP_UPLOAD_BYTES + 1))).toThrow(
+      "source_map_upload_too_large"
+    );
+  });
+
+  it("infers minified file from the zip entry when source map file is missing", () => {
+    const map = JSON.stringify({ version: 3, sources: [], names: [], mappings: "" });
+
+    expect(
+      extractSourceMapsFromZip(
+        Buffer.from(
+          zipSync({
+            "assets/app.min.js.map": new TextEncoder().encode(map)
+          })
+        )
+      )
+    ).toEqual([
+      {
+        originalFilename: "app.min.js.map",
+        content: Buffer.from(map),
+        minifiedFile: "app.min.js"
+      }
+    ]);
+  });
+
+  it("keeps stored source maps inside local storage for traversal-like segments", async () => {
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const escapedDirectory = path.join(path.dirname(localDir), ".._x");
+
+    try {
+      const artifact = await storeSourceMapFile({
+        localDir,
+        projectId: "..",
+        environmentId: ".",
+        release: "../x",
+        artifactId: ".",
+        content: Buffer.from("{}")
+      });
+
+      const relativePath = path.relative(await realpath(localDir), artifact.storagePath);
+      expect(relativePath).not.toBe("");
+      expect(relativePath).not.toBe("..");
+      expect(relativePath.startsWith(`..${path.sep}`)).toBe(false);
+      expect(path.isAbsolute(relativePath)).toBe(false);
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+      await rm(escapedDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects source map reads outside local storage", async () => {
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+
+    try {
+      await expect(readSourceMapFile({ localDir, storagePath: path.join(path.dirname(localDir), "outside.map") })).rejects.toThrow(
+        "source_map_storage_path_invalid"
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects source map reads through symlinks inside local storage", async () => {
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const outsideFile = path.join(path.dirname(localDir), "outside-source-map.map");
+    const symlinkPath = path.join(localDir, "linked.map");
+
+    try {
+      await writeFile(outsideFile, "{}");
+      await symlink(outsideFile, symlinkPath);
+
+      await expect(readSourceMapFile({ localDir, storagePath: symlinkPath })).rejects.toThrow(
+        "source_map_storage_path_invalid"
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+      await rm(outsideFile, { force: true });
+    }
+  });
+
+  it("resolves a generated frame with a regular source map", () => {
+    const map = {
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/app.ts"],
+      names: ["checkout"],
+      mappings: "IAyCIA"
+    };
+
+    expect(
+      resolveFrameWithSourceMap(JSON.stringify(map), {
+        frameIndex: 0,
+        functionName: "checkout",
+        minifiedFile: "app.min.js",
+        minifiedLine: 1,
+        minifiedColumn: 5
+      })
+    ).toEqual({
+      frameIndex: 0,
+      minifiedFile: "app.min.js",
+      minifiedLine: 1,
+      minifiedColumn: 5,
+      originalSource: "src/app.ts",
+      originalLine: 42,
+      originalColumn: 4,
+      originalName: "checkout"
+    });
+  });
+
+  it("resolves browser stack columns as one-based generated columns", () => {
+    const map = {
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/first.ts", "src/second.ts"],
+      names: ["first", "second"],
+      mappings: "AAAAA,CCAAC"
+    };
+
+    expect(
+      resolveFrameWithSourceMap(JSON.stringify(map), {
+        frameIndex: 0,
+        functionName: null,
+        minifiedFile: "app.min.js",
+        minifiedLine: 1,
+        minifiedColumn: 1
+      })
+    ).toEqual({
+      frameIndex: 0,
+      minifiedFile: "app.min.js",
+      minifiedLine: 1,
+      minifiedColumn: 1,
+      originalSource: "src/first.ts",
+      originalLine: 1,
+      originalColumn: 0,
+      originalName: "first"
+    });
+  });
+
+  it("does not cache partially resolved error stacks", async () => {
+    const map = JSON.stringify({
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/app.ts"],
+      names: ["checkout"],
+      mappings: "AAAAA"
+    });
+    const replaceErrorStackResolutions = vi.fn(async (input) => input.frames);
+
+    const resolution = await resolveErrorStackWithSourceMaps({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      getErrorForSourceMapResolution: async () => ({
+        id: "err_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "2026.05.11",
+        stack: [
+          "TypeError: failed",
+          "    at checkout (https://cdn.example.com/assets/app.min.js:1:1)",
+          "    at vendor (https://cdn.example.com/assets/vendor.min.js:1:1)"
+        ].join("\n")
+      }),
+      getCachedErrorStackResolution: async () => [],
+      findSourceMapArtifactForFrame: async (input) =>
+        input.minifiedFile === "app.min.js" ? { id: "smap_1", storagePath: "/source-maps/app.min.js.map" } : null,
+      readSourceMapFile: async () => map,
+      replaceErrorStackResolutions
+    });
+
+    expect(resolution).toEqual({
+      errorId: "err_1",
+      release: "2026.05.11",
+      status: "partially_resolved",
+      frames: [
+        {
+          sourceMapArtifactId: "smap_1",
+          frameIndex: 0,
+          minifiedFile: "app.min.js",
+          minifiedLine: 1,
+          minifiedColumn: 1,
+          originalSource: "src/app.ts",
+          originalLine: 1,
+          originalColumn: 0,
+          originalName: "checkout"
+        }
+      ],
+      unresolvedFrameCount: 1
+    });
+    expect(replaceErrorStackResolutions).not.toHaveBeenCalled();
+  });
+
+  it("caches fully resolved error stacks", async () => {
+    const maps = new Map([
+      [
+        "/source-maps/app.min.js.map",
+        JSON.stringify({
+          version: 3,
+          file: "app.min.js",
+          sources: ["src/app.ts"],
+          names: ["checkout"],
+          mappings: "AAAAA"
+        })
+      ],
+      [
+        "/source-maps/vendor.min.js.map",
+        JSON.stringify({
+          version: 3,
+          file: "vendor.min.js",
+          sources: ["src/vendor.ts"],
+          names: ["vendor"],
+          mappings: "AAAAA"
+        })
+      ]
+    ]);
+    const replaceErrorStackResolutions = vi.fn(async (input) => input.frames);
+
+    const resolution = await resolveErrorStackWithSourceMaps({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      getErrorForSourceMapResolution: async () => ({
+        id: "err_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "2026.05.11",
+        stack: [
+          "TypeError: failed",
+          "    at checkout (https://cdn.example.com/assets/app.min.js:1:1)",
+          "    at vendor (https://cdn.example.com/assets/vendor.min.js:1:1)"
+        ].join("\n")
+      }),
+      getCachedErrorStackResolution: async () => [],
+      findSourceMapArtifactForFrame: async (input) => ({
+        id: input.minifiedFile === "app.min.js" ? "smap_1" : "smap_2",
+        storagePath: `/source-maps/${input.minifiedFile}.map`
+      }),
+      readSourceMapFile: async ({ storagePath }) => maps.get(storagePath) ?? "",
+      replaceErrorStackResolutions
+    });
+
+    expect(resolution?.status).toBe("resolved");
+    expect(resolution?.unresolvedFrameCount).toBe(0);
+    expect(resolution?.frames).toHaveLength(2);
+    expect(replaceErrorStackResolutions).toHaveBeenCalledTimes(1);
+    expect(replaceErrorStackResolutions).toHaveBeenCalledWith({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "2026.05.11",
+      frames: expect.arrayContaining([
+        expect.objectContaining({ frameIndex: 0, sourceMapArtifactId: "smap_1" }),
+        expect.objectContaining({ frameIndex: 1, sourceMapArtifactId: "smap_2" })
+      ])
+    });
+  });
 });
 
 describe("query routes", () => {
@@ -318,6 +691,146 @@ describe("query routes", () => {
         limit: 50
       }
     ]);
+  });
+
+  it("returns unresolved source map resolution for an error without a release", async () => {
+    const resolveErrorStack = vi.fn(async () => ({
+      errorId: "err_1",
+      release: null,
+      status: "unresolved" as const,
+      frames: [],
+      unresolvedFrameCount: 0
+    }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        errorId: "err_1",
+        release: null,
+        status: "unresolved",
+        frames: [],
+        unresolvedFrameCount: 0
+      }
+    });
+    expect(resolveErrorStack).toHaveBeenCalledWith({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+  });
+
+  it("returns resolved source map frames from the query dependency", async () => {
+    const resolved = {
+      errorId: "err_1",
+      release: "2026.05.11",
+      status: "resolved" as const,
+      frames: [
+        {
+          sourceMapArtifactId: "smap_1",
+          frameIndex: 0,
+          minifiedFile: "app.min.js",
+          minifiedLine: 10,
+          minifiedColumn: 1234,
+          originalSource: "src/app.ts",
+          originalLine: 42,
+          originalColumn: 4,
+          originalName: "checkout"
+        }
+      ],
+      unresolvedFrameCount: 0
+    };
+    const resolveErrorStack = vi.fn(async () => resolved);
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: resolved });
+    expect(resolveErrorStack).toHaveBeenCalledWith({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+  });
+
+  it("returns 400 for source map resolution without scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 401 for unauthenticated source map resolution", async () => {
+    app = await buildApp({
+      readiness,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null
+      },
+      query: {
+        resolveErrorStack: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "unauthenticated" });
+  });
+
+  it("returns 404 when an error source map resolution target is not found", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/missing/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "error_not_found" });
   });
 
   it("rejects invalid date filters", async () => {

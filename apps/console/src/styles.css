@@ -866,6 +866,137 @@ select {
   gap: 8px;
 }
 
+.artifacts-panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.artifacts-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.artifacts-panel__header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.artifact-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.artifact-form {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid #d7dde7;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
+.artifact-form h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.artifact-form label,
+.artifact-toolbar label {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.artifact-form input,
+.artifact-toolbar input {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px 9px;
+}
+
+.artifact-form button,
+.artifact-toolbar button,
+.artifact-row button,
+.artifacts-panel .status-box button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
+.artifact-form button:disabled,
+.artifact-toolbar button:disabled,
+.artifact-row button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.artifact-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 360px) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.artifact-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.8fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid #d7dde7;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.artifact-meta {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.artifact-meta strong,
+.artifact-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.artifact-meta strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.artifact-meta span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.artifact-meta--secondary {
+  text-align: right;
+}
+
 .snippet-panel {
   grid-column: 1 / -1;
 }
@@ -1212,6 +1343,94 @@ select {
   white-space: pre;
 }
 
+.source-map-resolution {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.source-map-resolution__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.source-map-resolution h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.source-map-resolution p {
+  margin: 0;
+}
+
+.source-map-resolution__frames {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.source-map-resolution__frame {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.source-map-resolution__frame div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.source-map-resolution__frame strong,
+.source-map-resolution__frame span {
+  overflow-wrap: anywhere;
+}
+
+.source-map-resolution__frame strong {
+  color: #111827;
+  font-size: 12px;
+}
+
+.source-map-resolution__frame span {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.source-map-resolution__frame code {
+  color: #64748b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.status-pill--source-map-resolved {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.status-pill--source-map-partially_resolved {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.status-pill--source-map-unresolved,
+.status-pill--source-map-unavailable {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
 .span-timeline {
   display: grid;
   gap: 0.75rem;
@@ -1451,6 +1670,9 @@ select {
   .workspace-grid,
   .snippet-grid,
   .alerts-grid,
+  .artifact-upload-grid,
+  .artifact-toolbar,
+  .artifact-row,
   .alerts-form__columns,
   .system-grid,
   .system-grid[aria-label="System operations"] {

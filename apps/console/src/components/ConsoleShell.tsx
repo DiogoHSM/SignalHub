@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
+import { ArtifactsPanel } from "./ArtifactsPanel";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
 import { AlertsPanel } from "./AlertsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
@@ -246,6 +247,16 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
         <div hidden={activeMode !== "alerts"}>
           {activeMode === "alerts" ? (
             <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+          ) : null}
+        </div>
+        <div hidden={activeMode !== "artifacts"}>
+          {activeMode === "artifacts" ? (
+            <ArtifactsPanel
+              client={client}
+              environmentId={activeEnvironment?.id}
+              key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}`}
+              projectId={activeProject?.id}
+            />
           ) : null}
         </div>
         <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>

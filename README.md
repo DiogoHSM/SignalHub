@@ -11,6 +11,7 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Redis-backed ingestion queue with worker processing.
 - Postgres storage for operational data and typed telemetry tables.
 - Deterministic error grouping with group status workflow and raw occurrence drilldown.
+- Admin source-map artifact uploads and on-demand production stack resolution.
 - Human-session query endpoints for raw telemetry and basic aggregates.
 - JavaScript SDK and raw HTTP integration guide.
 - Integration Console for setup, overview, investigation, alerts, and system health.
@@ -41,6 +42,8 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
 | `CONSOLE_ENABLED` | No | Enables the built Integration Console from the API. Compose sets this to `true`. |
 | `SIGNALHUB_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://signalhub.example.com`. |
+| `SOURCE_MAPS_LOCAL_DIR` | No | Local directory for uploaded source-map artifacts. Defaults to `/var/lib/signalhub/source-maps`. |
+| `SOURCE_MAPS_MAX_UPLOAD_MB` | No | Maximum source-map upload size in MiB. Defaults to `50`. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | Email for the first admin account. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | At least 32 characters outside tests. Used by the admin seed script. |
 | `GOOGLE_OAUTH_ENABLED` | No | Enables Google OAuth when set to `true` and all Google settings are present. |
@@ -54,7 +57,7 @@ Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operato
 
 ## Operational Config
 
-Retention, alert scheduler, and backup scheduler settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
+Retention, alert scheduler, backup scheduler, and source-map storage settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
 
 ## Operational Safety
 
@@ -115,6 +118,14 @@ SignalHub evaluates simple project/environment-scoped alert rules from the worke
 Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each delivery attempt. Native email, Telegram, Discord, escalation, silencing, acknowledgement, and retry workflows are out of scope for this slice.
 
 Webhook secrets are write-only. Saved secret values are redacted and are never returned by the API or displayed in the console.
+
+## Source Maps
+
+Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by project, environment, release, and minified filename; SignalHub does not guess across releases.
+
+Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/signalhub/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached frame resolutions for that artifact and removes the local file.
+
+Raw error details resolve production stack frames on demand when the error has a matching release and uploaded map. The console shows original file, line, column, and symbol metadata only. It does not display source code or `sourcesContent`.
 
 ## Local Development
 
