@@ -1623,7 +1623,7 @@ git commit -m "feat: add session timeline console client"
 - Modify: `apps/console/src/components/ErrorInvestigationPanel.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Write failing SessionTimeline component tests**
+- [x] **Step 1: Write failing SessionTimeline component tests**
 
 Create `apps/console/src/components/SessionTimeline.test.tsx`:
 
@@ -1679,7 +1679,7 @@ describe("SessionTimeline", () => {
 });
 ```
 
-- [ ] **Step 2: Write failing integration test**
+- [x] **Step 2: Write failing integration test**
 
 Add to `apps/console/src/components/ErrorInvestigationPanel.test.tsx`:
 
@@ -1731,7 +1731,7 @@ it("loads session context for a selected raw error with a session id", async () 
 });
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -1741,7 +1741,7 @@ pnpm exec vitest run apps/console/src/components/SessionTimeline.test.tsx apps/c
 
 Expected: `SessionTimeline` missing and `getSessionTimeline` not used.
 
-- [ ] **Step 4: Create SessionTimeline component**
+- [x] **Step 4: Create SessionTimeline component**
 
 Create `apps/console/src/components/SessionTimeline.tsx`:
 
@@ -1805,7 +1805,7 @@ export function SessionTimeline({ timeline, isLoading, error, highlightedErrorId
 }
 ```
 
-- [ ] **Step 5: Wire ErrorDetailDrawer props**
+- [x] **Step 5: Wire ErrorDetailDrawer props**
 
 Modify `apps/console/src/components/ErrorDetailDrawer.tsx`:
 
@@ -1835,7 +1835,7 @@ Render after source maps:
 ) : null}
 ```
 
-- [ ] **Step 6: Load timeline in raw occurrences panel**
+- [x] **Step 6: Load timeline in raw occurrences panel**
 
 Modify `apps/console/src/components/ErrorRawOccurrencesPanel.tsx` state:
 
@@ -1902,7 +1902,7 @@ Pass props:
 />
 ```
 
-- [ ] **Step 7: Add styles**
+- [x] **Step 7: Add styles**
 
 Add to `apps/console/src/styles.css`:
 
@@ -1944,7 +1944,7 @@ Add to `apps/console/src/styles.css`:
 }
 ```
 
-- [ ] **Step 8: Run console tests**
+- [x] **Step 8: Run console tests**
 
 Run:
 
@@ -1955,7 +1955,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: tests and console build pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/console/src/components/SessionTimeline.tsx apps/console/src/components/SessionTimeline.test.tsx apps/console/src/components/ErrorDetailDrawer.tsx apps/console/src/components/ErrorDetailDrawer.test.tsx apps/console/src/components/ErrorRawOccurrencesPanel.tsx apps/console/src/components/ErrorInvestigationPanel.test.tsx apps/console/src/styles.css
