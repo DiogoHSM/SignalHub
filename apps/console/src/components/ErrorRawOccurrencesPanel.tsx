@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { ErrorRecord, QueryFilters, SourceMapResolution } from "../api/types";
+import type { ErrorRecord, QueryFilters, SessionTimelineResponse, SourceMapResolution } from "../api/types";
 import { ErrorDetailDrawer } from "./ErrorDetailDrawer";
 import { ErrorFilters, type ErrorFilterValues } from "./ErrorFilters";
 import { ErrorList } from "./ErrorList";
@@ -13,6 +13,14 @@ type Props = {
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
+
+type SessionTimelineState = {
+  errorId: string;
+  sessionId: string;
+  timeline?: SessionTimelineResponse;
+  isLoading: boolean;
+  error: string | null;
+};
 
 const defaultFilters: ErrorFilterValues = {
   severity: "",
@@ -88,6 +96,7 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
   const [selectedError, setSelectedError] = useState<ErrorRecord | undefined>();
   const [sourceMapResolution, setSourceMapResolution] = useState<SourceMapResolution | undefined>();
   const [isResolvingSourceMap, setIsResolvingSourceMap] = useState(false);
+  const [sessionTimelineState, setSessionTimelineState] = useState<SessionTimelineState | undefined>();
   const [state, setState] = useState<LoadState>("loading");
   const query = useMemo(
     () => queryFromValues(projectId, environmentId, appliedFilters),
@@ -165,6 +174,50 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
     };
   }, [client, environmentId, projectId, selectedError]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedError?.sessionId) {
+      setSessionTimelineState(undefined);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const errorId = selectedError.id;
+    const sessionId = selectedError.sessionId;
+    setSessionTimelineState({ errorId, sessionId, isLoading: true, error: null });
+    void client
+      .getSessionTimeline(sessionId, {
+        projectId,
+        environmentId,
+        center: selectedError.timestamp,
+        beforeSeconds: 600,
+        afterSeconds: 120,
+        limit: 100
+      })
+      .then(
+        ({ data }) => {
+          if (cancelled) return;
+          setSessionTimelineState((current) =>
+            current?.errorId === errorId && current.sessionId === sessionId ? { ...current, timeline: data, isLoading: false, error: null } : current
+          );
+        },
+        () => {
+          if (cancelled) return;
+          setSessionTimelineState((current) =>
+            current?.errorId === errorId && current.sessionId === sessionId
+              ? { ...current, timeline: undefined, isLoading: false, error: "Session context unavailable." }
+              : current
+          );
+        }
+      );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selectedError]);
+
   function applyFilters() {
     setAppliedFilters({ ...draftFilters });
   }
@@ -178,6 +231,11 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
   function retry() {
     setReloadToken((current) => current + 1);
   }
+
+  const activeSessionTimeline =
+    selectedError?.sessionId && sessionTimelineState?.errorId === selectedError.id && sessionTimelineState.sessionId === selectedError.sessionId
+      ? sessionTimelineState
+      : undefined;
 
   return (
     <section className="investigation-layout">
@@ -198,7 +256,14 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
         {state === "empty" ? <p className="muted-text">No errors found</p> : null}
         {state === "ready" ? <ErrorList errors={errors} onSelect={setSelectedError} selectedErrorId={selectedError?.id} /> : null}
       </div>
-      <ErrorDetailDrawer error={selectedError} isResolvingSourceMap={isResolvingSourceMap} sourceMapResolution={sourceMapResolution} />
+      <ErrorDetailDrawer
+        error={selectedError}
+        isLoadingSessionTimeline={Boolean(selectedError?.sessionId && (!activeSessionTimeline || activeSessionTimeline.isLoading))}
+        isResolvingSourceMap={isResolvingSourceMap}
+        sessionTimeline={activeSessionTimeline?.timeline}
+        sessionTimelineError={activeSessionTimeline?.error}
+        sourceMapResolution={sourceMapResolution}
+      />
     </section>
   );
 }

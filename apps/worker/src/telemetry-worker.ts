@@ -1,5 +1,6 @@
 import type { TelemetryJobPayload } from "@signal-hub/queues";
 import {
+  breadcrumbPayloadSchema,
   eventPayloadSchema,
   errorPayloadSchema,
   llmCallPayloadSchema,
@@ -9,6 +10,7 @@ import {
 import { sanitizePreviewText, sanitizeValue } from "@signal-hub/telemetry/sanitization";
 import type { InsertDeadLetterJobInput } from "@signal-hub/db/repositories/dead-letter.js";
 import type {
+  InsertBreadcrumbInput,
   InsertErrorInput,
   InsertEventInput,
   InsertLlmCallInput,
@@ -22,6 +24,7 @@ export type TelemetryWriter = {
   insertLlmCall(input: InsertLlmCallInput): Promise<void>;
   insertTrace(input: InsertTraceInput): Promise<void>;
   insertSpan(input: InsertSpanInput): Promise<void>;
+  insertBreadcrumb?(input: InsertBreadcrumbInput): Promise<void>;
 };
 
 export type BackfillErrorGroups = (
@@ -169,6 +172,23 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         output: sanitizeValue(payload.output),
         error: sanitizeValue(payload.error),
         costUsd: payload.cost_usd === undefined ? undefined : String(payload.cost_usd)
+      });
+      return;
+    }
+
+    case "breadcrumb": {
+      if (!writer.insertBreadcrumb) {
+        throw new Error("Breadcrumb writer unavailable");
+      }
+
+      const payload = breadcrumbPayloadSchema.parse(job.payload);
+      await writer.insertBreadcrumb({
+        ...baseInput(job, payload, receivedAt),
+        type: payload.type,
+        category: payload.category,
+        message: sanitizePreviewText(payload.message) ?? "breadcrumb",
+        level: payload.level,
+        data: sanitizeValue(payload.data)
       });
       return;
     }

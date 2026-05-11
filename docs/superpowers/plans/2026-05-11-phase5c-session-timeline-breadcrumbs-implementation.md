@@ -51,7 +51,7 @@
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `packages/config/test/config.test.ts`
 
-- [ ] **Step 1: Write failing DB migration test**
+- [x] **Step 1: Write failing DB migration test**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -62,7 +62,7 @@ it("runs breadcrumb migrations", async () => {
 });
 ```
 
-- [ ] **Step 2: Write failing config test**
+- [x] **Step 2: Write failing config test**
 
 Add to `packages/config/test/config.test.ts`:
 
@@ -76,7 +76,7 @@ it("loads breadcrumb retention config with defaults and overrides", () => {
 });
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -86,7 +86,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts packages/config/test/
 
 Expected: migration test fails because `breadcrumbs` does not exist; config test fails because `breadcrumbsDays` is missing.
 
-- [ ] **Step 4: Add migration 0007**
+- [x] **Step 4: Add migration 0007**
 
 Create `packages/db/migrations/0007_breadcrumbs.sql`:
 
@@ -125,7 +125,7 @@ ALTER TABLE retention_runs
   ADD COLUMN IF NOT EXISTS breadcrumbs_days integer NOT NULL DEFAULT 30;
 ```
 
-- [ ] **Step 5: Register migration**
+- [x] **Step 5: Register migration**
 
 Modify `packages/db/src/migrate.ts`:
 
@@ -141,7 +141,7 @@ const migrations = [
 ];
 ```
 
-- [ ] **Step 6: Update schema types**
+- [x] **Step 6: Update schema types**
 
 Add to `packages/db/src/schema.ts`:
 
@@ -180,7 +180,7 @@ Update `Database`:
 breadcrumbs: BreadcrumbsTable;
 ```
 
-- [ ] **Step 7: Update config**
+- [x] **Step 7: Update config**
 
 Modify `packages/config/src/index.ts`:
 
@@ -210,7 +210,7 @@ Add to `.env.example`:
 RETENTION_BREADCRUMBS_DAYS=30
 ```
 
-- [ ] **Step 8: Run focused tests**
+- [x] **Step 8: Run focused tests**
 
 Run:
 
@@ -220,7 +220,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts packages/config/test/
 
 Expected: tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add .env.example packages/config/src/index.ts packages/config/test/config.test.ts packages/db/migrations/0007_breadcrumbs.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/test/repositories.test.ts
@@ -243,7 +243,7 @@ git commit -m "feat: add breadcrumb storage config"
 - Test: `apps/api/test/ingestion.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Write failing ingestion schema test**
+- [x] **Step 1: Write failing ingestion schema test**
 
 Add to `packages/telemetry/test/ingestion-schemas.test.ts`:
 
@@ -269,7 +269,7 @@ it("rejects unsupported breadcrumb types and oversized messages", () => {
 });
 ```
 
-- [ ] **Step 2: Write failing API ingestion test**
+- [x] **Step 2: Write failing API ingestion test**
 
 Add to `apps/api/test/ingestion.test.ts`:
 
@@ -309,7 +309,7 @@ it("accepts breadcrumb ingestion", async () => {
 });
 ```
 
-- [ ] **Step 3: Write failing worker/repository test**
+- [x] **Step 3: Write failing worker/repository test**
 
 Add to `apps/worker/test/telemetry-worker.test.ts`:
 
@@ -357,7 +357,7 @@ it("persists sanitized breadcrumb jobs", async () => {
 });
 ```
 
-- [ ] **Step 4: Run tests to verify failure**
+- [x] **Step 4: Run tests to verify failure**
 
 Run:
 
@@ -367,7 +367,7 @@ pnpm exec vitest run packages/telemetry/test/ingestion-schemas.test.ts apps/api/
 
 Expected: failures for missing schema, route, queue kind, and writer method.
 
-- [ ] **Step 5: Add telemetry schema**
+- [x] **Step 5: Add telemetry schema**
 
 Modify `packages/telemetry/src/ingestion-schemas.ts`:
 
@@ -383,7 +383,7 @@ export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 ```
 
-- [ ] **Step 6: Add queue kind**
+- [x] **Step 6: Add queue kind**
 
 Modify `packages/queues/src/telemetry-queue.ts`:
 
@@ -391,7 +391,7 @@ Modify `packages/queues/src/telemetry-queue.ts`:
 export type TelemetryJobKind = "event" | "error" | "llm" | "trace" | "span" | "breadcrumb";
 ```
 
-- [ ] **Step 7: Add DB write repository support**
+- [x] **Step 7: Add DB write repository support**
 
 Modify `packages/db/src/repositories/telemetry-writes.ts`:
 
@@ -419,7 +419,7 @@ export async function insertBreadcrumb(db: Db, input: InsertBreadcrumbInput): Pr
 }
 ```
 
-- [ ] **Step 8: Register API ingestion route**
+- [x] **Step 8: Register API ingestion route**
 
 Modify `apps/api/src/routes/ingestion.ts` imports and route config:
 
@@ -438,7 +438,7 @@ import {
 { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ```
 
-- [ ] **Step 9: Process worker breadcrumb jobs**
+- [x] **Step 9: Process worker breadcrumb jobs**
 
 Modify `apps/worker/src/telemetry-worker.ts` imports and writer type:
 
@@ -485,7 +485,7 @@ case "breadcrumb": {
 }
 ```
 
-- [ ] **Step 10: Wire main services**
+- [x] **Step 10: Wire main services**
 
 Modify `apps/worker/src/main.ts` and `apps/api/src/main.ts` telemetry writer imports to include `insertBreadcrumb`, then add:
 
@@ -493,7 +493,7 @@ Modify `apps/worker/src/main.ts` and `apps/api/src/main.ts` telemetry writer imp
 insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 ```
 
-- [ ] **Step 11: Run focused tests**
+- [x] **Step 11: Run focused tests**
 
 Run:
 
@@ -503,7 +503,7 @@ pnpm exec vitest run packages/telemetry/test/ingestion-schemas.test.ts packages/
 
 Expected: tests pass.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add packages/telemetry/src/ingestion-schemas.ts packages/telemetry/test/ingestion-schemas.test.ts packages/queues/src/telemetry-queue.ts packages/queues/test/telemetry-queue.test.ts packages/db/src/repositories/telemetry-writes.ts packages/db/test/repositories.test.ts apps/api/src/routes/ingestion.ts apps/api/test/ingestion.test.ts apps/worker/src/telemetry-worker.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts apps/api/src/main.ts
@@ -523,7 +523,7 @@ git commit -m "feat: add breadcrumb ingestion"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Write failing retention repository test**
+- [x] **Step 1: Write failing retention repository test**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -571,7 +571,7 @@ it("deletes expired breadcrumbs during retention", async () => {
 });
 ```
 
-- [ ] **Step 2: Run retention tests to verify failure**
+- [x] **Step 2: Run retention tests to verify failure**
 
 Run:
 
@@ -581,7 +581,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts apps/worker/test/tele
 
 Expected: failures for missing `breadcrumbs` deleted counts and policy fields.
 
-- [ ] **Step 3: Update retention types and deletion**
+- [x] **Step 3: Update retention types and deletion**
 
 Modify `packages/db/src/repositories/system.ts`:
 
@@ -645,7 +645,7 @@ deleted_breadcrumbs: input.deleted.breadcrumbs,
 breadcrumbs_days: input.policy.breadcrumbsDays
 ```
 
-- [ ] **Step 4: Update worker zero counts and policy**
+- [x] **Step 4: Update worker zero counts and policy**
 
 Modify `apps/worker/src/retention.ts`:
 
@@ -659,7 +659,7 @@ Modify `apps/worker/src/main.ts` retention policy:
 breadcrumbsDays: config.retention.breadcrumbsDays
 ```
 
-- [ ] **Step 5: Update system health types/tests**
+- [x] **Step 5: Update system health types/tests**
 
 Where `policy` is asserted in `apps/api/test/system.test.ts`, add:
 
@@ -675,7 +675,7 @@ breadcrumbs: 0
 
 Update `apps/console/src/api/types.ts` system health retention types so `policy` and `deleted` include `breadcrumbsDays` and `breadcrumbs`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -685,7 +685,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts apps/worker/test/tele
 
 Expected: tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/src/repositories/system.ts packages/db/test/repositories.test.ts apps/worker/src/retention.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts apps/api/src/system-health.ts apps/api/test/system.test.ts apps/console/src/api/types.ts apps/console/src/components/SystemHealthPanel.test.tsx
@@ -698,7 +698,7 @@ git commit -m "feat: retain breadcrumbs safely"
 - Create: `packages/db/src/repositories/session-timeline.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing timeline repository tests**
+- [x] **Step 1: Write failing timeline repository tests**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -765,7 +765,7 @@ it("does not leak timeline items across project, environment, or session", async
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -775,7 +775,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts
 
 Expected: failure because `getSessionTimeline` does not exist.
 
-- [ ] **Step 3: Add repository**
+- [x] **Step 3: Add repository**
 
 Create `packages/db/src/repositories/session-timeline.ts`:
 
@@ -893,7 +893,7 @@ export async function getSessionTimeline(db: Db, filters: SessionTimelineFilters
 }
 ```
 
-- [ ] **Step 4: Run repository tests**
+- [x] **Step 4: Run repository tests**
 
 Run:
 
@@ -903,7 +903,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts
 
 Expected: tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/db/src/repositories/session-timeline.ts packages/db/test/repositories.test.ts
@@ -917,7 +917,7 @@ git commit -m "feat: add session timeline repository"
 - Modify: `apps/api/src/main.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Write failing route tests**
+- [x] **Step 1: Write failing route tests**
 
 Add to `apps/api/test/query.test.ts`:
 
@@ -959,7 +959,7 @@ it("rejects invalid session timeline queries", async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -969,7 +969,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: failure because the session timeline route is not registered yet.
 
-- [ ] **Step 3: Add query dependency and parser**
+- [x] **Step 3: Add query dependency and parser**
 
 Modify `apps/api/src/routes/query.ts`:
 
@@ -1050,7 +1050,7 @@ function parseSessionTimelineFilters(query: unknown, sessionId: string): Session
 }
 ```
 
-- [ ] **Step 4: Add route handler**
+- [x] **Step 4: Add route handler**
 
 Add before aggregate routes in `registerQueryRoutes`:
 
@@ -1081,7 +1081,7 @@ app.get("/query/sessions/:sessionId/timeline", async (request, reply) => {
 });
 ```
 
-- [ ] **Step 5: Wire main**
+- [x] **Step 5: Wire main**
 
 Modify `apps/api/src/main.ts` imports:
 
@@ -1095,7 +1095,7 @@ Add to query dependencies:
 getSessionTimeline: (filters) => getSessionTimeline(db, filters)
 ```
 
-- [ ] **Step 6: Run query tests**
+- [x] **Step 6: Run query tests**
 
 Run:
 
@@ -1105,7 +1105,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/query.ts apps/api/src/main.ts apps/api/test/query.test.ts
@@ -1124,7 +1124,7 @@ git commit -m "feat: add session timeline query api"
 - Test: `packages/sdk/test/mapping.test.ts`
 - Create: `packages/sdk/test/browser-breadcrumbs.test.ts`
 
-- [ ] **Step 1: Write failing SDK mapping/client tests**
+- [x] **Step 1: Write failing SDK mapping/client tests**
 
 Add to `packages/sdk/test/mapping.test.ts`:
 
@@ -1178,7 +1178,7 @@ it("queues manual breadcrumbs", async () => {
 });
 ```
 
-- [ ] **Step 2: Write failing browser helper tests**
+- [x] **Step 2: Write failing browser helper tests**
 
 Create `packages/sdk/test/browser-breadcrumbs.test.ts`:
 
@@ -1217,7 +1217,7 @@ describe("browser breadcrumbs", () => {
 });
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -1227,7 +1227,7 @@ pnpm exec vitest run packages/sdk/test/mapping.test.ts packages/sdk/test/client.
 
 Expected: failures for missing breadcrumb types, signal mapping, client method, and browser helper.
 
-- [ ] **Step 4: Add SDK types**
+- [x] **Step 4: Add SDK types**
 
 Modify `packages/sdk/src/types.ts`:
 
@@ -1257,7 +1257,7 @@ Update `SignalKind`:
 export type SignalKind = "event" | "error" | "llm" | "trace" | "span" | "breadcrumb";
 ```
 
-- [ ] **Step 5: Add mapping**
+- [x] **Step 5: Add mapping**
 
 Modify `packages/sdk/src/mapping.ts`:
 
@@ -1301,7 +1301,7 @@ export function createBreadcrumbSignal(
 }
 ```
 
-- [ ] **Step 6: Add client method**
+- [x] **Step 6: Add client method**
 
 Modify `packages/sdk/src/client.ts` imports and returned client:
 
@@ -1326,7 +1326,7 @@ breadcrumb(input: BreadcrumbInput, context?: SignalContext): void {
 },
 ```
 
-- [ ] **Step 7: Add browser helper**
+- [x] **Step 7: Add browser helper**
 
 Create `packages/sdk/src/browser-breadcrumbs.ts`:
 
@@ -1423,7 +1423,7 @@ export function createBrowserBreadcrumbs(client: Pick<SignalHubClient, "breadcru
 }
 ```
 
-- [ ] **Step 8: Export SDK additions**
+- [x] **Step 8: Export SDK additions**
 
 Modify `packages/sdk/src/index.ts`:
 
@@ -1445,7 +1445,7 @@ export {
 } from "./browser-breadcrumbs.js";
 ```
 
-- [ ] **Step 9: Run SDK tests and build**
+- [x] **Step 9: Run SDK tests and build**
 
 Run:
 
@@ -1456,7 +1456,7 @@ pnpm --filter @signal-hub/sdk build
 
 Expected: tests and SDK build pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/sdk/src/types.ts packages/sdk/src/mapping.ts packages/sdk/src/client.ts packages/sdk/src/browser-breadcrumbs.ts packages/sdk/src/index.ts packages/sdk/test/mapping.test.ts packages/sdk/test/client.test.ts packages/sdk/test/browser-breadcrumbs.test.ts
@@ -1470,7 +1470,7 @@ git commit -m "feat: add sdk breadcrumbs"
 - Modify: `apps/console/src/api/client.ts`
 - Test: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Write failing console client test**
+- [x] **Step 1: Write failing console client test**
 
 Add to `apps/console/src/api/client.test.ts`:
 
@@ -1497,7 +1497,7 @@ it("gets a session timeline with scoped filters", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run:
 
@@ -1507,7 +1507,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts
 
 Expected: `getSessionTimeline` is missing.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 Add to `apps/console/src/api/types.ts`:
 
@@ -1554,7 +1554,7 @@ export type SessionTimelineResponse = {
 };
 ```
 
-- [ ] **Step 4: Add client method**
+- [x] **Step 4: Add client method**
 
 Modify imports and `ApiClient` in `apps/console/src/api/client.ts`:
 
@@ -1595,7 +1595,7 @@ getSessionTimeline: (sessionId, query) =>
   request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
 ```
 
-- [ ] **Step 5: Run client tests**
+- [x] **Step 5: Run client tests**
 
 Run:
 
@@ -1605,7 +1605,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts
 
 Expected: tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
@@ -1623,7 +1623,7 @@ git commit -m "feat: add session timeline console client"
 - Modify: `apps/console/src/components/ErrorInvestigationPanel.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Write failing SessionTimeline component tests**
+- [x] **Step 1: Write failing SessionTimeline component tests**
 
 Create `apps/console/src/components/SessionTimeline.test.tsx`:
 
@@ -1679,7 +1679,7 @@ describe("SessionTimeline", () => {
 });
 ```
 
-- [ ] **Step 2: Write failing integration test**
+- [x] **Step 2: Write failing integration test**
 
 Add to `apps/console/src/components/ErrorInvestigationPanel.test.tsx`:
 
@@ -1731,7 +1731,7 @@ it("loads session context for a selected raw error with a session id", async () 
 });
 ```
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -1741,7 +1741,7 @@ pnpm exec vitest run apps/console/src/components/SessionTimeline.test.tsx apps/c
 
 Expected: `SessionTimeline` missing and `getSessionTimeline` not used.
 
-- [ ] **Step 4: Create SessionTimeline component**
+- [x] **Step 4: Create SessionTimeline component**
 
 Create `apps/console/src/components/SessionTimeline.tsx`:
 
@@ -1805,7 +1805,7 @@ export function SessionTimeline({ timeline, isLoading, error, highlightedErrorId
 }
 ```
 
-- [ ] **Step 5: Wire ErrorDetailDrawer props**
+- [x] **Step 5: Wire ErrorDetailDrawer props**
 
 Modify `apps/console/src/components/ErrorDetailDrawer.tsx`:
 
@@ -1835,7 +1835,7 @@ Render after source maps:
 ) : null}
 ```
 
-- [ ] **Step 6: Load timeline in raw occurrences panel**
+- [x] **Step 6: Load timeline in raw occurrences panel**
 
 Modify `apps/console/src/components/ErrorRawOccurrencesPanel.tsx` state:
 
@@ -1902,7 +1902,7 @@ Pass props:
 />
 ```
 
-- [ ] **Step 7: Add styles**
+- [x] **Step 7: Add styles**
 
 Add to `apps/console/src/styles.css`:
 
@@ -1944,7 +1944,7 @@ Add to `apps/console/src/styles.css`:
 }
 ```
 
-- [ ] **Step 8: Run console tests**
+- [x] **Step 8: Run console tests**
 
 Run:
 
@@ -1955,7 +1955,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: tests and console build pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/console/src/components/SessionTimeline.tsx apps/console/src/components/SessionTimeline.test.tsx apps/console/src/components/ErrorDetailDrawer.tsx apps/console/src/components/ErrorDetailDrawer.test.tsx apps/console/src/components/ErrorRawOccurrencesPanel.tsx apps/console/src/components/ErrorInvestigationPanel.test.tsx apps/console/src/styles.css
@@ -1974,7 +1974,7 @@ git commit -m "feat: show session context for errors"
 - Modify: `CLAUDE.md`
 - Modify external memory: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 Add a `Breadcrumbs and Session Context` section:
 
@@ -1997,7 +1997,7 @@ client.breadcrumb({
 Breadcrumbs must not include secrets, raw form values, request bodies, response bodies, cookies, or headers. Browser auto-capture helpers sanitize URLs and element summaries, and network capture is disabled by default.
 ````
 
-- [ ] **Step 2: Update architecture docs**
+- [x] **Step 2: Update architecture docs**
 
 Add to `.claude/docs/ARCHITECTURE.md`:
 
@@ -2005,7 +2005,7 @@ Add to `.claude/docs/ARCHITECTURE.md`:
 Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
 ```
 
-- [ ] **Step 3: Update project summary**
+- [x] **Step 3: Update project summary**
 
 Set current phase to:
 
@@ -2019,7 +2019,7 @@ Add implemented capability:
 - Lightweight breadcrumb ingestion, short retention, SDK manual breadcrumbs, optional safe browser breadcrumb helper, and error-detail session context timeline.
 ```
 
-- [ ] **Step 4: Update secrets and UI docs**
+- [x] **Step 4: Update secrets and UI docs**
 
 Add to `.claude/docs/SECRETS.md`:
 
@@ -2045,7 +2045,7 @@ Add to `CLAUDE.md`:
 - Current phase: Phase 5C Session Timeline and Breadcrumbs.
 ```
 
-- [ ] **Step 5: Update memory**
+- [x] **Step 5: Update memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
@@ -2053,7 +2053,7 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 - Implemented Phase 5C Session Timeline and Breadcrumbs: breadcrumb ingestion/storage, SDK manual breadcrumbs and safe browser helper, short retention, session timeline query, and raw error session context. Full visual replay and full Sessions investigation remain deferred.
 ```
 
-- [ ] **Step 6: Commit SignalHub docs**
+- [x] **Step 6: Commit SignalHub docs**
 
 Run:
 
@@ -2064,7 +2064,7 @@ git commit -m "docs: document session breadcrumbs"
 
 Expected: commit succeeds.
 
-- [ ] **Step 7: Commit memory**
+- [x] **Step 7: Commit memory**
 
 Run:
 
@@ -2081,7 +2081,7 @@ Expected: memory commit succeeds. Preserve unrelated untracked memory directorie
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-11-phase5c-session-timeline-breadcrumbs-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 ```bash
 pnpm test
@@ -2089,7 +2089,7 @@ pnpm test
 
 Expected: all test files pass with no unhandled errors.
 
-- [ ] **Step 2: Run full build**
+- [x] **Step 2: Run full build**
 
 ```bash
 pnpm build
@@ -2097,7 +2097,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 ```bash
 docker compose config --quiet
@@ -2105,7 +2105,7 @@ docker compose config --quiet
 
 Expected: exit code 0.
 
-- [ ] **Step 4: Run doctor**
+- [x] **Step 4: Run doctor**
 
 If `.env` exists:
 
@@ -2122,11 +2122,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code 0. API reachability warnings are acceptable if no local API is running.
 
-- [ ] **Step 5: Mark plan complete**
+- [x] **Step 5: Mark plan complete**
 
 Update this plan file so completed verification and integration checkboxes are checked.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-11-phase5c-session-timeline-breadcrumbs-implementation.md

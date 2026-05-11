@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import {
+  createBreadcrumbSignal,
   createErrorSignal,
   createEventSignal,
   createLlmSignal,
@@ -11,6 +12,7 @@ import { sendSignal } from "./retry.js";
 import { enforcePayloadSize, sanitizePayload } from "./sanitize.js";
 import type {
   ActiveTrace,
+  BreadcrumbInput,
   EndTraceInput,
   ErrorInput,
   FlushOptions,
@@ -235,6 +237,10 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
 
     captureError(error: unknown, input?: ErrorInput): void {
       enqueue(createErrorSignal(error, input, defaultContext));
+    },
+
+    breadcrumb(input: BreadcrumbInput, context?: SignalContext): void {
+      enqueue(createBreadcrumbSignal(input, context, defaultContext));
     },
 
     llm(input: LlmInput, context?: SignalContext): void {

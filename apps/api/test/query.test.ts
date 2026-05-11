@@ -833,6 +833,198 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "error_not_found" });
   });
 
+  it("returns a session timeline for logged-in users", async () => {
+    const timeline = {
+      sessionId: "sess_1",
+      scope: { projectId: "prj_1", environmentId: "env_1" },
+      range: { from: "2026-05-11T11:50:00.000Z", to: "2026-05-11T12:02:00.000Z" },
+      items: [{ id: "brd_1", type: "breadcrumb", timestamp: "2026-05-11T12:00:00.000Z", title: "Clicked Pay" }],
+      page: { nextCursor: null, previousCursor: null }
+    };
+    const getSessionTimeline = vi.fn(async () => timeline);
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: { getSessionTimeline }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1" +
+        "&center=2026-05-11T12%3A00%3A00.000Z&before=600&after=120&types=breadcrumb,error&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: timeline });
+    expect(getSessionTimeline).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      sessionId: "sess_1",
+      center: new Date("2026-05-11T12:00:00.000Z"),
+      beforeMs: 600_000,
+      afterMs: 120_000,
+      types: ["breadcrumb", "error"],
+      limit: 25
+    });
+  });
+
+  it("forwards optional session timeline filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSessionTimeline: async (filters) => {
+          receivedFilters.push(filters);
+          return { sessionId: "sess/1", items: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        `/query/sessions/${encodeURIComponent("sess/1")}/timeline?project_id=prj_1&environment_id=env_1` +
+        "&tenant_id=ten_1&user_id=user_1&from=2026-05-11T11%3A00%3A00.000Z&to=2026-05-11T12%3A00%3A00.000Z" +
+        "&limit=900"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        sessionId: "sess/1",
+        tenantId: "ten_1",
+        userId: "user_1",
+        from: new Date("2026-05-11T11:00:00.000Z"),
+        to: new Date("2026-05-11T12:00:00.000Z"),
+        limit: 500
+      }
+    ]);
+  });
+
+  it("flattens repeated session timeline type lists", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSessionTimeline: async (filters) => {
+          receivedFilters.push(filters);
+          return { sessionId: "sess_1", items: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1" +
+        "&types=breadcrumb,error&types=trace"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        sessionId: "sess_1",
+        types: ["breadcrumb", "error", "trace"],
+        limit: 50
+      }
+    ]);
+  });
+
+  it.each([
+    "/query/sessions/sess_1/timeline?project_id=prj_1",
+    "/query/sessions/%20/timeline?project_id=prj_1&environment_id=env_1",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&from=yesterday",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&to=tomorrow",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&center=soon",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&before=-1",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&before=1&before=-1",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&after=-1",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&after=1&after=-1",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&types=breadcrumb,metric",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&types=breadcrumb&types=metric"
+  ])("rejects invalid session timeline query %s", async (url) => {
+    const getSessionTimeline = vi.fn(async () => ({ sessionId: "sess_1", items: [] }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: { getSessionTimeline }
+    });
+
+    const response = await app.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+    expect(getSessionTimeline).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 for unauthenticated session timeline queries", async () => {
+    app = await buildApp({
+      readiness,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null
+      },
+      query: {
+        getSessionTimeline: async () => ({ sessionId: "sess_1", items: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "unauthenticated" });
+  });
+
+  it("returns 501 when session timeline query dependency is missing", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {}
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "query_method_unavailable" });
+  });
+
+  it("returns 503 when session timeline query dependency throws", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSessionTimeline: async () => {
+          throw new Error("database down");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "query_unavailable" });
+  });
+
   it("rejects invalid date filters", async () => {
     app = await buildApp({
       readiness,

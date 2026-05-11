@@ -33,6 +33,7 @@
 - `apps/api`: Fastify application, routes, startup wiring.
 - `apps/worker`: telemetry worker process.
 - `packages/sdk`: TypeScript SDK for sending telemetry to the existing ingestion API.
+- The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb` and optional browser breadcrumb helpers. No new runtime dependency is required for Phase 5C.
 - `packages/config`: environment parsing and validation.
 - `packages/db`: Kysely client, schema, migrations, repositories.
 - `packages/queues`: BullMQ queue creation and enqueue helpers.

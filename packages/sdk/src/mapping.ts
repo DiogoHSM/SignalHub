@@ -1,4 +1,5 @@
 import type {
+  BreadcrumbInput,
   ErrorInput,
   EventInput,
   LlmInput,
@@ -89,6 +90,28 @@ export function createErrorSignal(
   return {
     kind: "error",
     endpointPath: "/v1/errors",
+    payload
+  };
+}
+
+export function createBreadcrumbSignal(
+  input: BreadcrumbInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    type: input.type,
+    message: input.message,
+    data: input.data ?? {}
+  };
+
+  assignDefined(payload, "category", input.category);
+  assignDefined(payload, "level", input.level);
+
+  return {
+    kind: "breadcrumb",
+    endpointPath: "/v1/breadcrumbs",
     payload
   };
 }

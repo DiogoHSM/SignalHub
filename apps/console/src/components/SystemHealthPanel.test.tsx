@@ -52,7 +52,8 @@ function client(getSystemHealth: ApiClient["getSystemHealth"]): ApiClient {
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
     getErrorGroup: vi.fn(),
-    updateErrorGroupStatus: vi.fn()
+    updateErrorGroupStatus: vi.fn(),
+    getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } })
   } satisfies ApiClient;
 }
 
@@ -84,10 +85,10 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
         status: "success",
         startedAt: "2026-05-06T10:00:00.000Z",
         finishedAt: "2026-05-06T10:00:05.000Z",
-        deleted: { events: 10, errors: 1, traces: 3, spans: 8, llmCalls: 2 },
+        deleted: { events: 10, errors: 1, traces: 3, spans: 8, llmCalls: 2, breadcrumbs: 4 },
         errorMessage: null
       },
-      policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+      policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
     },
     backups: {
       enabled: true,
@@ -136,8 +137,10 @@ describe("SystemHealthPanel", () => {
     const retentionCard = screen.getByRole("heading", { name: "Retention" }).closest("article");
     expect(retentionCard).not.toBeNull();
     expect(within(retentionCard as HTMLElement).getByText("Enabled")).toBeInTheDocument();
-    expect(screen.getByText("events 90d")).toBeInTheDocument();
-    expect(screen.getByText("success")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("events 90d")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("breadcrumbs 30d")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("success")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText(/breadcrumbs 4/)).toBeInTheDocument();
   });
 
   it("renders backup status without local paths or credentials", async () => {

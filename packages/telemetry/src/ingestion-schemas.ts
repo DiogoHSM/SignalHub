@@ -85,8 +85,17 @@ export const spanPayloadSchema = sharedEnvelopeSchema.extend({
   cost_usd: z.number().nonnegative().optional()
 });
 
+export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
+  type: z.enum(["navigation", "click", "console", "network", "custom"]),
+  category: shortTextSchema.optional(),
+  message: mediumTextSchema,
+  level: z.enum(["debug", "info", "warning", "error", "fatal"]).default("info"),
+  data: jsonObjectSchema
+});
+
 export type EventPayload = z.infer<typeof eventPayloadSchema>;
 export type ErrorPayload = z.infer<typeof errorPayloadSchema>;
 export type LlmCallPayload = z.infer<typeof llmCallPayloadSchema>;
 export type TracePayload = z.infer<typeof tracePayloadSchema>;
 export type SpanPayload = z.infer<typeof spanPayloadSchema>;
+export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;

@@ -72,7 +72,8 @@ describe("loadConfig", () => {
       errorsDays: 180,
       tracesDays: 90,
       spansDays: 90,
-      llmCallsDays: 180
+      llmCallsDays: 180,
+      breadcrumbsDays: 30
     });
   });
 
@@ -97,8 +98,17 @@ describe("loadConfig", () => {
       errorsDays: 60,
       tracesDays: 30,
       spansDays: 15,
-      llmCallsDays: 120
+      llmCallsDays: 120,
+      breadcrumbsDays: 30
     });
+  });
+
+  it("loads breadcrumb retention config with defaults and overrides", () => {
+    const defaults = loadConfig(baseEnv());
+    expect(defaults.retention.breadcrumbsDays).toBe(30);
+
+    const custom = loadConfig({ ...baseEnv(), RETENTION_BREADCRUMBS_DAYS: "14" });
+    expect(custom.retention.breadcrumbsDays).toBe(14);
   });
 
   it.each(["RETENTION_INTERVAL_MINUTES", "RETENTION_BATCH_SIZE", "RETENTION_EVENTS_DAYS"] as const)(

@@ -55,6 +55,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
     getErrorGroup: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
+    getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
     listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
     uploadSourceMap: vi.fn(),
     uploadSourceMapBundle: vi.fn(),
@@ -182,7 +183,7 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
       enabled: true,
       intervalMinutes: 60,
       lastRun: null,
-      policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+      policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
     },
     backups: {
       enabled: true,

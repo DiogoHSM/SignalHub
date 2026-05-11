@@ -179,6 +179,77 @@ describe("createApiClient", () => {
     );
   });
 
+  it("gets a session timeline with scoped filters", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { data: { sessionId: "sess_1", items: [], page: { nextCursor: null, previousCursor: null } } })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.getSessionTimeline("sess/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      center: "2026-05-11T12:00:00.000Z",
+      beforeSeconds: 600,
+      afterSeconds: 120,
+      types: ["breadcrumb", "error"],
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/sessions/sess%2F1/timeline?project_id=prj%2F1&environment_id=env+1&center=2026-05-11T12%3A00%3A00.000Z&before=600&after=120&types=breadcrumb%2Cerror&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("gets a session timeline with optional filters and serialized Date values", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { data: { sessionId: "sess_1", items: [], page: { nextCursor: null, previousCursor: null } } })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getSessionTimeline("sess_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      tenantId: "tenant/1",
+      userId: "user 1",
+      from: new Date("2026-05-11T11:50:00.000Z"),
+      to: new Date("2026-05-11T12:10:00.000Z"),
+      center: new Date("2026-05-11T12:00:00.000Z")
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&tenant_id=tenant%2F1&user_id=user+1&from=2026-05-11T11%3A50%3A00.000Z&to=2026-05-11T12%3A10%3A00.000Z&center=2026-05-11T12%3A00%3A00.000Z",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("does not encode unsupported session timeline cursors", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { data: { sessionId: "sess_1", items: [], page: { nextCursor: null, previousCursor: null } } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryWithUnsupportedCursor = {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      cursor: "cursor_1"
+    };
+
+    await createApiClient("/api").getSessionTimeline("sess_1", queryWithUnsupportedCursor);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes LLM call query filters", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);
@@ -272,7 +343,7 @@ describe("createApiClient", () => {
               enabled: true,
               intervalMinutes: 60,
               lastRun: null,
-              policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 }
+              policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
             },
             backups: {
               enabled: true,

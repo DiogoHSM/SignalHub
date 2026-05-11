@@ -1,6 +1,7 @@
 import type { TelemetryJobKind, TelemetryJobPayload } from "@signal-hub/queues";
 import { createId } from "@signal-hub/telemetry/ids";
 import {
+  breadcrumbPayloadSchema,
   errorPayloadSchema,
   eventPayloadSchema,
   llmCallPayloadSchema,
@@ -32,7 +33,8 @@ const ingestionRoutes: IngestionRouteConfig[] = [
   { path: "/v1/errors", kind: "error", idPrefix: "err", schema: errorPayloadSchema },
   { path: "/v1/llm", kind: "llm", idPrefix: "llm", schema: llmCallPayloadSchema },
   { path: "/v1/traces", kind: "trace", idPrefix: "trc", schema: tracePayloadSchema },
-  { path: "/v1/spans", kind: "span", idPrefix: "spn", schema: spanPayloadSchema }
+  { path: "/v1/spans", kind: "span", idPrefix: "spn", schema: spanPayloadSchema },
+  { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ];
 
 function parseBearerToken(request: FastifyRequest): string | undefined {

@@ -26,7 +26,8 @@ function createWriter(): TelemetryWriter {
     insertError: vi.fn(async () => undefined),
     insertLlmCall: vi.fn(async () => undefined),
     insertTrace: vi.fn(async () => undefined),
-    insertSpan: vi.fn(async () => undefined)
+    insertSpan: vi.fn(async () => undefined),
+    insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
 
@@ -322,6 +323,42 @@ describe("processTelemetryJob", () => {
       })
     );
   });
+
+  it("persists sanitized breadcrumb jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "breadcrumb",
+      id: "brd_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        session_id: "sess_1",
+        type: "console",
+        category: "browser",
+        message: "Failed password=secret",
+        level: "error",
+        data: { token: "abc", nested: { authorization: "Bearer secret" } }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "brd_1",
+        sessionId: "sess_1",
+        type: "console",
+        category: "browser",
+        message: "Failed password=[REDACTED]",
+        level: "error",
+        data: {
+          token: "[REDACTED]",
+          nested: { authorization: "[REDACTED]" }
+        }
+      })
+    );
+  });
 });
 
 describe("backfillErrorGroupsUntilDrained", () => {
@@ -449,11 +486,12 @@ describe("runRetentionOnce", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       },
       withLock: async (run) => {
         const result = await run({
-          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 })
+          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 })
         });
         calls.push("released");
         return { locked: true, result };
@@ -477,7 +515,8 @@ describe("runRetentionOnce", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       },
       withLock: async () => ({ locked: false }),
       recordRetentionRun: async () => {
@@ -497,7 +536,8 @@ describe("runRetentionOnce", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       },
       withLock: async (run) => {
         try {
@@ -516,7 +556,7 @@ describe("runRetentionOnce", () => {
       recordRetentionRun: async (input) => {
         expect(input.status).toBe("failed");
         expect(input.errorMessage).toBe("authorization: [REDACTED]");
-        expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0 });
+        expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0, breadcrumbs: 0 });
         calls.push("recorded");
       }
     });
@@ -537,24 +577,25 @@ describe("runRetentionOnce", () => {
           errorsDays: 180,
           tracesDays: 90,
           spansDays: 90,
-          llmCallsDays: 180
-      },
-      withLock: async (run) => {
-        try {
-          const result = await run({
-            deleteExpiredTelemetry: async () => {
-              calls.push("deleted");
-              return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
-            }
-          });
-          return { locked: true, result };
-        } finally {
-          calls.push("released");
-        }
-      },
-      recordRetentionRun: async (input) => {
-        calls.push(`recorded:${input.status}:${input.deleted.events}`);
-        throw recordError;
+          llmCallsDays: 180,
+          breadcrumbsDays: 30
+        },
+        withLock: async (run) => {
+          try {
+            const result = await run({
+              deleteExpiredTelemetry: async () => {
+                calls.push("deleted");
+                return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 };
+              }
+            });
+            return { locked: true, result };
+          } finally {
+            calls.push("released");
+          }
+        },
+        recordRetentionRun: async (input) => {
+          calls.push(`recorded:${input.status}:${input.deleted.events}`);
+          throw recordError;
         }
       })
     ).rejects.toThrow(recordError);

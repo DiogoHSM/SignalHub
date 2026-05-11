@@ -15,6 +15,7 @@ export type RetentionPolicy = {
   tracesDays: number;
   spansDays: number;
   llmCallsDays: number;
+  breadcrumbsDays: number;
 };
 
 export type RetentionExecutionOptions = RetentionPolicy & {
@@ -29,6 +30,7 @@ export type RetentionDeletedCounts = {
   traces: number;
   spans: number;
   llmCalls: number;
+  breadcrumbs: number;
 };
 
 export type RetentionRunRecord = {
@@ -53,14 +55,16 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       errors: row.deleted_errors,
       traces: row.deleted_traces,
       spans: row.deleted_spans,
-      llmCalls: row.deleted_llm_calls
+      llmCalls: row.deleted_llm_calls,
+      breadcrumbs: row.deleted_breadcrumbs
     },
     policy: {
       eventsDays: row.events_days,
       errorsDays: row.errors_days,
       tracesDays: row.traces_days,
       spansDays: row.spans_days,
-      llmCallsDays: row.llm_calls_days
+      llmCallsDays: row.llm_calls_days,
+      breadcrumbsDays: row.breadcrumbs_days
     }
   };
 }
@@ -171,7 +175,14 @@ export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExe
     errors: await deleteExpiredBatchesFromTable(db, "errors", cutoff(options.errorsDays), options.batchSize, maxBatches),
     traces: await deleteExpiredBatchesFromTable(db, "traces", cutoff(options.tracesDays), options.batchSize, maxBatches),
     spans: await deleteExpiredBatchesFromTable(db, "spans", cutoff(options.spansDays), options.batchSize, maxBatches),
-    llmCalls: await deleteExpiredBatchesFromTable(db, "llm_calls", cutoff(options.llmCallsDays), options.batchSize, maxBatches)
+    llmCalls: await deleteExpiredBatchesFromTable(db, "llm_calls", cutoff(options.llmCallsDays), options.batchSize, maxBatches),
+    breadcrumbs: await deleteExpiredBatchesFromTable(
+      db,
+      "breadcrumbs",
+      cutoff(options.breadcrumbsDays),
+      options.batchSize,
+      maxBatches
+    )
   };
 }
 
@@ -198,11 +209,13 @@ export async function recordRetentionRun(
       deleted_traces: input.deleted.traces,
       deleted_spans: input.deleted.spans,
       deleted_llm_calls: input.deleted.llmCalls,
+      deleted_breadcrumbs: input.deleted.breadcrumbs,
       events_days: input.policy.eventsDays,
       errors_days: input.policy.errorsDays,
       traces_days: input.policy.tracesDays,
       spans_days: input.policy.spansDays,
-      llm_calls_days: input.policy.llmCallsDays
+      llm_calls_days: input.policy.llmCallsDays,
+      breadcrumbs_days: input.policy.breadcrumbsDays
     })
     .returningAll()
     .executeTakeFirstOrThrow();

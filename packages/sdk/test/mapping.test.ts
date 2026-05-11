@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createBreadcrumbSignal,
   createErrorSignal,
   createEventSignal,
   createLlmSignal,
@@ -78,6 +79,34 @@ describe("payload mapping", () => {
         session_id: "session_1",
         trace_id: "trace_1",
         metadata: {}
+      }
+    });
+  });
+
+  it("creates breadcrumb signals with merged context", () => {
+    expect(
+      createBreadcrumbSignal(
+        {
+          type: "custom",
+          category: "checkout",
+          message: "Selected shipping",
+          data: { method: "standard" }
+        },
+        { sessionId: "sess_1" },
+        { tenantId: "tenant_1", source: "web" }
+      )
+    ).toEqual({
+      kind: "breadcrumb",
+      endpointPath: "/v1/breadcrumbs",
+      payload: {
+        metadata: {},
+        tenant_id: "tenant_1",
+        session_id: "sess_1",
+        source: "web",
+        type: "custom",
+        category: "checkout",
+        message: "Selected shipping",
+        data: { method: "standard" }
       }
     });
   });

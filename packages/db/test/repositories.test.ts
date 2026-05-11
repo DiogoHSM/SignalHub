@@ -43,7 +43,14 @@ import {
   listUsers,
   updateUser
 } from "../src/repositories/users.js";
-import { insertError, insertEvent, insertLlmCall, insertSpan, insertTrace } from "../src/repositories/telemetry-writes.js";
+import {
+  insertBreadcrumb,
+  insertError,
+  insertEvent,
+  insertLlmCall,
+  insertSpan,
+  insertTrace
+} from "../src/repositories/telemetry-writes.js";
 import {
   getErrorAggregates,
   getEventAggregates,
@@ -56,6 +63,7 @@ import {
   listTraceSpans,
   listTraces
 } from "../src/repositories/telemetry-query.js";
+import { getSessionTimeline } from "../src/repositories/session-timeline.js";
 import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
 import {
   deleteExpiredTelemetry,
@@ -217,6 +225,112 @@ describe("repositories", () => {
 
       await sql`select id, release, minified_file from source_map_artifacts limit 0`.execute(db);
       await sql`select error_id, frame_index, original_source from error_stack_resolutions limit 0`.execute(db);
+    });
+  });
+
+  it("runs breadcrumb migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, type, category, message, level, data from breadcrumbs limit 0`.execute(db);
+      await sql`select deleted_breadcrumbs, breadcrumbs_days from retention_runs limit 0`.execute(db);
+    });
+  });
+
+  it("prevents breadcrumbs from referencing an environment in another project", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const firstProject = await createProject(db, { name: "Breadcrumb Scope A" });
+      const firstEnvironment = await createEnvironment(db, { projectId: firstProject.id, name: "production" });
+      const secondProject = await createProject(db, { name: "Breadcrumb Scope B" });
+      const secondEnvironment = await createEnvironment(db, { projectId: secondProject.id, name: "production" });
+
+      await sql`
+        insert into breadcrumbs (
+          id,
+          project_id,
+          environment_id,
+          timestamp,
+          type,
+          message
+        )
+        values (
+          'brd_valid_scope',
+          ${firstProject.id},
+          ${firstEnvironment.id},
+          '2026-05-10T12:00:00.000Z',
+          'custom',
+          'Valid scope'
+        )
+      `.execute(db);
+
+      await expect(
+        sql`
+          insert into breadcrumbs (
+            id,
+            project_id,
+            environment_id,
+            timestamp,
+            type,
+            message
+          )
+          values (
+            'brd_cross_scope',
+            ${firstProject.id},
+            ${secondEnvironment.id},
+            '2026-05-10T12:01:00.000Z',
+            'custom',
+            'Invalid scope'
+          )
+        `.execute(db)
+      ).rejects.toThrow();
+    });
+  });
+
+  it("persists breadcrumbs through the telemetry write repository", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Breadcrumb Writes" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertBreadcrumb(db, {
+        id: "brd_repository",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        traceId: "trc_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:01.000Z"),
+        source: "sdk-js",
+        release: "1.2.3",
+        metadata: { page: "checkout" },
+        type: "navigation",
+        category: "route",
+        message: "Navigated to /checkout",
+        level: "info",
+        data: { from: "/cart", to: "/checkout" }
+      });
+
+      const row = await db
+        .selectFrom("breadcrumbs")
+        .select(["id", "session_id", "trace_id", "type", "category", "message", "level", "data"])
+        .where("id", "=", "brd_repository")
+        .executeTakeFirstOrThrow();
+
+      expect(row).toMatchObject({
+        id: "brd_repository",
+        session_id: "sess_1",
+        trace_id: "trc_1",
+        type: "navigation",
+        category: "route",
+        message: "Navigated to /checkout",
+        level: "info",
+        data: { from: "/cart", to: "/checkout" }
+      });
     });
   });
 
@@ -1893,8 +2007,15 @@ describe("repositories", () => {
 
       const startedAt = new Date("2026-05-06T12:00:00.000Z");
       const finishedAt = new Date("2026-05-06T12:00:05.000Z");
-      const deleted = { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5 };
-      const policy = { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180 };
+      const deleted = { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 };
+      const policy = {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
+      };
 
       const run = await recordRetentionRun(db, {
         startedAt,
@@ -2043,7 +2164,8 @@ describe("repositories", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       });
 
       expect(deleted).toEqual({
@@ -2051,7 +2173,8 @@ describe("repositories", () => {
         errors: 1,
         traces: 1,
         spans: 1,
-        llmCalls: 1
+        llmCalls: 1,
+        breadcrumbs: 0
       });
 
       const filters = { projectId: project.id, environmentId: environment.id, limit: 10 };
@@ -2064,6 +2187,59 @@ describe("repositories", () => {
       await expect(listLlmCalls(db, filters)).resolves.toEqual([
         expect.objectContaining({ id: "llm_fresh_retention" })
       ]);
+    });
+  });
+
+  it("deletes expired breadcrumbs during retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Breadcrumb Retention Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertBreadcrumb(db, {
+        id: "brd_old",
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "sess_1",
+        timestamp: new Date("2026-04-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-04-01T00:00:00.000Z"),
+        type: "custom",
+        message: "old",
+        level: "info",
+        data: {}
+      });
+      await insertBreadcrumb(db, {
+        id: "brd_new",
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-10T00:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T00:00:00.000Z"),
+        type: "custom",
+        message: "new",
+        level: "info",
+        data: {}
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        now: new Date("2026-05-11T00:00:00.000Z"),
+        batchSize: 100,
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
+      });
+
+      expect(deleted.breadcrumbs).toBe(1);
+      await expect(
+        db.selectFrom("breadcrumbs").select("id").where("id", "=", "brd_old").executeTakeFirst()
+      ).resolves.toBeUndefined();
+      await expect(
+        db.selectFrom("breadcrumbs").select("id").where("id", "=", "brd_new").executeTakeFirst()
+      ).resolves.toBeTruthy();
     });
   });
 
@@ -2101,7 +2277,8 @@ describe("repositories", () => {
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
-        llmCallsDays: 180
+        llmCallsDays: 180,
+        breadcrumbsDays: 30
       });
 
       expect(deleted.events).toBe(1);
@@ -2387,6 +2564,249 @@ describe("repositories", () => {
       await expect(getErrorAggregates(db, filters)).resolves.toMatchObject({ total: 1, open: 1 });
       await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({ totalCalls: 1, totalInputTokens: 3 });
       await expect(getTraceAggregates(db, filters)).resolves.toMatchObject({ total: 1, averageDurationMs: 20 });
+    });
+  });
+
+  it("returns a compact mixed session timeline around a center timestamp", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Session Timeline Mixed" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_timeline",
+        userId: "user_timeline",
+        sessionId: "session_timeline",
+        traceId: "trace_timeline",
+        receivedAt: new Date("2026-05-11T12:00:01.000Z"),
+        source: "browser",
+        release: "1.2.3",
+        metadata: { hidden: "metadata should stay out of item data" }
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_session_timeline",
+        timestamp: new Date("2026-05-11T11:59:00.000Z"),
+        name: "checkout_started",
+        properties: { step: "checkout" }
+      });
+      await insertBreadcrumb(db, {
+        ...base,
+        id: "brd_session_timeline",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        type: "click",
+        category: "button",
+        message: "Clicked Pay",
+        level: "info",
+        data: { tag: "button" }
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_session_timeline",
+        timestamp: new Date("2026-05-11T12:00:30.000Z"),
+        name: "POST /checkout",
+        status: "ok",
+        startedAt: new Date("2026-05-11T12:00:30.000Z"),
+        durationMs: 120
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_session_timeline",
+        timestamp: new Date("2026-05-11T12:00:45.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "risk_check",
+        inputTokens: 10,
+        outputTokens: 20,
+        costUsd: "0.010000",
+        latencyMs: 450,
+        status: "success"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_session_timeline",
+        timestamp: new Date("2026-05-11T12:01:00.000Z"),
+        message: "Payment failed",
+        severity: "error",
+        context: { hidden: "context should stay out of item data" }
+      });
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_outside_timeline",
+        timestamp: new Date("2026-05-11T12:03:00.000Z"),
+        name: "outside_window"
+      });
+
+      const timeline = await getSessionTimeline(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "session_timeline",
+        center: new Date("2026-05-11T12:01:00.000Z"),
+        beforeMs: 2 * 60 * 1000,
+        afterMs: 60 * 1000,
+        limit: 20
+      });
+
+      expect(timeline).toMatchObject({
+        sessionId: "session_timeline",
+        scope: { projectId: project.id, environmentId: environment.id },
+        range: {
+          from: "2026-05-11T11:59:00.000Z",
+          to: "2026-05-11T12:02:00.000Z"
+        },
+        page: { nextCursor: null, previousCursor: null }
+      });
+      expect(timeline.items.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "event:evt_session_timeline",
+        "breadcrumb:brd_session_timeline",
+        "trace:trc_session_timeline",
+        "llm:llm_session_timeline",
+        "error:err_session_timeline"
+      ]);
+      expect(timeline.items[0]).toMatchObject({
+        id: "evt_session_timeline",
+        title: "checkout_started",
+        tenantId: "tenant_timeline",
+        userId: "user_timeline",
+        sessionId: "session_timeline",
+        traceId: "trace_timeline",
+        source: "browser",
+        release: "1.2.3",
+        data: { properties: { step: "checkout" } }
+      });
+      expect(timeline.items[1]).toMatchObject({
+        title: "Clicked Pay",
+        level: "info",
+        data: { breadcrumbType: "click", category: "button", data: { tag: "button" } }
+      });
+      expect(JSON.stringify(timeline.items)).not.toContain("context should stay out");
+      expect(JSON.stringify(timeline.items)).not.toContain("metadata should stay out");
+    });
+  });
+
+  it("keeps session timeline scope filters isolated and excludes spans", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Session Timeline Scope" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnvironment = await createEnvironment(db, { projectId: project.id, name: "staging" });
+      const otherProject = await createProject(db, { name: "Session Timeline Other Scope" });
+      const otherProjectEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_match",
+        userId: "user_match",
+        sessionId: "session_scope",
+        traceId: "trace_scope",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:01.000Z")
+      };
+
+      await insertBreadcrumb(db, {
+        ...base,
+        id: "same_time_brd_scope",
+        type: "custom",
+        message: "Same time breadcrumb",
+        level: "info"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "same_time_evt_scope",
+        name: "same_time_event"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_scope",
+        timestamp: new Date("2026-05-11T12:01:00.000Z"),
+        message: "Scoped error",
+        severity: "error"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_scope",
+        timestamp: new Date("2026-05-11T12:02:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 1,
+        outputTokens: 2,
+        costUsd: "0.001000",
+        status: "success"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_filtered_by_type_scope",
+        timestamp: new Date("2026-05-11T12:03:00.000Z"),
+        name: "filtered trace",
+        status: "ok",
+        startedAt: new Date("2026-05-11T12:03:00.000Z")
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_scope_must_not_return",
+        name: "span excluded",
+        status: "ok",
+        startedAt: new Date("2026-05-11T12:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_project_scope",
+        projectId: otherProject.id,
+        environmentId: otherProjectEnvironment.id,
+        name: "wrong_project"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_environment_scope",
+        environmentId: otherEnvironment.id,
+        name: "wrong_environment"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_session_scope",
+        sessionId: "other_session",
+        name: "wrong_session"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_tenant_scope",
+        tenantId: "tenant_other",
+        name: "wrong_tenant"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_user_scope",
+        userId: "user_other",
+        name: "wrong_user"
+      });
+
+      const timeline = await getSessionTimeline(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "session_scope",
+        tenantId: "tenant_match",
+        userId: "user_match",
+        types: ["breadcrumb", "event", "error", "llm"],
+        from: new Date("2026-05-11T11:59:00.000Z"),
+        to: new Date("2026-05-11T12:05:00.000Z"),
+        limit: 20
+      });
+
+      expect(timeline.items.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "breadcrumb:same_time_brd_scope",
+        "event:same_time_evt_scope",
+        "error:err_scope",
+        "llm:llm_scope"
+      ]);
+      expect(timeline.items.map((item) => item.id)).not.toContain("spn_scope_must_not_return");
+      expect(timeline.items.map((item) => item.id)).not.toContain("trc_filtered_by_type_scope");
+      expect(timeline.items.every((item) => item.tenantId === "tenant_match")).toBe(true);
+      expect(timeline.items.every((item) => item.userId === "user_match")).toBe(true);
     });
   });
 

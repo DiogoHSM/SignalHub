@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -141,6 +141,42 @@ describe("ingestion routes", () => {
         })
       ])
     });
+  });
+
+  it("accepts breadcrumb ingestion", async () => {
+    const enqueue = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/breadcrumbs",
+      headers: { authorization: "Bearer sh_test" },
+      payload: {
+        session_id: "sess_1",
+        type: "custom",
+        category: "checkout",
+        message: "Selected shipping method",
+        level: "info",
+        data: { method: "standard" }
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "breadcrumb",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        payload: expect.objectContaining({ type: "custom", message: "Selected shipping method" })
+      })
+    );
   });
 
   it.each([

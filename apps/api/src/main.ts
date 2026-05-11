@@ -64,6 +64,7 @@ import {
   listTraceSpans,
   listTraces
 } from "@signal-hub/db/repositories/telemetry-query.js";
+import { getSessionTimeline } from "@signal-hub/db/repositories/session-timeline.js";
 import {
   getErrorGroup,
   listErrorGroups,
@@ -182,7 +183,8 @@ const retentionPolicy = {
   errorsDays: config.retention.errorsDays,
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
-  llmCallsDays: config.retention.llmCallsDays
+  llmCallsDays: config.retention.llmCallsDays,
+  breadcrumbsDays: config.retention.breadcrumbsDays
 };
 
 function setSessionCookie(reply: CookieCapableReply, userId: string): void {
@@ -403,6 +405,7 @@ const app = await buildApp({
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),
     listUsersActivity: (filters) => listUsersActivity(db, filters),
     getUserDetail: (userId, filters) => getUserDetail(db, userId, filters),
+    getSessionTimeline: (filters) => getSessionTimeline(db, filters),
     resolveErrorStack: (input) =>
       resolveErrorStackWithSourceMaps({
         ...input,

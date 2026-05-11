@@ -12,6 +12,7 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Postgres storage for operational data and typed telemetry tables.
 - Deterministic error grouping with group status workflow and raw occurrence drilldown.
 - Admin source-map artifact uploads and on-demand production stack resolution.
+- Lightweight breadcrumb ingestion and session context timelines for raw error debugging.
 - Human-session query endpoints for raw telemetry and basic aggregates.
 - JavaScript SDK and raw HTTP integration guide.
 - Integration Console for setup, overview, investigation, alerts, and system health.
@@ -72,6 +73,7 @@ Retention only deletes telemetry rows. Operational metadata, projects, environme
 | Traces | 90 days |
 | Spans | 90 days |
 | LLM calls | 180 days |
+| Breadcrumbs | 30 days |
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
@@ -126,6 +128,23 @@ Admins can upload frontend source-map artifacts from the console `Artifacts` mod
 Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/signalhub/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached frame resolutions for that artifact and removes the local file.
 
 Raw error details resolve production stack frames on demand when the error has a matching release and uploaded map. The console shows original file, line, column, and symbol metadata only. It does not display source code or `sourcesContent`.
+
+## Breadcrumbs and Session Context
+
+SignalHub supports lightweight breadcrumbs for session debugging. Breadcrumbs are structured telemetry records for navigation, safe clicks, console warnings/errors, failed or slow network summaries, and custom application steps.
+
+Manual SDK example:
+
+```ts
+client.breadcrumb({
+  type: "custom",
+  category: "checkout",
+  message: "Selected shipping method",
+  data: { method: "standard" }
+});
+```
+
+Breadcrumbs must not include secrets, raw form values, request bodies, response bodies, cookies, or headers. Browser auto-capture helpers sanitize URLs and element summaries, and network capture is disabled by default.
 
 ## Local Development
 

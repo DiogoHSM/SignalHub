@@ -1,8 +1,12 @@
-import type { ErrorRecord, SourceMapResolution } from "../api/types";
+import type { ErrorRecord, SessionTimelineResponse, SourceMapResolution } from "../api/types";
 import { ErrorSourceMapResolution } from "./ErrorSourceMapResolution";
+import { SessionTimeline } from "./SessionTimeline";
 
 type Props = {
   error?: ErrorRecord;
+  sessionTimeline?: SessionTimelineResponse;
+  isLoadingSessionTimeline?: boolean;
+  sessionTimelineError?: string | null;
   sourceMapResolution?: SourceMapResolution;
   isResolvingSourceMap?: boolean;
 };
@@ -19,7 +23,14 @@ function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-export function ErrorDetailDrawer({ error, sourceMapResolution, isResolvingSourceMap }: Props) {
+export function ErrorDetailDrawer({
+  error,
+  sessionTimeline,
+  isLoadingSessionTimeline,
+  sessionTimelineError,
+  sourceMapResolution,
+  isResolvingSourceMap
+}: Props) {
   if (!error) {
     return (
       <aside className="detail-drawer">
@@ -78,6 +89,14 @@ export function ErrorDetailDrawer({ error, sourceMapResolution, isResolvingSourc
         </pre>
       </section>
       <ErrorSourceMapResolution resolution={sourceMapResolution} isLoading={isResolvingSourceMap} />
+      {error.sessionId ? (
+        <SessionTimeline
+          error={sessionTimelineError}
+          highlightedErrorId={error.id}
+          isLoading={Boolean(isLoadingSessionTimeline)}
+          timeline={sessionTimeline}
+        />
+      ) : null}
       <section className="json-section">
         <h3>Context JSON</h3>
         <pre>

@@ -22,6 +22,8 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  SessionTimelineQuery,
+  SessionTimelineResponse,
   SourceMapArtifact,
   SourceMapArtifactQuery,
   SourceMapResolution,
@@ -98,6 +100,10 @@ export type SourceMapApiClient = {
   ) => Promise<SourceMapResolution>;
 };
 
+export type SessionTimelineApiClient = {
+  getSessionTimeline: (sessionId: string, query: SessionTimelineQuery) => Promise<AggregateResponse<SessionTimelineResponse>>;
+};
+
 export type ApiClient = {
   getConsoleConfig: () => Promise<ConsoleConfig>;
   getMe: () => Promise<{ user: User }>;
@@ -134,6 +140,7 @@ export type ApiClient = {
   archiveUser: (id: string) => Promise<void>;
 } & AlertApiClient &
   ErrorGroupApiClient &
+  SessionTimelineApiClient &
   Partial<SourceMapApiClient>;
 
 type RequestOptions = {
@@ -394,6 +401,23 @@ function userDetailPath(userId: string, query: UserDetailQuery): string {
   return `/query/users/${encodePathSegment(userId)}?${params.toString()}`;
 }
 
+function sessionTimelinePath(sessionId: string, query: SessionTimelineQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.from) params.set("from", query.from instanceof Date ? query.from.toISOString() : query.from);
+  if (query.to) params.set("to", query.to instanceof Date ? query.to.toISOString() : query.to);
+  if (query.center) params.set("center", query.center instanceof Date ? query.center.toISOString() : query.center);
+  if (query.beforeSeconds !== undefined) params.set("before", String(query.beforeSeconds));
+  if (query.afterSeconds !== undefined) params.set("after", String(query.afterSeconds));
+  if (query.types?.length) params.set("types", query.types.join(","));
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/sessions/${encodePathSegment(sessionId)}/timeline?${params.toString()}`;
+}
+
 function alertRuleListPath(query: AlertRuleListQuery = {}): string {
   const params = new URLSearchParams();
   if (query.projectId) params.set("project_id", query.projectId);
@@ -412,7 +436,7 @@ function alertEventListPath(query: AlertEventListQuery): string {
   return `/alerts/events?${params.toString()}`;
 }
 
-export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & SourceMapApiClient {
+export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & SessionTimelineApiClient & SourceMapApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
@@ -502,6 +526,8 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & S
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
     getErrorAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
+    getSessionTimeline: (sessionId, query) =>
+      request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
     getSystemHealth: () => request<AggregateResponse<SystemHealthResponse>>(path(apiBasePath, "/system/health")),
     listEntityTenants: (query) =>
