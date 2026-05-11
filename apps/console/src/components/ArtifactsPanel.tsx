@@ -32,9 +32,11 @@ function formatTimestamp(value: string): string {
 
 export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
   const currentScopeRef = useRef({ projectId, environmentId });
+  const loadRequestRef = useRef(0);
   const mapFileRef = useRef<HTMLInputElement | null>(null);
   const bundleFileRef = useRef<HTMLInputElement | null>(null);
   const [artifacts, setArtifacts] = useState<SourceMapArtifact[]>([]);
+  const [artifactsScopeKey, setArtifactsScopeKey] = useState<string | null>(null);
   const [releaseFilter, setReleaseFilter] = useState("");
   const [mapRelease, setMapRelease] = useState("");
   const [minifiedFile, setMinifiedFile] = useState("");
@@ -49,18 +51,34 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
 
   currentScopeRef.current = { projectId, environmentId };
 
+  const currentScopeKey = projectId && environmentId ? `${projectId}:${environmentId}` : null;
   const canUseSourceMaps = hasSourceMapClient(client);
   const canUploadMap =
     canUseSourceMaps && Boolean(projectId && environmentId && mapRelease.trim() && minifiedFile.trim() && mapFile) && !isUploadingMap;
   const canUploadBundle =
     canUseSourceMaps && Boolean(projectId && environmentId && bundleRelease.trim() && bundleFile) && !isUploadingBundle;
+  const visibleArtifacts =
+    artifactsScopeKey === currentScopeKey
+      ? artifacts.filter((artifact) => artifact.projectId === projectId && artifact.environmentId === environmentId)
+      : [];
+
+  function isLatestLoad(requestId: number, requestedProjectId: string, requestedEnvironmentId: string): boolean {
+    return (
+      loadRequestRef.current === requestId &&
+      currentScopeRef.current.projectId === requestedProjectId &&
+      currentScopeRef.current.environmentId === requestedEnvironmentId
+    );
+  }
 
   async function loadArtifacts(filter = releaseFilter) {
     if (!projectId || !environmentId || !canUseSourceMaps) return;
     const requestedProjectId = projectId;
     const requestedEnvironmentId = environmentId;
+    const requestedScopeKey = `${requestedProjectId}:${requestedEnvironmentId}`;
+    const requestId = loadRequestRef.current + 1;
     const release = filter.trim();
 
+    loadRequestRef.current = requestId;
     setIsLoading(true);
     setError(null);
     try {
@@ -69,34 +87,29 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
         environmentId: requestedEnvironmentId,
         ...(release ? { release } : {})
       });
-      if (
-        currentScopeRef.current.projectId !== requestedProjectId ||
-        currentScopeRef.current.environmentId !== requestedEnvironmentId
-      ) {
+      if (!isLatestLoad(requestId, requestedProjectId, requestedEnvironmentId)) {
         return;
       }
       setArtifacts(result);
+      setArtifactsScopeKey(requestedScopeKey);
     } catch {
-      if (
-        currentScopeRef.current.projectId !== requestedProjectId ||
-        currentScopeRef.current.environmentId !== requestedEnvironmentId
-      ) {
+      if (!isLatestLoad(requestId, requestedProjectId, requestedEnvironmentId)) {
         return;
       }
       setArtifacts([]);
+      setArtifactsScopeKey(requestedScopeKey);
       setError("Source map artifacts unavailable");
     } finally {
-      if (
-        currentScopeRef.current.projectId === requestedProjectId &&
-        currentScopeRef.current.environmentId === requestedEnvironmentId
-      ) {
+      if (isLatestLoad(requestId, requestedProjectId, requestedEnvironmentId)) {
         setIsLoading(false);
       }
     }
   }
 
   useEffect(() => {
+    loadRequestRef.current += 1;
     setArtifacts([]);
+    setArtifactsScopeKey(null);
     setMapRelease("");
     setMinifiedFile("");
     setMapFile(null);
@@ -211,6 +224,7 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
 
   async function deleteArtifact(artifact: SourceMapArtifact) {
     if (!projectId || !environmentId || !canUseSourceMaps || deletingArtifactId) return;
+    if (artifactsScopeKey !== currentScopeKey || artifact.projectId !== projectId || artifact.environmentId !== environmentId) return;
     const submittedProjectId = projectId;
     const submittedEnvironmentId = environmentId;
 
@@ -285,7 +299,7 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
           <h3>Single map</h3>
           <label>
             Release
-            <input onChange={(event) => setMapRelease(event.target.value)} required value={mapRelease} />
+            <input aria-label="Single map release" onChange={(event) => setMapRelease(event.target.value)} required value={mapRelease} />
           </label>
           <label>
             Minified file
@@ -304,7 +318,7 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
           <h3>Bundle</h3>
           <label>
             Release
-            <input onChange={(event) => setBundleRelease(event.target.value)} required value={bundleRelease} />
+            <input aria-label="Bundle release" onChange={(event) => setBundleRelease(event.target.value)} required value={bundleRelease} />
           </label>
           <label>
             Source map bundle
@@ -338,11 +352,11 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
         </p>
       ) : null}
 
-      {artifacts.length === 0 && !isLoading ? <p className="muted-text">No source maps uploaded.</p> : null}
+      {visibleArtifacts.length === 0 && !isLoading ? <p className="muted-text">No source maps uploaded.</p> : null}
 
-      {artifacts.length > 0 ? (
+      {visibleArtifacts.length > 0 ? (
         <div aria-label="Source map artifacts" className="artifact-list">
-          {artifacts.map((artifact) => (
+          {visibleArtifacts.map((artifact) => (
             <article className="artifact-row" key={artifact.id}>
               <div className="artifact-meta">
                 <strong>{artifact.minifiedFile}</strong>
@@ -354,11 +368,12 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
                 <span>{formatTimestamp(artifact.createdAt)}</span>
               </div>
               <button
+                aria-label={`Delete ${artifact.originalFilename}`}
                 disabled={deletingArtifactId === artifact.id}
                 onClick={() => void deleteArtifact(artifact)}
                 type="button"
               >
-                Delete {artifact.originalFilename}
+                Delete
               </button>
             </article>
           ))}

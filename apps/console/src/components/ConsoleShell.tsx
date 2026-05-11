@@ -251,7 +251,12 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
         </div>
         <div hidden={activeMode !== "artifacts"}>
           {activeMode === "artifacts" ? (
-            <ArtifactsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+            <ArtifactsPanel
+              client={client}
+              environmentId={activeEnvironment?.id}
+              key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}`}
+              projectId={activeProject?.id}
+            />
           ) : null}
         </div>
         <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>

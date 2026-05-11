@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient, SourceMapApiClient } from "../api/client";
@@ -78,6 +78,14 @@ function artifact(overrides: Partial<SourceMapArtifact> = {}): SourceMapArtifact
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -95,7 +103,7 @@ describe("ArtifactsPanel", () => {
 
     await screen.findByText("No source maps uploaded.");
     const mapForm = screen.getByRole("form", { name: "Upload source map" });
-    await userEvent.type(within(mapForm).getByLabelText("Release"), "2026.05.11");
+    await userEvent.type(within(mapForm).getByLabelText("Single map release"), "2026.05.11");
     await userEvent.type(within(mapForm).getByLabelText("Minified file"), "assets/app.min.js");
     await userEvent.upload(within(mapForm).getByLabelText("Source map file"), file);
     await userEvent.click(screen.getByRole("button", { name: "Upload map" }));
@@ -123,7 +131,7 @@ describe("ArtifactsPanel", () => {
 
     await screen.findByText("No source maps uploaded.");
     const bundleForm = screen.getByRole("form", { name: "Upload source map bundle" });
-    await userEvent.type(within(bundleForm).getByLabelText("Release"), "2026.05.11");
+    await userEvent.type(within(bundleForm).getByLabelText("Bundle release"), "2026.05.11");
     await userEvent.upload(screen.getByLabelText("Source map bundle"), file);
     await userEvent.click(screen.getByRole("button", { name: "Upload bundle" }));
 
@@ -147,10 +155,77 @@ describe("ArtifactsPanel", () => {
     render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
     expect(await screen.findByText("assets/app.min.js")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Delete app.min.js.map" }));
+    const deleteButton = screen.getByRole("button", { name: "Delete app.min.js.map" });
+    expect(deleteButton).toHaveTextContent("Delete");
+    await userEvent.click(deleteButton);
 
     await waitFor(() =>
       expect(deleteSourceMapArtifact).toHaveBeenCalledWith("smap_1", { projectId: "prj_1", environmentId: "env_1" })
     );
+  });
+
+  it("keeps the latest same-scope artifact load when earlier requests resolve later", async () => {
+    const firstLoad = deferred<SourceMapArtifact[]>();
+    const secondLoad = deferred<SourceMapArtifact[]>();
+    const listSourceMapArtifacts = vi
+      .fn()
+      .mockReturnValueOnce(firstLoad.promise)
+      .mockReturnValueOnce(secondLoad.promise);
+    const api = client({ listSourceMapArtifacts });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await waitFor(() => expect(listSourceMapArtifacts).toHaveBeenCalledTimes(1));
+    await userEvent.type(screen.getByLabelText("Filter by release"), "release-b{Enter}");
+    await waitFor(() => expect(listSourceMapArtifacts).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      secondLoad.resolve([artifact({ id: "smap_b", minifiedFile: "assets/release-b.min.js", release: "release-b" })]);
+      await secondLoad.promise;
+    });
+
+    expect(await screen.findByText("assets/release-b.min.js")).toBeInTheDocument();
+
+    await act(async () => {
+      firstLoad.resolve([artifact({ id: "smap_a", minifiedFile: "assets/release-a.min.js", release: "release-a" })]);
+      await firstLoad.promise;
+    });
+
+    expect(screen.getByText("assets/release-b.min.js")).toBeInTheDocument();
+    expect(screen.queryByText("assets/release-a.min.js")).not.toBeInTheDocument();
+  });
+
+  it("does not render or delete artifacts outside the current scope", async () => {
+    const deleteSourceMapArtifact = vi.fn().mockResolvedValue(undefined);
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([
+        artifact({
+          id: "smap_old",
+          projectId: "prj_old",
+          environmentId: "env_old",
+          minifiedFile: "assets/old-scope.min.js",
+          originalFilename: "old-scope.min.js.map"
+        })
+      ]),
+      deleteSourceMapArtifact
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_new" projectId="prj_new" />);
+
+    await waitFor(() => expect(api.listSourceMapArtifacts).toHaveBeenCalledWith({ projectId: "prj_new", environmentId: "env_new" }));
+    expect(screen.queryByText("assets/old-scope.min.js")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete old-scope.min.js.map" })).not.toBeInTheDocument();
+    expect(deleteSourceMapArtifact).not.toHaveBeenCalled();
+  });
+
+  it("keeps visible release labels while exposing distinct accessible names", async () => {
+    const api = client({ listSourceMapArtifacts: vi.fn().mockResolvedValue([]) });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await screen.findByText("No source maps uploaded.");
+    expect(screen.getAllByText("Release")).toHaveLength(2);
+    expect(screen.getByLabelText("Single map release")).toBeInTheDocument();
+    expect(screen.getByLabelText("Bundle release")).toBeInTheDocument();
   });
 });
