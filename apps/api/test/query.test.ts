@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { zipSync } from "fflate";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import {
   extractSourceMapsFromZip,
@@ -14,6 +14,12 @@ import {
 } from "../src/source-maps/parser.js";
 import { resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
+
+vi.mock("@signal-hub/db/repositories/source-maps.js", () => ({
+  createSourceMapArtifact: vi.fn(),
+  deleteSourceMapArtifact: vi.fn(),
+  getSourceMapArtifact: vi.fn()
+}));
 
 let app: FastifyInstance | undefined;
 
@@ -164,7 +170,7 @@ describe("source map helpers", () => {
         content: Buffer.from("{}")
       });
 
-      const relativePath = path.relative(localDir, artifact.storagePath);
+      const relativePath = path.relative(await realpath(localDir), artifact.storagePath);
       expect(relativePath).not.toBe("");
       expect(relativePath).not.toBe("..");
       expect(relativePath.startsWith(`..${path.sep}`)).toBe(false);
@@ -566,6 +572,146 @@ describe("query routes", () => {
         limit: 50
       }
     ]);
+  });
+
+  it("returns unresolved source map resolution for an error without a release", async () => {
+    const resolveErrorStack = vi.fn(async () => ({
+      errorId: "err_1",
+      release: null,
+      status: "unresolved" as const,
+      frames: [],
+      unresolvedFrameCount: 0
+    }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        errorId: "err_1",
+        release: null,
+        status: "unresolved",
+        frames: [],
+        unresolvedFrameCount: 0
+      }
+    });
+    expect(resolveErrorStack).toHaveBeenCalledWith({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+  });
+
+  it("returns resolved source map frames from the query dependency", async () => {
+    const resolved = {
+      errorId: "err_1",
+      release: "2026.05.11",
+      status: "resolved" as const,
+      frames: [
+        {
+          sourceMapArtifactId: "smap_1",
+          frameIndex: 0,
+          minifiedFile: "app.min.js",
+          minifiedLine: 10,
+          minifiedColumn: 1234,
+          originalSource: "src/app.ts",
+          originalLine: 42,
+          originalColumn: 4,
+          originalName: "checkout"
+        }
+      ],
+      unresolvedFrameCount: 0
+    };
+    const resolveErrorStack = vi.fn(async () => resolved);
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: resolved });
+    expect(resolveErrorStack).toHaveBeenCalledWith({
+      errorId: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+  });
+
+  it("returns 400 for source map resolution without scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 401 for unauthenticated source map resolution", async () => {
+    app = await buildApp({
+      readiness,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null
+      },
+      query: {
+        resolveErrorStack: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/err_1/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "unauthenticated" });
+  });
+
+  it("returns 404 when an error source map resolution target is not found", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        resolveErrorStack: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/errors/missing/source-map-resolution?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "error_not_found" });
   });
 
   it("rejects invalid date filters", async () => {

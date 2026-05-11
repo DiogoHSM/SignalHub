@@ -209,6 +209,14 @@ export interface ErrorRecord {
   context: unknown;
 }
 
+export type ErrorForSourceMapResolution = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  release: string | null;
+  stack: string | null;
+};
+
 function toError(row: ErrorRow): ErrorRecord {
   return {
     id: row.id,
@@ -233,6 +241,29 @@ function toError(row: ErrorRow): ErrorRecord {
     groupingFingerprint: row.grouping_fingerprint,
     context: row.context
   };
+}
+
+export async function getErrorForSourceMapResolution(
+  db: Db,
+  input: { id: string; projectId: string; environmentId: string }
+): Promise<ErrorForSourceMapResolution | null> {
+  const row = await db
+    .selectFrom("errors")
+    .select(["id", "project_id", "environment_id", "release", "stack"])
+    .where("id", "=", input.id)
+    .where("project_id", "=", input.projectId)
+    .where("environment_id", "=", input.environmentId)
+    .executeTakeFirst();
+
+  return row
+    ? {
+        id: row.id,
+        projectId: row.project_id,
+        environmentId: row.environment_id,
+        release: row.release,
+        stack: row.stack
+      }
+    : null;
 }
 
 export interface LlmCallRecord {

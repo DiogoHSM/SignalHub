@@ -45,9 +45,15 @@ import {
   getIngestionFreshness,
   getLastRetentionRun
 } from "@signal-hub/db/repositories/system.js";
-import { listSourceMapArtifacts } from "@signal-hub/db/repositories/source-maps.js";
+import {
+  findSourceMapArtifactForFrame,
+  getCachedErrorStackResolution,
+  listSourceMapArtifacts,
+  replaceErrorStackResolutions
+} from "@signal-hub/db/repositories/source-maps.js";
 import {
   getErrorAggregates,
+  getErrorForSourceMapResolution,
   getEventAggregates,
   getLlmAggregates,
   getOverview,
@@ -77,9 +83,11 @@ import { buildApp } from "./app.js";
 import type { AuthDependencies, AuthSessionContext, AuthUser, CookieCapableReply } from "./routes/auth.js";
 import {
   deleteSourceMapArtifactAndFile,
+  readSourceMapFile,
   uploadSingleSourceMap,
   uploadSourceMapBundle
 } from "./source-maps/storage.js";
+import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 
 const sessionCookieName = "signalhub_session";
@@ -394,7 +402,21 @@ const app = await buildApp({
     listEntityTenants: (filters) => listEntityTenants(db, filters),
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),
     listUsersActivity: (filters) => listUsersActivity(db, filters),
-    getUserDetail: (userId, filters) => getUserDetail(db, userId, filters)
+    getUserDetail: (userId, filters) => getUserDetail(db, userId, filters),
+    resolveErrorStack: (input) =>
+      resolveErrorStackWithSourceMaps({
+        ...input,
+        getErrorForSourceMapResolution: (scope) =>
+          getErrorForSourceMapResolution(db, {
+            id: scope.errorId,
+            projectId: scope.projectId,
+            environmentId: scope.environmentId
+          }),
+        getCachedErrorStackResolution: (errorId) => getCachedErrorStackResolution(db, errorId),
+        findSourceMapArtifactForFrame: (scope) => findSourceMapArtifactForFrame(db, scope),
+        readSourceMapFile: ({ storagePath }) => readSourceMapFile({ localDir: config.sourceMaps.localDir, storagePath }),
+        replaceErrorStackResolutions: (resolutionInput) => replaceErrorStackResolutions(db, resolutionInput)
+      })
   },
   system: {
     getHealth: () =>
