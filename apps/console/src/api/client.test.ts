@@ -467,12 +467,71 @@ describe("createApiClient", () => {
       environmentId: "env_1",
       severity: "critical",
       status: "open",
-      fingerprint: "fp_checkout_fetch"
+      fingerprint: "fp_checkout_fetch",
+      errorGroupId: "egrp_checkout"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/query/errors?project_id=prj_1&environment_id=env_1&severity=critical&status=open&fingerprint=fp_checkout_fetch",
+      "/query/errors?project_id=prj_1&environment_id=env_1&severity=critical&status=open&fingerprint=fp_checkout_fetch&error_group_id=egrp_checkout",
       expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes error group query filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listErrorGroups({
+      projectId: "prj/1",
+      environmentId: "env 1",
+      tenantId: "tenant/1",
+      userId: "user 1",
+      status: "investigating",
+      severity: "fatal",
+      fingerprint: "fp/checkout",
+      release: "web@1.2.3",
+      from: "2026-05-05T12:00:00.000Z",
+      to: "2026-05-05T13:00:00.000Z",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/error-groups?project_id=prj%2F1&environment_id=env+1&tenant_id=tenant%2F1&user_id=user+1&status=investigating&severity=fatal&fingerprint=fp%2Fcheckout&release=web%401.2.3&from=2026-05-05T12%3A00%3A00.000Z&to=2026-05-05T13%3A00%3A00.000Z&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("gets error group detail with encoded path and scoped query", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "egrp/1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getErrorGroup("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/error-groups/egrp%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("updates error group status with scoped query and status body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "egrp/1", status: "resolved" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").updateErrorGroupStatus("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      status: "resolved"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/error-groups/egrp%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "resolved" })
+      })
     );
   });
 

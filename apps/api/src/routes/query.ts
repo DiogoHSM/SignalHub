@@ -17,6 +17,7 @@ export type QueryFilters = {
   severity?: string;
   status?: string;
   fingerprint?: string;
+  errorGroupId?: string;
   from?: Date;
   to?: Date;
   limit: number;
@@ -88,6 +89,27 @@ export type UserDetailFilters = {
   cursor?: UserCursor;
 };
 
+export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
+
+export type ErrorGroupFilters = {
+  projectId: string;
+  environmentId: string;
+  status?: ErrorGroupStatus;
+  severity?: string;
+  fingerprint?: string;
+  tenantId?: string;
+  userId?: string;
+  release?: string;
+  from?: Date;
+  to?: Date;
+  limit: number;
+};
+
+export type ErrorGroupScope = {
+  projectId: string;
+  environmentId: string;
+};
+
 export type QueryListResult<T = unknown> =
   | T[]
   | {
@@ -110,6 +132,12 @@ export type QueryDependencies = {
   getEntityTenantDetail?: (tenantId: string, filters: EntityTenantDetailFilters) => Promise<unknown>;
   listUsersActivity?: (filters: UserListFilters) => Promise<unknown>;
   getUserDetail?: (userId: string, filters: UserDetailFilters) => Promise<unknown>;
+  listErrorGroups?: (filters: ErrorGroupFilters) => Promise<QueryListResult>;
+  getErrorGroup?: (id: string, filters: ErrorGroupScope) => Promise<unknown | null>;
+  updateErrorGroupStatus?: (
+    id: string,
+    input: ErrorGroupScope & { status: ErrorGroupStatus }
+  ) => Promise<unknown | null>;
 };
 
 export type QueryRouteOptions = {
@@ -120,6 +148,8 @@ export type QueryRouteOptions = {
 const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
 const entityTenantParamsSchema = z.object({ tenantKey: z.string().trim().min(1) });
 const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
+const errorGroupParamsSchema = z.object({ id: z.string().trim().min(1) });
+const errorGroupStatusSchema = z.enum(["open", "investigating", "resolved", "ignored"]);
 
 type RawQuery = Record<string, unknown>;
 
@@ -226,6 +256,7 @@ function parseFilters(
     const severity = optionalNonEmpty(raw, "severity");
     const status = optionalNonEmpty(raw, "status");
     const fingerprint = optionalNonEmpty(raw, "fingerprint");
+    const errorGroupId = optionalNonEmpty(raw, "error_group_id");
 
     if (severity) {
       filters.severity = severity;
@@ -235,6 +266,9 @@ function parseFilters(
     }
     if (fingerprint) {
       filters.fingerprint = fingerprint;
+    }
+    if (errorGroupId) {
+      filters.errorGroupId = errorGroupId;
     }
   }
   if (options.includeLlmFilters) {
@@ -267,6 +301,76 @@ function parseFilters(
   }
 
   return filters;
+}
+
+function parseErrorGroupFilters(query: unknown): ErrorGroupFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const from = parseDate(raw, "from");
+  const to = parseDate(raw, "to");
+  if (from === null || to === null) {
+    return undefined;
+  }
+
+  const status = optionalNonEmpty(raw, "status");
+  if (status && !errorGroupStatusSchema.safeParse(status).success) {
+    return undefined;
+  }
+
+  const filters: ErrorGroupFilters = {
+    projectId,
+    environmentId,
+    limit: parseLimit(raw)
+  };
+
+  const severity = optionalNonEmpty(raw, "severity");
+  const fingerprint = optionalNonEmpty(raw, "fingerprint");
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const userId = optionalNonEmpty(raw, "user_id");
+  const release = optionalNonEmpty(raw, "release");
+
+  if (status) {
+    filters.status = status as ErrorGroupStatus;
+  }
+  if (severity) {
+    filters.severity = severity;
+  }
+  if (fingerprint) {
+    filters.fingerprint = fingerprint;
+  }
+  if (tenantId) {
+    filters.tenantId = tenantId;
+  }
+  if (userId) {
+    filters.userId = userId;
+  }
+  if (release) {
+    filters.release = release;
+  }
+  if (from) {
+    filters.from = from;
+  }
+  if (to) {
+    filters.to = to;
+  }
+
+  return filters;
+}
+
+function parseErrorGroupScope(query: unknown): ErrorGroupScope | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  return { projectId, environmentId };
 }
 
 function parseOverviewFilters(query: unknown): OverviewFilters | undefined {
@@ -773,12 +877,118 @@ async function handleUserDetailRoute(request: FastifyRequest, reply: FastifyRepl
   }
 }
 
+async function handleErrorGroupListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listErrorGroups) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseErrorGroupFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return sendListResult(reply, await options.query.listErrorGroups(filters));
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleErrorGroupDetailRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getErrorGroup) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupScope(request.query);
+  if (!params.success || !scope) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const group = await options.query.getErrorGroup(params.data.id, scope);
+    return group ? reply.send({ data: group }) : reply.status(404).send({ error: "error_group_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listErrors) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const filters = parseFilters(request.query, { includeErrorFilters: true });
+  if (!params.success || !filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+  if (filters.errorGroupId && filters.errorGroupId !== params.data.id) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return sendListResult(reply, await options.query.listErrors({ ...filters, errorGroupId: params.data.id }));
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.updateErrorGroupStatus) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupScope(request.query);
+  const body = z.object({ status: errorGroupStatusSchema }).safeParse(request.body);
+  if (!params.success || !scope || !body.success) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const group = await options.query.updateErrorGroupStatus(params.data.id, {
+      ...scope,
+      status: body.data.status
+    });
+    return group ? reply.send({ data: group }) : reply.status(404).send({ error: "error_group_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));
   app.get("/query/users", (request, reply) => handleUserListRoute(request, reply, options));
   app.get("/query/users/:userKey", (request, reply) => handleUserDetailRoute(request, reply, options));
+  app.get("/query/error-groups", (request, reply) => handleErrorGroupListRoute(request, reply, options));
+  app.get("/query/error-groups/:id/errors", (request, reply) =>
+    handleErrorGroupOccurrencesRoute(request, reply, options)
+  );
+  app.get("/query/error-groups/:id", (request, reply) => handleErrorGroupDetailRoute(request, reply, options));
+  app.patch("/query/error-groups/:id", (request, reply) => handleErrorGroupStatusRoute(request, reply, options));
 
   app.get("/query/events", (request, reply) =>
     handleListRoute(

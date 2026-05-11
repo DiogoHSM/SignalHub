@@ -63,6 +63,10 @@ export function ErrorDetailDrawer({ error }: Props) {
         <dd>{detailValue(error.release)}</dd>
         <dt>Fingerprint</dt>
         <dd>{detailValue(error.fingerprint)}</dd>
+        <dt>Group ID</dt>
+        <dd>{detailValue(error.errorGroupId)}</dd>
+        <dt>Group fingerprint</dt>
+        <dd>{detailValue(error.groupingFingerprint)}</dd>
       </dl>
       <section className="json-section">
         <h3>Stack</h3>

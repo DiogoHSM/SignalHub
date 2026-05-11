@@ -924,7 +924,8 @@ select {
   padding: 7px 10px;
 }
 
-.investigation-tabs button[aria-pressed="true"] {
+.investigation-tabs button[aria-pressed="true"],
+.investigation-tabs button[aria-selected="true"] {
   border-color: #2563eb;
   background: #dbeafe;
   color: #1d4ed8;
@@ -939,6 +940,11 @@ select {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: 16px;
+}
+
+.error-investigation-shell {
+  display: grid;
+  gap: 12px;
 }
 
 .event-panel {
@@ -961,6 +967,13 @@ select {
 }
 
 .event-filters input {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+
+.event-filters select {
   min-height: 34px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -1016,7 +1029,17 @@ select {
     minmax(90px, 0.55fr)
     minmax(130px, 0.9fr)
     minmax(150px, 1fr)
-    repeat(3, minmax(110px, 0.7fr));
+    repeat(4, minmax(110px, 0.7fr));
+}
+
+.error-group-row {
+  grid-template-columns:
+    minmax(220px, 1.5fr)
+    minmax(90px, 0.55fr)
+    minmax(110px, 0.65fr)
+    repeat(3, minmax(115px, 0.75fr))
+    minmax(150px, 1fr)
+    minmax(110px, 0.7fr);
 }
 
 .trace-row {
@@ -1100,6 +1123,44 @@ select {
   border-radius: 8px;
   background: #fff;
   padding: 16px;
+}
+
+.error-group-status-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.error-group-status-form label {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.error-group-status-form select {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+
+.error-group-status-form button {
+  align-self: end;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
+.error-group-status-form button:disabled {
+  background: #94a3b8;
+  cursor: wait;
 }
 
 .detail-grid {

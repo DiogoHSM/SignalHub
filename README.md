@@ -10,6 +10,7 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Zod payload validation and recursive sanitization before persistence.
 - Redis-backed ingestion queue with worker processing.
 - Postgres storage for operational data and typed telemetry tables.
+- Deterministic error grouping with group status workflow and raw occurrence drilldown.
 - Human-session query endpoints for raw telemetry and basic aggregates.
 - JavaScript SDK and raw HTTP integration guide.
 - Integration Console for setup, overview, investigation, alerts, and system health.

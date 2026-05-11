@@ -1,5 +1,5 @@
 export type SignalStatus = "success" | "error" | "pending";
-export type ErrorSeverity = "debug" | "info" | "warning" | "error" | "critical";
+export type ErrorSeverity = "debug" | "info" | "warning" | "error" | "critical" | "fatal";
 
 export type JsonValue =
   | string

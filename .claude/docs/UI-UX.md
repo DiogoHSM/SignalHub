@@ -24,9 +24,11 @@ SignalHub includes an admin-only Integration Console.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.
 - Missing project/environment state should point operators back to Setup.
 - Keep Events and Errors as peer tabs inside `Investigate`.
-- Errors use the same list/detail drawer pattern as Events.
-- Error rows should prioritize severity, status, message, and trace/session context.
-- Error details should show stack, context JSON, metadata JSON, and immutable identifiers.
+- Errors default to raw occurrences when opened from the top-level Investigate tab, and the error workspace also exposes grouped triage as a peer `Groups` view.
+- Grouped Errors use a list/detail layout with filters above the group list, operator-editable group status, occurrence/user/tenant counts, fingerprint context, and a direct raw occurrence drilldown for the selected group.
+- Error group status filters should be constrained to supported workflow statuses: open, investigating, resolved, and ignored.
+- Raw Error rows should prioritize severity, status, message, error group id, and trace/session context.
+- Raw Error details should show stack, context JSON, metadata JSON, error group id, and immutable identifiers.
 - Keep Traces as a peer tab with Events and Errors inside `Investigate`.
 - Traces use the same filter/list/detail pattern, with spans loaded only after trace selection.
 - Trace rows should prioritize name, status, duration, started time, user, tenant, and trace id.

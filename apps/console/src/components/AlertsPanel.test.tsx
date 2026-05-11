@@ -47,6 +47,9 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
+    listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
+    getErrorGroup: vi.fn(),
+    updateErrorGroupStatus: vi.fn(),
     createAlertRule: vi.fn().mockResolvedValue({
       rule: {
         id: "rule_1",

@@ -26,6 +26,7 @@ export interface TelemetryFilters {
   severity?: string;
   status?: string;
   fingerprint?: string;
+  errorGroupId?: string;
   from?: Date;
   to?: Date;
   limit?: number;
@@ -203,6 +204,8 @@ export interface ErrorRecord {
   stack: string | null;
   status: string;
   fingerprint: string | null;
+  errorGroupId: string | null;
+  groupingFingerprint: string | null;
   context: unknown;
 }
 
@@ -226,6 +229,8 @@ function toError(row: ErrorRow): ErrorRecord {
     stack: row.stack,
     status: row.status,
     fingerprint: row.fingerprint,
+    errorGroupId: row.error_group_id,
+    groupingFingerprint: row.grouping_fingerprint,
     context: row.context
   };
 }
@@ -476,6 +481,7 @@ export async function listErrors(db: Db, filters: TelemetryFilters): Promise<Err
   if (filters.severity) query = query.where("severity", "=", filters.severity);
   if (filters.status) query = query.where("status", "=", filters.status);
   if (filters.fingerprint) query = query.where("fingerprint", "=", filters.fingerprint);
+  if (filters.errorGroupId) query = query.where("error_group_id", "=", filters.errorGroupId);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
 

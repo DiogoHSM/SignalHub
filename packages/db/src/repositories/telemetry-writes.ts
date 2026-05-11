@@ -1,4 +1,5 @@
 import type { Db } from "../client.js";
+import { refreshErrorGroupStats, upsertErrorGroupForOccurrence } from "./error-groups.js";
 
 interface TelemetryBaseInput {
   id: string;
@@ -99,19 +100,40 @@ export async function insertEvent(db: Db, input: InsertEventInput): Promise<void
 }
 
 export async function insertError(db: Db, input: InsertErrorInput): Promise<void> {
-  await db
-    .insertInto("errors")
-    .values({
-      ...baseColumns(input),
+  await db.transaction().execute(async (trx) => {
+    const grouping = await upsertErrorGroupForOccurrence(trx, {
+      projectId: input.projectId,
+      environmentId: input.environmentId,
       message: input.message,
-      type: nullable(input.type),
+      type: input.type,
       severity: input.severity,
-      stack: nullable(input.stack),
-      status: input.status ?? "open",
-      fingerprint: nullable(input.fingerprint),
-      context: input.context ?? {}
-    })
-    .execute();
+      stack: input.stack,
+      fingerprint: input.fingerprint,
+      timestamp: input.timestamp,
+      userId: input.userId,
+      tenantId: input.tenantId,
+      release: input.release,
+      errorId: input.id
+    });
+
+    await trx
+      .insertInto("errors")
+      .values({
+        ...baseColumns(input),
+        message: input.message,
+        type: nullable(input.type),
+        severity: input.severity,
+        stack: nullable(input.stack),
+        status: input.status ?? "open",
+        fingerprint: nullable(input.fingerprint),
+        context: input.context ?? {},
+        error_group_id: grouping.groupId,
+        grouping_fingerprint: grouping.fingerprint
+      })
+      .execute();
+
+    await refreshErrorGroupStats(trx, grouping.groupId);
+  });
 }
 
 export async function insertLlmCall(db: Db, input: InsertLlmCallInput): Promise<void> {

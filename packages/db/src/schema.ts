@@ -66,6 +66,32 @@ export interface EventsTable {
   properties: JsonColumn;
 }
 
+export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
+
+export interface ErrorGroupsTable {
+  id: ColumnType<string, string | undefined, string>;
+  project_id: string;
+  environment_id: string;
+  grouping_fingerprint: string;
+  message: string;
+  type: string | null;
+  top_stack_frame: string | null;
+  severity: string;
+  status: ColumnType<ErrorGroupStatus, ErrorGroupStatus | undefined, ErrorGroupStatus>;
+  first_seen_at: Timestamp;
+  last_seen_at: Timestamp;
+  last_regressed_at: NullableTimestamp;
+  occurrence_count: DefaultedInteger;
+  affected_users_count: DefaultedInteger;
+  affected_tenants_count: DefaultedInteger;
+  latest_error_id: string | null;
+  latest_release: string | null;
+  resolved_at: NullableTimestamp;
+  ignored_at: NullableTimestamp;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 export interface ErrorsTable {
   id: string;
   project_id: string;
@@ -86,6 +112,8 @@ export interface ErrorsTable {
   status: ColumnType<string, string | undefined, string>;
   fingerprint: string | null;
   context: JsonColumn;
+  error_group_id: string | null;
+  grouping_fingerprint: string | null;
 }
 
 export interface LlmCallsTable {
@@ -284,6 +312,7 @@ export interface Database {
   environments: EnvironmentsTable;
   api_keys: ApiKeysTable;
   events: EventsTable;
+  error_groups: ErrorGroupsTable;
   errors: ErrorsTable;
   llm_calls: LlmCallsTable;
   traces: TracesTable;

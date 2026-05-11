@@ -4,6 +4,7 @@ import { loadConfig } from "@signal-hub/config";
 import { createDb } from "@signal-hub/db";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
 import { recordBackupRun, withBackupLock } from "@signal-hub/db/repositories/backups.js";
+import { backfillErrorGroups } from "@signal-hub/db/repositories/error-groups.js";
 import {
   insertError,
   insertEvent,
@@ -30,7 +31,12 @@ import {
 import { deliverWebhook, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";
-import { buildDeadLetterJobInput, processTelemetryJob, type TelemetryWriter } from "./telemetry-worker.js";
+import {
+  backfillErrorGroupsUntilDrained,
+  buildDeadLetterJobInput,
+  processTelemetryJob,
+  type TelemetryWriter
+} from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 
 const config = loadConfig();
@@ -54,6 +60,10 @@ const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]
   },
   { connection }
 );
+
+void backfillErrorGroupsUntilDrained((input) => backfillErrorGroups(db, input), 500).catch((error) => {
+  console.error("Error group backfill failed", error);
+});
 
 const stopHeartbeat = startHeartbeat({
   beat: () => upsertHeartbeat(db, { component: "worker", heartbeatAt: new Date() })

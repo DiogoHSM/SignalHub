@@ -89,7 +89,7 @@ Do not modify:
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing migration and fingerprint tests**
+- [x] **Step 1: Add failing migration and fingerprint tests**
 
 In `packages/db/test/repositories.test.ts`, add these imports:
 
@@ -152,7 +152,7 @@ Append these tests near the existing migration tests:
   });
 ```
 
-- [ ] **Step 2: Run repository tests and verify failure**
+- [x] **Step 2: Run repository tests and verify failure**
 
 Run:
 
@@ -162,7 +162,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because `error-groups.ts`, migration registration, schema fields, and tables do not exist.
 
-- [ ] **Step 3: Add error group migration**
+- [x] **Step 3: Add error group migration**
 
 Create `packages/db/migrations/0005_error_groups.sql`:
 
@@ -213,7 +213,7 @@ CREATE INDEX errors_group_time_idx ON errors(error_group_id, timestamp DESC);
 CREATE INDEX errors_grouping_fingerprint_idx ON errors(project_id, environment_id, grouping_fingerprint);
 ```
 
-- [ ] **Step 4: Register migration**
+- [x] **Step 4: Register migration**
 
 In `packages/db/src/migrate.ts`, append the migration to `migrations`:
 
@@ -233,7 +233,7 @@ const migrations = [
 ];
 ```
 
-- [ ] **Step 5: Update schema types**
+- [x] **Step 5: Update schema types**
 
 In `packages/db/src/schema.ts`, add these types above `ErrorsTable`:
 
@@ -278,7 +278,7 @@ Add the table mapping to `Database` before `errors`:
   error_groups: ErrorGroupsTable;
 ```
 
-- [ ] **Step 6: Implement fingerprint helpers**
+- [x] **Step 6: Implement fingerprint helpers**
 
 Create `packages/db/src/repositories/error-groups.ts`:
 
@@ -346,7 +346,7 @@ export function buildErrorGroupingFingerprint(input: ErrorGroupingInput): ErrorG
 }
 ```
 
-- [ ] **Step 7: Run repository tests and verify pass**
+- [x] **Step 7: Run repository tests and verify pass**
 
 Run:
 
@@ -356,7 +356,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass for migration and fingerprint helper tests.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/migrations/0005_error_groups.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/error-groups.ts packages/db/test/repositories.test.ts
@@ -373,7 +373,7 @@ git commit -m "feat: add error group schema and fingerprints"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Add failing repository tests for grouping lifecycle**
+- [x] **Step 1: Add failing repository tests for grouping lifecycle**
 
 In `packages/db/test/repositories.test.ts`, extend the error-groups import:
 
@@ -564,7 +564,7 @@ Append these tests near the telemetry write/query tests:
   });
 ```
 
-- [ ] **Step 2: Run repository tests and verify failure**
+- [x] **Step 2: Run repository tests and verify failure**
 
 Run:
 
@@ -574,7 +574,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because group repositories and grouped insert behavior are not implemented.
 
-- [ ] **Step 3: Implement group repository functions**
+- [x] **Step 3: Implement group repository functions**
 
 In `packages/db/src/repositories/error-groups.ts`, keep the fingerprint helpers and add these exports:
 
@@ -885,7 +885,7 @@ In `backfillErrorGroups`, call the helper immediately after updating the raw err
     await refreshErrorGroupStats(db, grouping.groupId);
 ```
 
-- [ ] **Step 4: Group errors during insert**
+- [x] **Step 4: Group errors during insert**
 
 In `packages/db/src/repositories/telemetry-writes.ts`, import:
 
@@ -939,7 +939,7 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
 }
 ```
 
-- [ ] **Step 5: Run repository tests and verify pass**
+- [x] **Step 5: Run repository tests and verify pass**
 
 Run:
 
@@ -949,7 +949,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: pass for grouping lifecycle, ignored recurrence, and backfill tests.
 
-- [ ] **Step 6: Add worker startup backfill**
+- [x] **Step 6: Add worker startup backfill**
 
 In `apps/worker/src/main.ts`, import:
 
@@ -965,7 +965,7 @@ await backfillErrorGroups(db, { batchSize: 500 });
 
 This ensures existing errors are grouped before the worker processes new jobs.
 
-- [ ] **Step 7: Run worker tests**
+- [x] **Step 7: Run worker tests**
 
 Run:
 
@@ -975,7 +975,7 @@ pnpm --filter @signal-hub/worker test -- telemetry-worker.test.ts
 
 Expected: pass. The worker unit tests should still assert that grouping-relevant error fields are passed to `insertError`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/error-groups.ts packages/db/src/repositories/telemetry-writes.ts packages/db/test/repositories.test.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts
@@ -994,7 +994,7 @@ git commit -m "feat: group error occurrences during persistence"
 - Test: `apps/api/test/query.test.ts`
 - Test: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing tests for raw error group fields and filters**
+- [x] **Step 1: Add failing tests for raw error group fields and filters**
 
 In `packages/db/test/repositories.test.ts`, add an assertion to a raw error query test or append:
 
@@ -1087,7 +1087,7 @@ In `apps/console/src/api/client.test.ts`, update the existing error filter test 
     );
 ```
 
-- [ ] **Step 2: Run focused tests and verify failure**
+- [x] **Step 2: Run focused tests and verify failure**
 
 Run:
 
@@ -1099,7 +1099,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: fail because `errorGroupId` is not exposed or parsed.
 
-- [ ] **Step 3: Add `errorGroupId` to backend filter and raw records**
+- [x] **Step 3: Add `errorGroupId` to backend filter and raw records**
 
 In `packages/db/src/repositories/telemetry-query.ts`, extend `TelemetryFilters`:
 
@@ -1127,7 +1127,7 @@ Update `listErrors`:
   if (filters.errorGroupId) query = query.where("error_group_id", "=", filters.errorGroupId);
 ```
 
-- [ ] **Step 4: Parse and encode `error_group_id`**
+- [x] **Step 4: Parse and encode `error_group_id`**
 
 In `apps/api/src/routes/query.ts`, add `errorGroupId?: string;` to `QueryFilters`.
 
@@ -1160,7 +1160,7 @@ In `apps/console/src/api/client.ts`, inside `queryPath` for `includeErrorFilters
     if (filters.errorGroupId) params.set("error_group_id", filters.errorGroupId);
 ```
 
-- [ ] **Step 5: Run focused tests and verify pass**
+- [x] **Step 5: Run focused tests and verify pass**
 
 Run:
 
@@ -1172,7 +1172,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/db/src/repositories/telemetry-query.ts packages/db/test/repositories.test.ts apps/api/src/routes/query.ts apps/api/test/query.test.ts apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
@@ -1189,7 +1189,7 @@ git commit -m "feat: expose error group raw occurrence filters"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Add failing API tests for group list/detail/status**
+- [x] **Step 1: Add failing API tests for group list/detail/status**
 
 In `apps/api/test/query.test.ts`, append:
 
@@ -1324,7 +1324,7 @@ In `apps/api/test/query.test.ts`, append:
   });
 ```
 
-- [ ] **Step 2: Run API tests and verify failure**
+- [x] **Step 2: Run API tests and verify failure**
 
 Run:
 
@@ -1334,7 +1334,7 @@ pnpm --filter @signal-hub/api test -- query.test.ts
 
 Expected: fail because query dependency types and routes do not exist.
 
-- [ ] **Step 3: Add query route types and parsers**
+- [x] **Step 3: Add query route types and parsers**
 
 In `apps/api/src/routes/query.ts`, import or define:
 
@@ -1422,7 +1422,7 @@ function parseErrorGroupScope(query: unknown): ErrorGroupScope | undefined {
 }
 ```
 
-- [ ] **Step 4: Add route handlers**
+- [x] **Step 4: Add route handlers**
 
 In `apps/api/src/routes/query.ts`, add handlers before `registerQueryRoutes`:
 
@@ -1495,7 +1495,7 @@ Register them before raw `/query/errors`:
   app.patch("/query/error-groups/:id", (request, reply) => handleErrorGroupStatusRoute(request, reply, options));
 ```
 
-- [ ] **Step 5: Wire repositories in API main**
+- [x] **Step 5: Wire repositories in API main**
 
 In `apps/api/src/main.ts`, import:
 
@@ -1515,7 +1515,7 @@ Add to the `query` object:
     updateErrorGroupStatus: (id, input) => updateErrorGroupStatus(db, { id, ...input }),
 ```
 
-- [ ] **Step 6: Run API tests and verify pass**
+- [x] **Step 6: Run API tests and verify pass**
 
 Run:
 
@@ -1525,7 +1525,7 @@ pnpm --filter @signal-hub/api test -- query.test.ts
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/query.ts apps/api/src/main.ts apps/api/test/query.test.ts packages/db/src/repositories/error-groups.ts packages/db/test/repositories.test.ts
@@ -1540,7 +1540,7 @@ git commit -m "feat: add error group query api"
 - Modify: `apps/console/src/api/client.ts`
 - Test: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing console client tests**
+- [x] **Step 1: Add failing console client tests**
 
 In `apps/console/src/api/client.test.ts`, append:
 
@@ -1582,7 +1582,7 @@ In `apps/console/src/api/client.test.ts`, append:
   });
 ```
 
-- [ ] **Step 2: Run console client tests and verify failure**
+- [x] **Step 2: Run console client tests and verify failure**
 
 Run:
 
@@ -1592,7 +1592,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: fail because group client methods and types do not exist.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 In `apps/console/src/api/types.ts`, add:
 
@@ -1644,7 +1644,7 @@ export type UpdateErrorGroupStatusInput = {
 };
 ```
 
-- [ ] **Step 4: Add client methods**
+- [x] **Step 4: Add client methods**
 
 In `apps/console/src/api/client.ts`, import the new types and extend `ApiClient`:
 
@@ -1701,7 +1701,7 @@ Add methods to `createApiClient`:
       }),
 ```
 
-- [ ] **Step 5: Run console client tests and verify pass**
+- [x] **Step 5: Run console client tests and verify pass**
 
 Run:
 
@@ -1711,7 +1711,7 @@ pnpm --filter @signal-hub/console test -- client.test.ts
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
@@ -1734,7 +1734,7 @@ git commit -m "feat: add console error group api client"
 - Modify: `apps/console/src/styles.css`
 - Test: `apps/console/src/components/ErrorInvestigationPanel.test.tsx`
 
-- [ ] **Step 1: Add failing UI tests**
+- [x] **Step 1: Add failing UI tests**
 
 In `apps/console/src/components/ErrorInvestigationPanel.test.tsx`, add tests for the new layout:
 
@@ -1866,7 +1866,7 @@ In `apps/console/src/components/ErrorInvestigationPanel.test.tsx`, add tests for
   });
 ```
 
-- [ ] **Step 2: Run UI tests and verify failure**
+- [x] **Step 2: Run UI tests and verify failure**
 
 Run:
 
@@ -1876,7 +1876,7 @@ pnpm --filter @signal-hub/console test -- ErrorInvestigationPanel.test.tsx
 
 Expected: fail because grouped components and client calls do not exist.
 
-- [ ] **Step 3: Extract raw occurrences panel**
+- [x] **Step 3: Extract raw occurrences panel**
 
 Move the current `ErrorInvestigationPanel` raw list logic into `apps/console/src/components/ErrorRawOccurrencesPanel.tsx`. Export:
 
@@ -1908,7 +1908,7 @@ In raw query construction, include:
   if (errorGroupId) query.errorGroupId = errorGroupId;
 ```
 
-- [ ] **Step 4: Add group filter/list/detail components**
+- [x] **Step 4: Add group filter/list/detail components**
 
 Create `apps/console/src/components/ErrorGroupFilters.tsx`:
 
@@ -2104,7 +2104,7 @@ export function ErrorGroupDetail({ group, onStatusChange, onShowOccurrences }: P
 }
 ```
 
-- [ ] **Step 5: Add grouped panel and tabs**
+- [x] **Step 5: Add grouped panel and tabs**
 
 Create `apps/console/src/components/ErrorGroupsPanel.tsx`:
 
@@ -2248,7 +2248,7 @@ export function ErrorInvestigationPanel({ client, projectId, environmentId, init
 }
 ```
 
-- [ ] **Step 6: Update raw error display**
+- [x] **Step 6: Update raw error display**
 
 In `ErrorList.tsx`, show group id when present:
 
@@ -2265,7 +2265,7 @@ In `ErrorDetailDrawer.tsx`, add:
 <dd>{detailValue(error.groupingFingerprint)}</dd>
 ```
 
-- [ ] **Step 7: Add CSS**
+- [x] **Step 7: Add CSS**
 
 In `apps/console/src/styles.css`, add compact styles:
 
@@ -2293,7 +2293,7 @@ In `apps/console/src/styles.css`, add compact styles:
 
 Use these exact class names in the new JSX so the CSS above applies without selector drift.
 
-- [ ] **Step 8: Run UI tests and verify pass**
+- [x] **Step 8: Run UI tests and verify pass**
 
 Run:
 
@@ -2303,7 +2303,7 @@ pnpm --filter @signal-hub/console test -- ErrorInvestigationPanel.test.tsx Error
 
 Expected: pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/console/src/components/ErrorGroupFilters.tsx apps/console/src/components/ErrorGroupList.tsx apps/console/src/components/ErrorGroupDetail.tsx apps/console/src/components/ErrorGroupsPanel.tsx apps/console/src/components/ErrorRawOccurrencesPanel.tsx apps/console/src/components/ErrorInvestigationPanel.tsx apps/console/src/components/ErrorFilters.tsx apps/console/src/components/ErrorList.tsx apps/console/src/components/ErrorDetailDrawer.tsx apps/console/src/components/ErrorInvestigationPanel.test.tsx apps/console/src/styles.css
@@ -2321,7 +2321,7 @@ git commit -m "feat: add grouped error triage console"
 - Modify: `README.md`
 - Modify: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update project docs**
+- [x] **Step 1: Update project docs**
 
 Apply these documentation changes:
 
@@ -2344,7 +2344,7 @@ Rationale: Raw telemetry must remain auditable. Group status is an operational t
 The Errors investigation view defaults to grouped error issues. Raw occurrences remain available in a peer tab and retain their immutable telemetry fields. Group status is an operator workflow state and does not rewrite raw error rows.
 ```
 
-- [ ] **Step 2: Update memory**
+- [x] **Step 2: Update memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
@@ -2353,14 +2353,14 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 - Approved direction: grouped error issues over immutable raw errors, deterministic fingerprinting with explicit fingerprint precedence, group statuses `open` / `investigating` / `resolved` / `ignored`, resolved-group regression reopening, ignored groups staying ignored, and the console layout `Groups + Raw occurrences`.
 ```
 
-- [ ] **Step 3: Commit SignalHub docs**
+- [x] **Step 3: Commit SignalHub docs**
 
 ```bash
 git add .claude/docs/ARCHITECTURE.md .claude/docs/PROJECT-SUMMARY.md .claude/docs/UI-UX.md .claude/docs/DECISIONS.md README.md
 git commit -m "docs: document grouped error workflow"
 ```
 
-- [ ] **Step 4: Commit memory**
+- [x] **Step 4: Commit memory**
 
 From `/Users/diogo/Developer/Github/claude-config`:
 
@@ -2375,7 +2375,7 @@ git commit -m "docs: update signalhub phase 5a memory"
 
 - Modify: `docs/superpowers/plans/2026-05-10-phase5a-error-groups-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 Run:
 
@@ -2385,7 +2385,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run build**
+- [x] **Step 2: Run build**
 
 Run:
 
@@ -2395,7 +2395,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 Run:
 
@@ -2405,7 +2405,7 @@ docker compose config --quiet
 
 Expected: exit code `0`.
 
-- [ ] **Step 4: Run doctor safe local mode**
+- [x] **Step 4: Run doctor safe local mode**
 
 Run:
 
@@ -2416,11 +2416,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code `0`. API health warnings are acceptable if no local API is running.
 
-- [ ] **Step 5: Mark plan tasks complete**
+- [x] **Step 5: Mark plan tasks complete**
 
 Update this plan file by changing all completed checkboxes from `- [ ]` to `- [x]`.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-10-phase5a-error-groups-implementation.md

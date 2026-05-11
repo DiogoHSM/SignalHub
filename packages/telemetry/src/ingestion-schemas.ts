@@ -43,7 +43,7 @@ export const eventPayloadSchema = sharedEnvelopeSchema.extend({
 export const errorPayloadSchema = sharedEnvelopeSchema.extend({
   message: mediumTextSchema,
   type: mediumTextSchema.optional(),
-  severity: z.enum(["debug", "info", "warning", "error", "critical"]).default("error"),
+  severity: z.enum(["debug", "info", "warning", "error", "critical", "fatal"]).default("error"),
   stack: z.string().max(LONG_TEXT_MAX).optional(),
   fingerprint: mediumTextSchema.optional(),
   context: jsonObjectSchema

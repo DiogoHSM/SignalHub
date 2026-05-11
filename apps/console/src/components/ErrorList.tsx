@@ -41,6 +41,7 @@ export function ErrorList({ errors, selectedErrorId, onSelect }: Props) {
           <span>{error.status}</span>
           <span>{typeLabel(error)}</span>
           <span>{formatTimestamp(error.timestamp)}</span>
+          <span>{label(error.errorGroupId)}</span>
           <span>{label(error.userId)}</span>
           <span>{label(error.tenantId)}</span>
           <span>{contextLabel(error)}</span>

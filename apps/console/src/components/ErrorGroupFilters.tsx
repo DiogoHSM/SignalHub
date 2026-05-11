@@ -1,53 +1,64 @@
 import type { FormEvent } from "react";
+import type { ErrorGroupStatus } from "../api/types";
 
-export type ErrorFilterValues = {
+export type ErrorGroupFilterValues = {
   severity: string;
-  status: string;
+  status: "" | ErrorGroupStatus;
   fingerprint: string;
-  errorGroupId: string;
   tenantId: string;
   userId: string;
-  sessionId: string;
-  traceId: string;
+  release: string;
   from: string;
   to: string;
   limit: string;
 };
 
 type Props = {
-  values: ErrorFilterValues;
-  onChange: (values: ErrorFilterValues) => void;
+  values: ErrorGroupFilterValues;
+  onChange: (values: ErrorGroupFilterValues) => void;
   onApply: () => void;
   onReset: () => void;
 };
 
-function update(values: ErrorFilterValues, key: keyof ErrorFilterValues, value: string): ErrorFilterValues {
+const statusOptions: ErrorGroupStatus[] = ["open", "investigating", "resolved", "ignored"];
+
+function update<K extends keyof ErrorGroupFilterValues>(
+  values: ErrorGroupFilterValues,
+  key: K,
+  value: ErrorGroupFilterValues[K]
+): ErrorGroupFilterValues {
   return { ...values, [key]: value };
 }
 
-export function ErrorFilters({ values, onChange, onApply, onReset }: Props) {
+export function ErrorGroupFilters({ values, onChange, onApply, onReset }: Props) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onApply();
   }
 
   return (
-    <form className="event-filters" onSubmit={submit}>
+    <form className="event-filters error-group-filters" onSubmit={submit}>
       <label>
         Severity
         <input value={values.severity} onChange={(event) => onChange(update(values, "severity", event.target.value))} />
       </label>
       <label>
         Status
-        <input value={values.status} onChange={(event) => onChange(update(values, "status", event.target.value))} />
+        <select
+          value={values.status}
+          onChange={(event) => onChange(update(values, "status", event.target.value as ErrorGroupFilterValues["status"]))}
+        >
+          <option value="">Any</option>
+          {statusOptions.map((status) => (
+            <option key={status} value={status}>
+              {status}
+            </option>
+          ))}
+        </select>
       </label>
       <label>
         Fingerprint
         <input value={values.fingerprint} onChange={(event) => onChange(update(values, "fingerprint", event.target.value))} />
-      </label>
-      <label>
-        Error group
-        <input value={values.errorGroupId} onChange={(event) => onChange(update(values, "errorGroupId", event.target.value))} />
       </label>
       <label>
         Tenant
@@ -58,12 +69,8 @@ export function ErrorFilters({ values, onChange, onApply, onReset }: Props) {
         <input value={values.userId} onChange={(event) => onChange(update(values, "userId", event.target.value))} />
       </label>
       <label>
-        Session
-        <input value={values.sessionId} onChange={(event) => onChange(update(values, "sessionId", event.target.value))} />
-      </label>
-      <label>
-        Trace
-        <input value={values.traceId} onChange={(event) => onChange(update(values, "traceId", event.target.value))} />
+        Release
+        <input value={values.release} onChange={(event) => onChange(update(values, "release", event.target.value))} />
       </label>
       <label>
         From
