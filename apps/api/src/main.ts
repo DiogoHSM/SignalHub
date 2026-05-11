@@ -64,6 +64,7 @@ import {
   listTraceSpans,
   listTraces
 } from "@signal-hub/db/repositories/telemetry-query.js";
+import { getSessionTimeline } from "@signal-hub/db/repositories/session-timeline.js";
 import {
   getErrorGroup,
   listErrorGroups,
@@ -404,6 +405,7 @@ const app = await buildApp({
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),
     listUsersActivity: (filters) => listUsersActivity(db, filters),
     getUserDetail: (userId, filters) => getUserDetail(db, userId, filters),
+    getSessionTimeline: (filters) => getSessionTimeline(db, filters),
     resolveErrorStack: (input) =>
       resolveErrorStackWithSourceMaps({
         ...input,

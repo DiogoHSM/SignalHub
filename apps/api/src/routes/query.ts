@@ -37,6 +37,8 @@ export type EntityWindow = "24h" | "7d" | "30d";
 
 export type EntitySignalType = "event" | "error" | "trace" | "llm";
 
+export type SessionTimelineType = "breadcrumb" | "event" | "error" | "trace" | "llm";
+
 export type EntityCursor = {
   timestamp: string;
   type: EntitySignalType;
@@ -111,6 +113,21 @@ export type ErrorGroupScope = {
   environmentId: string;
 };
 
+export type SessionTimelineFilters = {
+  projectId: string;
+  environmentId: string;
+  sessionId: string;
+  tenantId?: string;
+  userId?: string;
+  from?: Date;
+  to?: Date;
+  center?: Date;
+  beforeMs?: number;
+  afterMs?: number;
+  types?: SessionTimelineType[];
+  limit: number;
+};
+
 export type QueryListResult<T = unknown> =
   | T[]
   | {
@@ -133,6 +150,7 @@ export type QueryDependencies = {
   getEntityTenantDetail?: (tenantId: string, filters: EntityTenantDetailFilters) => Promise<unknown>;
   listUsersActivity?: (filters: UserListFilters) => Promise<unknown>;
   getUserDetail?: (userId: string, filters: UserDetailFilters) => Promise<unknown>;
+  getSessionTimeline?: (filters: SessionTimelineFilters) => Promise<unknown>;
   listErrorGroups?: (filters: ErrorGroupFilters) => Promise<QueryListResult>;
   getErrorGroup?: (id: string, filters: ErrorGroupScope) => Promise<unknown | null>;
   updateErrorGroupStatus?: (
@@ -152,6 +170,7 @@ export type QueryRouteOptions = {
 };
 
 const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
+const sessionParamsSchema = z.object({ sessionId: z.string().trim().min(1) });
 const entityTenantParamsSchema = z.object({ tenantKey: z.string().trim().min(1) });
 const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
 const errorParamsSchema = z.object({ id: z.string().trim().min(1) });
@@ -378,6 +397,103 @@ function parseErrorGroupScope(query: unknown): ErrorGroupScope | undefined {
   }
 
   return { projectId, environmentId };
+}
+
+function parseNonnegativeSeconds(raw: RawQuery, key: string): number | undefined | null {
+  const value = optionalNonEmpty(raw, key);
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return Math.trunc(parsed * 1000);
+}
+
+function isSessionTimelineType(value: unknown): value is SessionTimelineType {
+  return value === "breadcrumb" || value === "event" || value === "error" || value === "trace" || value === "llm";
+}
+
+function parseSessionTimelineTypes(raw: RawQuery): SessionTimelineType[] | undefined | null {
+  const value = optionalNonEmpty(raw, "types");
+  if (!value) {
+    return undefined;
+  }
+
+  const types = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const parsedTypes: SessionTimelineType[] = [];
+  for (const type of types) {
+    if (!isSessionTimelineType(type)) {
+      return null;
+    }
+    parsedTypes.push(type);
+  }
+  if (parsedTypes.length === 0) {
+    return null;
+  }
+
+  return parsedTypes;
+}
+
+function parseSessionTimelineFilters(query: unknown, sessionId: string): SessionTimelineFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const from = parseDate(raw, "from");
+  const to = parseDate(raw, "to");
+  const center = parseDate(raw, "center");
+  const beforeMs = parseNonnegativeSeconds(raw, "before");
+  const afterMs = parseNonnegativeSeconds(raw, "after");
+  const types = parseSessionTimelineTypes(raw);
+  if (from === null || to === null || center === null || beforeMs === null || afterMs === null || types === null) {
+    return undefined;
+  }
+
+  const filters: SessionTimelineFilters = {
+    projectId,
+    environmentId,
+    sessionId,
+    limit: parseLimit(raw)
+  };
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const userId = optionalNonEmpty(raw, "user_id");
+
+  if (tenantId) {
+    filters.tenantId = tenantId;
+  }
+  if (userId) {
+    filters.userId = userId;
+  }
+  if (from) {
+    filters.from = from;
+  }
+  if (to) {
+    filters.to = to;
+  }
+  if (center) {
+    filters.center = center;
+  }
+  if (beforeMs !== undefined) {
+    filters.beforeMs = beforeMs;
+  }
+  if (afterMs !== undefined) {
+    filters.afterMs = afterMs;
+  }
+  if (types) {
+    filters.types = types;
+  }
+
+  return filters;
 }
 
 function parseOverviewFilters(query: unknown): OverviewFilters | undefined {
@@ -794,6 +910,33 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
   }
 }
 
+async function handleSessionTimelineRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getSessionTimeline) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = sessionParamsSchema.safeParse(request.params);
+  if (!params.success) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  const filters = parseSessionTimelineFilters(request.query, params.data.sessionId);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getSessionTimeline(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleEntityTenantListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -1018,6 +1161,7 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
 
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
+  app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));
   app.get("/query/users", (request, reply) => handleUserListRoute(request, reply, options));
