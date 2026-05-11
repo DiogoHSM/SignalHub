@@ -2133,7 +2133,7 @@ git add docs/superpowers/plans/2026-05-11-phase5c-session-timeline-breadcrumbs-i
 git commit -m "docs: complete session breadcrumbs plan"
 ```
 
-- [ ] **Step 7: Merge and push**
+- [x] **Step 7: Merge and push**
 
 From the main SignalHub checkout:
 
