@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
+void accessSync;
+void constants;
 void existsSync;
 void readFileSync;
 void spawn;
+void statSync;
 
 export type DoctorStatus = "pass" | "warn" | "fail";
 
@@ -161,10 +164,20 @@ export function checkEnvValues(env: DoctorEnv): DoctorResult[] {
   return results;
 }
 
-function checkSourceMapDirectory(env: DoctorEnv, fileExists: (path: string) => boolean): DoctorResult[] {
+export function checkDirectoryWritable(path: string): boolean {
+  try {
+    if (!statSync(path).isDirectory()) return false;
+    accessSync(path, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function checkSourceMapDirectory(env: DoctorEnv, checkDirectoryWritablePath: (path: string) => boolean): DoctorResult[] {
   const localDir = env.SOURCE_MAPS_LOCAL_DIR?.trim();
   if (!localDir) return [];
-  return fileExists(localDir) ? [] : [createResult("warn", "SOURCE_MAPS_LOCAL_DIR is missing or not writable")];
+  return checkDirectoryWritablePath(localDir) ? [] : [createResult("warn", "SOURCE_MAPS_LOCAL_DIR is missing or not writable")];
 }
 
 export function renderResults(results: DoctorResult[]): string {
@@ -225,6 +238,7 @@ type BuildDoctorDependencies = {
   readFile: (path: string) => string;
   runCommand: CommandRunner;
   fetchHealth: FetchHealth;
+  checkDirectoryWritable: (path: string) => boolean;
 };
 
 export function parseDoctorArgs(args: string[]): DoctorOptions {
@@ -302,7 +316,7 @@ export async function checkApiHealth(apiUrl: string, fetchHealth: FetchHealth, r
 }
 
 export async function buildDoctorResults(dependencies: BuildDoctorDependencies): Promise<DoctorResult[]> {
-  const { options, fileExists, readFile, runCommand, fetchHealth } = dependencies;
+  const { options, fileExists, readFile, runCommand, fetchHealth, checkDirectoryWritable } = dependencies;
   const results: DoctorResult[] = [];
   let env: DoctorEnv = {};
 
@@ -315,7 +329,7 @@ export async function buildDoctorResults(dependencies: BuildDoctorDependencies):
     env = parseEnvFile(readFile(options.envFile));
     results.push(createResult("pass", `${options.envFile} exists`));
     results.push(...checkEnvValues(env));
-    results.push(...checkSourceMapDirectory(env, fileExists));
+    results.push(...checkSourceMapDirectory(env, checkDirectoryWritable));
   }
 
   results.push(await checkCommand("Docker Compose config", ["docker", "compose", "config", "--quiet"], runCommand, "warn"));
@@ -432,6 +446,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     readFile: (path) => readFileSync(path, "utf8"),
     runCommand: runCommandWithTimeout,
     fetchHealth: fetchWithTimeout,
+    checkDirectoryWritable,
     write: (output) => process.stdout.write(output)
   });
   process.exitCode = exitCode;

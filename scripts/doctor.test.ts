@@ -119,6 +119,21 @@ describe("doctor pure checks", () => {
 });
 
 describe("doctor orchestration", () => {
+  const buildEnvContent = (env: DoctorEnv) => Object.entries(env).map(([key, value]) => `${key}=${value ?? ""}`).join("\n");
+  const runDoctorChecks = async (env: DoctorEnv, checkDirectoryWritable = () => true) =>
+    buildDoctorResults({
+      options: { compose: false, envFile: ".env" },
+      fileExists: (path) => path === ".env",
+      readFile: () => buildEnvContent(env),
+      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      fetchHealth: async () => ({ ok: true, status: 200 }),
+      checkDirectoryWritable
+    });
+  const sourceMapDirectoryWarning = expect.objectContaining({
+    status: "warn",
+    message: "SOURCE_MAPS_LOCAL_DIR is missing or not writable"
+  });
+
   it("parses compose and api URL arguments", () => {
     expect(parseDoctorArgs(["--compose", "--api-url", "http://localhost:3000"])).toEqual({
       compose: true,
@@ -194,30 +209,41 @@ describe("doctor orchestration", () => {
       fileExists: () => false,
       readFile: () => "",
       runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
-      fetchHealth: async () => ({ ok: true, status: 200 })
+      fetchHealth: async () => ({ ok: true, status: 200 }),
+      checkDirectoryWritable: () => true
     });
 
     expect(results).toContainEqual(expect.objectContaining({ status: "fail", message: ".env is missing; copy .env.example to .env" }));
   });
 
   it("warns when source map directory is missing", async () => {
-    const envContent = Object.entries({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/missing/source-maps" })
-      .map(([key, value]) => `${key}=${value ?? ""}`)
-      .join("\n");
-    const results = await buildDoctorResults({
-      options: { compose: false, envFile: ".env" },
-      fileExists: (path) => path === ".env",
-      readFile: () => envContent,
-      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
-      fetchHealth: async () => ({ ok: true, status: 200 })
-    });
+    const results = await runDoctorChecks({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/missing/source-maps" }, () => false);
 
-    expect(results).toContainEqual(
-      expect.objectContaining({
-        status: "warn",
-        message: "SOURCE_MAPS_LOCAL_DIR is missing or not writable"
-      })
-    );
+    expect(results).toContainEqual(sourceMapDirectoryWarning);
+  });
+
+  it("warns when source map path exists but is not a directory", async () => {
+    const results = await runDoctorChecks({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/tmp/source-map-file" }, () => false);
+
+    expect(results).toContainEqual(sourceMapDirectoryWarning);
+  });
+
+  it("warns when source map directory exists but is not writable", async () => {
+    const results = await runDoctorChecks({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/tmp/source-map-readonly" }, () => false);
+
+    expect(results).toContainEqual(sourceMapDirectoryWarning);
+  });
+
+  it("does not warn when source map directory exists and is writable", async () => {
+    const results = await runDoctorChecks({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/tmp/source-maps" }, () => true);
+
+    expect(results).not.toContainEqual(sourceMapDirectoryWarning);
+  });
+
+  it("does not warn when source map directory is blank", async () => {
+    const results = await runDoctorChecks({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "" }, () => false);
+
+    expect(results).not.toContainEqual(sourceMapDirectoryWarning);
   });
 
   it("redacts secrets when running the doctor", async () => {
@@ -227,6 +253,7 @@ describe("doctor orchestration", () => {
       readFile: () => "NODE_ENV=production\nSESSION_SECRET=abc123secretvalue\n",
       runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
       fetchHealth: async () => ({ ok: true, status: 200 }),
+      checkDirectoryWritable: () => true,
       write: (output) => {
         expect(output).not.toContain("abc123secretvalue");
       }
@@ -240,11 +267,12 @@ describe("doctor orchestration", () => {
     const exitCode = await runDoctor({
       options: { compose: false, envFile: ".env", apiUrl: "http://user:supersecret@localhost:9" },
       fileExists: () => true,
-      readFile: () => Object.entries(validEnv).map(([key, value]) => `${key}=${value ?? ""}`).join("\n"),
+      readFile: () => buildEnvContent(validEnv),
       runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
       fetchHealth: async (url) => {
         throw new Error(`fetch failed for ${url}`);
       },
+      checkDirectoryWritable: () => true,
       write: (output) => {
         outputs.push(output);
       }
