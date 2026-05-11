@@ -1578,7 +1578,7 @@ git commit -m "feat: add source map artifacts console"
 - Modify: `apps/console/src/components/ErrorRawOccurrencesPanel.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Add failing error detail tests**
+- [x] **Step 1: Add failing error detail tests**
 
 In `apps/console/src/components/ErrorDetailDrawer.test.tsx`, add:
 
@@ -1626,7 +1626,7 @@ it("shows resolved source map frame metadata", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ErrorDetailDrawer.test.tsx
@@ -1634,7 +1634,7 @@ pnpm exec vitest run apps/console/src/components/ErrorDetailDrawer.test.tsx
 
 Expected: fail because source-map resolution props/component do not exist.
 
-- [ ] **Step 3: Create resolution component**
+- [x] **Step 3: Create resolution component**
 
 Create `apps/console/src/components/ErrorSourceMapResolution.tsx`:
 
@@ -1675,7 +1675,7 @@ export function ErrorSourceMapResolution({ resolution, isLoading }: Props) {
 }
 ```
 
-- [ ] **Step 4: Pass resolution into detail drawer**
+- [x] **Step 4: Pass resolution into detail drawer**
 
 Update `ErrorDetailDrawer.tsx` props:
 
@@ -1686,7 +1686,7 @@ isResolvingSourceMap?: boolean;
 
 Render `<ErrorSourceMapResolution />` below the raw stack block.
 
-- [ ] **Step 5: Load resolution in raw occurrences panel**
+- [x] **Step 5: Load resolution in raw occurrences panel**
 
 In `ErrorRawOccurrencesPanel.tsx`, add state:
 
@@ -1705,7 +1705,7 @@ When `selectedError` changes:
 
 Pass resolution/loading into `ErrorDetailDrawer`.
 
-- [ ] **Step 6: Run focused console tests**
+- [x] **Step 6: Run focused console tests**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ErrorDetailDrawer.test.tsx apps/console/src/components/ErrorInvestigationPanel.test.tsx
@@ -1714,7 +1714,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/console/src/components/ErrorSourceMapResolution.tsx apps/console/src/components/ErrorDetailDrawer.tsx apps/console/src/components/ErrorDetailDrawer.test.tsx apps/console/src/components/ErrorRawOccurrencesPanel.tsx apps/console/src/components/ErrorInvestigationPanel.tsx apps/console/src/styles.css
