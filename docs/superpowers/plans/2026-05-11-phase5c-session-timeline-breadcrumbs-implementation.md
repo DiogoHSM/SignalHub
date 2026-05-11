@@ -698,7 +698,7 @@ git commit -m "feat: retain breadcrumbs safely"
 - Create: `packages/db/src/repositories/session-timeline.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing timeline repository tests**
+- [x] **Step 1: Write failing timeline repository tests**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -765,7 +765,7 @@ it("does not leak timeline items across project, environment, or session", async
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -775,7 +775,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts
 
 Expected: failure because `getSessionTimeline` does not exist.
 
-- [ ] **Step 3: Add repository**
+- [x] **Step 3: Add repository**
 
 Create `packages/db/src/repositories/session-timeline.ts`:
 
@@ -893,7 +893,7 @@ export async function getSessionTimeline(db: Db, filters: SessionTimelineFilters
 }
 ```
 
-- [ ] **Step 4: Run repository tests**
+- [x] **Step 4: Run repository tests**
 
 Run:
 
@@ -903,7 +903,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts
 
 Expected: tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/db/src/repositories/session-timeline.ts packages/db/test/repositories.test.ts
