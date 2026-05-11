@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type StoredArtifact = {
@@ -18,16 +18,28 @@ function safeSegment(value: string): string {
   return segment && !/^\.+$/.test(segment) ? segment : "unknown";
 }
 
-function validateStoragePath({ localDir, storagePath }: StoredArtifactPathInput): string {
-  const resolvedLocalDir = path.resolve(localDir);
-  const resolvedStoragePath = path.resolve(storagePath);
-  const relativePath = path.relative(resolvedLocalDir, resolvedStoragePath);
+function assertInsideLocalDir(localDir: string, storagePath: string): void {
+  const relativePath = path.relative(localDir, storagePath);
 
-  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+  if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    throw new Error("source_map_storage_path_invalid");
+  }
+}
+
+async function validateStoragePath({ localDir, storagePath }: StoredArtifactPathInput): Promise<string> {
+  const resolvedLocalDir = await realpath(localDir);
+  const resolvedStoragePath = path.resolve(storagePath);
+  assertInsideLocalDir(resolvedLocalDir, resolvedStoragePath);
+
+  const targetStats = await lstat(resolvedStoragePath);
+  if (targetStats.isSymbolicLink()) {
     throw new Error("source_map_storage_path_invalid");
   }
 
-  return resolvedStoragePath;
+  const realStoragePath = await realpath(resolvedStoragePath);
+  assertInsideLocalDir(resolvedLocalDir, realStoragePath);
+
+  return realStoragePath;
 }
 
 export async function storeSourceMapFile(input: {
@@ -57,9 +69,9 @@ export async function storeSourceMapFile(input: {
 }
 
 export async function readSourceMapFile(input: StoredArtifactPathInput): Promise<string> {
-  return readFile(validateStoragePath(input), "utf8");
+  return readFile(await validateStoragePath(input), "utf8");
 }
 
 export async function deleteSourceMapFile(input: StoredArtifactPathInput): Promise<void> {
-  await rm(validateStoragePath(input), { force: false });
+  await rm(await validateStoragePath(input), { force: false });
 }

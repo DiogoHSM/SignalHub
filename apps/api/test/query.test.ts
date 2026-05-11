@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { zipSync } from "fflate";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -66,6 +66,20 @@ describe("source map helpers", () => {
     expect(() =>
       parseSourceMapJson(JSON.stringify({ version: 3, sections: [], sources: [], names: [], mappings: "" }))
     ).toThrow("indexed_source_maps_unsupported");
+  });
+
+  it("accepts null entries in source map sourcesContent", () => {
+    expect(
+      parseSourceMapJson(
+        JSON.stringify({
+          version: 3,
+          sources: ["src/missing.ts", "src/app.ts"],
+          sourcesContent: [null, "export const app = true;"],
+          names: [],
+          mappings: ""
+        })
+      ).sourcesContent
+    ).toEqual([null, "export const app = true;"]);
   });
 
   it("extracts source maps from zip uploads", () => {
@@ -170,6 +184,24 @@ describe("source map helpers", () => {
       );
     } finally {
       await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects source map reads through symlinks inside local storage", async () => {
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const outsideFile = path.join(path.dirname(localDir), "outside-source-map.map");
+    const symlinkPath = path.join(localDir, "linked.map");
+
+    try {
+      await writeFile(outsideFile, "{}");
+      await symlink(outsideFile, symlinkPath);
+
+      await expect(readSourceMapFile({ localDir, storagePath: symlinkPath })).rejects.toThrow(
+        "source_map_storage_path_invalid"
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+      await rm(outsideFile, { force: true });
     }
   });
 

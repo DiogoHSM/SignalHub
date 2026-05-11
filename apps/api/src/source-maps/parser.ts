@@ -19,12 +19,16 @@ export type SourceMapJson = {
   sources: string[];
   names: string[];
   mappings: string;
-  sourcesContent?: string[];
+  sourcesContent?: Array<string | null>;
   sections?: unknown;
 };
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isNullableStringArray(value: unknown): value is Array<string | null> {
+  return Array.isArray(value) && value.every((item) => item === null || typeof item === "string");
 }
 
 export function parseSourceMapJson(content: string): SourceMapJson {
@@ -49,7 +53,7 @@ export function parseSourceMapJson(content: string): SourceMapJson {
     !isStringArray(map.sources) ||
     !isStringArray(map.names) ||
     (map.file !== undefined && typeof map.file !== "string") ||
-    (map.sourcesContent !== undefined && !isStringArray(map.sourcesContent))
+    (map.sourcesContent !== undefined && !isNullableStringArray(map.sourcesContent))
   ) {
     throw new Error("invalid_source_map");
   }
