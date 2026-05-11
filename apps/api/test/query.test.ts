@@ -907,6 +907,39 @@ describe("query routes", () => {
     ]);
   });
 
+  it("flattens repeated session timeline type lists", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSessionTimeline: async (filters) => {
+          receivedFilters.push(filters);
+          return { sessionId: "sess_1", items: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1" +
+        "&types=breadcrumb,error&types=trace"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        sessionId: "sess_1",
+        types: ["breadcrumb", "error", "trace"],
+        limit: 50
+      }
+    ]);
+  });
+
   it.each([
     "/query/sessions/sess_1/timeline?project_id=prj_1",
     "/query/sessions/%20/timeline?project_id=prj_1&environment_id=env_1",
@@ -914,8 +947,11 @@ describe("query routes", () => {
     "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&to=tomorrow",
     "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&center=soon",
     "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&before=-1",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&before=1&before=-1",
     "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&after=-1",
-    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&types=breadcrumb,metric"
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&after=1&after=-1",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&types=breadcrumb,metric",
+    "/query/sessions/sess_1/timeline?project_id=prj_1&environment_id=env_1&types=breadcrumb&types=metric"
   ])("rejects invalid session timeline query %s", async (url) => {
     const getSessionTimeline = vi.fn(async () => ({ sessionId: "sess_1", items: [] }));
 

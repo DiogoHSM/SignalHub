@@ -196,6 +196,19 @@ function optionalNonEmpty(raw: RawQuery, key: string): string | undefined {
   return value && value.length > 0 ? value : undefined;
 }
 
+function stringValues(raw: RawQuery, key: string): string[] {
+  const value = raw[key];
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  return [];
+}
+
 function parseRequiredId(raw: RawQuery, key: string): string | undefined {
   return optionalNonEmpty(raw, key);
 }
@@ -400,8 +413,16 @@ function parseErrorGroupScope(query: unknown): ErrorGroupScope | undefined {
 }
 
 function parseNonnegativeSeconds(raw: RawQuery, key: string): number | undefined | null {
-  const value = optionalNonEmpty(raw, key);
-  if (!value) {
+  const values = stringValues(raw, key).map((value) => value.trim());
+  if (values.length === 0) {
+    return undefined;
+  }
+  if (values.length !== 1) {
+    return null;
+  }
+
+  const [value] = values;
+  if (value.length === 0) {
     return undefined;
   }
 
@@ -418,15 +439,17 @@ function isSessionTimelineType(value: unknown): value is SessionTimelineType {
 }
 
 function parseSessionTimelineTypes(raw: RawQuery): SessionTimelineType[] | undefined | null {
-  const value = optionalNonEmpty(raw, "types");
-  if (!value) {
+  const values = stringValues(raw, "types");
+  if (values.length === 0 || values.every((value) => value.trim().length === 0)) {
     return undefined;
   }
 
-  const types = value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const types = values.flatMap((value) =>
+    value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
   const parsedTypes: SessionTimelineType[] = [];
   for (const type of types) {
     if (!isSessionTimelineType(type)) {
