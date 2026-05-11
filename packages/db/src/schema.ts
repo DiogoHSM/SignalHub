@@ -66,6 +66,26 @@ export interface EventsTable {
   properties: JsonColumn;
 }
 
+export interface BreadcrumbsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  type: "navigation" | "click" | "console" | "network" | "custom";
+  category: string | null;
+  message: string;
+  level: "debug" | "info" | "warning" | "error" | "fatal";
+  data: JsonColumn;
+}
+
 export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
 
 export interface ErrorGroupsTable {
@@ -207,11 +227,13 @@ export interface RetentionRunsTable {
   deleted_traces: DefaultedInteger;
   deleted_spans: DefaultedInteger;
   deleted_llm_calls: DefaultedInteger;
+  deleted_breadcrumbs: DefaultedInteger;
   events_days: number;
   errors_days: number;
   traces_days: number;
   spans_days: number;
   llm_calls_days: number;
+  breadcrumbs_days: DefaultedInteger;
   created_at: Timestamp;
 }
 
@@ -346,6 +368,7 @@ export interface Database {
   environments: EnvironmentsTable;
   api_keys: ApiKeysTable;
   events: EventsTable;
+  breadcrumbs: BreadcrumbsTable;
   error_groups: ErrorGroupsTable;
   errors: ErrorsTable;
   llm_calls: LlmCallsTable;

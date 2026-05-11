@@ -220,6 +220,66 @@ describe("repositories", () => {
     });
   });
 
+  it("runs breadcrumb migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, type, category, message, level, data from breadcrumbs limit 0`.execute(db);
+      await sql`select deleted_breadcrumbs, breadcrumbs_days from retention_runs limit 0`.execute(db);
+    });
+  });
+
+  it("prevents breadcrumbs from referencing an environment in another project", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const firstProject = await createProject(db, { name: "Breadcrumb Scope A" });
+      const firstEnvironment = await createEnvironment(db, { projectId: firstProject.id, name: "production" });
+      const secondProject = await createProject(db, { name: "Breadcrumb Scope B" });
+      const secondEnvironment = await createEnvironment(db, { projectId: secondProject.id, name: "production" });
+
+      await sql`
+        insert into breadcrumbs (
+          id,
+          project_id,
+          environment_id,
+          timestamp,
+          type,
+          message
+        )
+        values (
+          'brd_valid_scope',
+          ${firstProject.id},
+          ${firstEnvironment.id},
+          '2026-05-10T12:00:00.000Z',
+          'custom',
+          'Valid scope'
+        )
+      `.execute(db);
+
+      await expect(
+        sql`
+          insert into breadcrumbs (
+            id,
+            project_id,
+            environment_id,
+            timestamp,
+            type,
+            message
+          )
+          values (
+            'brd_cross_scope',
+            ${firstProject.id},
+            ${secondEnvironment.id},
+            '2026-05-10T12:01:00.000Z',
+            'custom',
+            'Invalid scope'
+          )
+        `.execute(db)
+      ).rejects.toThrow();
+    });
+  });
+
   it("creates lists and soft deletes source map artifacts", async () => {
     await withDb(async (db) => {
       await migrate(db);
