@@ -259,7 +259,7 @@ git commit -m "feat: add source map storage config"
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Add failing migration and repository tests**
+- [x] **Step 1: Add failing migration and repository tests**
 
 In `packages/db/test/repositories.test.ts`, import:
 
@@ -433,7 +433,7 @@ const user = await seedSourceMapUser(db);
 await insertSourceMapError(db, { id: "err_1", projectId: "prj_1", environmentId: "env_1", release: "web@1.0.0" });
 ```
 
-- [ ] **Step 2: Run DB tests and verify failure**
+- [x] **Step 2: Run DB tests and verify failure**
 
 ```bash
 pnpm --filter @signal-hub/db test -- repositories.test.ts
@@ -441,7 +441,7 @@ pnpm --filter @signal-hub/db test -- repositories.test.ts
 
 Expected: fail because migration and repository do not exist.
 
-- [ ] **Step 3: Add migration**
+- [x] **Step 3: Add migration**
 
 Create `packages/db/migrations/0006_source_maps.sql`:
 
@@ -503,7 +503,7 @@ CREATE INDEX error_stack_resolutions_artifact_idx
   ON error_stack_resolutions(source_map_artifact_id);
 ```
 
-- [ ] **Step 4: Register migration and schema**
+- [x] **Step 4: Register migration and schema**
 
 In `packages/db/src/migrate.ts`, append:
 
@@ -518,7 +518,7 @@ source_map_artifacts: SourceMapArtifactsTable;
 error_stack_resolutions: ErrorStackResolutionsTable;
 ```
 
-- [ ] **Step 5: Implement repository**
+- [x] **Step 5: Implement repository**
 
 Create `packages/db/src/repositories/source-maps.ts` with:
 
@@ -584,7 +584,7 @@ Repository delete must run in a transaction:
 3. set `deleted_at = now()`,
 4. return artifact metadata including `storagePath`.
 
-- [ ] **Step 6: Run DB tests**
+- [x] **Step 6: Run DB tests**
 
 ```bash
 pnpm --filter @signal-hub/db test -- repositories.test.ts
@@ -593,7 +593,7 @@ pnpm --filter @signal-hub/db build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/db/migrations/0006_source_maps.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/source-maps.ts packages/db/test/repositories.test.ts
