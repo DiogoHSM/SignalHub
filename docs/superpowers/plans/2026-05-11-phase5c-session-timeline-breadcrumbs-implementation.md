@@ -243,7 +243,7 @@ git commit -m "feat: add breadcrumb storage config"
 - Test: `apps/api/test/ingestion.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Write failing ingestion schema test**
+- [x] **Step 1: Write failing ingestion schema test**
 
 Add to `packages/telemetry/test/ingestion-schemas.test.ts`:
 
@@ -269,7 +269,7 @@ it("rejects unsupported breadcrumb types and oversized messages", () => {
 });
 ```
 
-- [ ] **Step 2: Write failing API ingestion test**
+- [x] **Step 2: Write failing API ingestion test**
 
 Add to `apps/api/test/ingestion.test.ts`:
 
@@ -309,7 +309,7 @@ it("accepts breadcrumb ingestion", async () => {
 });
 ```
 
-- [ ] **Step 3: Write failing worker/repository test**
+- [x] **Step 3: Write failing worker/repository test**
 
 Add to `apps/worker/test/telemetry-worker.test.ts`:
 
@@ -357,7 +357,7 @@ it("persists sanitized breadcrumb jobs", async () => {
 });
 ```
 
-- [ ] **Step 4: Run tests to verify failure**
+- [x] **Step 4: Run tests to verify failure**
 
 Run:
 
@@ -367,7 +367,7 @@ pnpm exec vitest run packages/telemetry/test/ingestion-schemas.test.ts apps/api/
 
 Expected: failures for missing schema, route, queue kind, and writer method.
 
-- [ ] **Step 5: Add telemetry schema**
+- [x] **Step 5: Add telemetry schema**
 
 Modify `packages/telemetry/src/ingestion-schemas.ts`:
 
@@ -383,7 +383,7 @@ export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 ```
 
-- [ ] **Step 6: Add queue kind**
+- [x] **Step 6: Add queue kind**
 
 Modify `packages/queues/src/telemetry-queue.ts`:
 
@@ -391,7 +391,7 @@ Modify `packages/queues/src/telemetry-queue.ts`:
 export type TelemetryJobKind = "event" | "error" | "llm" | "trace" | "span" | "breadcrumb";
 ```
 
-- [ ] **Step 7: Add DB write repository support**
+- [x] **Step 7: Add DB write repository support**
 
 Modify `packages/db/src/repositories/telemetry-writes.ts`:
 
@@ -419,7 +419,7 @@ export async function insertBreadcrumb(db: Db, input: InsertBreadcrumbInput): Pr
 }
 ```
 
-- [ ] **Step 8: Register API ingestion route**
+- [x] **Step 8: Register API ingestion route**
 
 Modify `apps/api/src/routes/ingestion.ts` imports and route config:
 
@@ -438,7 +438,7 @@ import {
 { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ```
 
-- [ ] **Step 9: Process worker breadcrumb jobs**
+- [x] **Step 9: Process worker breadcrumb jobs**
 
 Modify `apps/worker/src/telemetry-worker.ts` imports and writer type:
 
@@ -485,7 +485,7 @@ case "breadcrumb": {
 }
 ```
 
-- [ ] **Step 10: Wire main services**
+- [x] **Step 10: Wire main services**
 
 Modify `apps/worker/src/main.ts` and `apps/api/src/main.ts` telemetry writer imports to include `insertBreadcrumb`, then add:
 
@@ -493,7 +493,7 @@ Modify `apps/worker/src/main.ts` and `apps/api/src/main.ts` telemetry writer imp
 insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 ```
 
-- [ ] **Step 11: Run focused tests**
+- [x] **Step 11: Run focused tests**
 
 Run:
 
@@ -503,7 +503,7 @@ pnpm exec vitest run packages/telemetry/test/ingestion-schemas.test.ts packages/
 
 Expected: tests pass.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add packages/telemetry/src/ingestion-schemas.ts packages/telemetry/test/ingestion-schemas.test.ts packages/queues/src/telemetry-queue.ts packages/queues/test/telemetry-queue.test.ts packages/db/src/repositories/telemetry-writes.ts packages/db/test/repositories.test.ts apps/api/src/routes/ingestion.ts apps/api/test/ingestion.test.ts apps/worker/src/telemetry-worker.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts apps/api/src/main.ts
