@@ -609,7 +609,7 @@ git commit -m "feat: add source map metadata storage"
 - Create: `apps/api/src/source-maps/resolver.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Add failing parser and resolver tests**
+- [x] **Step 1: Add failing parser and resolver tests**
 
 In `apps/api/test/query.test.ts`, add imports for the helpers that this task creates:
 
@@ -663,7 +663,7 @@ it("resolves a generated frame with a regular source map", async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts
@@ -671,7 +671,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: fail because helper modules do not exist.
 
-- [ ] **Step 3: Implement local storage helpers**
+- [x] **Step 3: Implement local storage helpers**
 
 Create `apps/api/src/source-maps/storage.ts`:
 
@@ -718,7 +718,7 @@ export async function deleteSourceMapFile(storagePath: string): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: Implement parser helpers**
+- [x] **Step 4: Implement parser helpers**
 
 Create `apps/api/src/source-maps/parser.ts`:
 
@@ -806,7 +806,7 @@ export function parseStackFrames(stack: string): ParsedStackFrame[] {
 }
 ```
 
-- [ ] **Step 5: Implement resolver helpers**
+- [x] **Step 5: Implement resolver helpers**
 
 Create `apps/api/src/source-maps/resolver.ts`:
 
@@ -850,7 +850,7 @@ export function resolveFrameWithSourceMap(sourceMapContent: string, frame: Parse
 
 In a later task this module will also expose the DB-backed orchestration function.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts
@@ -859,7 +859,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/source-maps/storage.ts apps/api/src/source-maps/parser.ts apps/api/src/source-maps/resolver.ts apps/api/test/query.test.ts
