@@ -1266,7 +1266,7 @@ git commit -m "feat: resolve error stacks with source maps"
 - Modify: `apps/console/src/api/client.ts`
 - Modify: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Add failing client tests**
+- [x] **Step 1: Add failing client tests**
 
 In `apps/console/src/api/client.test.ts`, add:
 
@@ -1323,7 +1323,7 @@ it("uploads source map files with multipart form data", async () => {
 });
 ```
 
-- [ ] **Step 2: Run client tests and verify failure**
+- [x] **Step 2: Run client tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/console/src/api/client.test.ts
@@ -1331,7 +1331,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts
 
 Expected: fail because client methods/types do not exist.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 In `apps/console/src/api/types.ts`, add:
 
@@ -1376,7 +1376,7 @@ export type SourceMapResolution = {
 };
 ```
 
-- [ ] **Step 4: Add multipart request helper and methods**
+- [x] **Step 4: Add multipart request helper and methods**
 
 In `apps/console/src/api/client.ts`, add `multipartRequest<T>()` that sends:
 
@@ -1394,7 +1394,7 @@ Add methods:
 - `deleteSourceMapArtifact(id, query)`
 - `getErrorSourceMapResolution(id, query)`
 
-- [ ] **Step 5: Run client tests**
+- [x] **Step 5: Run client tests**
 
 ```bash
 pnpm exec vitest run apps/console/src/api/client.test.ts
@@ -1403,7 +1403,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
