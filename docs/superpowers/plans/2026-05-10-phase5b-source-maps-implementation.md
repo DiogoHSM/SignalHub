@@ -1777,7 +1777,7 @@ git commit -m "docs: update SignalHub phase 5B memory"
 
 - Modify: `docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 ```bash
 pnpm test
@@ -1785,7 +1785,7 @@ pnpm test
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run full build**
+- [x] **Step 2: Run full build**
 
 ```bash
 pnpm build
@@ -1793,7 +1793,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 ```bash
 docker compose config --quiet
@@ -1801,7 +1801,7 @@ docker compose config --quiet
 
 Expected: exit code 0.
 
-- [ ] **Step 4: Run doctor safe local mode**
+- [x] **Step 4: Run doctor safe local mode**
 
 If `.env` is present:
 
@@ -1821,11 +1821,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code 0. API reachability warnings are acceptable if no local API is running.
 
-- [ ] **Step 5: Mark plan complete**
+- [x] **Step 5: Mark plan complete**
 
 Update this plan file so completed verification and integration checkboxes are checked.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md
