@@ -63,6 +63,7 @@ import {
   listTraceSpans,
   listTraces
 } from "../src/repositories/telemetry-query.js";
+import { getSessionTimeline } from "../src/repositories/session-timeline.js";
 import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
 import {
   deleteExpiredTelemetry,
@@ -2563,6 +2564,249 @@ describe("repositories", () => {
       await expect(getErrorAggregates(db, filters)).resolves.toMatchObject({ total: 1, open: 1 });
       await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({ totalCalls: 1, totalInputTokens: 3 });
       await expect(getTraceAggregates(db, filters)).resolves.toMatchObject({ total: 1, averageDurationMs: 20 });
+    });
+  });
+
+  it("returns a compact mixed session timeline around a center timestamp", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Session Timeline Mixed" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_timeline",
+        userId: "user_timeline",
+        sessionId: "session_timeline",
+        traceId: "trace_timeline",
+        receivedAt: new Date("2026-05-11T12:00:01.000Z"),
+        source: "browser",
+        release: "1.2.3",
+        metadata: { hidden: "metadata should stay out of item data" }
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_session_timeline",
+        timestamp: new Date("2026-05-11T11:59:00.000Z"),
+        name: "checkout_started",
+        properties: { step: "checkout" }
+      });
+      await insertBreadcrumb(db, {
+        ...base,
+        id: "brd_session_timeline",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        type: "click",
+        category: "button",
+        message: "Clicked Pay",
+        level: "info",
+        data: { tag: "button" }
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_session_timeline",
+        timestamp: new Date("2026-05-11T12:00:30.000Z"),
+        name: "POST /checkout",
+        status: "ok",
+        startedAt: new Date("2026-05-11T12:00:30.000Z"),
+        durationMs: 120
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_session_timeline",
+        timestamp: new Date("2026-05-11T12:00:45.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "risk_check",
+        inputTokens: 10,
+        outputTokens: 20,
+        costUsd: "0.010000",
+        latencyMs: 450,
+        status: "success"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_session_timeline",
+        timestamp: new Date("2026-05-11T12:01:00.000Z"),
+        message: "Payment failed",
+        severity: "error",
+        context: { hidden: "context should stay out of item data" }
+      });
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_outside_timeline",
+        timestamp: new Date("2026-05-11T12:03:00.000Z"),
+        name: "outside_window"
+      });
+
+      const timeline = await getSessionTimeline(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "session_timeline",
+        center: new Date("2026-05-11T12:01:00.000Z"),
+        beforeMs: 2 * 60 * 1000,
+        afterMs: 60 * 1000,
+        limit: 20
+      });
+
+      expect(timeline).toMatchObject({
+        sessionId: "session_timeline",
+        scope: { projectId: project.id, environmentId: environment.id },
+        range: {
+          from: "2026-05-11T11:59:00.000Z",
+          to: "2026-05-11T12:02:00.000Z"
+        },
+        page: { nextCursor: null, previousCursor: null }
+      });
+      expect(timeline.items.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "event:evt_session_timeline",
+        "breadcrumb:brd_session_timeline",
+        "trace:trc_session_timeline",
+        "llm:llm_session_timeline",
+        "error:err_session_timeline"
+      ]);
+      expect(timeline.items[0]).toMatchObject({
+        id: "evt_session_timeline",
+        title: "checkout_started",
+        tenantId: "tenant_timeline",
+        userId: "user_timeline",
+        sessionId: "session_timeline",
+        traceId: "trace_timeline",
+        source: "browser",
+        release: "1.2.3",
+        data: { properties: { step: "checkout" } }
+      });
+      expect(timeline.items[1]).toMatchObject({
+        title: "Clicked Pay",
+        level: "info",
+        data: { breadcrumbType: "click", category: "button", data: { tag: "button" } }
+      });
+      expect(JSON.stringify(timeline.items)).not.toContain("context should stay out");
+      expect(JSON.stringify(timeline.items)).not.toContain("metadata should stay out");
+    });
+  });
+
+  it("keeps session timeline scope filters isolated and excludes spans", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Session Timeline Scope" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnvironment = await createEnvironment(db, { projectId: project.id, name: "staging" });
+      const otherProject = await createProject(db, { name: "Session Timeline Other Scope" });
+      const otherProjectEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_match",
+        userId: "user_match",
+        sessionId: "session_scope",
+        traceId: "trace_scope",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:01.000Z")
+      };
+
+      await insertBreadcrumb(db, {
+        ...base,
+        id: "same_time_brd_scope",
+        type: "custom",
+        message: "Same time breadcrumb",
+        level: "info"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "same_time_evt_scope",
+        name: "same_time_event"
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_scope",
+        timestamp: new Date("2026-05-11T12:01:00.000Z"),
+        message: "Scoped error",
+        severity: "error"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_scope",
+        timestamp: new Date("2026-05-11T12:02:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 1,
+        outputTokens: 2,
+        costUsd: "0.001000",
+        status: "success"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_filtered_by_type_scope",
+        timestamp: new Date("2026-05-11T12:03:00.000Z"),
+        name: "filtered trace",
+        status: "ok",
+        startedAt: new Date("2026-05-11T12:03:00.000Z")
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_scope_must_not_return",
+        name: "span excluded",
+        status: "ok",
+        startedAt: new Date("2026-05-11T12:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_project_scope",
+        projectId: otherProject.id,
+        environmentId: otherProjectEnvironment.id,
+        name: "wrong_project"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_environment_scope",
+        environmentId: otherEnvironment.id,
+        name: "wrong_environment"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_session_scope",
+        sessionId: "other_session",
+        name: "wrong_session"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_tenant_scope",
+        tenantId: "tenant_other",
+        name: "wrong_tenant"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_wrong_user_scope",
+        userId: "user_other",
+        name: "wrong_user"
+      });
+
+      const timeline = await getSessionTimeline(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        sessionId: "session_scope",
+        tenantId: "tenant_match",
+        userId: "user_match",
+        types: ["breadcrumb", "event", "error", "llm"],
+        from: new Date("2026-05-11T11:59:00.000Z"),
+        to: new Date("2026-05-11T12:05:00.000Z"),
+        limit: 20
+      });
+
+      expect(timeline.items.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "breadcrumb:same_time_brd_scope",
+        "event:same_time_evt_scope",
+        "error:err_scope",
+        "llm:llm_scope"
+      ]);
+      expect(timeline.items.map((item) => item.id)).not.toContain("spn_scope_must_not_return");
+      expect(timeline.items.map((item) => item.id)).not.toContain("trc_filtered_by_type_scope");
+      expect(timeline.items.every((item) => item.tenantId === "tenant_match")).toBe(true);
+      expect(timeline.items.every((item) => item.userId === "user_match")).toBe(true);
     });
   });
 
