@@ -45,6 +45,5 @@ export {
 
 export {
   createBrowserBreadcrumbs,
-  sanitizeBreadcrumbUrl,
-  summarizeClickedElement
+  sanitizeBreadcrumbUrl
 } from "./browser-breadcrumbs.js";

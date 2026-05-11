@@ -10,6 +10,7 @@ describe("browser breadcrumbs", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
@@ -30,6 +31,19 @@ describe("browser breadcrumbs", () => {
       role: null,
       label: "Email address",
       text: null
+    });
+  });
+
+  it("redacts secrets from click labels and text", () => {
+    const button = document.createElement("button");
+    button.setAttribute("aria-label", "Email person@example.com token=secret-token");
+    button.textContent = "Authorization: Bearer sk_live_123";
+
+    expect(summarizeClickedElement(button)).toEqual({
+      tag: "button",
+      role: null,
+      label: "Email [REDACTED_EMAIL] token=[REDACTED]",
+      text: "Authorization: Bearer [REDACTED]"
     });
   });
 
@@ -85,6 +99,47 @@ describe("browser breadcrumbs", () => {
     expect(console.error).toBe(helperOriginalError);
   });
 
+  it("redacts bearer authorization console messages", () => {
+    const breadcrumb = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stop = createBrowserBreadcrumbs(
+      { breadcrumb } as never,
+      { console: true, navigation: false, clicks: false, network: false }
+    );
+
+    console.error("Authorization: Bearer sk_live_123");
+    stop();
+
+    expect(breadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Authorization: Bearer [REDACTED]"
+      })
+    );
+  });
+
+  it("keeps overlapping console helpers active when stopped out of order", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const originalError = console.error;
+    const stopFirst = createBrowserBreadcrumbs(
+      { breadcrumb: first } as never,
+      { console: true, navigation: false, clicks: false, network: false }
+    );
+    const stopSecond = createBrowserBreadcrumbs(
+      { breadcrumb: second } as never,
+      { console: true, navigation: false, clicks: false, network: false }
+    );
+
+    stopFirst();
+    console.error("still captured");
+    stopSecond();
+
+    expect(first).not.toHaveBeenCalledWith(expect.objectContaining({ message: "still captured" }));
+    expect(second).toHaveBeenCalledWith(expect.objectContaining({ message: "still captured" }));
+    expect(console.error).toBe(originalError);
+  });
+
   it("rate limits browser breadcrumbs", () => {
     const breadcrumb = vi.fn();
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -135,6 +190,34 @@ describe("browser breadcrumbs", () => {
     );
     expect(JSON.stringify(breadcrumb.mock.calls[0][0])).not.toContain("Bearer secret");
     expect(JSON.stringify(breadcrumb.mock.calls[0][0])).not.toContain("password=secret");
+  });
+
+  it("keeps overlapping fetch helpers active when stopped out of order", async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
+    const originalFetch = globalThis.fetch;
+    const stopFirst = createBrowserBreadcrumbs(
+      { breadcrumb: first } as never,
+      { navigation: false, clicks: false, console: false, network: true }
+    );
+    const stopSecond = createBrowserBreadcrumbs(
+      { breadcrumb: second } as never,
+      { navigation: false, clicks: false, console: false, network: true }
+    );
+
+    stopFirst();
+    await fetch("/still-captured");
+    stopSecond();
+
+    expect(fetchSpy).toHaveBeenCalledWith("/still-captured");
+    expect(first).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ url: "/still-captured" }) })
+    );
+    expect(second).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ url: "/still-captured" }) })
+    );
+    expect(globalThis.fetch).toBe(originalFetch);
   });
 
   it("captures slow successful fetches above the configured threshold", async () => {
@@ -200,5 +283,65 @@ describe("browser breadcrumbs", () => {
         data: expect.objectContaining({ url: "/before-stop", status: 500 })
       })
     );
+  });
+
+  it("keeps overlapping history helpers active when stopped out of order", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const originalPushState = history.pushState;
+    const stopFirst = createBrowserBreadcrumbs(
+      { breadcrumb: first } as never,
+      { navigation: true, clicks: false, console: false, network: false }
+    );
+    const stopSecond = createBrowserBreadcrumbs(
+      { breadcrumb: second } as never,
+      { navigation: true, clicks: false, console: false, network: false }
+    );
+
+    stopFirst();
+    history.pushState({}, "", "/still-navigation");
+    stopSecond();
+
+    expect(first).not.toHaveBeenCalledWith(expect.objectContaining({ message: "Navigated to /still-navigation" }));
+    expect(second).toHaveBeenCalledWith(expect.objectContaining({ message: "Navigated to /still-navigation" }));
+    expect(history.pushState).toBe(originalPushState);
+  });
+
+  it("captures console and network without DOM globals", async () => {
+    const originalDocument = globalThis.document;
+    const originalWindow = globalThis.window;
+    const originalHistory = globalThis.history;
+    const originalLocation = globalThis.location;
+    const breadcrumb = vi.fn();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    vi.stubGlobal("document", undefined);
+    vi.stubGlobal("window", undefined);
+    vi.stubGlobal("history", undefined);
+    vi.stubGlobal("location", undefined);
+
+    const stop = createBrowserBreadcrumbs(
+      { breadcrumb } as never,
+      { navigation: true, clicks: true, console: true, network: true }
+    );
+
+    console.error("no dom console");
+    await fetch("/no-dom-network");
+    stop();
+
+    expect(fetchSpy).toHaveBeenCalledWith("/no-dom-network");
+    expect(breadcrumb).toHaveBeenCalledWith(expect.objectContaining({ type: "console" }));
+    expect(breadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "network",
+        data: expect.objectContaining({ url: "/no-dom-network" })
+      })
+    );
+
+    vi.stubGlobal("document", originalDocument);
+    vi.stubGlobal("window", originalWindow);
+    vi.stubGlobal("history", originalHistory);
+    vi.stubGlobal("location", originalLocation);
   });
 });
