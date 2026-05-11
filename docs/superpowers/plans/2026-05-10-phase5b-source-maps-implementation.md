@@ -875,7 +875,7 @@ git commit -m "feat: add source map parsing helpers"
 - Modify: `apps/api/src/routes/admin.ts`
 - Test: `apps/api/test/admin.test.ts`
 
-- [ ] **Step 1: Add failing admin route tests**
+- [x] **Step 1: Add failing admin route tests**
 
 In `apps/api/test/admin.test.ts`, extend the test dependency factory with a `sourceMaps` dependency object.
 
@@ -956,7 +956,7 @@ it("uploads a single source map for admins", async () => {
 });
 ```
 
-- [ ] **Step 2: Run admin tests and verify failure**
+- [x] **Step 2: Run admin tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/api/test/admin.test.ts
@@ -964,7 +964,7 @@ pnpm exec vitest run apps/api/test/admin.test.ts
 
 Expected: fail because source-map admin dependencies and routes do not exist.
 
-- [ ] **Step 3: Register multipart**
+- [x] **Step 3: Register multipart**
 
 In `apps/api/src/app.ts`, import and register:
 
@@ -988,7 +988,7 @@ Extend `BuildAppOptions`:
 sourceMaps?: SourceMapRouteDependencies & { maxUploadBytes?: number };
 ```
 
-- [ ] **Step 4: Add admin dependency types and routes**
+- [x] **Step 4: Add admin dependency types and routes**
 
 In `apps/api/src/routes/admin.ts`, add:
 
@@ -1017,7 +1017,7 @@ Use existing auth helpers in `admin.ts` for admin checks and error responses. Re
 
 for upload/list, and 204 for delete.
 
-- [ ] **Step 5: Wire real dependencies in `main.ts`**
+- [x] **Step 5: Wire real dependencies in `main.ts`**
 
 In `apps/api/src/main.ts`, import repository/storage/parser helpers and wire:
 
@@ -1033,7 +1033,7 @@ maxUploadBytes: config.sourceMaps.maxUploadMb * 1024 * 1024
 
 Implement `uploadSingleSourceMap`, `uploadSourceMapBundle`, and `deleteSourceMapArtifactAndFile` in `apps/api/src/source-maps/storage.ts`.
 
-- [ ] **Step 6: Run admin tests**
+- [x] **Step 6: Run admin tests**
 
 ```bash
 pnpm exec vitest run apps/api/test/admin.test.ts
@@ -1042,7 +1042,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/app.ts apps/api/src/main.ts apps/api/src/routes/admin.ts apps/api/src/source-maps apps/api/test/admin.test.ts
