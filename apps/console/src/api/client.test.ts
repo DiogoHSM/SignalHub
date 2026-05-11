@@ -179,6 +179,31 @@ describe("createApiClient", () => {
     );
   });
 
+  it("gets a session timeline with scoped filters", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { data: { sessionId: "sess_1", items: [], page: { nextCursor: null, previousCursor: null } } })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.getSessionTimeline("sess/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      center: "2026-05-11T12:00:00.000Z",
+      beforeSeconds: 600,
+      afterSeconds: 120,
+      types: ["breadcrumb", "error"],
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/sessions/sess%2F1/timeline?project_id=prj%2F1&environment_id=env+1&center=2026-05-11T12%3A00%3A00.000Z&before=600&after=120&types=breadcrumb%2Cerror&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes LLM call query filters", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);

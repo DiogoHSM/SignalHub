@@ -746,6 +746,47 @@ export type AlertEventListQuery = {
   limit?: number;
 };
 
+export type SessionTimelineItemType = "breadcrumb" | "event" | "error" | "trace" | "llm";
+
+export type SessionTimelineItem = {
+  id: string;
+  type: SessionTimelineItemType;
+  timestamp: string;
+  receivedAt: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string;
+  traceId: string | null;
+  source: string | null;
+  release: string | null;
+  title: string;
+  level: string | null;
+  data: unknown;
+};
+
+export type SessionTimelineQuery = {
+  projectId: string;
+  environmentId: string;
+  tenantId?: string;
+  userId?: string;
+  from?: Date | string;
+  to?: Date | string;
+  center?: Date | string;
+  beforeSeconds?: number;
+  afterSeconds?: number;
+  types?: SessionTimelineItemType[];
+  limit?: number;
+  cursor?: string;
+};
+
+export type SessionTimelineResponse = {
+  sessionId: string;
+  scope: { projectId: string; environmentId: string };
+  range: { from: string | null; to: string | null };
+  items: SessionTimelineItem[];
+  page: { nextCursor: string | null; previousCursor: string | null };
+};
+
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
