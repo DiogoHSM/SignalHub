@@ -1,5 +1,6 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { flushSync } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
 import type { ErrorGroupRecord, ErrorRecord, SourceMapResolution } from "../api/types";
@@ -504,6 +505,61 @@ describe("ErrorInvestigationPanel", () => {
       afterSeconds: 120,
       limit: 100
     });
+  });
+
+  it("does not show the previous session timeline immediately after selecting another raw error", async () => {
+    const firstTimeline = deferred<{ data: Awaited<ReturnType<ApiClient["getSessionTimeline"]>>["data"] }>();
+    const secondTimeline = deferred<{ data: Awaited<ReturnType<ApiClient["getSessionTimeline"]>>["data"] }>();
+    const getSessionTimeline = vi.fn().mockReturnValueOnce(firstTimeline.promise).mockReturnValueOnce(secondTimeline.promise);
+    const api = client({
+      listErrors: vi.fn().mockResolvedValue({
+        data: [
+          error({ id: "err_1", message: "First payment failed", sessionId: "sess_1", timestamp: "2026-05-11T12:00:00.000Z" }),
+          error({ id: "err_2", message: "Second payment failed", sessionId: "sess_2", timestamp: "2026-05-11T12:01:00.000Z" })
+        ]
+      }),
+      getSessionTimeline
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" initialTab="raw" projectId="prj_1" />);
+    await userEvent.click(await screen.findByRole("button", { name: /First payment failed/ }));
+    await waitFor(() => expect(getSessionTimeline).toHaveBeenCalledWith("sess_1", expect.any(Object)));
+
+    flushSync(() => {
+      fireEvent.click(screen.getByRole("button", { name: /Second payment failed/ }));
+    });
+
+    await act(async () => {
+      firstTimeline.resolve({
+        data: {
+          sessionId: "sess_1",
+          scope: { projectId: "prj_1", environmentId: "env_1" },
+          range: { from: null, to: null },
+          items: [
+            {
+              id: "brd_1",
+              type: "breadcrumb",
+              timestamp: "2026-05-11T11:59:00.000Z",
+              receivedAt: "2026-05-11T11:59:01.000Z",
+              tenantId: null,
+              userId: "user_1",
+              sessionId: "sess_1",
+              traceId: null,
+              source: "web",
+              release: "web@1.0.0",
+              title: "Old checkout step",
+              level: "info",
+              data: {}
+            }
+          ],
+          page: { nextCursor: null, previousCursor: null }
+        }
+      });
+      await firstTimeline.promise;
+    });
+
+    expect(screen.queryByText("Old checkout step")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading session context")).toBeInTheDocument();
   });
 
   it("shows session context unavailable when the selected raw error timeline request fails", async () => {
