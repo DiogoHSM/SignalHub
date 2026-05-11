@@ -4,7 +4,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Current Phase
 
-Phase 4D: Release Readiness and Install Hardening.
+Phase 5A: Error Groups and Status Workflow.
 
 Implemented capabilities:
 
@@ -15,9 +15,10 @@ Implemented capabilities:
 - Redis/BullMQ queueing between API acceptance and worker persistence.
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
+- Deterministic error grouping with operational group status workflow.
 - Read-only Overview dashboard for project/environment KPIs, trends, top lists, and recent important signals.
 - Read-only Events investigation workspace with exact event-name filtering.
-- Read-only Errors investigation workspace with exact severity, status, and fingerprint filtering.
+- Errors investigation workspace with grouped triage, status updates, and raw occurrence drilldown/filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, selected tenant top users, and cross-signal timeline drilldowns.

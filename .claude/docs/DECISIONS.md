@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-05-10: Store grouped error workflow separately from raw occurrences
+
+Decision: SignalHub adds an `error_groups` table for operational error triage while preserving immutable raw `errors` records linked by `error_group_id`.
+
+Rationale: Operators need issue-level counts, status, regression, and prioritization without losing audit/debug access to every raw occurrence. Keeping the mutable workflow on groups avoids mutating individual occurrence history and keeps self-hosted storage simple.
+
 ## 2026-05-10: Add read-only operator diagnostics before release automation
 
 Decision: SignalHub adds a read-only operator doctor command before introducing broader release automation.

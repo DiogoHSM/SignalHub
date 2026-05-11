@@ -43,12 +43,14 @@ Operational tables:
 Telemetry tables:
 
 - `events`
+- `error_groups`
 - `errors`
 - `llm_calls`
 - `traces`
 - `spans`
 
 All telemetry records include project, environment, optional tenant/user/session/trace identifiers, timestamps, source, release, and metadata.
+Errors are stored as immutable raw occurrences and are attached to operational `error_groups` through deterministic grouping fingerprints.
 
 ## API Surface
 
@@ -89,6 +91,10 @@ Query:
 
 - `GET /query/events`
 - `GET /query/errors`
+- `GET /query/error-groups`
+- `GET /query/error-groups/:id`
+- `GET /query/error-groups/:id/errors`
+- `PATCH /query/error-groups/:id`
 - `GET /query/llm-calls`
 - `GET /query/traces`
 - `GET /query/traces/:id/spans`
@@ -133,7 +139,7 @@ The console includes a read-only `Investigate` mode for Events. It uses the exis
 
 The Events query supports exact `event_name` filtering in addition to project, environment, tenant, user, session, trace, date range, and limit filters. The first investigation slice does not mutate telemetry data and does not add new storage tables.
 
-The console also includes a read-only Errors view for raw error occurrences. It uses `GET /query/errors` with exact `severity`, `status`, and `fingerprint` filters in addition to project, environment, tenant, user, session, trace, date range, and limit filters. This slice does not group errors, mutate status, or add storage tables.
+The console includes an Errors investigation workflow with grouped triage and raw occurrence drilldown. Grouped errors use `GET /query/error-groups`, `GET /query/error-groups/:id`, and `PATCH /query/error-groups/:id` for exact project/environment-scoped status workflows. Raw occurrences remain available through the peer Raw occurrences tab and `GET /query/errors`, including exact `error_group_id` filtering.
 
 The console also includes a read-only Traces view for raw traces and ordered spans. It uses `GET /query/traces` for trace rows and `GET /query/traces/:id/spans` for spans loaded after selecting a trace. This slice does not add cross-signal timelines, trace mutation, charts, storage tables, or ingestion routes.
 

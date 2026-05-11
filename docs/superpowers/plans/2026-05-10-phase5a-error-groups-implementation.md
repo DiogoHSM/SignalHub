@@ -1734,7 +1734,7 @@ git commit -m "feat: add console error group api client"
 - Modify: `apps/console/src/styles.css`
 - Test: `apps/console/src/components/ErrorInvestigationPanel.test.tsx`
 
-- [ ] **Step 1: Add failing UI tests**
+- [x] **Step 1: Add failing UI tests**
 
 In `apps/console/src/components/ErrorInvestigationPanel.test.tsx`, add tests for the new layout:
 
@@ -1866,7 +1866,7 @@ In `apps/console/src/components/ErrorInvestigationPanel.test.tsx`, add tests for
   });
 ```
 
-- [ ] **Step 2: Run UI tests and verify failure**
+- [x] **Step 2: Run UI tests and verify failure**
 
 Run:
 
@@ -1876,7 +1876,7 @@ pnpm --filter @signal-hub/console test -- ErrorInvestigationPanel.test.tsx
 
 Expected: fail because grouped components and client calls do not exist.
 
-- [ ] **Step 3: Extract raw occurrences panel**
+- [x] **Step 3: Extract raw occurrences panel**
 
 Move the current `ErrorInvestigationPanel` raw list logic into `apps/console/src/components/ErrorRawOccurrencesPanel.tsx`. Export:
 
@@ -1908,7 +1908,7 @@ In raw query construction, include:
   if (errorGroupId) query.errorGroupId = errorGroupId;
 ```
 
-- [ ] **Step 4: Add group filter/list/detail components**
+- [x] **Step 4: Add group filter/list/detail components**
 
 Create `apps/console/src/components/ErrorGroupFilters.tsx`:
 
@@ -2104,7 +2104,7 @@ export function ErrorGroupDetail({ group, onStatusChange, onShowOccurrences }: P
 }
 ```
 
-- [ ] **Step 5: Add grouped panel and tabs**
+- [x] **Step 5: Add grouped panel and tabs**
 
 Create `apps/console/src/components/ErrorGroupsPanel.tsx`:
 
@@ -2248,7 +2248,7 @@ export function ErrorInvestigationPanel({ client, projectId, environmentId, init
 }
 ```
 
-- [ ] **Step 6: Update raw error display**
+- [x] **Step 6: Update raw error display**
 
 In `ErrorList.tsx`, show group id when present:
 
@@ -2265,7 +2265,7 @@ In `ErrorDetailDrawer.tsx`, add:
 <dd>{detailValue(error.groupingFingerprint)}</dd>
 ```
 
-- [ ] **Step 7: Add CSS**
+- [x] **Step 7: Add CSS**
 
 In `apps/console/src/styles.css`, add compact styles:
 
@@ -2293,7 +2293,7 @@ In `apps/console/src/styles.css`, add compact styles:
 
 Use these exact class names in the new JSX so the CSS above applies without selector drift.
 
-- [ ] **Step 8: Run UI tests and verify pass**
+- [x] **Step 8: Run UI tests and verify pass**
 
 Run:
 
@@ -2303,7 +2303,7 @@ pnpm --filter @signal-hub/console test -- ErrorInvestigationPanel.test.tsx Error
 
 Expected: pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/console/src/components/ErrorGroupFilters.tsx apps/console/src/components/ErrorGroupList.tsx apps/console/src/components/ErrorGroupDetail.tsx apps/console/src/components/ErrorGroupsPanel.tsx apps/console/src/components/ErrorRawOccurrencesPanel.tsx apps/console/src/components/ErrorInvestigationPanel.tsx apps/console/src/components/ErrorFilters.tsx apps/console/src/components/ErrorList.tsx apps/console/src/components/ErrorDetailDrawer.tsx apps/console/src/components/ErrorInvestigationPanel.test.tsx apps/console/src/styles.css
@@ -2321,7 +2321,7 @@ git commit -m "feat: add grouped error triage console"
 - Modify: `README.md`
 - Modify: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update project docs**
+- [x] **Step 1: Update project docs**
 
 Apply these documentation changes:
 
@@ -2344,7 +2344,7 @@ Rationale: Raw telemetry must remain auditable. Group status is an operational t
 The Errors investigation view defaults to grouped error issues. Raw occurrences remain available in a peer tab and retain their immutable telemetry fields. Group status is an operator workflow state and does not rewrite raw error rows.
 ```
 
-- [ ] **Step 2: Update memory**
+- [x] **Step 2: Update memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
