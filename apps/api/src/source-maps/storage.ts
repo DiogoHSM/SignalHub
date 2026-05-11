@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Db } from "@signal-hub/db";
 import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
+  getSourceMapArtifact,
   type SourceMapArtifactRecord
 } from "@signal-hub/db/repositories/source-maps.js";
 import type { SourceMapBundleUploadInput, SourceMapUploadInput } from "../routes/admin.js";
@@ -59,8 +59,10 @@ export async function storeSourceMapFile(input: {
   artifactId: string;
   content: Buffer;
 }): Promise<StoredArtifact> {
+  await mkdir(input.localDir, { recursive: true });
+  const resolvedLocalDir = await realpath(input.localDir);
   const directory = path.join(
-    input.localDir,
+    resolvedLocalDir,
     safeSegment(input.projectId),
     safeSegment(input.environmentId),
     safeSegment(input.release)
@@ -97,7 +99,17 @@ async function deleteSourceMapFileIfPresent(input: StoredArtifactPathInput): Pro
 }
 
 async function cleanupStoredFiles(localDir: string, storagePaths: string[]): Promise<void> {
-  await Promise.allSettled(storagePaths.map((storagePath) => deleteSourceMapFileIfPresent({ localDir, storagePath })));
+  await Promise.all(storagePaths.map((storagePath) => deleteSourceMapFileIfPresent({ localDir, storagePath })));
+}
+
+function assertUniqueMinifiedFiles(sourceMaps: Array<{ minifiedFile: string }>): void {
+  const minifiedFiles = new Set<string>();
+  for (const sourceMap of sourceMaps) {
+    if (minifiedFiles.has(sourceMap.minifiedFile)) {
+      throw new Error("source_map_duplicate_minified_file");
+    }
+    minifiedFiles.add(sourceMap.minifiedFile);
+  }
 }
 
 export async function uploadSingleSourceMap(input: {
@@ -147,10 +159,19 @@ export async function uploadSourceMapBundle(input: {
   input: SourceMapBundleUploadInput;
 }): Promise<SourceMapArtifactRecord[]> {
   const sourceMaps = extractSourceMapsFromZip(input.input.content);
-  const artifacts: SourceMapArtifactRecord[] = [];
+  assertUniqueMinifiedFiles(sourceMaps);
+
   const writtenStoragePaths: string[] = [];
 
   try {
+    const storedMaps: Array<{
+      sourceMap: {
+        originalFilename: string;
+        content: Buffer;
+        minifiedFile: string;
+      };
+      stored: StoredArtifact;
+    }> = [];
     for (const sourceMap of sourceMaps) {
       const stored = await storeSourceMapFile({
         localDir: input.localDir,
@@ -161,27 +182,33 @@ export async function uploadSourceMapBundle(input: {
         content: sourceMap.content
       });
       writtenStoragePaths.push(stored.storagePath);
-
-      const artifact = await createSourceMapArtifact(input.db, {
-        projectId: input.input.projectId,
-        environmentId: input.input.environmentId,
-        release: input.input.release,
-        minifiedFile: sourceMap.minifiedFile,
-        originalFilename: sourceMap.originalFilename,
-        contentType: "application/json",
-        byteSize: stored.byteSize,
-        sha256: stored.sha256,
-        storagePath: stored.storagePath,
-        uploadedByUserId: input.input.uploadedByUserId
-      });
-      artifacts.push(artifact);
+      storedMaps.push({ sourceMap, stored });
     }
+
+    return await input.db.transaction().execute(async (trx) => {
+      const artifacts: SourceMapArtifactRecord[] = [];
+      for (const { sourceMap, stored } of storedMaps) {
+        const artifact = await createSourceMapArtifact(trx, {
+          projectId: input.input.projectId,
+          environmentId: input.input.environmentId,
+          release: input.input.release,
+          minifiedFile: sourceMap.minifiedFile,
+          originalFilename: sourceMap.originalFilename,
+          contentType: "application/json",
+          byteSize: stored.byteSize,
+          sha256: stored.sha256,
+          storagePath: stored.storagePath,
+          uploadedByUserId: input.input.uploadedByUserId
+        });
+        artifacts.push(artifact);
+      }
+
+      return artifacts;
+      });
   } catch (error) {
     await cleanupStoredFiles(input.localDir, writtenStoragePaths);
     throw error;
   }
-
-  return artifacts;
 }
 
 export async function deleteSourceMapArtifactAndFile(input: {
@@ -189,15 +216,16 @@ export async function deleteSourceMapArtifactAndFile(input: {
   localDir: string;
   input: { id: string; projectId: string; environmentId: string };
 }): Promise<void> {
-  const artifact = await deleteSourceMapArtifact(input.db, input.input);
+  const artifact = await getSourceMapArtifact(input.db, input.input);
   if (!artifact) {
     return;
   }
 
-  // Admin deletes are idempotent at the file layer: metadata is already soft-deleted, so a missing local file
-  // should not make repeat cleanup fail.
+  // Keep the DB row active if file deletion fails so the admin delete can be retried coherently.
   await deleteSourceMapFileIfPresent({
     localDir: input.localDir,
     storagePath: artifact.storagePath
   });
+
+  await deleteSourceMapArtifact(input.db, input.input);
 }

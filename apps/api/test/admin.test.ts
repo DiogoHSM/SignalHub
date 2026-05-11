@@ -1,5 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { access, mkdtemp, rm } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
+import { zipSync } from "fflate";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -15,6 +19,25 @@ const userAuth = {
 };
 
 const readiness = async () => ({ postgres: true, redis: true });
+
+function sourceMapArtifact(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "smap_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    release: "2026.05.10",
+    minifiedFile: "app.min.js",
+    originalFilename: "app.min.js.map",
+    contentType: "application/json",
+    byteSize: 72,
+    sha256: "abc123",
+    storagePath: "/tmp/source-maps/smap_1.map",
+    uploadedByUserId: "usr_1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    deletedAt: null,
+    ...overrides
+  };
+}
 
 function createMultipartPayload(
   parts: Array<
@@ -52,6 +75,8 @@ function createMultipartPayload(
 afterEach(async () => {
   await app?.close();
   app = undefined;
+  vi.doUnmock("@signal-hub/db/repositories/source-maps.js");
+  vi.resetModules();
 });
 
 describe("admin routes", () => {
@@ -340,13 +365,7 @@ describe("admin routes", () => {
 
   it("lists source map artifacts for admins", async () => {
     const listCalls: unknown[] = [];
-    const artifact = {
-      id: "smap_1",
-      projectId: "prj_1",
-      environmentId: "env_1",
-      release: "2026.05.10",
-      minifiedFile: "app.min.js"
-    };
+    const artifact = sourceMapArtifact();
 
     app = await buildApp({
       readiness,
@@ -430,7 +449,7 @@ describe("admin routes", () => {
 
   it("uploads a single source map for admins", async () => {
     const uploadCalls: unknown[] = [];
-    const uploadedArtifacts = [{ id: "smap_1", minifiedFile: "app.min.js" }];
+    const uploadedArtifacts = [sourceMapArtifact()];
     const sourceMap = JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" });
     const { headers, payload } = createMultipartPayload([
       { name: "project_id", value: "prj_1" },
@@ -473,9 +492,77 @@ describe("admin routes", () => {
     expect((uploadCalls[0] as { content: Buffer }).content).toEqual(Buffer.from(sourceMap));
   });
 
+  it("returns 400 when source map upload content is invalid", async () => {
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_1" },
+      { name: "environment_id", value: "env_1" },
+      { name: "release", value: "2026.05.10" },
+      { name: "minified_file", value: "app.min.js" },
+      { name: "file", filename: "app.min.js.map", contentType: "application/json", content: "not-json" }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        uploadMap: async () => {
+          throw new Error("invalid_source_map");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_source_map_request" });
+  });
+
+  it("rejects uploads with multiple file parts without calling source map upload", async () => {
+    const uploadCalls: unknown[] = [];
+    const sourceMap = JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" });
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_1" },
+      { name: "environment_id", value: "env_1" },
+      { name: "release", value: "2026.05.10" },
+      { name: "minified_file", value: "app.min.js" },
+      { name: "file", filename: "app.min.js.map", contentType: "application/json", content: sourceMap },
+      { name: "bundle", filename: "source-maps.zip", contentType: "application/zip", content: Buffer.from("zip") }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        uploadMap: async (input) => {
+          uploadCalls.push(input);
+          return [];
+        },
+        uploadBundle: async (input) => {
+          uploadCalls.push(input);
+          return [];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect([400, 413]).toContain(response.statusCode);
+    expect(uploadCalls).toEqual([]);
+  });
+
   it("uploads a source map bundle for admins", async () => {
     const uploadCalls: unknown[] = [];
-    const uploadedArtifacts = [{ id: "smap_1", minifiedFile: "app.min.js" }];
+    const uploadedArtifacts = [sourceMapArtifact()];
     const bundle = Buffer.from("zip-content");
     const { headers, payload } = createMultipartPayload([
       { name: "project_id", value: "prj_1" },
@@ -514,5 +601,70 @@ describe("admin routes", () => {
       contentType: "application/zip"
     });
     expect((uploadCalls[0] as { content: Buffer }).content).toEqual(bundle);
+  });
+
+  it("cleans up bundle files when artifact creation fails after a partial bundle upload", async () => {
+    vi.resetModules();
+
+    const createdArtifactInputs: Array<{ storagePath: string }> = [];
+    const createSourceMapArtifact = vi.fn(async (_db, input: { storagePath: string }) => {
+      createdArtifactInputs.push(input);
+      if (createdArtifactInputs.length === 2) {
+        throw new Error("db_down");
+      }
+
+      return sourceMapArtifact({ storagePath: input.storagePath });
+    });
+
+    vi.doMock("@signal-hub/db/repositories/source-maps.js", () => ({
+      createSourceMapArtifact,
+      deleteSourceMapArtifact: vi.fn(),
+      getSourceMapArtifact: vi.fn()
+    }));
+
+    const { uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const db = {
+      transaction: () => ({
+        execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
+      })
+    };
+    const firstMap = Buffer.from(
+      JSON.stringify({ version: 3, file: "app-one.min.js", sources: [], names: [], mappings: "" })
+    );
+    const secondMap = Buffer.from(
+      JSON.stringify({ version: 3, file: "app-two.min.js", sources: [], names: [], mappings: "" })
+    );
+
+    try {
+      await expect(
+        uploadSourceMapBundle({
+          db: db as never,
+          localDir,
+          input: {
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "2026.05.10",
+            uploadedByUserId: "usr_1",
+            originalFilename: "source-maps.zip",
+            contentType: "application/zip",
+            content: Buffer.from(
+              zipSync({
+                "app-one.min.js.map": firstMap,
+                "app-two.min.js.map": secondMap
+              })
+            )
+          }
+        })
+      ).rejects.toThrow("db_down");
+
+      expect(createSourceMapArtifact).toHaveBeenCalledTimes(2);
+      expect(createdArtifactInputs).toHaveLength(2);
+      await Promise.all(
+        createdArtifactInputs.map((input) => expect(access(input.storagePath)).rejects.toThrow())
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });

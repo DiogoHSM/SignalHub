@@ -47,7 +47,10 @@ export async function buildApp(options: BuildAppOptions) {
   await app.register(cookie);
   await app.register(multipart, {
     limits: {
-      fileSize: options.sourceMaps?.maxUploadBytes ?? 50 * 1024 * 1024
+      fileSize: options.sourceMaps?.maxUploadBytes ?? 50 * 1024 * 1024,
+      files: 1,
+      fields: 4,
+      parts: 6
     }
   });
   await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });

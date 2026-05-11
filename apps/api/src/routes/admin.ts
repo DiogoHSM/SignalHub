@@ -104,10 +104,26 @@ export type SourceMapBundleUploadInput = {
   content: Buffer;
 };
 
+export type SourceMapArtifactResponse = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  release: string;
+  minifiedFile: string;
+  originalFilename: string;
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+  storagePath: string;
+  uploadedByUserId: string;
+  createdAt: Date | string;
+  deletedAt: Date | string | null;
+};
+
 export type SourceMapAdministrationDependencies = {
-  list?: (filters: { projectId: string; environmentId: string; release?: string }) => Promise<unknown[]>;
-  uploadMap?: (input: SourceMapUploadInput) => Promise<unknown[]>;
-  uploadBundle?: (input: SourceMapBundleUploadInput) => Promise<unknown[]>;
+  list?: (filters: { projectId: string; environmentId: string; release?: string }) => Promise<SourceMapArtifactResponse[]>;
+  uploadMap?: (input: SourceMapUploadInput) => Promise<SourceMapArtifactResponse[]>;
+  uploadBundle?: (input: SourceMapBundleUploadInput) => Promise<SourceMapArtifactResponse[]>;
   remove?: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
@@ -254,6 +270,9 @@ type MultipartFilePart = {
   fieldname: string;
   filename: string;
   mimetype: string;
+  file?: {
+    resume: () => void;
+  };
   toBuffer: () => Promise<Buffer>;
 };
 
@@ -480,6 +499,53 @@ function stringField(value: unknown): string | undefined {
   return typeof value === "string" ? value.trim() : undefined;
 }
 
+function drainMultipartFilePart(part: MultipartFilePart): void {
+  part.file?.resume();
+}
+
+const SOURCE_MAP_BAD_REQUEST_ERRORS = new Set([
+  "invalid_source_map",
+  "indexed_source_maps_unsupported",
+  "source_map_file_missing",
+  "source_map_zip_empty",
+  "source_map_duplicate_minified_file",
+  "source_map_storage_path_invalid"
+]);
+
+const SOURCE_MAP_PAYLOAD_TOO_LARGE_ERRORS = new Set([
+  "source_map_upload_too_large",
+  "source_map_zip_uncompressed_too_large",
+  "source_map_zip_too_many_entries"
+]);
+
+function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
+  if (!error || typeof error !== "object" || !("message" in error) || typeof error.message !== "string") {
+    return undefined;
+  }
+
+  if (SOURCE_MAP_BAD_REQUEST_ERRORS.has(error.message)) {
+    return 400;
+  }
+
+  if (SOURCE_MAP_PAYLOAD_TOO_LARGE_ERRORS.has(error.message)) {
+    return 413;
+  }
+
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  const lowerMessage = error.message.toLowerCase();
+  if (code.includes("FST_REQ_FILE_TOO_LARGE") || lowerMessage.includes("request file too large")) {
+    return 413;
+  }
+  if (lowerMessage.includes("multipart") || lowerMessage.includes("part") || lowerMessage.includes("file")) {
+    return lowerMessage.includes("limit") ? 413 : 400;
+  }
+  if (lowerMessage.includes("zip")) {
+    return 400;
+  }
+
+  return undefined;
+}
+
 async function parseSourceMapUploadRequest(
   request: FastifyRequest,
   uploadedByUserId: string
@@ -509,12 +575,12 @@ async function parseSourceMapUploadRequest(
     }
 
     if (part.fieldname !== "file" && part.fieldname !== "bundle") {
-      await part.toBuffer();
-      continue;
+      drainMultipartFilePart(part);
+      return undefined;
     }
 
     if (file) {
-      await part.toBuffer();
+      drainMultipartFilePart(part);
       return undefined;
     }
 
@@ -949,7 +1015,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_source_map_request" });
     }
 
-    let artifacts: unknown[];
+    let artifacts: SourceMapArtifactResponse[];
     try {
       artifacts = await options.sourceMaps.list({
         projectId: parsed.data.project_id,
@@ -969,7 +1035,16 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply;
     }
 
-    const input = await parseSourceMapUploadRequest(request, admin.id);
+    let input: SourceMapUploadInput | SourceMapBundleUploadInput | undefined;
+    try {
+      input = await parseSourceMapUploadRequest(request, admin.id);
+    } catch (error) {
+      const status = sourceMapUploadErrorStatus(error);
+      if (status) {
+        return reply.status(status).send({ error: "invalid_source_map_request" });
+      }
+      return reply.status(503).send({ error: "source_maps_unavailable" });
+    }
     if (!input) {
       return reply.status(400).send({ error: "invalid_source_map_request" });
     }
@@ -988,7 +1063,11 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       }
       const artifacts = await options.sourceMaps.uploadBundle(input);
       return reply.send({ artifacts });
-    } catch {
+    } catch (error) {
+      const status = sourceMapUploadErrorStatus(error);
+      if (status) {
+        return reply.status(status).send({ error: "invalid_source_map_request" });
+      }
       return reply.status(503).send({ error: "source_maps_unavailable" });
     }
   });
