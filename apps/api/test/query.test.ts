@@ -1,6 +1,14 @@
 import type { FastifyInstance } from "fastify";
+import { zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import {
+  extractSourceMapsFromZip,
+  inferMinifiedFileFromMap,
+  parseSourceMapJson,
+  parseStackFrames
+} from "../src/source-maps/parser.js";
+import { resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 
 let app: FastifyInstance | undefined;
 
@@ -14,6 +22,93 @@ const readiness = async () => ({ postgres: true, redis: true });
 afterEach(async () => {
   await app?.close();
   app = undefined;
+});
+
+describe("source map helpers", () => {
+  it("parses browser stack frames for source map resolution", () => {
+    expect(
+      parseStackFrames(
+        [
+          "TypeError: failed",
+          "    at checkout (https://cdn.example.com/assets/app.abc123.js:10:1234)",
+          "    at https://cdn.example.com/assets/vendor.js:2:45",
+          "render@https://cdn.example.com/assets/chunk.js:3:9"
+        ].join("\n")
+      )
+    ).toEqual([
+      {
+        frameIndex: 0,
+        functionName: "checkout",
+        minifiedFile: "app.abc123.js",
+        minifiedLine: 10,
+        minifiedColumn: 1234
+      },
+      { frameIndex: 1, functionName: null, minifiedFile: "vendor.js", minifiedLine: 2, minifiedColumn: 45 },
+      { frameIndex: 2, functionName: "render", minifiedFile: "chunk.js", minifiedLine: 3, minifiedColumn: 9 }
+    ]);
+  });
+
+  it("infers minified file from a source map file property", () => {
+    expect(inferMinifiedFileFromMap({ version: 3, file: "assets/app.abc123.js", sources: [], names: [], mappings: "" })).toBe(
+      "app.abc123.js"
+    );
+  });
+
+  it("rejects invalid and indexed source maps", () => {
+    expect(() => parseSourceMapJson(JSON.stringify({ version: 2, sources: [], names: [], mappings: "" }))).toThrow(
+      "invalid_source_map"
+    );
+    expect(() =>
+      parseSourceMapJson(JSON.stringify({ version: 3, sections: [], sources: [], names: [], mappings: "" }))
+    ).toThrow("indexed_source_maps_unsupported");
+  });
+
+  it("extracts source maps from zip uploads", () => {
+    const map = JSON.stringify({ version: 3, file: "assets/app.min.js", sources: [], names: [], mappings: "" });
+    const zip = Buffer.from(
+      zipSync({
+        "assets/app.min.js.map": new TextEncoder().encode(map),
+        "assets/ignored.txt": new TextEncoder().encode("ignored")
+      })
+    );
+
+    expect(extractSourceMapsFromZip(zip)).toEqual([
+      {
+        originalFilename: "app.min.js.map",
+        content: Buffer.from(map),
+        minifiedFile: "app.min.js"
+      }
+    ]);
+  });
+
+  it("resolves a generated frame with a regular source map", () => {
+    const map = {
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/app.ts"],
+      names: ["checkout"],
+      mappings: "KAyCIA"
+    };
+
+    expect(
+      resolveFrameWithSourceMap(JSON.stringify(map), {
+        frameIndex: 0,
+        functionName: "checkout",
+        minifiedFile: "app.min.js",
+        minifiedLine: 1,
+        minifiedColumn: 5
+      })
+    ).toEqual({
+      frameIndex: 0,
+      minifiedFile: "app.min.js",
+      minifiedLine: 1,
+      minifiedColumn: 5,
+      originalSource: "src/app.ts",
+      originalLine: 42,
+      originalColumn: 4,
+      originalName: "checkout"
+    });
+  });
 });
 
 describe("query routes", () => {
