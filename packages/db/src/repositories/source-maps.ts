@@ -198,23 +198,22 @@ export async function deleteSourceMapArtifact(
   input: { id: string; projectId: string; environmentId: string }
 ): Promise<SourceMapArtifactRecord | null> {
   return db.transaction().execute(async (trx) => {
-    const artifact = await getSourceMapArtifact(trx, input);
-    if (!artifact) return null;
-
-    await trx
-      .deleteFrom("error_stack_resolutions")
-      .where("source_map_artifact_id", "=", artifact.id)
-      .execute();
-
     const deleted = await trx
       .updateTable("source_map_artifacts")
       .set({ deleted_at: new Date() })
-      .where("id", "=", artifact.id)
-      .where("project_id", "=", artifact.projectId)
-      .where("environment_id", "=", artifact.environmentId)
+      .where("id", "=", input.id)
+      .where("project_id", "=", input.projectId)
+      .where("environment_id", "=", input.environmentId)
       .where("deleted_at", "is", null)
       .returningAll()
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
+
+    if (!deleted) return null;
+
+    await trx
+      .deleteFrom("error_stack_resolutions")
+      .where("source_map_artifact_id", "=", deleted.id)
+      .execute();
 
     return toSourceMapArtifact(deleted);
   });
@@ -239,6 +238,42 @@ export async function replaceErrorStackResolutions(
   input: ReplaceErrorStackResolutionsInput
 ): Promise<ErrorStackResolutionRecord[]> {
   return db.transaction().execute(async (trx) => {
+    const error = await trx
+      .selectFrom("errors")
+      .select(["id", "project_id", "environment_id", "release"])
+      .where("id", "=", input.errorId)
+      .executeTakeFirst();
+
+    if (
+      !error ||
+      error.project_id !== input.projectId ||
+      error.environment_id !== input.environmentId ||
+      error.release !== input.release
+    ) {
+      throw new Error(`Error ${input.errorId} does not match source map scope`);
+    }
+
+    if (input.frames.length > 0) {
+      const artifactIds = [...new Set(input.frames.map((frame) => frame.sourceMapArtifactId))];
+      const artifacts = await trx
+        .selectFrom("source_map_artifacts")
+        .select(["id", "minified_file"])
+        .where("id", "in", artifactIds)
+        .where("project_id", "=", input.projectId)
+        .where("environment_id", "=", input.environmentId)
+        .where("release", "=", input.release)
+        .where("deleted_at", "is", null)
+        .execute();
+      const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+
+      for (const frame of input.frames) {
+        const artifact = artifactsById.get(frame.sourceMapArtifactId);
+        if (!artifact || artifact.minified_file !== frame.minifiedFile) {
+          throw new Error(`Frame ${frame.frameIndex} references an invalid source map artifact`);
+        }
+      }
+    }
+
     await trx.deleteFrom("error_stack_resolutions").where("error_id", "=", input.errorId).execute();
     if (input.frames.length === 0) return [];
 
