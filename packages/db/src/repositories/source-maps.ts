@@ -263,6 +263,7 @@ export async function replaceErrorStackResolutions(
         .where("environment_id", "=", input.environmentId)
         .where("release", "=", input.release)
         .where("deleted_at", "is", null)
+        .forUpdate()
         .execute();
       const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
 
