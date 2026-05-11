@@ -43,6 +43,8 @@ services:
       SIGNALHUB_PUBLIC_ENDPOINT: ${SIGNALHUB_PUBLIC_ENDPOINT:-http://localhost:3000}
     ports:
       - "3000:3000"
+    volumes:
+      - source_map_data:/var/lib/signalhub/source-maps
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,3 +74,4 @@ volumes:
   postgres_data:
   redis_data:
   backup_data:
+  source_map_data:

@@ -200,6 +200,26 @@ describe("doctor orchestration", () => {
     expect(results).toContainEqual(expect.objectContaining({ status: "fail", message: ".env is missing; copy .env.example to .env" }));
   });
 
+  it("warns when source map directory is missing", async () => {
+    const envContent = Object.entries({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/missing/source-maps" })
+      .map(([key, value]) => `${key}=${value ?? ""}`)
+      .join("\n");
+    const results = await buildDoctorResults({
+      options: { compose: false, envFile: ".env" },
+      fileExists: (path) => path === ".env",
+      readFile: () => envContent,
+      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      fetchHealth: async () => ({ ok: true, status: 200 })
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        status: "warn",
+        message: "SOURCE_MAPS_LOCAL_DIR is missing or not writable"
+      })
+    );
+  });
+
   it("redacts secrets when running the doctor", async () => {
     const exitCode = await runDoctor({
       options: { compose: false, envFile: ".env" },

@@ -161,6 +161,12 @@ export function checkEnvValues(env: DoctorEnv): DoctorResult[] {
   return results;
 }
 
+function checkSourceMapDirectory(env: DoctorEnv, fileExists: (path: string) => boolean): DoctorResult[] {
+  const localDir = env.SOURCE_MAPS_LOCAL_DIR?.trim();
+  if (!localDir) return [];
+  return fileExists(localDir) ? [] : [createResult("warn", "SOURCE_MAPS_LOCAL_DIR is missing or not writable")];
+}
+
 export function renderResults(results: DoctorResult[]): string {
   const icon = { pass: "PASS", warn: "WARN", fail: "FAIL" } satisfies Record<DoctorStatus, string>;
   return results.map((result) => `[${icon[result.status]}] ${result.message}${result.detail ? `\n  ${result.detail}` : ""}`).join("\n");
@@ -309,6 +315,7 @@ export async function buildDoctorResults(dependencies: BuildDoctorDependencies):
     env = parseEnvFile(readFile(options.envFile));
     results.push(createResult("pass", `${options.envFile} exists`));
     results.push(...checkEnvValues(env));
+    results.push(...checkSourceMapDirectory(env, fileExists));
   }
 
   results.push(await checkCommand("Docker Compose config", ["docker", "compose", "config", "--quiet"], runCommand, "warn"));
