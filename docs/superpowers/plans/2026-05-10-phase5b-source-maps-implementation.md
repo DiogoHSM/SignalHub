@@ -1756,14 +1756,14 @@ Append a `2026-05-10` memory entry noting Phase 5B implementation, verification 
 
 Update this plan file checkboxes for completed tasks through Task 9.
 
-- [ ] **Step 4: Commit SignalHub docs**
+- [x] **Step 4: Commit SignalHub docs**
 
 ```bash
 git add README.md .claude/docs docs/superpowers/plans/2026-05-10-phase5b-source-maps-implementation.md
 git commit -m "docs: document source map workflow"
 ```
 
-- [ ] **Step 5: Commit memory**
+- [x] **Step 5: Commit memory**
 
 ```bash
 cd /Users/diogo/Developer/Github/claude-config
