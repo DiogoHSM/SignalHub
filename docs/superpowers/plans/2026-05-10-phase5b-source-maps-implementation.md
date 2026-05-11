@@ -1421,7 +1421,7 @@ git commit -m "feat: add source map console client"
 - Modify: `apps/console/src/components/ConsoleShell.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Add failing console tests**
+- [x] **Step 1: Add failing console tests**
 
 In `apps/console/src/components/ConsoleModeTabs.test.tsx`, expect an `Artifacts` button.
 
@@ -1479,7 +1479,7 @@ it("uploads a source map file", async () => {
 });
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.test.tsx
@@ -1487,7 +1487,7 @@ pnpm exec vitest run apps/console/src/components/ConsoleModeTabs.test.tsx apps/c
 
 Expected: fail because Artifacts mode does not exist.
 
-- [ ] **Step 3: Add mode tab**
+- [x] **Step 3: Add mode tab**
 
 In `ConsoleModeTabs.tsx`, extend:
 
@@ -1497,7 +1497,7 @@ export type ConsoleMode = "setup" | "overview" | "investigate" | "alerts" | "art
 
 Render an `Artifacts` button between `Alerts` and `System`.
 
-- [ ] **Step 4: Implement `ArtifactsPanel`**
+- [x] **Step 4: Implement `ArtifactsPanel`**
 
 Create `apps/console/src/components/ArtifactsPanel.tsx` with props:
 
@@ -1529,7 +1529,7 @@ Use exact visible labels:
 - `Upload bundle`
 - `No source maps uploaded.`
 
-- [ ] **Step 5: Render mode in `ConsoleShell`**
+- [x] **Step 5: Render mode in `ConsoleShell`**
 
 Add:
 
@@ -1539,7 +1539,7 @@ Add:
 ) : null}
 ```
 
-- [ ] **Step 6: Add styles**
+- [x] **Step 6: Add styles**
 
 In `apps/console/src/styles.css`, add compact operational styles:
 
@@ -1551,7 +1551,7 @@ In `apps/console/src/styles.css`, add compact operational styles:
 
 Keep cards at existing radius conventions and ensure mobile stacking.
 
-- [ ] **Step 7: Run console tests**
+- [x] **Step 7: Run console tests**
 
 ```bash
 pnpm exec vitest run apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.test.tsx
@@ -1560,7 +1560,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/console/src/components/ArtifactsPanel.tsx apps/console/src/components/ConsoleModeTabs.tsx apps/console/src/components/ConsoleModeTabs.test.tsx apps/console/src/components/ConsoleShell.tsx apps/console/src/components/ConsoleShell.test.tsx apps/console/src/styles.css
