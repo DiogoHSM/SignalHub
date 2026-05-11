@@ -1,4 +1,9 @@
 export type {
+  BrowserBreadcrumbOptions,
+  StopBrowserBreadcrumbs
+} from "./browser-breadcrumbs.js";
+
+export type {
   ActiveTrace,
   BreadcrumbInput,
   BreadcrumbLevel,

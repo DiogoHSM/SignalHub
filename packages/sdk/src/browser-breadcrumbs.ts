@@ -5,6 +5,11 @@ export type BrowserBreadcrumbOptions = {
   clicks?: boolean;
   console?: boolean;
   network?: boolean;
+  /**
+   * Successful fetch calls at or above this duration are captured as slow network breadcrumbs.
+   * Defaults to 5000ms. Request/response bodies, headers, cookies, and raw query values are never captured.
+   */
+  slowNetworkThresholdMs?: number;
   maxBreadcrumbsPerMinute?: number;
 };
 
@@ -18,6 +23,7 @@ type ClickSummary = {
 };
 
 const DEFAULT_MAX_BREADCRUMBS_PER_MINUTE = 120;
+const DEFAULT_SLOW_NETWORK_THRESHOLD_MS = 5_000;
 const MAX_CONSOLE_MESSAGE_LENGTH = 2_000;
 const SECRET_VALUE_PATTERN =
   /\b(password|passwd|pwd|secret|token|api[_-]?key|authorization|auth|cookie|session)\s*[:=]\s*([^\s,;&]+)/gi;
@@ -63,12 +69,13 @@ export function createBrowserBreadcrumbs(
 
   const resolvedOptions = {
     navigation: options.navigation ?? true,
-    clicks: options.clicks ?? true,
-    console: options.console ?? true,
+    clicks: options.clicks ?? false,
+    console: options.console ?? false,
     network: options.network ?? false
   };
   const disposers: Array<() => void> = [];
   const maxPerMinute = resolveMaxPerMinute(options.maxBreadcrumbsPerMinute);
+  const slowNetworkThresholdMs = resolveSlowNetworkThresholdMs(options.slowNetworkThresholdMs);
   let windowStartedAt = Date.now();
   let emitted = 0;
   let stopped = false;
@@ -157,6 +164,77 @@ export function createBrowserBreadcrumbs(
       history.pushState = originalPushState;
       history.replaceState = originalReplaceState;
       window.removeEventListener("popstate", onPopState);
+    });
+  }
+
+  if (resolvedOptions.network && typeof globalThis.fetch === "function") {
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = async (
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ): Promise<Response> => {
+      const method = getFetchMethod(input, init);
+      const url = getFetchUrl(input);
+      const startedAt = Date.now();
+
+      try {
+        const response = await originalFetch(input, init);
+        const durationMs = elapsedMs(startedAt);
+
+        if (!response.ok) {
+          emit({
+            type: "network",
+            category: "fetch",
+            level: "error",
+            message: `Fetch ${method} ${url} failed with ${response.status}`,
+            data: {
+              method,
+              url,
+              status: response.status,
+              durationMs,
+              failureClass: "http_error",
+              reason: `HTTP ${response.status}`
+            }
+          });
+        } else if (durationMs >= slowNetworkThresholdMs) {
+          emit({
+            type: "network",
+            category: "fetch",
+            level: "warning",
+            message: `Slow fetch ${method} ${url}`,
+            data: {
+              method,
+              url,
+              status: response.status,
+              durationMs,
+              failureClass: "slow",
+              reason: `>=${slowNetworkThresholdMs}ms`
+            }
+          });
+        }
+
+        return response;
+      } catch (error) {
+        emit({
+          type: "network",
+          category: "fetch",
+          level: "error",
+          message: `Fetch ${method} ${url} failed`,
+          data: {
+            method,
+            url,
+            durationMs: elapsedMs(startedAt),
+            failureClass: "fetch_error",
+            reason: getFailureReason(error)
+          }
+        });
+        throw error;
+      }
+    };
+
+    disposers.push(() => {
+      globalThis.fetch = originalFetch;
     });
   }
 
@@ -257,9 +335,57 @@ function sanitizeConsoleMessage(args: unknown[]): string {
     .slice(0, MAX_CONSOLE_MESSAGE_LENGTH);
 }
 
+function getFetchMethod(input: RequestInfo | URL, init: RequestInit | undefined): string {
+  if (init?.method) {
+    return init.method.toUpperCase();
+  }
+
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    return input.method.toUpperCase();
+  }
+
+  return "GET";
+}
+
+function getFetchUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") {
+    return sanitizeBreadcrumbUrl(input);
+  }
+
+  if (input instanceof URL) {
+    return sanitizeBreadcrumbUrl(input.href);
+  }
+
+  if (typeof Request !== "undefined" && input instanceof Request) {
+    return sanitizeBreadcrumbUrl(input.url);
+  }
+
+  return "[unknown-url]";
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.max(0, Math.round(Date.now() - startedAt));
+}
+
+function getFailureReason(error: unknown): string {
+  if (error instanceof Error) {
+    return compactText(error.name) ?? "Error";
+  }
+
+  return compactText(typeof error) ?? "unknown";
+}
+
 function resolveMaxPerMinute(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) {
     return DEFAULT_MAX_BREADCRUMBS_PER_MINUTE;
+  }
+
+  return Math.max(0, Math.trunc(value));
+}
+
+function resolveSlowNetworkThresholdMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_SLOW_NETWORK_THRESHOLD_MS;
   }
 
   return Math.max(0, Math.trunc(value));
