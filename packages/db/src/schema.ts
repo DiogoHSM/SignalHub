@@ -300,6 +300,40 @@ export interface NotificationDeliveriesTable {
   created_at: Timestamp;
 }
 
+export interface SourceMapArtifactsTable {
+  id: ColumnType<string, string | undefined, string>;
+  project_id: string;
+  environment_id: string;
+  release: string;
+  minified_file: string;
+  original_filename: string;
+  content_type: string;
+  byte_size: number;
+  sha256: string;
+  storage_path: string;
+  uploaded_by_user_id: string;
+  created_at: Timestamp;
+  deleted_at: NullableTimestamp;
+}
+
+export interface ErrorStackResolutionsTable {
+  id: ColumnType<string, string | undefined, string>;
+  error_id: string;
+  project_id: string;
+  environment_id: string;
+  release: string;
+  source_map_artifact_id: string;
+  frame_index: number;
+  minified_file: string;
+  minified_line: number;
+  minified_column: number;
+  original_source: string;
+  original_line: number;
+  original_column: number;
+  original_name: string | null;
+  created_at: Timestamp;
+}
+
 export interface MigrationsTable {
   name: string;
   checksum: string;
@@ -325,5 +359,7 @@ export interface Database {
   alert_rules: AlertRulesTable;
   alert_events: AlertEventsTable;
   notification_deliveries: NotificationDeliveriesTable;
+  source_map_artifacts: SourceMapArtifactsTable;
+  error_stack_resolutions: ErrorStackResolutionsTable;
   _migrations: MigrationsTable;
 }
