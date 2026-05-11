@@ -532,14 +532,31 @@ function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
   }
 
   const code = "code" in error && typeof error.code === "string" ? error.code : "";
-  const lowerMessage = error.message.toLowerCase();
-  if (code.includes("FST_REQ_FILE_TOO_LARGE") || lowerMessage.includes("request file too large")) {
+  const name = "name" in error && typeof error.name === "string" ? error.name : "";
+  const errorText = `${name} ${code} ${error.message}`.toLowerCase();
+  if (
+    code.startsWith("FST_") &&
+    (errorText.includes("limit") ||
+      errorText.includes("too large") ||
+      errorText.includes("too many") ||
+      errorText.includes("field") ||
+      errorText.includes("fields") ||
+      errorText.includes("file") ||
+      errorText.includes("files") ||
+      errorText.includes("part") ||
+      errorText.includes("parts"))
+  ) {
     return 413;
   }
-  if (lowerMessage.includes("multipart") || lowerMessage.includes("part") || lowerMessage.includes("file")) {
-    return lowerMessage.includes("limit") ? 413 : 400;
+  if (
+    errorText.includes("multipart") ||
+    errorText.includes("part") ||
+    errorText.includes("field") ||
+    errorText.includes("file")
+  ) {
+    return errorText.includes("limit") || errorText.includes("too many") || errorText.includes("too large") ? 413 : 400;
   }
-  if (lowerMessage.includes("zip")) {
+  if (errorText.includes("zip")) {
     return 400;
   }
 
@@ -1043,7 +1060,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       if (status) {
         return reply.status(status).send({ error: "invalid_source_map_request" });
       }
-      return reply.status(503).send({ error: "source_maps_unavailable" });
+      return reply.status(400).send({ error: "invalid_source_map_request" });
     }
     if (!input) {
       return reply.status(400).send({ error: "invalid_source_map_request" });

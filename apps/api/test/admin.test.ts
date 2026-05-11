@@ -560,6 +560,40 @@ describe("admin routes", () => {
     expect(uploadCalls).toEqual([]);
   });
 
+  it("rejects source map uploads with too many fields without calling upload", async () => {
+    const uploadCalls: unknown[] = [];
+    const sourceMap = JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" });
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_1" },
+      { name: "environment_id", value: "env_1" },
+      { name: "release", value: "2026.05.10" },
+      { name: "minified_file", value: "app.min.js" },
+      { name: "extra", value: "client-controlled" },
+      { name: "file", filename: "app.min.js.map", contentType: "application/json", content: sourceMap }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        uploadMap: async (input) => {
+          uploadCalls.push(input);
+          return [];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect([400, 413]).toContain(response.statusCode);
+    expect(uploadCalls).toEqual([]);
+  });
+
   it("uploads a source map bundle for admins", async () => {
     const uploadCalls: unknown[] = [];
     const uploadedArtifacts = [sourceMapArtifact()];
