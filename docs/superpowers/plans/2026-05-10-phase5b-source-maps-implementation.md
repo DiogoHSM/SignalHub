@@ -1059,7 +1059,7 @@ git commit -m "feat: add source map admin api"
 - Modify: `apps/api/src/main.ts`
 - Test: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Add failing query route tests**
+- [x] **Step 1: Add failing query route tests**
 
 In `apps/api/test/query.test.ts`, add:
 
@@ -1127,7 +1127,7 @@ it("returns cached resolved source map frames", async () => {
 });
 ```
 
-- [ ] **Step 2: Run query tests and verify failure**
+- [x] **Step 2: Run query tests and verify failure**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts
@@ -1135,7 +1135,7 @@ pnpm exec vitest run apps/api/test/query.test.ts
 
 Expected: fail because route/dependency does not exist.
 
-- [ ] **Step 3: Add raw error lookup for resolution**
+- [x] **Step 3: Add raw error lookup for resolution**
 
 In `packages/db/src/repositories/telemetry-query.ts`, add:
 
@@ -1166,7 +1166,7 @@ export async function getErrorForSourceMapResolution(
 }
 ```
 
-- [ ] **Step 4: Implement DB-backed resolver orchestration**
+- [x] **Step 4: Implement DB-backed resolver orchestration**
 
 In `apps/api/src/source-maps/resolver.ts`, add:
 
@@ -1195,7 +1195,7 @@ Implement `resolveErrorStack(input)` using injected dependencies:
 9. cache resolved frames with `replaceErrorStackResolutions`,
 10. return `resolved`, `partially_resolved`, or `unresolved`.
 
-- [ ] **Step 5: Add query route**
+- [x] **Step 5: Add query route**
 
 In `apps/api/src/routes/query.ts`, extend `QueryDependencies`:
 
@@ -1225,7 +1225,7 @@ The handler must:
 - return 404 if dependency returns `null`,
 - return `{ data }` on success.
 
-- [ ] **Step 6: Wire `main.ts`**
+- [x] **Step 6: Wire `main.ts`**
 
 Wire `resolveErrorStack` using DB repositories and local storage:
 
@@ -1242,7 +1242,7 @@ resolveErrorStack: (input) =>
   })
 ```
 
-- [ ] **Step 7: Run API tests**
+- [x] **Step 7: Run API tests**
 
 ```bash
 pnpm exec vitest run apps/api/test/query.test.ts apps/api/test/admin.test.ts
@@ -1251,7 +1251,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/telemetry-query.ts apps/api/src/source-maps/resolver.ts apps/api/src/routes/query.ts apps/api/src/main.ts apps/api/test/query.test.ts
