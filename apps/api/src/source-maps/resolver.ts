@@ -20,7 +20,7 @@ export function resolveFrameWithSourceMap(
   const map = parseSourceMapJson(sourceMapContent);
   const traced = originalPositionFor(new TraceMap(map), {
     line: frame.minifiedLine,
-    column: frame.minifiedColumn
+    column: Math.max(0, frame.minifiedColumn - 1)
   });
 
   if (!traced.source || traced.line === null || traced.column === null) {

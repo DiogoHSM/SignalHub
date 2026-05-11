@@ -8,9 +8,26 @@ export type StoredArtifact = {
   sha256: string;
 };
 
+type StoredArtifactPathInput = {
+  localDir: string;
+  storagePath: string;
+};
+
 function safeSegment(value: string): string {
   const segment = value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160);
   return segment && !/^\.+$/.test(segment) ? segment : "unknown";
+}
+
+function validateStoragePath({ localDir, storagePath }: StoredArtifactPathInput): string {
+  const resolvedLocalDir = path.resolve(localDir);
+  const resolvedStoragePath = path.resolve(storagePath);
+  const relativePath = path.relative(resolvedLocalDir, resolvedStoragePath);
+
+  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    throw new Error("source_map_storage_path_invalid");
+  }
+
+  return resolvedStoragePath;
 }
 
 export async function storeSourceMapFile(input: {
@@ -39,10 +56,10 @@ export async function storeSourceMapFile(input: {
   };
 }
 
-export async function readSourceMapFile(storagePath: string): Promise<string> {
-  return readFile(storagePath, "utf8");
+export async function readSourceMapFile(input: StoredArtifactPathInput): Promise<string> {
+  return readFile(validateStoragePath(input), "utf8");
 }
 
-export async function deleteSourceMapFile(storagePath: string): Promise<void> {
-  await rm(storagePath, { force: false });
+export async function deleteSourceMapFile(input: StoredArtifactPathInput): Promise<void> {
+  await rm(validateStoragePath(input), { force: false });
 }

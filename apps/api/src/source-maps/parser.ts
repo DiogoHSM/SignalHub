@@ -1,6 +1,10 @@
 import { unzipSync } from "fflate";
 import path from "node:path";
 
+export const MAX_SOURCE_MAP_ZIP_ENTRIES = 100;
+export const MAX_SOURCE_MAP_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_SOURCE_MAP_UNZIPPED_BYTES = 100 * 1024 * 1024;
+
 export type ParsedStackFrame = {
   frameIndex: number;
   functionName: string | null;
@@ -66,18 +70,47 @@ export function inferMinifiedFileFromMap(map: SourceMapJson): string | undefined
   return map.file ? normalizeMinifiedFile(map.file) : undefined;
 }
 
+function inferMinifiedFileFromZipEntry(entryName: string): string | undefined {
+  const normalized = normalizeMinifiedFile(entryName);
+  return normalized.endsWith(".map") && normalized.length > ".map".length
+    ? normalized.slice(0, -".map".length)
+    : undefined;
+}
+
 export function extractSourceMapsFromZip(content: Buffer): Array<{
   originalFilename: string;
   content: Buffer;
   minifiedFile: string;
 }> {
-  const entries = unzipSync(new Uint8Array(content));
-  const zipEntries = Object.entries(entries);
-  if (zipEntries.length > 100) {
-    throw new Error("source_map_zip_too_many_entries");
+  if (content.byteLength > MAX_SOURCE_MAP_UPLOAD_BYTES) {
+    throw new Error("source_map_upload_too_large");
   }
 
-  const sourceMapEntries = zipEntries.filter(([entryName]) => entryName.endsWith(".map"));
+  const sourceMapData = new Uint8Array(content);
+  let totalEntries = 0;
+  let totalUnzippedBytes = 0;
+
+  unzipSync(sourceMapData, {
+    filter: (file) => {
+      totalEntries += 1;
+      if (totalEntries > MAX_SOURCE_MAP_ZIP_ENTRIES) {
+        throw new Error("source_map_zip_too_many_entries");
+      }
+
+      totalUnzippedBytes += file.originalSize;
+      if (totalUnzippedBytes > MAX_SOURCE_MAP_UNZIPPED_BYTES) {
+        throw new Error("source_map_zip_uncompressed_too_large");
+      }
+
+      return false;
+    }
+  });
+
+  const sourceMapEntries = Object.entries(
+    unzipSync(sourceMapData, {
+      filter: (file) => file.name.endsWith(".map")
+    })
+  );
   if (sourceMapEntries.length === 0) {
     throw new Error("source_map_zip_empty");
   }
@@ -85,7 +118,7 @@ export function extractSourceMapsFromZip(content: Buffer): Array<{
   return sourceMapEntries.map(([entryName, entryContent]) => {
     const buffer = Buffer.from(entryContent);
     const map = parseSourceMapJson(buffer.toString("utf8"));
-    const minifiedFile = inferMinifiedFileFromMap(map);
+    const minifiedFile = inferMinifiedFileFromMap(map) ?? inferMinifiedFileFromZipEntry(entryName);
     if (!minifiedFile) {
       throw new Error("source_map_file_missing");
     }

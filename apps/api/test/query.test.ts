@@ -8,11 +8,12 @@ import { buildApp } from "../src/app.js";
 import {
   extractSourceMapsFromZip,
   inferMinifiedFileFromMap,
+  MAX_SOURCE_MAP_UPLOAD_BYTES,
   parseSourceMapJson,
   parseStackFrames
 } from "../src/source-maps/parser.js";
 import { resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
-import { storeSourceMapFile } from "../src/source-maps/storage.js";
+import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
 
 let app: FastifyInstance | undefined;
 
@@ -94,6 +95,47 @@ describe("source map helpers", () => {
     expect(() => extractSourceMapsFromZip(Buffer.from(zipSync(entries)))).toThrow("source_map_zip_too_many_entries");
   });
 
+  it("extracts only source map entries from zip uploads with non-map entries", () => {
+    const entries: Record<string, Uint8Array> = {
+      "assets/app.min.js.map": new TextEncoder().encode(
+        JSON.stringify({ version: 3, file: "assets/app.min.js", sources: [], names: [], mappings: "" })
+      )
+    };
+    for (let index = 0; index < 50; index += 1) {
+      entries[`assets/ignored-${index}.txt`] = new TextEncoder().encode("ignored");
+    }
+
+    expect(extractSourceMapsFromZip(Buffer.from(zipSync(entries))).map((entry) => entry.originalFilename)).toEqual([
+      "app.min.js.map"
+    ]);
+  });
+
+  it("rejects source map zip uploads above the compressed size limit", () => {
+    expect(() => extractSourceMapsFromZip(Buffer.alloc(MAX_SOURCE_MAP_UPLOAD_BYTES + 1))).toThrow(
+      "source_map_upload_too_large"
+    );
+  });
+
+  it("infers minified file from the zip entry when source map file is missing", () => {
+    const map = JSON.stringify({ version: 3, sources: [], names: [], mappings: "" });
+
+    expect(
+      extractSourceMapsFromZip(
+        Buffer.from(
+          zipSync({
+            "assets/app.min.js.map": new TextEncoder().encode(map)
+          })
+        )
+      )
+    ).toEqual([
+      {
+        originalFilename: "app.min.js.map",
+        content: Buffer.from(map),
+        minifiedFile: "app.min.js"
+      }
+    ]);
+  });
+
   it("keeps stored source maps inside local storage for traversal-like segments", async () => {
     const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
     const escapedDirectory = path.join(path.dirname(localDir), ".._x");
@@ -119,13 +161,25 @@ describe("source map helpers", () => {
     }
   });
 
+  it("rejects source map reads outside local storage", async () => {
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+
+    try {
+      await expect(readSourceMapFile({ localDir, storagePath: path.join(path.dirname(localDir), "outside.map") })).rejects.toThrow(
+        "source_map_storage_path_invalid"
+      );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves a generated frame with a regular source map", () => {
     const map = {
       version: 3,
       file: "app.min.js",
       sources: ["src/app.ts"],
       names: ["checkout"],
-      mappings: "KAyCIA"
+      mappings: "IAyCIA"
     };
 
     expect(
@@ -145,6 +199,35 @@ describe("source map helpers", () => {
       originalLine: 42,
       originalColumn: 4,
       originalName: "checkout"
+    });
+  });
+
+  it("resolves browser stack columns as one-based generated columns", () => {
+    const map = {
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/first.ts", "src/second.ts"],
+      names: ["first", "second"],
+      mappings: "AAAAA,CCAAC"
+    };
+
+    expect(
+      resolveFrameWithSourceMap(JSON.stringify(map), {
+        frameIndex: 0,
+        functionName: null,
+        minifiedFile: "app.min.js",
+        minifiedLine: 1,
+        minifiedColumn: 1
+      })
+    ).toEqual({
+      frameIndex: 0,
+      minifiedFile: "app.min.js",
+      minifiedLine: 1,
+      minifiedColumn: 1,
+      originalSource: "src/first.ts",
+      originalLine: 1,
+      originalColumn: 0,
+      originalName: "first"
     });
   });
 });
