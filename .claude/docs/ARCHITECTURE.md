@@ -47,6 +47,7 @@ Telemetry tables:
 - `events`
 - `error_groups`
 - `errors`
+- `breadcrumbs`
 - `llm_calls`
 - `traces`
 - `spans`
@@ -55,6 +56,8 @@ All telemetry records include project, environment, optional tenant/user/session
 Errors are stored as immutable raw occurrences and are attached to operational `error_groups` through deterministic grouping fingerprints.
 
 Source-map artifacts are admin-uploaded metadata rows scoped to project, environment, release, and minified filename. The source-map files themselves live on the API filesystem under `SOURCE_MAPS_LOCAL_DIR`; Postgres stores metadata and cached resolved stack-frame locations only.
+
+Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
 
 ## API Surface
 
@@ -88,6 +91,7 @@ Ingestion:
 
 - `POST /v1/events`
 - `POST /v1/errors`
+- `POST /v1/breadcrumbs`
 - `POST /v1/llm`
 - `POST /v1/traces`
 - `POST /v1/spans`
@@ -101,6 +105,7 @@ Query:
 - `GET /query/error-groups/:id/errors`
 - `PATCH /query/error-groups/:id`
 - `GET /query/errors/:id/source-map-resolution`
+- `GET /query/sessions/:sessionId/timeline`
 - `GET /query/llm-calls`
 - `GET /query/traces`
 - `GET /query/traces/:id/spans`
@@ -148,6 +153,8 @@ The Events query supports exact `event_name` filtering in addition to project, e
 The console includes an Errors investigation workflow with grouped triage and raw occurrence drilldown. Grouped errors use `GET /query/error-groups`, `GET /query/error-groups/:id`, and `PATCH /query/error-groups/:id` for exact project/environment-scoped status workflows. Raw occurrences remain available through the peer Raw occurrences tab and `GET /query/errors`, including exact `error_group_id` filtering.
 
 Raw error details can resolve minified production stack frames on demand through `GET /query/errors/:id/source-map-resolution`. Resolution requires exact project, environment, release, and minified filename matches against uploaded artifacts. Resolved frames are cached in `error_stack_resolutions`; deleting a source-map artifact invalidates cached rows for that artifact. The console displays file, line, column, and symbol metadata only, never original source code or `sourcesContent`.
+
+Raw error details can also show session context when the selected error has a `session_id`. The timeline combines breadcrumbs and nearby existing signals in chronological order, highlights the selected error, and displays safe summaries only. Full visual replay and a dedicated Sessions investigation tab remain deferred.
 
 The console also includes a read-only Traces view for raw traces and ordered spans. It uses `GET /query/traces` for trace rows and `GET /query/traces/:id/spans` for spans loaded after selecting a trace. This slice does not add cross-signal timelines, trace mutation, charts, storage tables, or ingestion routes.
 

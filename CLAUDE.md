@@ -2,6 +2,8 @@
 
 SignalHub is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. Keep project-facing documentation in English.
 
+- Current phase: Phase 5C Session Timeline and Breadcrumbs.
+
 ## Canonical Docs
 
 - `.claude/docs/PROJECT-SUMMARY.md`: project purpose, current phase, scope, and operator flow.
