@@ -2427,7 +2427,7 @@ git add docs/superpowers/plans/2026-05-10-phase5a-error-groups-implementation.md
 git commit -m "docs: mark phase 5a implementation complete"
 ```
 
-- [ ] **Step 7: Merge and push**
+- [x] **Step 7: Merge and push**
 
 After verification passes on the feature branch:
 
