@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 describe("ConsoleModeTabs", () => {
-  it("renders setup overview investigate alerts and system tabs", () => {
+  it("renders setup overview investigate alerts artifacts and system tabs", () => {
     const onChange = vi.fn();
 
     render(<ConsoleModeTabs activeMode="setup" onChange={onChange} />);
@@ -17,6 +17,7 @@ describe("ConsoleModeTabs", () => {
     expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Alerts" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Artifacts" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "false");
   });
 
@@ -28,11 +29,13 @@ describe("ConsoleModeTabs", () => {
     await userEvent.click(screen.getByRole("button", { name: "Overview" }));
     await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
     await userEvent.click(screen.getByRole("button", { name: "Alerts" }));
+    await userEvent.click(screen.getByRole("button", { name: "Artifacts" }));
     await userEvent.click(screen.getByRole("button", { name: "System" }));
 
     expect(onChange).toHaveBeenCalledWith("overview");
     expect(onChange).toHaveBeenCalledWith("investigate");
     expect(onChange).toHaveBeenCalledWith("alerts");
+    expect(onChange).toHaveBeenCalledWith("artifacts");
     expect(onChange).toHaveBeenCalledWith("system");
   });
 });
