@@ -9,7 +9,8 @@ export type StoredArtifact = {
 };
 
 function safeSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160) || "unknown";
+  const segment = value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160);
+  return segment && !/^\.+$/.test(segment) ? segment : "unknown";
 }
 
 export async function storeSourceMapFile(input: {

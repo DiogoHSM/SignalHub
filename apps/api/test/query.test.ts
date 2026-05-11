@@ -1,5 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { zipSync } from "fflate";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import {
@@ -9,6 +12,7 @@ import {
   parseStackFrames
 } from "../src/source-maps/parser.js";
 import { resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
+import { storeSourceMapFile } from "../src/source-maps/storage.js";
 
 let app: FastifyInstance | undefined;
 
@@ -79,6 +83,40 @@ describe("source map helpers", () => {
         minifiedFile: "app.min.js"
       }
     ]);
+  });
+
+  it("rejects zip uploads with more than 100 total entries", () => {
+    const entries: Record<string, Uint8Array> = {};
+    for (let index = 0; index < 101; index += 1) {
+      entries[`ignored-${index}.txt`] = new TextEncoder().encode("ignored");
+    }
+
+    expect(() => extractSourceMapsFromZip(Buffer.from(zipSync(entries)))).toThrow("source_map_zip_too_many_entries");
+  });
+
+  it("keeps stored source maps inside local storage for traversal-like segments", async () => {
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const escapedDirectory = path.join(path.dirname(localDir), ".._x");
+
+    try {
+      const artifact = await storeSourceMapFile({
+        localDir,
+        projectId: "..",
+        environmentId: ".",
+        release: "../x",
+        artifactId: ".",
+        content: Buffer.from("{}")
+      });
+
+      const relativePath = path.relative(localDir, artifact.storagePath);
+      expect(relativePath).not.toBe("");
+      expect(relativePath).not.toBe("..");
+      expect(relativePath.startsWith(`..${path.sep}`)).toBe(false);
+      expect(path.isAbsolute(relativePath)).toBe(false);
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+      await rm(escapedDirectory, { recursive: true, force: true });
+    }
   });
 
   it("resolves a generated frame with a regular source map", () => {

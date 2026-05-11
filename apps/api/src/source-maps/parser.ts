@@ -72,13 +72,14 @@ export function extractSourceMapsFromZip(content: Buffer): Array<{
   minifiedFile: string;
 }> {
   const entries = unzipSync(new Uint8Array(content));
-  const sourceMapEntries = Object.entries(entries).filter(([entryName]) => entryName.endsWith(".map"));
+  const zipEntries = Object.entries(entries);
+  if (zipEntries.length > 100) {
+    throw new Error("source_map_zip_too_many_entries");
+  }
 
+  const sourceMapEntries = zipEntries.filter(([entryName]) => entryName.endsWith(".map"));
   if (sourceMapEntries.length === 0) {
     throw new Error("source_map_zip_empty");
-  }
-  if (sourceMapEntries.length > 100) {
-    throw new Error("source_map_zip_too_many_entries");
   }
 
   return sourceMapEntries.map(([entryName, entryContent]) => {
