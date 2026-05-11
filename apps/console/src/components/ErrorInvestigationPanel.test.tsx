@@ -458,6 +458,84 @@ describe("ErrorInvestigationPanel", () => {
     expect(screen.getByText("checkout")).toBeInTheDocument();
   });
 
+  it("loads session context for a selected raw error with a session id", async () => {
+    const getSessionTimeline = vi.fn().mockResolvedValue({
+      data: {
+        sessionId: "sess_1",
+        scope: { projectId: "prj_1", environmentId: "env_1" },
+        range: { from: null, to: null },
+        items: [
+          {
+            id: "brd_1",
+            type: "breadcrumb",
+            timestamp: "2026-05-11T11:59:00.000Z",
+            receivedAt: "2026-05-11T11:59:01.000Z",
+            tenantId: null,
+            userId: "user_1",
+            sessionId: "sess_1",
+            traceId: null,
+            source: "web",
+            release: "web@1.0.0",
+            title: "Clicked Pay",
+            level: "info",
+            data: {}
+          }
+        ],
+        page: { nextCursor: null, previousCursor: null }
+      }
+    });
+    const api = client({
+      listErrors: vi.fn().mockResolvedValue({
+        data: [error({ id: "err_1", sessionId: "sess_1", timestamp: "2026-05-11T12:00:00.000Z" })]
+      }),
+      getSessionTimeline
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" initialTab="raw" projectId="prj_1" />);
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout fetch failed/ }));
+
+    expect(await screen.findByText("Session context")).toBeInTheDocument();
+    expect(await screen.findByText("Clicked Pay")).toBeInTheDocument();
+    expect(getSessionTimeline).toHaveBeenCalledWith("sess_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      center: "2026-05-11T12:00:00.000Z",
+      beforeSeconds: 600,
+      afterSeconds: 120,
+      limit: 100
+    });
+  });
+
+  it("shows session context unavailable when the selected raw error timeline request fails", async () => {
+    const api = client({
+      listErrors: vi.fn().mockResolvedValue({
+        data: [error({ id: "err_1", sessionId: "sess_1", timestamp: "2026-05-11T12:00:00.000Z" })]
+      }),
+      getSessionTimeline: vi.fn().mockRejectedValue(new Error("timeline failed"))
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" initialTab="raw" projectId="prj_1" />);
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout fetch failed/ }));
+
+    expect(await screen.findByText("Session context unavailable.")).toBeInTheDocument();
+  });
+
+  it("does not load session context for selected raw errors without a session id", async () => {
+    const getSessionTimeline = vi.fn();
+    const api = client({
+      listErrors: vi.fn().mockResolvedValue({
+        data: [error({ id: "err_1", sessionId: null, timestamp: "2026-05-11T12:00:00.000Z" })]
+      }),
+      getSessionTimeline
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" initialTab="raw" projectId="prj_1" />);
+    await userEvent.click(await screen.findByRole("button", { name: /Checkout fetch failed/ }));
+
+    expect(screen.queryByText("Session context")).not.toBeInTheDocument();
+    expect(getSessionTimeline).not.toHaveBeenCalled();
+  });
+
   it("shows unavailable state and retries after query failure", async () => {
     const api = client({
       listErrors: vi.fn().mockRejectedValueOnce(new Error("query failed")).mockResolvedValueOnce({ data: [] })

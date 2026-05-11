@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ErrorRecord } from "../api/types";
+import type { ErrorRecord, SessionTimelineResponse } from "../api/types";
 import { ErrorDetailDrawer } from "./ErrorDetailDrawer";
 
 const error: ErrorRecord = {
@@ -25,6 +25,30 @@ const error: ErrorRecord = {
   errorGroupId: "egrp_checkout",
   groupingFingerprint: "fp_checkout_fetch",
   context: { route: "/checkout" }
+};
+
+const sessionTimeline: SessionTimelineResponse = {
+  sessionId: "session_1",
+  scope: { projectId: "prj_1", environmentId: "env_1" },
+  range: { from: null, to: null },
+  items: [
+    {
+      id: "err_1",
+      type: "error",
+      timestamp: "2026-05-04T12:00:00.000Z",
+      receivedAt: "2026-05-04T12:00:01.000Z",
+      tenantId: "tenant_1",
+      userId: "user_1",
+      sessionId: "session_1",
+      traceId: "trace_1",
+      source: "web",
+      release: "1.0.0",
+      title: "Checkout fetch failed",
+      level: "critical",
+      data: {}
+    }
+  ],
+  page: { nextCursor: null, previousCursor: null }
 };
 
 afterEach(() => {
@@ -54,6 +78,19 @@ describe("ErrorDetailDrawer", () => {
     render(<ErrorDetailDrawer />);
 
     expect(screen.getByText("Select an error to inspect its details.")).toBeInTheDocument();
+  });
+
+  it("renders session context when the selected error belongs to a session", () => {
+    render(<ErrorDetailDrawer error={error} isLoadingSessionTimeline={false} sessionTimeline={sessionTimeline} />);
+
+    expect(screen.getByText("Session context")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selected error timeline item")).toHaveTextContent("Checkout fetch failed");
+  });
+
+  it("does not render session context for errors without a session", () => {
+    render(<ErrorDetailDrawer error={{ ...error, sessionId: null }} sessionTimeline={sessionTimeline} />);
+
+    expect(screen.queryByText("Session context")).not.toBeInTheDocument();
   });
 
   it("renders unresolved source map state without source content", () => {

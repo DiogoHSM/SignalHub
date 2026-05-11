@@ -1431,6 +1431,71 @@ select {
   color: #475569;
 }
 
+.session-timeline {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 14px;
+}
+
+.session-timeline__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-timeline__header h3 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.session-timeline__list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.session-timeline__item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border-left: 3px solid #cbd5e1;
+  padding: 4px 0 4px 10px;
+}
+
+.session-timeline__item--selected {
+  border-left-color: #2563eb;
+  background: #eff6ff;
+}
+
+.session-timeline__item strong,
+.session-timeline__item p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.session-timeline__item strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.session-timeline__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-timeline__time {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .span-timeline {
   display: grid;
   gap: 0.75rem;

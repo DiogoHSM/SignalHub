@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { ErrorRecord, QueryFilters, SourceMapResolution } from "../api/types";
+import type { ErrorRecord, QueryFilters, SessionTimelineResponse, SourceMapResolution } from "../api/types";
 import { ErrorDetailDrawer } from "./ErrorDetailDrawer";
 import { ErrorFilters, type ErrorFilterValues } from "./ErrorFilters";
 import { ErrorList } from "./ErrorList";
@@ -88,6 +88,9 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
   const [selectedError, setSelectedError] = useState<ErrorRecord | undefined>();
   const [sourceMapResolution, setSourceMapResolution] = useState<SourceMapResolution | undefined>();
   const [isResolvingSourceMap, setIsResolvingSourceMap] = useState(false);
+  const [sessionTimeline, setSessionTimeline] = useState<SessionTimelineResponse | undefined>();
+  const [isLoadingSessionTimeline, setIsLoadingSessionTimeline] = useState(false);
+  const [sessionTimelineError, setSessionTimelineError] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>("loading");
   const query = useMemo(
     () => queryFromValues(projectId, environmentId, appliedFilters),
@@ -165,6 +168,46 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
     };
   }, [client, environmentId, projectId, selectedError]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setSessionTimeline(undefined);
+    setSessionTimelineError(null);
+    setIsLoadingSessionTimeline(false);
+
+    if (!selectedError?.sessionId) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setIsLoadingSessionTimeline(true);
+    void client
+      .getSessionTimeline(selectedError.sessionId, {
+        projectId,
+        environmentId,
+        center: selectedError.timestamp,
+        beforeSeconds: 600,
+        afterSeconds: 120,
+        limit: 100
+      })
+      .then(
+        ({ data }) => {
+          if (cancelled) return;
+          setSessionTimeline(data);
+          setIsLoadingSessionTimeline(false);
+        },
+        () => {
+          if (cancelled) return;
+          setSessionTimelineError("Session context unavailable.");
+          setIsLoadingSessionTimeline(false);
+        }
+      );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selectedError]);
+
   function applyFilters() {
     setAppliedFilters({ ...draftFilters });
   }
@@ -198,7 +241,14 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
         {state === "empty" ? <p className="muted-text">No errors found</p> : null}
         {state === "ready" ? <ErrorList errors={errors} onSelect={setSelectedError} selectedErrorId={selectedError?.id} /> : null}
       </div>
-      <ErrorDetailDrawer error={selectedError} isResolvingSourceMap={isResolvingSourceMap} sourceMapResolution={sourceMapResolution} />
+      <ErrorDetailDrawer
+        error={selectedError}
+        isLoadingSessionTimeline={isLoadingSessionTimeline}
+        isResolvingSourceMap={isResolvingSourceMap}
+        sessionTimeline={sessionTimeline}
+        sessionTimelineError={sessionTimelineError}
+        sourceMapResolution={sourceMapResolution}
+      />
     </section>
   );
 }
