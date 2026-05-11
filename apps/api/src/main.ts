@@ -45,6 +45,7 @@ import {
   getIngestionFreshness,
   getLastRetentionRun
 } from "@signal-hub/db/repositories/system.js";
+import { listSourceMapArtifacts } from "@signal-hub/db/repositories/source-maps.js";
 import {
   getErrorAggregates,
   getEventAggregates,
@@ -74,6 +75,11 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { buildApp } from "./app.js";
 import type { AuthDependencies, AuthSessionContext, AuthUser, CookieCapableReply } from "./routes/auth.js";
+import {
+  deleteSourceMapArtifactAndFile,
+  uploadSingleSourceMap,
+  uploadSourceMapBundle
+} from "./source-maps/storage.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 
 const sessionCookieName = "signalhub_session";
@@ -425,6 +431,28 @@ const app = await buildApp({
     archiveAlertRule: (id) => archiveAlertRule(db, id),
     listAlertEvents: (filters) => listAlertEvents(db, filters),
     getAlertEvent: (id) => getAlertEvent(db, id)
+  },
+  sourceMaps: {
+    list: (filters) => listSourceMapArtifacts(db, filters),
+    uploadMap: (input) =>
+      uploadSingleSourceMap({
+        db,
+        localDir: config.sourceMaps.localDir,
+        input
+      }),
+    uploadBundle: (input) =>
+      uploadSourceMapBundle({
+        db,
+        localDir: config.sourceMaps.localDir,
+        input
+      }),
+    remove: (input) =>
+      deleteSourceMapArtifactAndFile({
+        db,
+        localDir: config.sourceMaps.localDir,
+        input
+      }),
+    maxUploadBytes: config.sourceMaps.maxUploadMb * 1024 * 1024
   },
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,

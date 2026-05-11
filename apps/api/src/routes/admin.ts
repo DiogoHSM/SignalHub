@@ -83,11 +83,40 @@ export type AlertAdministrationDependencies = {
   archiveAlertRule?: (id: string) => Promise<void>;
 };
 
+export type SourceMapUploadInput = {
+  projectId: string;
+  environmentId: string;
+  release: string;
+  minifiedFile?: string;
+  uploadedByUserId: string;
+  originalFilename: string;
+  contentType: string;
+  content: Buffer;
+};
+
+export type SourceMapBundleUploadInput = {
+  projectId: string;
+  environmentId: string;
+  release: string;
+  uploadedByUserId: string;
+  originalFilename: string;
+  contentType: string;
+  content: Buffer;
+};
+
+export type SourceMapAdministrationDependencies = {
+  list?: (filters: { projectId: string; environmentId: string; release?: string }) => Promise<unknown[]>;
+  uploadMap?: (input: SourceMapUploadInput) => Promise<unknown[]>;
+  uploadBundle?: (input: SourceMapBundleUploadInput) => Promise<unknown[]>;
+  remove?: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
 export type AdminRouteOptions = {
   auth?: AuthDependencies;
   users?: UserAdministrationDependencies;
   adminResources?: AdminResourceDependencies;
   alerts?: AlertAdministrationDependencies;
+  sourceMaps?: SourceMapAdministrationDependencies;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
   nodeEnv?: string;
@@ -190,6 +219,12 @@ const alertRuleListQuerySchema = z.object({
   environment_id: z.string().trim().min(1).optional()
 });
 
+const sourceMapScopeQuerySchema = z.object({
+  project_id: z.string().trim().min(1),
+  environment_id: z.string().trim().min(1),
+  release: z.string().trim().min(1).optional()
+});
+
 type CreateUserInput = z.infer<typeof createUserSchema>;
 type UpdateUserInput = z.infer<typeof updateUserSchema>;
 type CreateProjectInput = z.infer<typeof createProjectSchema>;
@@ -207,6 +242,27 @@ type AlertRuleListFilters = {
 };
 type CreateEnvironmentInput = CreateEnvironmentBody & { projectId: string };
 type CreateApiKeyRecordInput = CreateApiKeyBody & { projectId: string; prefix: string; hash: string };
+
+type MultipartFieldPart = {
+  type: "field";
+  fieldname: string;
+  value: unknown;
+};
+
+type MultipartFilePart = {
+  type: "file";
+  fieldname: string;
+  filename: string;
+  mimetype: string;
+  toBuffer: () => Promise<Buffer>;
+};
+
+type MultipartPart = MultipartFieldPart | MultipartFilePart;
+
+type MultipartRequest = FastifyRequest & {
+  isMultipart?: () => boolean;
+  parts: () => AsyncIterable<MultipartPart>;
+};
 
 function redactApiKeyHash(apiKey: AdminApiKey): Omit<AdminApiKey, "hash"> {
   const { hash: _hash, ...safeApiKey } = apiKey;
@@ -418,6 +474,89 @@ async function requireAdmin(
   }
 
   return user;
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" ? value.trim() : undefined;
+}
+
+async function parseSourceMapUploadRequest(
+  request: FastifyRequest,
+  uploadedByUserId: string
+): Promise<SourceMapUploadInput | SourceMapBundleUploadInput | undefined> {
+  const multipartRequest = request as MultipartRequest;
+  if (!multipartRequest.isMultipart?.()) {
+    return undefined;
+  }
+
+  const fields = new Map<string, string>();
+  let file:
+    | {
+        kind: "file" | "bundle";
+        originalFilename: string;
+        contentType: string;
+        content: Buffer;
+      }
+    | undefined;
+
+  for await (const part of multipartRequest.parts()) {
+    if (part.type === "field") {
+      const value = stringField(part.value);
+      if (value !== undefined) {
+        fields.set(part.fieldname, value);
+      }
+      continue;
+    }
+
+    if (part.fieldname !== "file" && part.fieldname !== "bundle") {
+      await part.toBuffer();
+      continue;
+    }
+
+    if (file) {
+      await part.toBuffer();
+      return undefined;
+    }
+
+    file = {
+      kind: part.fieldname,
+      originalFilename: part.filename,
+      contentType: part.mimetype || (part.fieldname === "file" ? "application/json" : "application/octet-stream"),
+      content: await part.toBuffer()
+    };
+  }
+
+  const baseInput = {
+    projectId: fields.get("project_id"),
+    environmentId: fields.get("environment_id"),
+    release: fields.get("release")
+  };
+  if (!baseInput.projectId || !baseInput.environmentId || !baseInput.release || !file?.originalFilename) {
+    return undefined;
+  }
+
+  if (file.kind === "bundle") {
+    return {
+      projectId: baseInput.projectId,
+      environmentId: baseInput.environmentId,
+      release: baseInput.release,
+      uploadedByUserId,
+      originalFilename: file.originalFilename,
+      contentType: file.contentType,
+      content: file.content
+    };
+  }
+
+  return {
+    projectId: baseInput.projectId,
+    environmentId: baseInput.environmentId,
+    release: baseInput.release,
+    minifiedFile: fields.get("minified_file"),
+    uploadedByUserId,
+    originalFilename: file.originalFilename,
+    contentType: file.contentType || "application/json",
+    content: file.content
+  };
 }
 
 export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOptions): void {
@@ -792,6 +931,94 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     await options.adminResources.apiKeys.revoke(params.data.id);
+    return reply.status(204).send();
+  });
+
+  app.get("/admin/source-maps", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.sourceMaps?.list) {
+      return reply.status(501).send({ error: "source_maps_repository_unavailable" });
+    }
+
+    const parsed = sourceMapScopeQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_source_map_request" });
+    }
+
+    let artifacts: unknown[];
+    try {
+      artifacts = await options.sourceMaps.list({
+        projectId: parsed.data.project_id,
+        environmentId: parsed.data.environment_id,
+        release: parsed.data.release
+      });
+    } catch {
+      return reply.status(503).send({ error: "source_maps_unavailable" });
+    }
+
+    return reply.send({ artifacts });
+  });
+
+  app.post("/admin/source-maps", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    const input = await parseSourceMapUploadRequest(request, admin.id);
+    if (!input) {
+      return reply.status(400).send({ error: "invalid_source_map_request" });
+    }
+
+    try {
+      if ("minifiedFile" in input) {
+        if (!options.sourceMaps?.uploadMap) {
+          return reply.status(501).send({ error: "source_maps_repository_unavailable" });
+        }
+        const artifacts = await options.sourceMaps.uploadMap(input);
+        return reply.send({ artifacts });
+      }
+
+      if (!options.sourceMaps?.uploadBundle) {
+        return reply.status(501).send({ error: "source_maps_repository_unavailable" });
+      }
+      const artifacts = await options.sourceMaps.uploadBundle(input);
+      return reply.send({ artifacts });
+    } catch {
+      return reply.status(503).send({ error: "source_maps_unavailable" });
+    }
+  });
+
+  app.delete("/admin/source-maps/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.sourceMaps?.remove) {
+      return reply.status(501).send({ error: "source_maps_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = sourceMapScopeQuerySchema.omit({ release: true }).safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_source_map_request" });
+    }
+
+    try {
+      await options.sourceMaps.remove({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+    } catch {
+      return reply.status(503).send({ error: "source_maps_unavailable" });
+    }
+
     return reply.status(204).send();
   });
 

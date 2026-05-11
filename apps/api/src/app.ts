@@ -1,5 +1,6 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { registerRequestContext } from "./plugins/request-context.js";
@@ -8,6 +9,7 @@ import {
   registerAdminRoutes,
   type AlertAdministrationDependencies,
   type AdminResourceDependencies,
+  type SourceMapAdministrationDependencies,
   type UserAdministrationDependencies
 } from "./routes/admin.js";
 import { registerAuthRoutes, type AuthDependencies } from "./routes/auth.js";
@@ -23,6 +25,7 @@ export type BuildAppOptions = {
   users?: UserAdministrationDependencies;
   adminResources?: AdminResourceDependencies;
   alerts?: AlertRouteDependencies & AlertAdministrationDependencies;
+  sourceMaps?: SourceMapAdministrationDependencies & { maxUploadBytes?: number };
   ingestion?: IngestionDependencies;
   query?: QueryDependencies;
   system?: SystemHealthDependencies;
@@ -42,6 +45,11 @@ export async function buildApp(options: BuildAppOptions) {
     credentials: options.corsOrigin !== undefined
   });
   await app.register(cookie);
+  await app.register(multipart, {
+    limits: {
+      fileSize: options.sourceMaps?.maxUploadBytes ?? 50 * 1024 * 1024
+    }
+  });
   await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });
 
   registerRequestContext(app);
@@ -62,6 +70,7 @@ export async function buildApp(options: BuildAppOptions) {
     users: options.users,
     adminResources: options.adminResources,
     alerts: options.alerts,
+    sourceMaps: options.sourceMaps,
     apiKeyPepper: options.apiKeyPepper,
     hashApiKeySecret: options.hashApiKeySecret,
     nodeEnv: options.nodeEnv

@@ -9,7 +9,45 @@ const adminAuth = {
   findSessionUser: async () => ({ id: "usr_1", email: "admin@example.com", isAdmin: true })
 };
 
+const userAuth = {
+  login: async () => ({ id: "usr_2", email: "user@example.com", isAdmin: false }),
+  findSessionUser: async () => ({ id: "usr_2", email: "user@example.com", isAdmin: false })
+};
+
 const readiness = async () => ({ postgres: true, redis: true });
+
+function createMultipartPayload(
+  parts: Array<
+    | { name: string; value: string }
+    | { name: string; filename: string; contentType: string; content: string | Buffer }
+  >
+): { headers: Record<string, string>; payload: Buffer } {
+  const boundary = `signalhub-${Math.random().toString(16).slice(2)}`;
+  const chunks: Buffer[] = [];
+
+  for (const part of parts) {
+    chunks.push(Buffer.from(`--${boundary}\r\n`));
+    if ("filename" in part) {
+      chunks.push(
+        Buffer.from(
+          `Content-Disposition: form-data; name="${part.name}"; filename="${part.filename}"\r\n` +
+            `Content-Type: ${part.contentType}\r\n\r\n`
+        )
+      );
+      chunks.push(Buffer.isBuffer(part.content) ? part.content : Buffer.from(part.content));
+      chunks.push(Buffer.from("\r\n"));
+    } else {
+      chunks.push(Buffer.from(`Content-Disposition: form-data; name="${part.name}"\r\n\r\n${part.value}\r\n`));
+    }
+  }
+
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+
+  return {
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.concat(chunks)
+  };
+}
 
 afterEach(async () => {
   await app?.close();
@@ -298,5 +336,183 @@ describe("admin routes", () => {
 
     expect(response.statusCode).toBe(204);
     expect(revokedApiKeyIds).toEqual(["key_1"]);
+  });
+
+  it("lists source map artifacts for admins", async () => {
+    const listCalls: unknown[] = [];
+    const artifact = {
+      id: "smap_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "2026.05.10",
+      minifiedFile: "app.min.js"
+    };
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        list: async (filters) => {
+          listCalls.push(filters);
+          return [artifact];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/source-maps?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ artifacts: [artifact] });
+    expect(listCalls).toEqual([{ projectId: "prj_1", environmentId: "env_1" }]);
+  });
+
+  it("rejects source map uploads for non-admin users", async () => {
+    const uploadCalls: unknown[] = [];
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_1" },
+      { name: "environment_id", value: "env_1" },
+      { name: "release", value: "2026.05.10" },
+      { name: "minified_file", value: "app.min.js" },
+      {
+        name: "file",
+        filename: "app.min.js.map",
+        contentType: "application/json",
+        content: JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" })
+      }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      sourceMaps: {
+        uploadMap: async (input) => {
+          uploadCalls.push(input);
+          return [];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(uploadCalls).toEqual([]);
+  });
+
+  it("deletes source map artifacts for admins", async () => {
+    const removeCalls: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        remove: async (input) => {
+          removeCalls.push(input);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/admin/source-maps/smap_1?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(removeCalls).toEqual([{ id: "smap_1", projectId: "prj_1", environmentId: "env_1" }]);
+  });
+
+  it("uploads a single source map for admins", async () => {
+    const uploadCalls: unknown[] = [];
+    const uploadedArtifacts = [{ id: "smap_1", minifiedFile: "app.min.js" }];
+    const sourceMap = JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" });
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_1" },
+      { name: "environment_id", value: "env_1" },
+      { name: "release", value: "2026.05.10" },
+      { name: "minified_file", value: "app.min.js" },
+      { name: "file", filename: "app.min.js.map", contentType: "application/json", content: sourceMap }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        uploadMap: async (input) => {
+          uploadCalls.push(input);
+          return uploadedArtifacts;
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ artifacts: uploadedArtifacts });
+    expect(uploadCalls).toHaveLength(1);
+    expect(uploadCalls[0]).toMatchObject({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "2026.05.10",
+      minifiedFile: "app.min.js",
+      uploadedByUserId: "usr_1",
+      originalFilename: "app.min.js.map",
+      contentType: "application/json"
+    });
+    expect((uploadCalls[0] as { content: Buffer }).content).toEqual(Buffer.from(sourceMap));
+  });
+
+  it("uploads a source map bundle for admins", async () => {
+    const uploadCalls: unknown[] = [];
+    const uploadedArtifacts = [{ id: "smap_1", minifiedFile: "app.min.js" }];
+    const bundle = Buffer.from("zip-content");
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_1" },
+      { name: "environment_id", value: "env_1" },
+      { name: "release", value: "2026.05.10" },
+      { name: "bundle", filename: "source-maps.zip", contentType: "application/zip", content: bundle }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        uploadBundle: async (input) => {
+          uploadCalls.push(input);
+          return uploadedArtifacts;
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ artifacts: uploadedArtifacts });
+    expect(uploadCalls).toHaveLength(1);
+    expect(uploadCalls[0]).toMatchObject({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "2026.05.10",
+      uploadedByUserId: "usr_1",
+      originalFilename: "source-maps.zip",
+      contentType: "application/zip"
+    });
+    expect((uploadCalls[0] as { content: Buffer }).content).toEqual(bundle);
   });
 });
