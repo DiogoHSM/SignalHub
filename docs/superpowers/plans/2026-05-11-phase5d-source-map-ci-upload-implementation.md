@@ -959,7 +959,7 @@ git commit -m "feat: add source map upload token admin api"
 - Modify: `apps/api/src/routes/admin.ts`
 - Test: `apps/api/test/source-map-uploads.test.ts`
 
-- [ ] **Step 1: Export shared multipart parser and error helper**
+- [x] **Step 1: Export shared multipart parser and error helper**
 
 Modify `apps/api/src/routes/admin.ts` exports:
 
@@ -982,7 +982,7 @@ For admin call sites, pass:
 { uploadedByUserId: admin.id }
 ```
 
-- [ ] **Step 2: Write failing CI upload API tests**
+- [x] **Step 2: Write failing CI upload API tests**
 
 Create `apps/api/test/source-map-uploads.test.ts`:
 
@@ -1113,7 +1113,7 @@ describe("source map CI uploads", () => {
 });
 ```
 
-- [ ] **Step 3: Run API tests to verify failure**
+- [x] **Step 3: Run API tests to verify failure**
 
 Run:
 
@@ -1123,7 +1123,7 @@ pnpm exec vitest run apps/api/test/source-map-uploads.test.ts
 
 Expected: fails because route dependencies and route do not exist.
 
-- [ ] **Step 4: Create source-map upload route**
+- [x] **Step 4: Create source-map upload route**
 
 Create `apps/api/src/routes/source-map-uploads.ts`:
 
@@ -1237,7 +1237,7 @@ export function registerSourceMapUploadRoutes(
 }
 ```
 
-- [ ] **Step 5: Wire route and token verification**
+- [x] **Step 5: Wire route and token verification**
 
 Modify `apps/api/src/app.ts`:
 
@@ -1296,7 +1296,7 @@ sourceMapUploads: {
 }
 ```
 
-- [ ] **Step 6: Run API tests**
+- [x] **Step 6: Run API tests**
 
 Run:
 
@@ -1307,7 +1307,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/source-map-uploads.ts apps/api/src/routes/admin.ts apps/api/src/app.ts apps/api/src/main.ts apps/api/test/source-map-uploads.test.ts
