@@ -129,6 +129,38 @@ Source maps are local-first in this release line. The API stores files under `SO
 
 Raw error details resolve production stack frames on demand when the error has a matching release and uploaded map. The console shows original file, line, column, and symbol metadata only. It does not display source code or `sourcesContent`.
 
+## Source Map CI Uploads
+
+Admins can create source-map upload tokens from the console `Artifacts` mode. These tokens are separate from browser ingestion API keys and are intended for CI systems only.
+
+Generic shell example:
+
+```sh
+pnpm source-maps:upload -- \
+  --endpoint https://signalhub.example.com \
+  --token "$SIGNALHUB_SOURCE_MAP_TOKEN" \
+  --project-id "$SIGNALHUB_PROJECT_ID" \
+  --environment-id "$SIGNALHUB_ENVIRONMENT_ID" \
+  --release "$GITHUB_SHA" \
+  --bundle ./dist/source-maps.zip
+```
+
+GitHub Actions example:
+
+```yaml
+- name: Upload source maps
+  run: |
+    pnpm source-maps:upload -- \
+      --endpoint "${{ secrets.SIGNALHUB_ENDPOINT }}" \
+      --token "${{ secrets.SIGNALHUB_SOURCE_MAP_TOKEN }}" \
+      --project-id "${{ secrets.SIGNALHUB_PROJECT_ID }}" \
+      --environment-id "${{ secrets.SIGNALHUB_ENVIRONMENT_ID }}" \
+      --release "${{ github.sha }}" \
+      --bundle ./dist/source-maps.zip
+```
+
+Store upload tokens in CI secret storage. Do not expose them in browser bundles.
+
 ## Breadcrumbs and Session Context
 
 SignalHub supports lightweight breadcrumbs for session debugging. Breadcrumbs are structured telemetry records for navigation, safe clicks, console warnings/errors, failed or slow network summaries, and custom application steps.

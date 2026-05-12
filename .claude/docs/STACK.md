@@ -32,8 +32,9 @@
 
 - `apps/api`: Fastify application, routes, startup wiring.
 - `apps/worker`: telemetry worker process.
+- `packages/cli`: Node-based SignalHub CLI, currently focused on source-map CI uploads.
 - `packages/sdk`: TypeScript SDK for sending telemetry to the existing ingestion API.
-- The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb` and optional browser breadcrumb helpers. No new runtime dependency is required for Phase 5C.
+- The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb` and optional browser breadcrumb helpers.
 - `packages/config`: environment parsing and validation.
 - `packages/db`: Kysely client, schema, migrations, repositories.
 - `packages/queues`: BullMQ queue creation and enqueue helpers.
@@ -47,6 +48,7 @@
 - `pnpm start:worker`: start worker without the development watcher.
 - `pnpm db:migrate`: run database migrations.
 - `pnpm seed:admin`: seed bootstrap admin.
+- `pnpm source-maps:upload`: upload source-map artifacts from CI using a source-map upload token.
 - `pnpm test`: run Vitest.
 - `pnpm build`: build all workspace packages.
 

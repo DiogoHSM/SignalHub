@@ -40,6 +40,7 @@ Operational tables:
 - `alert_events`
 - `notification_deliveries`
 - `source_map_artifacts`
+- `source_map_upload_tokens`
 - `error_stack_resolutions`
 
 Telemetry tables:
@@ -56,6 +57,8 @@ All telemetry records include project, environment, optional tenant/user/session
 Errors are stored as immutable raw occurrences and are attached to operational `error_groups` through deterministic grouping fingerprints.
 
 Source-map artifacts are admin-uploaded metadata rows scoped to project, environment, release, and minified filename. The source-map files themselves live on the API filesystem under `SOURCE_MAPS_LOCAL_DIR`; Postgres stores metadata and cached resolved stack-frame locations only.
+
+Source-map CI uploads use dedicated `source_map_upload_tokens`, not ingestion API keys. Admins create and revoke these tokens from the Artifacts console. `POST /v1/source-maps` authenticates a token, enforces its project/environment scope, and writes artifacts through the existing local source-map storage service with token attribution.
 
 Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
 
@@ -86,6 +89,7 @@ Admin:
 - `/admin/notification-channels`
 - `/admin/alert-rules`
 - `/admin/source-maps`
+- `/admin/source-map-upload-tokens`
 
 Ingestion:
 
@@ -93,6 +97,7 @@ Ingestion:
 - `POST /v1/errors`
 - `POST /v1/breadcrumbs`
 - `POST /v1/llm`
+- `POST /v1/source-maps`
 - `POST /v1/traces`
 - `POST /v1/spans`
 
@@ -174,4 +179,4 @@ Overview aggregates are computed from the existing events, errors, traces, and L
 
 The console includes an operational `Alerts` mode for the active project and environment. It uses admin routes to manage alert rules and generic webhook notification channels, and read routes to show recent alert history and delivery status. Webhook secret header values are write-only and redacted after save.
 
-The console includes an admin `Artifacts` mode for the active project and environment. It uses `/admin/source-maps` to list, upload, filter, and delete local source-map artifacts. Supported uploads are single `.map` files and `.zip` bundles. Object storage, CI upload tokens, source-code browsing, indexed source maps, and cross-release guessing are deferred.
+The console includes an admin `Artifacts` mode for the active project and environment. It uses `/admin/source-maps` to list, upload, filter, and delete local source-map artifacts. Supported uploads are single `.map` files and `.zip` bundles. It also uses `/admin/source-map-upload-tokens` to create, list, and revoke CI-only source-map upload tokens. Object storage, source-code browsing, indexed source maps, source-map retention scheduling, and cross-release guessing are deferred.

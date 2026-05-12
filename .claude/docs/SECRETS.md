@@ -18,6 +18,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
 | `SIGNALHUB_PUBLIC_ENDPOINT` | No | `https://signalhub.example.com` | Public API origin used in console snippets. Defaults to the browser origin when blank. |
+| `SIGNALHUB_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/signalhub/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | `50` | Non-secret operational config. Maximum source-map upload size in MiB. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | `admin@example.com` | Email used by `pnpm seed:admin`. |
@@ -57,6 +58,7 @@ Operational rules:
 - Do not commit root-level `SECRETS.md`.
 - S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
+- Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
 - Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalHub stores them locally and the console displays resolved frame metadata only, not source content.
 - `RETENTION_BREADCRUMBS_DAYS` is not a secret. Breadcrumb payloads can still contain sensitive application data if callers misuse the API, so SDK/browser helpers sanitize aggressively and documentation forbids secrets, form values, bodies, cookies, and headers.
