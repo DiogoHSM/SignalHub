@@ -191,7 +191,7 @@ git commit -m "feat: add source map upload token schema"
 - Modify: `packages/db/test/repositories.test.ts`
 - Test: `packages/telemetry/test/api-keys.test.ts`
 
-- [ ] **Step 1: Write failing source-map token secret tests**
+- [x] **Step 1: Write failing source-map token secret tests**
 
 Add to `packages/telemetry/test/api-keys.test.ts`:
 
@@ -206,7 +206,7 @@ it("creates distinguishable source map upload token secrets", () => {
 });
 ```
 
-- [ ] **Step 2: Write failing repository tests**
+- [x] **Step 2: Write failing repository tests**
 
 Add imports to `packages/db/test/repositories.test.ts`:
 
@@ -271,7 +271,7 @@ it("rejects source map upload tokens for inactive or mismatched scopes", async (
 
 Use existing test fixture ids for an active project/environment. If the file uses different canonical ids, use those exact ids instead of `prj_test` and `env_test`.
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -281,7 +281,7 @@ pnpm exec vitest run packages/telemetry/test/api-keys.test.ts packages/db/test/r
 
 Expected: fails because helper and repository do not exist.
 
-- [ ] **Step 4: Add source-map token secret helper**
+- [x] **Step 4: Add source-map token secret helper**
 
 Modify `packages/telemetry/src/api-keys.ts`:
 
@@ -299,7 +299,7 @@ export function createSourceMapUploadToken(): CreatedApiKey {
 
 Keep `hashApiKey` and `verifyApiKey` unchanged so token hashing continues using the existing pepper strategy.
 
-- [ ] **Step 5: Add repository**
+- [x] **Step 5: Add repository**
 
 Create `packages/db/src/repositories/source-map-upload-tokens.ts`:
 
@@ -444,7 +444,7 @@ export async function revokeSourceMapUploadToken(
 }
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -454,7 +454,7 @@ pnpm exec vitest run packages/telemetry/test/api-keys.test.ts packages/db/test/r
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/telemetry/src/api-keys.ts packages/telemetry/test/api-keys.test.ts packages/db/src/repositories/source-map-upload-tokens.ts packages/db/test/repositories.test.ts
