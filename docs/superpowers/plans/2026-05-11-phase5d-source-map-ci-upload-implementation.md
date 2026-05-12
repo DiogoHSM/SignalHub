@@ -1324,7 +1324,7 @@ git commit -m "feat: add source map ci upload api"
 - Create: `packages/cli/test/source-maps.test.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Write failing CLI tests**
+- [x] **Step 1: Write failing CLI tests**
 
 Create `packages/cli/test/source-maps.test.ts`:
 
@@ -1446,7 +1446,7 @@ describe("source map upload command", () => {
 });
 ```
 
-- [ ] **Step 2: Run CLI tests to verify failure**
+- [x] **Step 2: Run CLI tests to verify failure**
 
 Run:
 
@@ -1456,7 +1456,7 @@ pnpm exec vitest run packages/cli/test/source-maps.test.ts
 
 Expected: fails because package and module do not exist.
 
-- [ ] **Step 3: Add CLI package metadata**
+- [x] **Step 3: Add CLI package metadata**
 
 Create `packages/cli/package.json`:
 
@@ -1498,7 +1498,7 @@ Modify root `package.json` scripts:
 "source-maps:upload": "tsx packages/cli/src/index.ts sourcemaps upload"
 ```
 
-- [ ] **Step 4: Implement CLI command**
+- [x] **Step 4: Implement CLI command**
 
 Create `packages/cli/src/source-maps.ts`:
 
@@ -1659,7 +1659,7 @@ if (group === "sourcemaps" && command === "upload") {
 }
 ```
 
-- [ ] **Step 5: Run CLI tests and build**
+- [x] **Step 5: Run CLI tests and build**
 
 Run:
 
@@ -1670,7 +1670,7 @@ pnpm --filter @signal-hub/cli build
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add package.json packages/cli
