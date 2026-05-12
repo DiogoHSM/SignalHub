@@ -42,7 +42,7 @@
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing migration test**
+- [x] **Step 1: Write failing migration test**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -53,7 +53,7 @@ it("runs source map upload token migrations", async () => {
 });
 ```
 
-- [ ] **Step 2: Run migration test to verify failure**
+- [x] **Step 2: Run migration test to verify failure**
 
 Run:
 
@@ -63,7 +63,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "runs source map u
 
 Expected: fails because `source_map_upload_tokens` does not exist.
 
-- [ ] **Step 3: Add migration 0008**
+- [x] **Step 3: Add migration 0008**
 
 Create `packages/db/migrations/0008_source_map_upload_tokens.sql`:
 
@@ -71,13 +71,14 @@ Create `packages/db/migrations/0008_source_map_upload_tokens.sql`:
 CREATE TABLE IF NOT EXISTS source_map_upload_tokens (
   id text PRIMARY KEY,
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  environment_id text NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+  environment_id text NOT NULL,
   name text NOT NULL,
   prefix text NOT NULL UNIQUE,
   hash text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
-  revoked_at timestamptz
+  revoked_at timestamptz,
+  FOREIGN KEY (project_id, environment_id) REFERENCES environments(project_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS source_map_upload_tokens_scope_created_idx
@@ -110,22 +111,20 @@ BEGIN
 END $$;
 ```
 
-- [ ] **Step 4: Register migration**
+- [x] **Step 4: Register migration**
 
 Modify `packages/db/src/migrate.ts`:
 
 ```ts
-import migration0008 from "../migrations/0008_source_map_upload_tokens.sql?raw";
-
 const migrations = [
-  { id: "0007_breadcrumbs", sql: migration0007 },
-  { id: "0008_source_map_upload_tokens", sql: migration0008 }
+  { name: "0007_breadcrumbs.sql", url: new URL("../migrations/0007_breadcrumbs.sql", import.meta.url) },
+  { name: "0008_source_map_upload_tokens.sql", url: new URL("../migrations/0008_source_map_upload_tokens.sql", import.meta.url) }
 ];
 ```
 
 Keep the existing migration array order and add 0008 after 0007.
 
-- [ ] **Step 5: Update DB schema types**
+- [x] **Step 5: Update DB schema types**
 
 Modify `packages/db/src/schema.ts`:
 
@@ -137,7 +136,7 @@ export type SourceMapUploadTokensTable = {
   name: string;
   prefix: string;
   hash: string;
-  created_at: Generated<Timestamp>;
+  created_at: Timestamp;
   last_used_at: NullableTimestamp;
   revoked_at: NullableTimestamp;
 };
@@ -156,7 +155,7 @@ Add to `Database`:
 source_map_upload_tokens: SourceMapUploadTokensTable;
 ```
 
-- [ ] **Step 6: Run migration test to verify pass**
+- [x] **Step 6: Run migration test to verify pass**
 
 Run:
 
@@ -166,10 +165,21 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "runs source map u
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Keep DB checkpoint buildable**
+
+Pull the minimal source-map repository attribution type/mapping update forward from Task 3 so `@signal-hub/db` remains buildable after nullable source-map attribution is introduced:
+
+```ts
+uploadedByUserId: string | null;
+uploadedByTokenId: string | null;
+```
+
+Add focused tests for token scope integrity, artifact attribution constraints, and token-attributed artifacts.
+
+- [x] **Step 8: Commit**
 
 ```bash
-git add packages/db/migrations/0008_source_map_upload_tokens.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/test/repositories.test.ts
+git add packages/db/migrations/0008_source_map_upload_tokens.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/source-maps.ts packages/db/test/repositories.test.ts
 git commit -m "feat: add source map upload token schema"
 ```
 
@@ -460,7 +470,9 @@ git commit -m "feat: add source map upload token repository"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/api/test/admin.test.ts`
 
-- [ ] **Step 1: Write failing attribution repository test**
+- [x] **Step 1: Write failing attribution repository test**
+
+Completed in Task 1 to keep `@signal-hub/db` buildable after nullable artifact attribution was introduced.
 
 Add to `packages/db/test/repositories.test.ts` after source-map artifact tests:
 
@@ -492,7 +504,9 @@ it("persists source map artifacts uploaded by tokens", async () => {
 });
 ```
 
-- [ ] **Step 2: Run attribution test to verify failure**
+- [x] **Step 2: Run attribution test to verify failure**
+
+Completed in Task 1.
 
 Run:
 
@@ -502,7 +516,9 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "uploaded by token
 
 Expected: fails because `uploadedByTokenId` is not supported.
 
-- [ ] **Step 3: Update source-map repository types**
+- [x] **Step 3: Update source-map repository types**
+
+Completed in Task 1 as a build-restoring quality fix.
 
 Modify `packages/db/src/repositories/source-maps.ts`.
 
