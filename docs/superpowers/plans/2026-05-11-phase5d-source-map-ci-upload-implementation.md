@@ -2139,7 +2139,7 @@ git commit -m "feat: manage source map upload tokens"
 - Modify: `CLAUDE.md`
 - Modify external memory: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 Add a `Source Map CI Uploads` section near `Source Maps`:
 
@@ -2177,7 +2177,7 @@ GitHub Actions example:
 Store upload tokens in CI secret storage. Do not expose them in browser bundles.
 ````
 
-- [ ] **Step 2: Update architecture docs**
+- [x] **Step 2: Update architecture docs**
 
 Add to `.claude/docs/ARCHITECTURE.md`:
 
@@ -2185,7 +2185,7 @@ Add to `.claude/docs/ARCHITECTURE.md`:
 Source-map CI uploads use dedicated `source_map_upload_tokens`, not ingestion API keys. Admins create and revoke these tokens from the Artifacts console. `POST /v1/source-maps` authenticates a token, enforces its project/environment scope, and writes artifacts through the existing local source-map storage service with token attribution.
 ```
 
-- [ ] **Step 3: Update secrets docs**
+- [x] **Step 3: Update secrets docs**
 
 Add to `.claude/docs/SECRETS.md`:
 
@@ -2199,7 +2199,7 @@ Add operational rule:
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 ```
 
-- [ ] **Step 4: Update project, stack, UI, and CLAUDE docs**
+- [x] **Step 4: Update project, stack, UI, and CLAUDE docs**
 
 Update `.claude/docs/PROJECT-SUMMARY.md` current phase:
 
@@ -2231,7 +2231,7 @@ Update `CLAUDE.md`:
 - Current phase: Phase 5D Source Map CI Uploads.
 ```
 
-- [ ] **Step 5: Update memory**
+- [x] **Step 5: Update memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
@@ -2239,14 +2239,14 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 - Implemented Phase 5D Source Map CI Uploads: dedicated source-map upload tokens, token-authenticated `POST /v1/source-maps`, repo-local `@signal-hub/cli` uploader, and Artifacts token management. Upload tokens stay separate from browser ingestion API keys; object storage, GitHub Action wrapper, source-code viewer, and source-map retention remain deferred.
 ```
 
-- [ ] **Step 6: Commit SignalHub docs**
+- [x] **Step 6: Commit SignalHub docs**
 
 ```bash
 git add README.md .claude/docs/ARCHITECTURE.md .claude/docs/PROJECT-SUMMARY.md .claude/docs/SECRETS.md .claude/docs/UI-UX.md .claude/docs/STACK.md CLAUDE.md
 git commit -m "docs: document source map ci uploads"
 ```
 
-- [ ] **Step 7: Commit memory**
+- [x] **Step 7: Commit memory**
 
 ```bash
 cd /Users/diogo/Developer/Github/claude-config
