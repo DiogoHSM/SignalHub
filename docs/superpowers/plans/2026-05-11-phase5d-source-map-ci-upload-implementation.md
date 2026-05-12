@@ -561,7 +561,7 @@ uploaded_by_user_id: input.uploadedByUserId ?? null,
 uploaded_by_token_id: input.uploadedByTokenId ?? null
 ```
 
-- [ ] **Step 4: Update API upload input types**
+- [x] **Step 4: Update API upload input types**
 
 Modify `apps/api/src/routes/admin.ts`.
 
@@ -591,7 +591,7 @@ Apply the same pattern to `SourceMapBundleUploadInput`.
 
 Keep `parseSourceMapUploadRequest(request, uploadedByUserId)` returning user attribution for admin uploads.
 
-- [ ] **Step 5: Update storage service attribution**
+- [x] **Step 5: Update storage service attribution**
 
 Modify `apps/api/src/source-maps/storage.ts`:
 
@@ -604,7 +604,7 @@ const uploader =
 
 Pass `...uploader` into every `createSourceMapArtifact` call.
 
-- [ ] **Step 6: Update admin tests for nullable token attribution**
+- [x] **Step 6: Update admin tests for nullable token attribution**
 
 In `apps/api/test/admin.test.ts`, update source-map artifact fixture helpers to include:
 
@@ -615,7 +615,7 @@ uploadedByTokenId: null
 
 Expected: existing admin tests still pass and preserve user attribution.
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 Run:
 
@@ -625,7 +625,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts apps/api/test/admin.t
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/source-maps.ts packages/db/test/repositories.test.ts apps/api/src/source-maps/storage.ts apps/api/src/routes/admin.ts apps/api/test/admin.test.ts
