@@ -83,22 +83,24 @@ export type AlertAdministrationDependencies = {
   archiveAlertRule?: (id: string) => Promise<void>;
 };
 
-export type SourceMapUploadInput = {
+export type SourceMapUploadAttribution =
+  | { uploadedByUserId: string; uploadedByTokenId?: never }
+  | { uploadedByUserId?: never; uploadedByTokenId: string };
+
+export type SourceMapUploadInput = SourceMapUploadAttribution & {
   projectId: string;
   environmentId: string;
   release: string;
   minifiedFile?: string;
-  uploadedByUserId: string;
   originalFilename: string;
   contentType: string;
   content: Buffer;
 };
 
-export type SourceMapBundleUploadInput = {
+export type SourceMapBundleUploadInput = SourceMapUploadAttribution & {
   projectId: string;
   environmentId: string;
   release: string;
-  uploadedByUserId: string;
   originalFilename: string;
   contentType: string;
   content: Buffer;
@@ -115,7 +117,8 @@ export type SourceMapArtifactResponse = {
   byteSize: number;
   sha256: string;
   storagePath: string;
-  uploadedByUserId: string;
+  uploadedByUserId: string | null;
+  uploadedByTokenId?: string | null;
   createdAt: Date | string;
   deletedAt: Date | string | null;
 };
@@ -565,7 +568,7 @@ function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
 
 async function parseSourceMapUploadRequest(
   request: FastifyRequest,
-  uploadedByUserId: string
+  attribution: SourceMapUploadAttribution
 ): Promise<SourceMapUploadInput | SourceMapBundleUploadInput | undefined> {
   const multipartRequest = request as MultipartRequest;
   if (!multipartRequest.isMultipart?.()) {
@@ -623,7 +626,7 @@ async function parseSourceMapUploadRequest(
       projectId: baseInput.projectId,
       environmentId: baseInput.environmentId,
       release: baseInput.release,
-      uploadedByUserId,
+      ...attribution,
       originalFilename: file.originalFilename,
       contentType: file.contentType,
       content: file.content
@@ -635,7 +638,7 @@ async function parseSourceMapUploadRequest(
     environmentId: baseInput.environmentId,
     release: baseInput.release,
     minifiedFile: fields.get("minified_file"),
-    uploadedByUserId,
+    ...attribution,
     originalFilename: file.originalFilename,
     contentType: file.contentType || "application/json",
     content: file.content
@@ -1054,7 +1057,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     let input: SourceMapUploadInput | SourceMapBundleUploadInput | undefined;
     try {
-      input = await parseSourceMapUploadRequest(request, admin.id);
+      input = await parseSourceMapUploadRequest(request, { uploadedByUserId: admin.id });
     } catch (error) {
       const status = sourceMapUploadErrorStatus(error);
       if (status) {

@@ -33,6 +33,7 @@ function sourceMapArtifact(overrides: Partial<Record<string, unknown>> = {}) {
     sha256: "abc123",
     storagePath: "/tmp/source-maps/smap_1.map",
     uploadedByUserId: "usr_1",
+    uploadedByTokenId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
     ...overrides
@@ -697,6 +698,86 @@ describe("admin routes", () => {
       await Promise.all(
         createdArtifactInputs.map((input) => expect(access(input.storagePath)).rejects.toThrow())
       );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes token attribution to source map artifact creation", async () => {
+    vi.resetModules();
+
+    const createdArtifactInputs: Array<Record<string, unknown>> = [];
+    const createSourceMapArtifact = vi.fn(async (_db, input: Record<string, unknown>) => {
+      createdArtifactInputs.push(input);
+      return sourceMapArtifact({
+        storagePath: input.storagePath,
+        uploadedByUserId: input.uploadedByUserId ?? null,
+        uploadedByTokenId: input.uploadedByTokenId ?? null
+      });
+    });
+
+    vi.doMock("@signal-hub/db/repositories/source-maps.js", () => ({
+      createSourceMapArtifact,
+      deleteSourceMapArtifact: vi.fn(),
+      getSourceMapArtifact: vi.fn()
+    }));
+
+    const { uploadSingleSourceMap, uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const db = {
+      transaction: () => ({
+        execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
+      })
+    };
+    const singleMap = Buffer.from(
+      JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" })
+    );
+    const bundledMap = Buffer.from(
+      JSON.stringify({ version: 3, file: "bundle.min.js", sources: [], names: [], mappings: "" })
+    );
+
+    try {
+      await uploadSingleSourceMap({
+        db: db as never,
+        localDir,
+        input: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "2026.05.10",
+          minifiedFile: "app.min.js",
+          uploadedByTokenId: "smtok_1",
+          originalFilename: "app.min.js.map",
+          contentType: "application/json",
+          content: singleMap
+        }
+      });
+
+      await uploadSourceMapBundle({
+        db: db as never,
+        localDir,
+        input: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "2026.05.10",
+          uploadedByTokenId: "smtok_1",
+          originalFilename: "source-maps.zip",
+          contentType: "application/zip",
+          content: Buffer.from(zipSync({ "bundle.min.js.map": bundledMap }))
+        }
+      });
+
+      expect(createSourceMapArtifact).toHaveBeenCalledTimes(2);
+      expect(createdArtifactInputs).toHaveLength(2);
+      expect(createdArtifactInputs[0]).toMatchObject({
+        minifiedFile: "app.min.js",
+        uploadedByTokenId: "smtok_1"
+      });
+      expect(createdArtifactInputs[0]).not.toHaveProperty("uploadedByUserId");
+      expect(createdArtifactInputs[1]).toMatchObject({
+        minifiedFile: "bundle.min.js",
+        uploadedByTokenId: "smtok_1"
+      });
+      expect(createdArtifactInputs[1]).not.toHaveProperty("uploadedByUserId");
     } finally {
       await rm(localDir, { recursive: true, force: true });
     }
