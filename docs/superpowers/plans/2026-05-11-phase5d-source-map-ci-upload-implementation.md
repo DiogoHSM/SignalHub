@@ -2313,7 +2313,7 @@ git add docs/superpowers/plans/2026-05-11-phase5d-source-map-ci-upload-implement
 git commit -m "docs: complete source map ci upload plan"
 ```
 
-- [ ] **Step 7: Merge and push**
+- [x] **Step 7: Merge and push**
 
 From the main SignalHub checkout:
 
