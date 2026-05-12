@@ -1860,7 +1860,7 @@ git commit -m "feat: add source map upload token console client"
 - Modify: `apps/console/src/components/ArtifactsPanel.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Write failing Artifacts UI tests**
+- [x] **Step 1: Write failing Artifacts UI tests**
 
 Add to `apps/console/src/components/ArtifactsPanel.test.tsx`:
 
@@ -1951,7 +1951,7 @@ it("revokes source map upload tokens", async () => {
 });
 ```
 
-- [ ] **Step 2: Run Artifacts tests to verify failure**
+- [x] **Step 2: Run Artifacts tests to verify failure**
 
 Run:
 
@@ -1961,7 +1961,7 @@ pnpm exec vitest run apps/console/src/components/ArtifactsPanel.test.tsx
 
 Expected: fails because token UI is missing.
 
-- [ ] **Step 3: Add token UI state and effects**
+- [x] **Step 3: Add token UI state and effects**
 
 Modify `apps/console/src/components/ArtifactsPanel.tsx`.
 
@@ -1994,7 +1994,7 @@ async function loadTokens() {
 
 Call `loadTokens` in the same project/environment effect style used for source-map artifacts. Guard stale responses with a `cancelled` boolean.
 
-- [ ] **Step 4: Add create and revoke handlers**
+- [x] **Step 4: Add create and revoke handlers**
 
 Add:
 
@@ -2022,7 +2022,7 @@ async function revokeUploadToken(token: SourceMapUploadToken) {
 }
 ```
 
-- [ ] **Step 5: Render Upload tokens section**
+- [x] **Step 5: Render Upload tokens section**
 
 Add below the existing source-map upload/list UI:
 
@@ -2079,7 +2079,7 @@ Add below the existing source-map upload/list UI:
 
 Use existing project style and avoid nested cards.
 
-- [ ] **Step 6: Add compact styles**
+- [x] **Step 6: Add compact styles**
 
 Add to `apps/console/src/styles.css`:
 
@@ -2109,7 +2109,7 @@ Add to `apps/console/src/styles.css`:
 }
 ```
 
-- [ ] **Step 7: Run console tests and build**
+- [x] **Step 7: Run console tests and build**
 
 Run:
 
@@ -2120,7 +2120,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/console/src/components/ArtifactsPanel.tsx apps/console/src/components/ArtifactsPanel.test.tsx apps/console/src/styles.css
