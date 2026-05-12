@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { customAlphabet } from "nanoid";
 
 const apiKeyId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", 40);
+const sourceMapUploadTokenId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", 40);
 
 export type CreatedApiKey = {
   secret: string;
@@ -13,6 +14,14 @@ export function createApiKey(): CreatedApiKey {
   return {
     secret,
     prefix: secret.slice(0, 12)
+  };
+}
+
+export function createSourceMapUploadToken(): CreatedApiKey {
+  const secret = `shsmap_${sourceMapUploadTokenId()}`;
+  return {
+    secret,
+    prefix: secret.slice(0, 16)
   };
 }
 
