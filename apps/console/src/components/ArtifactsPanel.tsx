@@ -1,6 +1,6 @@
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import type { ApiClient, SourceMapApiClient } from "../api/client";
-import type { SourceMapArtifact } from "../api/types";
+import type { SourceMapArtifact, SourceMapUploadToken } from "../api/types";
 
 type Props = {
   client: ApiClient;
@@ -8,14 +8,25 @@ type Props = {
   environmentId?: string;
 };
 
-type SourceMapClient = ApiClient & SourceMapApiClient;
+type SourceMapArtifactsClient = ApiClient &
+  Pick<SourceMapApiClient, "listSourceMapArtifacts" | "uploadSourceMap" | "uploadSourceMapBundle" | "deleteSourceMapArtifact">;
+type SourceMapTokenClient = ApiClient &
+  Pick<SourceMapApiClient, "listSourceMapUploadTokens" | "createSourceMapUploadToken" | "revokeSourceMapUploadToken">;
 
-function hasSourceMapClient(client: ApiClient): client is SourceMapClient {
+function hasSourceMapArtifactsClient(client: ApiClient): client is SourceMapArtifactsClient {
   return (
     typeof client.listSourceMapArtifacts === "function" &&
     typeof client.uploadSourceMap === "function" &&
     typeof client.uploadSourceMapBundle === "function" &&
     typeof client.deleteSourceMapArtifact === "function"
+  );
+}
+
+function hasSourceMapTokenClient(client: ApiClient): client is SourceMapTokenClient {
+  return (
+    typeof client.listSourceMapUploadTokens === "function" &&
+    typeof client.createSourceMapUploadToken === "function" &&
+    typeof client.revokeSourceMapUploadToken === "function"
   );
 }
 
@@ -30,13 +41,34 @@ function formatTimestamp(value: string): string {
   return Number.isNaN(timestamp.getTime()) ? "No data" : timestamp.toLocaleString();
 }
 
+function sourceMapUploadTokenWithoutSecret(token: SourceMapUploadToken): SourceMapUploadToken {
+  return {
+    id: token.id,
+    projectId: token.projectId,
+    environmentId: token.environmentId,
+    name: token.name,
+    prefix: token.prefix,
+    createdAt: token.createdAt,
+    lastUsedAt: token.lastUsedAt,
+    revokedAt: token.revokedAt
+  };
+}
+
 export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
   const currentScopeRef = useRef({ projectId, environmentId });
   const loadRequestRef = useRef(0);
+  const tokenLoadRequestRef = useRef(0);
   const mapFileRef = useRef<HTMLInputElement | null>(null);
   const bundleFileRef = useRef<HTMLInputElement | null>(null);
   const [artifacts, setArtifacts] = useState<SourceMapArtifact[]>([]);
   const [artifactsScopeKey, setArtifactsScopeKey] = useState<string | null>(null);
+  const [tokens, setTokens] = useState<SourceMapUploadToken[]>([]);
+  const [tokensState, setTokensState] = useState<"loading" | "ready" | "empty" | "unavailable">("loading");
+  const [tokenName, setTokenName] = useState("");
+  const [createdTokenSecret, setCreatedTokenSecret] = useState<string | null>(null);
+  const [isCreatingToken, setIsCreatingToken] = useState(false);
+  const [revokingTokenId, setRevokingTokenId] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
   const [releaseFilter, setReleaseFilter] = useState("");
   const [mapRelease, setMapRelease] = useState("");
   const [minifiedFile, setMinifiedFile] = useState("");
@@ -52,11 +84,17 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
   currentScopeRef.current = { projectId, environmentId };
 
   const currentScopeKey = projectId && environmentId ? `${projectId}:${environmentId}` : null;
-  const canUseSourceMaps = hasSourceMapClient(client);
+  const canUseSourceMaps = hasSourceMapArtifactsClient(client);
+  const canUseSourceMapTokens = hasSourceMapTokenClient(client);
   const canUploadMap =
     canUseSourceMaps && Boolean(projectId && environmentId && mapRelease.trim() && minifiedFile.trim() && mapFile) && !isUploadingMap;
   const canUploadBundle =
     canUseSourceMaps && Boolean(projectId && environmentId && bundleRelease.trim() && bundleFile) && !isUploadingBundle;
+  const canCreateToken =
+    canUseSourceMapTokens &&
+    tokensState !== "unavailable" &&
+    Boolean(projectId && environmentId && tokenName.trim()) &&
+    !isCreatingToken;
   const visibleArtifacts =
     artifactsScopeKey === currentScopeKey
       ? artifacts.filter((artifact) => artifact.projectId === projectId && artifact.environmentId === environmentId)
@@ -65,6 +103,14 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
   function isLatestLoad(requestId: number, requestedProjectId: string, requestedEnvironmentId: string): boolean {
     return (
       loadRequestRef.current === requestId &&
+      currentScopeRef.current.projectId === requestedProjectId &&
+      currentScopeRef.current.environmentId === requestedEnvironmentId
+    );
+  }
+
+  function isLatestTokenLoad(requestId: number, requestedProjectId: string, requestedEnvironmentId: string): boolean {
+    return (
+      tokenLoadRequestRef.current === requestId &&
       currentScopeRef.current.projectId === requestedProjectId &&
       currentScopeRef.current.environmentId === requestedEnvironmentId
     );
@@ -106,10 +152,49 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
     }
   }
 
+  async function loadTokens(isCancelled = () => false) {
+    if (!projectId || !environmentId || !canUseSourceMapTokens) return;
+    const requestedProjectId = projectId;
+    const requestedEnvironmentId = environmentId;
+    const requestId = tokenLoadRequestRef.current + 1;
+
+    tokenLoadRequestRef.current = requestId;
+    setTokensState("loading");
+    setTokenError(null);
+    setCreatedTokenSecret(null);
+    try {
+      const response = await client.listSourceMapUploadTokens({
+        projectId: requestedProjectId,
+        environmentId: requestedEnvironmentId
+      });
+      if (isCancelled() || !isLatestTokenLoad(requestId, requestedProjectId, requestedEnvironmentId)) {
+        return;
+      }
+      setTokens(response.tokens);
+      setTokensState(response.tokens.length > 0 ? "ready" : "empty");
+    } catch {
+      if (isCancelled() || !isLatestTokenLoad(requestId, requestedProjectId, requestedEnvironmentId)) {
+        return;
+      }
+      setTokens([]);
+      setTokensState("unavailable");
+      setTokenError(null);
+    }
+  }
+
   useEffect(() => {
+    let cancelled = false;
     loadRequestRef.current += 1;
+    tokenLoadRequestRef.current += 1;
     setArtifacts([]);
     setArtifactsScopeKey(null);
+    setTokens([]);
+    setTokensState("loading");
+    setTokenName("");
+    setCreatedTokenSecret(null);
+    setIsCreatingToken(false);
+    setRevokingTokenId(null);
+    setTokenError(null);
     setMapRelease("");
     setMinifiedFile("");
     setMapFile(null);
@@ -124,17 +209,28 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
 
     if (!projectId || !environmentId) {
       setIsLoading(false);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (!canUseSourceMaps) {
       setIsLoading(false);
       setError("Source map artifacts unavailable");
-      return;
+    } else {
+      void loadArtifacts();
     }
 
-    void loadArtifacts();
-  }, [canUseSourceMaps, client, environmentId, projectId]);
+    if (!canUseSourceMapTokens) {
+      setTokensState("unavailable");
+    } else {
+      void loadTokens(() => cancelled);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseSourceMapTokens, canUseSourceMaps, client, environmentId, projectId]);
 
   async function uploadMap(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -249,6 +345,86 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
         currentScopeRef.current.environmentId === submittedEnvironmentId
       ) {
         setDeletingArtifactId(null);
+      }
+    }
+  }
+
+  async function createUploadToken(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!projectId || !environmentId || !canUseSourceMapTokens) return;
+    const name = tokenName.trim();
+    if (!name || isCreatingToken) return;
+    const submittedProjectId = projectId;
+    const submittedEnvironmentId = environmentId;
+
+    tokenLoadRequestRef.current += 1;
+    setIsCreatingToken(true);
+    setTokenError(null);
+    try {
+      const { token } = await client.createSourceMapUploadToken({
+        projectId: submittedProjectId,
+        environmentId: submittedEnvironmentId,
+        name
+      });
+      if (
+        currentScopeRef.current.projectId !== submittedProjectId ||
+        currentScopeRef.current.environmentId !== submittedEnvironmentId
+      ) {
+        return;
+      }
+      setCreatedTokenSecret(token.secret);
+      const tokenForList = sourceMapUploadTokenWithoutSecret(token);
+      setTokens((current) => [tokenForList, ...current.filter((item) => item.id !== token.id)]);
+      setTokensState("ready");
+      setTokenName("");
+    } catch {
+      if (
+        currentScopeRef.current.projectId === submittedProjectId &&
+        currentScopeRef.current.environmentId === submittedEnvironmentId
+      ) {
+        setTokenError("Could not create source map upload token");
+      }
+    } finally {
+      if (
+        currentScopeRef.current.projectId === submittedProjectId &&
+        currentScopeRef.current.environmentId === submittedEnvironmentId
+      ) {
+        setIsCreatingToken(false);
+      }
+    }
+  }
+
+  async function revokeUploadToken(token: SourceMapUploadToken) {
+    if (!projectId || !environmentId || !canUseSourceMapTokens || token.revokedAt || revokingTokenId) return;
+    const submittedProjectId = projectId;
+    const submittedEnvironmentId = environmentId;
+
+    setRevokingTokenId(token.id);
+    setTokenError(null);
+    try {
+      await client.revokeSourceMapUploadToken(token.id, { projectId: submittedProjectId, environmentId: submittedEnvironmentId });
+      if (
+        currentScopeRef.current.projectId !== submittedProjectId ||
+        currentScopeRef.current.environmentId !== submittedEnvironmentId
+      ) {
+        return;
+      }
+      setTokens((current) =>
+        current.map((item) => (item.id === token.id ? { ...item, revokedAt: new Date().toISOString() } : item))
+      );
+    } catch {
+      if (
+        currentScopeRef.current.projectId === submittedProjectId &&
+        currentScopeRef.current.environmentId === submittedEnvironmentId
+      ) {
+        setTokenError("Could not revoke source map upload token");
+      }
+    } finally {
+      if (
+        currentScopeRef.current.projectId === submittedProjectId &&
+        currentScopeRef.current.environmentId === submittedEnvironmentId
+      ) {
+        setRevokingTokenId(null);
       }
     }
   }
@@ -379,6 +555,68 @@ export function ArtifactsPanel({ client, projectId, environmentId }: Props) {
           ))}
         </div>
       ) : null}
+
+      <section className="artifact-token-panel">
+        <div className="panel-header">
+          <h2>Upload tokens</h2>
+        </div>
+        <form aria-label="Create source map upload token" className="artifact-form" onSubmit={createUploadToken}>
+          <label>
+            Token name
+            <input
+              disabled={!canUseSourceMapTokens || tokensState === "unavailable" || isCreatingToken}
+              onChange={(event) => setTokenName(event.target.value)}
+              value={tokenName}
+            />
+          </label>
+          <button disabled={!canCreateToken} type="submit">
+            Create token
+          </button>
+        </form>
+        {tokenError ? (
+          <div className="status-box unavailable" role="alert">
+            <strong>{tokenError}</strong>
+          </div>
+        ) : null}
+        {createdTokenSecret ? (
+          <div className="status-box success">
+            <strong>Copy this source map token now.</strong>
+            <code>{createdTokenSecret}</code>
+          </div>
+        ) : null}
+        {tokensState === "loading" ? <p className="muted-text">Loading upload tokens</p> : null}
+        {tokensState === "unavailable" ? (
+          <div className="status-box unavailable" role="alert">
+            <strong>Upload tokens unavailable</strong>
+            <button disabled={!canUseSourceMapTokens} onClick={() => void loadTokens()} type="button">
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {tokensState === "empty" ? <p className="muted-text">No upload tokens created.</p> : null}
+        {tokens.length > 0 ? (
+          <ul className="artifact-token-list">
+            {tokens.map((token) => (
+              <li className="artifact-token-list__item" key={token.id}>
+                <div>
+                  <strong>{token.name}</strong>
+                  <p className="muted-text">{token.prefix}</p>
+                </div>
+                <span className={token.revokedAt ? "status-pill status-pill--neutral" : "status-pill status-pill--ok"}>
+                  {token.revokedAt ? "Revoked" : "Active"}
+                </span>
+                <button
+                  disabled={Boolean(token.revokedAt) || revokingTokenId === token.id}
+                  onClick={() => void revokeUploadToken(token)}
+                  type="button"
+                >
+                  Revoke {token.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
     </section>
   );
 }

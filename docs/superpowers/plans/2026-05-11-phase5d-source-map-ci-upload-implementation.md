@@ -42,7 +42,7 @@
 - Modify: `packages/db/src/schema.ts`
 - Test: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing migration test**
+- [x] **Step 1: Write failing migration test**
 
 Add to `packages/db/test/repositories.test.ts`:
 
@@ -53,7 +53,7 @@ it("runs source map upload token migrations", async () => {
 });
 ```
 
-- [ ] **Step 2: Run migration test to verify failure**
+- [x] **Step 2: Run migration test to verify failure**
 
 Run:
 
@@ -63,7 +63,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "runs source map u
 
 Expected: fails because `source_map_upload_tokens` does not exist.
 
-- [ ] **Step 3: Add migration 0008**
+- [x] **Step 3: Add migration 0008**
 
 Create `packages/db/migrations/0008_source_map_upload_tokens.sql`:
 
@@ -71,13 +71,14 @@ Create `packages/db/migrations/0008_source_map_upload_tokens.sql`:
 CREATE TABLE IF NOT EXISTS source_map_upload_tokens (
   id text PRIMARY KEY,
   project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  environment_id text NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+  environment_id text NOT NULL,
   name text NOT NULL,
   prefix text NOT NULL UNIQUE,
   hash text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
-  revoked_at timestamptz
+  revoked_at timestamptz,
+  FOREIGN KEY (project_id, environment_id) REFERENCES environments(project_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS source_map_upload_tokens_scope_created_idx
@@ -110,22 +111,20 @@ BEGIN
 END $$;
 ```
 
-- [ ] **Step 4: Register migration**
+- [x] **Step 4: Register migration**
 
 Modify `packages/db/src/migrate.ts`:
 
 ```ts
-import migration0008 from "../migrations/0008_source_map_upload_tokens.sql?raw";
-
 const migrations = [
-  { id: "0007_breadcrumbs", sql: migration0007 },
-  { id: "0008_source_map_upload_tokens", sql: migration0008 }
+  { name: "0007_breadcrumbs.sql", url: new URL("../migrations/0007_breadcrumbs.sql", import.meta.url) },
+  { name: "0008_source_map_upload_tokens.sql", url: new URL("../migrations/0008_source_map_upload_tokens.sql", import.meta.url) }
 ];
 ```
 
 Keep the existing migration array order and add 0008 after 0007.
 
-- [ ] **Step 5: Update DB schema types**
+- [x] **Step 5: Update DB schema types**
 
 Modify `packages/db/src/schema.ts`:
 
@@ -137,7 +136,7 @@ export type SourceMapUploadTokensTable = {
   name: string;
   prefix: string;
   hash: string;
-  created_at: Generated<Timestamp>;
+  created_at: Timestamp;
   last_used_at: NullableTimestamp;
   revoked_at: NullableTimestamp;
 };
@@ -156,7 +155,7 @@ Add to `Database`:
 source_map_upload_tokens: SourceMapUploadTokensTable;
 ```
 
-- [ ] **Step 6: Run migration test to verify pass**
+- [x] **Step 6: Run migration test to verify pass**
 
 Run:
 
@@ -166,10 +165,21 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "runs source map u
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Keep DB checkpoint buildable**
+
+Pull the minimal source-map repository attribution type/mapping update forward from Task 3 so `@signal-hub/db` remains buildable after nullable source-map attribution is introduced:
+
+```ts
+uploadedByUserId: string | null;
+uploadedByTokenId: string | null;
+```
+
+Add focused tests for token scope integrity, artifact attribution constraints, and token-attributed artifacts.
+
+- [x] **Step 8: Commit**
 
 ```bash
-git add packages/db/migrations/0008_source_map_upload_tokens.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/test/repositories.test.ts
+git add packages/db/migrations/0008_source_map_upload_tokens.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/source-maps.ts packages/db/test/repositories.test.ts
 git commit -m "feat: add source map upload token schema"
 ```
 
@@ -181,7 +191,7 @@ git commit -m "feat: add source map upload token schema"
 - Modify: `packages/db/test/repositories.test.ts`
 - Test: `packages/telemetry/test/api-keys.test.ts`
 
-- [ ] **Step 1: Write failing source-map token secret tests**
+- [x] **Step 1: Write failing source-map token secret tests**
 
 Add to `packages/telemetry/test/api-keys.test.ts`:
 
@@ -196,7 +206,7 @@ it("creates distinguishable source map upload token secrets", () => {
 });
 ```
 
-- [ ] **Step 2: Write failing repository tests**
+- [x] **Step 2: Write failing repository tests**
 
 Add imports to `packages/db/test/repositories.test.ts`:
 
@@ -261,7 +271,7 @@ it("rejects source map upload tokens for inactive or mismatched scopes", async (
 
 Use existing test fixture ids for an active project/environment. If the file uses different canonical ids, use those exact ids instead of `prj_test` and `env_test`.
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 Run:
 
@@ -271,7 +281,7 @@ pnpm exec vitest run packages/telemetry/test/api-keys.test.ts packages/db/test/r
 
 Expected: fails because helper and repository do not exist.
 
-- [ ] **Step 4: Add source-map token secret helper**
+- [x] **Step 4: Add source-map token secret helper**
 
 Modify `packages/telemetry/src/api-keys.ts`:
 
@@ -289,7 +299,7 @@ export function createSourceMapUploadToken(): CreatedApiKey {
 
 Keep `hashApiKey` and `verifyApiKey` unchanged so token hashing continues using the existing pepper strategy.
 
-- [ ] **Step 5: Add repository**
+- [x] **Step 5: Add repository**
 
 Create `packages/db/src/repositories/source-map-upload-tokens.ts`:
 
@@ -434,7 +444,7 @@ export async function revokeSourceMapUploadToken(
 }
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -444,7 +454,7 @@ pnpm exec vitest run packages/telemetry/test/api-keys.test.ts packages/db/test/r
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/telemetry/src/api-keys.ts packages/telemetry/test/api-keys.test.ts packages/db/src/repositories/source-map-upload-tokens.ts packages/db/test/repositories.test.ts
@@ -460,7 +470,9 @@ git commit -m "feat: add source map upload token repository"
 - Test: `packages/db/test/repositories.test.ts`
 - Test: `apps/api/test/admin.test.ts`
 
-- [ ] **Step 1: Write failing attribution repository test**
+- [x] **Step 1: Write failing attribution repository test**
+
+Completed in Task 1 to keep `@signal-hub/db` buildable after nullable artifact attribution was introduced.
 
 Add to `packages/db/test/repositories.test.ts` after source-map artifact tests:
 
@@ -492,7 +504,9 @@ it("persists source map artifacts uploaded by tokens", async () => {
 });
 ```
 
-- [ ] **Step 2: Run attribution test to verify failure**
+- [x] **Step 2: Run attribution test to verify failure**
+
+Completed in Task 1.
 
 Run:
 
@@ -502,7 +516,9 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "uploaded by token
 
 Expected: fails because `uploadedByTokenId` is not supported.
 
-- [ ] **Step 3: Update source-map repository types**
+- [x] **Step 3: Update source-map repository types**
+
+Completed in Task 1 as a build-restoring quality fix.
 
 Modify `packages/db/src/repositories/source-maps.ts`.
 
@@ -545,7 +561,7 @@ uploaded_by_user_id: input.uploadedByUserId ?? null,
 uploaded_by_token_id: input.uploadedByTokenId ?? null
 ```
 
-- [ ] **Step 4: Update API upload input types**
+- [x] **Step 4: Update API upload input types**
 
 Modify `apps/api/src/routes/admin.ts`.
 
@@ -575,7 +591,7 @@ Apply the same pattern to `SourceMapBundleUploadInput`.
 
 Keep `parseSourceMapUploadRequest(request, uploadedByUserId)` returning user attribution for admin uploads.
 
-- [ ] **Step 5: Update storage service attribution**
+- [x] **Step 5: Update storage service attribution**
 
 Modify `apps/api/src/source-maps/storage.ts`:
 
@@ -588,7 +604,7 @@ const uploader =
 
 Pass `...uploader` into every `createSourceMapArtifact` call.
 
-- [ ] **Step 6: Update admin tests for nullable token attribution**
+- [x] **Step 6: Update admin tests for nullable token attribution**
 
 In `apps/api/test/admin.test.ts`, update source-map artifact fixture helpers to include:
 
@@ -599,7 +615,7 @@ uploadedByTokenId: null
 
 Expected: existing admin tests still pass and preserve user attribution.
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 Run:
 
@@ -609,7 +625,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts apps/api/test/admin.t
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/source-maps.ts packages/db/test/repositories.test.ts apps/api/src/source-maps/storage.ts apps/api/src/routes/admin.ts apps/api/test/admin.test.ts
@@ -623,7 +639,7 @@ git commit -m "feat: attribute source maps to upload tokens"
 - Modify: `apps/api/src/main.ts`
 - Test: `apps/api/test/admin.test.ts`
 
-- [ ] **Step 1: Write failing admin API tests**
+- [x] **Step 1: Write failing admin API tests**
 
 Add to `apps/api/test/admin.test.ts`:
 
@@ -724,7 +740,7 @@ it("revokes source map upload tokens for admins", async () => {
 
 Adjust the local test harness names (`buildTestApp`, `adminCookie`) to match existing `apps/api/test/admin.test.ts` helpers.
 
-- [ ] **Step 2: Run admin API tests to verify failure**
+- [x] **Step 2: Run admin API tests to verify failure**
 
 Run:
 
@@ -734,7 +750,7 @@ pnpm exec vitest run apps/api/test/admin.test.ts -t "source map upload tokens"
 
 Expected: fails because admin routes and dependencies do not exist.
 
-- [ ] **Step 3: Add admin dependency types and redaction**
+- [x] **Step 3: Add admin dependency types and redaction**
 
 Modify `apps/api/src/routes/admin.ts`:
 
@@ -795,7 +811,7 @@ function redactSourceMapUploadToken(token: SourceMapUploadTokenResponse): Omit<S
 }
 ```
 
-- [ ] **Step 4: Add admin routes**
+- [x] **Step 4: Add admin routes**
 
 In `registerAdminRoutes`, before `/admin/source-maps` routes, add:
 
@@ -887,7 +903,7 @@ app.delete("/admin/source-map-upload-tokens/:id", async (request, reply) => {
 });
 ```
 
-- [ ] **Step 5: Wire app and main dependencies**
+- [x] **Step 5: Wire app and main dependencies**
 
 Modify `apps/api/src/app.ts` `BuildAppOptions`:
 
@@ -916,7 +932,7 @@ sourceMapUploadTokens: {
 }
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -927,7 +943,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/admin.ts apps/api/src/app.ts apps/api/src/main.ts apps/api/test/admin.test.ts
@@ -943,7 +959,7 @@ git commit -m "feat: add source map upload token admin api"
 - Modify: `apps/api/src/routes/admin.ts`
 - Test: `apps/api/test/source-map-uploads.test.ts`
 
-- [ ] **Step 1: Export shared multipart parser and error helper**
+- [x] **Step 1: Export shared multipart parser and error helper**
 
 Modify `apps/api/src/routes/admin.ts` exports:
 
@@ -966,7 +982,7 @@ For admin call sites, pass:
 { uploadedByUserId: admin.id }
 ```
 
-- [ ] **Step 2: Write failing CI upload API tests**
+- [x] **Step 2: Write failing CI upload API tests**
 
 Create `apps/api/test/source-map-uploads.test.ts`:
 
@@ -1097,7 +1113,7 @@ describe("source map CI uploads", () => {
 });
 ```
 
-- [ ] **Step 3: Run API tests to verify failure**
+- [x] **Step 3: Run API tests to verify failure**
 
 Run:
 
@@ -1107,7 +1123,7 @@ pnpm exec vitest run apps/api/test/source-map-uploads.test.ts
 
 Expected: fails because route dependencies and route do not exist.
 
-- [ ] **Step 4: Create source-map upload route**
+- [x] **Step 4: Create source-map upload route**
 
 Create `apps/api/src/routes/source-map-uploads.ts`:
 
@@ -1221,7 +1237,7 @@ export function registerSourceMapUploadRoutes(
 }
 ```
 
-- [ ] **Step 5: Wire route and token verification**
+- [x] **Step 5: Wire route and token verification**
 
 Modify `apps/api/src/app.ts`:
 
@@ -1280,7 +1296,7 @@ sourceMapUploads: {
 }
 ```
 
-- [ ] **Step 6: Run API tests**
+- [x] **Step 6: Run API tests**
 
 Run:
 
@@ -1291,7 +1307,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/source-map-uploads.ts apps/api/src/routes/admin.ts apps/api/src/app.ts apps/api/src/main.ts apps/api/test/source-map-uploads.test.ts
@@ -1308,7 +1324,7 @@ git commit -m "feat: add source map ci upload api"
 - Create: `packages/cli/test/source-maps.test.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Write failing CLI tests**
+- [x] **Step 1: Write failing CLI tests**
 
 Create `packages/cli/test/source-maps.test.ts`:
 
@@ -1430,7 +1446,7 @@ describe("source map upload command", () => {
 });
 ```
 
-- [ ] **Step 2: Run CLI tests to verify failure**
+- [x] **Step 2: Run CLI tests to verify failure**
 
 Run:
 
@@ -1440,7 +1456,7 @@ pnpm exec vitest run packages/cli/test/source-maps.test.ts
 
 Expected: fails because package and module do not exist.
 
-- [ ] **Step 3: Add CLI package metadata**
+- [x] **Step 3: Add CLI package metadata**
 
 Create `packages/cli/package.json`:
 
@@ -1482,7 +1498,7 @@ Modify root `package.json` scripts:
 "source-maps:upload": "tsx packages/cli/src/index.ts sourcemaps upload"
 ```
 
-- [ ] **Step 4: Implement CLI command**
+- [x] **Step 4: Implement CLI command**
 
 Create `packages/cli/src/source-maps.ts`:
 
@@ -1643,7 +1659,7 @@ if (group === "sourcemaps" && command === "upload") {
 }
 ```
 
-- [ ] **Step 5: Run CLI tests and build**
+- [x] **Step 5: Run CLI tests and build**
 
 Run:
 
@@ -1654,7 +1670,7 @@ pnpm --filter @signal-hub/cli build
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add package.json packages/cli
@@ -1668,7 +1684,7 @@ git commit -m "feat: add source map upload cli"
 - Modify: `apps/console/src/api/client.ts`
 - Modify: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Write failing client tests**
+- [x] **Step 1: Write failing client tests**
 
 Add to `apps/console/src/api/client.test.ts`:
 
@@ -1738,7 +1754,7 @@ it("revokes source map upload tokens", async () => {
 
 Use existing `mockFetch` helper shape in this test file.
 
-- [ ] **Step 2: Run client tests to verify failure**
+- [x] **Step 2: Run client tests to verify failure**
 
 Run:
 
@@ -1748,7 +1764,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts -t "source map upload t
 
 Expected: fails because client methods/types do not exist.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 Modify `apps/console/src/api/types.ts`:
 
@@ -1769,7 +1785,7 @@ export type CreatedSourceMapUploadToken = SourceMapUploadToken & {
 };
 ```
 
-- [ ] **Step 4: Add client methods**
+- [x] **Step 4: Add client methods**
 
 Modify `apps/console/src/api/client.ts` imports and `ApiClient`:
 
@@ -1809,7 +1825,7 @@ async revokeSourceMapUploadToken(id, query) {
 }
 ```
 
-- [ ] **Step 5: Add stubs in console tests**
+- [x] **Step 5: Add stubs in console tests**
 
 Search for `createApiClient` or mock `ApiClient` objects in console tests:
 
@@ -1819,7 +1835,7 @@ rg -n "listSourceMaps|uploadSourceMap|ApiClient" apps/console/src -g '*.test.tsx
 
 Add `listSourceMapUploadTokens`, `createSourceMapUploadToken`, and `revokeSourceMapUploadToken` `vi.fn()` stubs anywhere a full `ApiClient` mock is constructed.
 
-- [ ] **Step 6: Run console client tests**
+- [x] **Step 6: Run console client tests**
 
 Run:
 
@@ -1830,7 +1846,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts apps/console/src/**/*.test.tsx
@@ -1844,7 +1860,7 @@ git commit -m "feat: add source map upload token console client"
 - Modify: `apps/console/src/components/ArtifactsPanel.test.tsx`
 - Modify: `apps/console/src/styles.css`
 
-- [ ] **Step 1: Write failing Artifacts UI tests**
+- [x] **Step 1: Write failing Artifacts UI tests**
 
 Add to `apps/console/src/components/ArtifactsPanel.test.tsx`:
 
@@ -1935,7 +1951,7 @@ it("revokes source map upload tokens", async () => {
 });
 ```
 
-- [ ] **Step 2: Run Artifacts tests to verify failure**
+- [x] **Step 2: Run Artifacts tests to verify failure**
 
 Run:
 
@@ -1945,7 +1961,7 @@ pnpm exec vitest run apps/console/src/components/ArtifactsPanel.test.tsx
 
 Expected: fails because token UI is missing.
 
-- [ ] **Step 3: Add token UI state and effects**
+- [x] **Step 3: Add token UI state and effects**
 
 Modify `apps/console/src/components/ArtifactsPanel.tsx`.
 
@@ -1978,7 +1994,7 @@ async function loadTokens() {
 
 Call `loadTokens` in the same project/environment effect style used for source-map artifacts. Guard stale responses with a `cancelled` boolean.
 
-- [ ] **Step 4: Add create and revoke handlers**
+- [x] **Step 4: Add create and revoke handlers**
 
 Add:
 
@@ -2006,7 +2022,7 @@ async function revokeUploadToken(token: SourceMapUploadToken) {
 }
 ```
 
-- [ ] **Step 5: Render Upload tokens section**
+- [x] **Step 5: Render Upload tokens section**
 
 Add below the existing source-map upload/list UI:
 
@@ -2063,7 +2079,7 @@ Add below the existing source-map upload/list UI:
 
 Use existing project style and avoid nested cards.
 
-- [ ] **Step 6: Add compact styles**
+- [x] **Step 6: Add compact styles**
 
 Add to `apps/console/src/styles.css`:
 
@@ -2093,7 +2109,7 @@ Add to `apps/console/src/styles.css`:
 }
 ```
 
-- [ ] **Step 7: Run console tests and build**
+- [x] **Step 7: Run console tests and build**
 
 Run:
 
@@ -2104,7 +2120,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/console/src/components/ArtifactsPanel.tsx apps/console/src/components/ArtifactsPanel.test.tsx apps/console/src/styles.css
@@ -2123,7 +2139,7 @@ git commit -m "feat: manage source map upload tokens"
 - Modify: `CLAUDE.md`
 - Modify external memory: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 Add a `Source Map CI Uploads` section near `Source Maps`:
 
@@ -2161,7 +2177,7 @@ GitHub Actions example:
 Store upload tokens in CI secret storage. Do not expose them in browser bundles.
 ````
 
-- [ ] **Step 2: Update architecture docs**
+- [x] **Step 2: Update architecture docs**
 
 Add to `.claude/docs/ARCHITECTURE.md`:
 
@@ -2169,7 +2185,7 @@ Add to `.claude/docs/ARCHITECTURE.md`:
 Source-map CI uploads use dedicated `source_map_upload_tokens`, not ingestion API keys. Admins create and revoke these tokens from the Artifacts console. `POST /v1/source-maps` authenticates a token, enforces its project/environment scope, and writes artifacts through the existing local source-map storage service with token attribution.
 ```
 
-- [ ] **Step 3: Update secrets docs**
+- [x] **Step 3: Update secrets docs**
 
 Add to `.claude/docs/SECRETS.md`:
 
@@ -2183,7 +2199,7 @@ Add operational rule:
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 ```
 
-- [ ] **Step 4: Update project, stack, UI, and CLAUDE docs**
+- [x] **Step 4: Update project, stack, UI, and CLAUDE docs**
 
 Update `.claude/docs/PROJECT-SUMMARY.md` current phase:
 
@@ -2215,7 +2231,7 @@ Update `CLAUDE.md`:
 - Current phase: Phase 5D Source Map CI Uploads.
 ```
 
-- [ ] **Step 5: Update memory**
+- [x] **Step 5: Update memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
@@ -2223,14 +2239,14 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 - Implemented Phase 5D Source Map CI Uploads: dedicated source-map upload tokens, token-authenticated `POST /v1/source-maps`, repo-local `@signal-hub/cli` uploader, and Artifacts token management. Upload tokens stay separate from browser ingestion API keys; object storage, GitHub Action wrapper, source-code viewer, and source-map retention remain deferred.
 ```
 
-- [ ] **Step 6: Commit SignalHub docs**
+- [x] **Step 6: Commit SignalHub docs**
 
 ```bash
 git add README.md .claude/docs/ARCHITECTURE.md .claude/docs/PROJECT-SUMMARY.md .claude/docs/SECRETS.md .claude/docs/UI-UX.md .claude/docs/STACK.md CLAUDE.md
 git commit -m "docs: document source map ci uploads"
 ```
 
-- [ ] **Step 7: Commit memory**
+- [x] **Step 7: Commit memory**
 
 ```bash
 cd /Users/diogo/Developer/Github/claude-config
@@ -2245,7 +2261,7 @@ Preserve unrelated untracked memory directories.
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-11-phase5d-source-map-ci-upload-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 ```bash
 pnpm test
@@ -2253,7 +2269,7 @@ pnpm test
 
 Expected: all test files pass with no unhandled errors.
 
-- [ ] **Step 2: Run full build**
+- [x] **Step 2: Run full build**
 
 ```bash
 pnpm build
@@ -2261,7 +2277,7 @@ pnpm build
 
 Expected: all workspace builds pass, including `@signal-hub/cli`.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 ```bash
 docker compose config --quiet
@@ -2269,7 +2285,7 @@ docker compose config --quiet
 
 Expected: exit code 0.
 
-- [ ] **Step 4: Run doctor**
+- [x] **Step 4: Run doctor**
 
 If `.env` exists:
 
@@ -2286,11 +2302,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code 0. Source-map directory warnings are acceptable if no local directory exists in the worktree.
 
-- [ ] **Step 5: Mark plan complete**
+- [x] **Step 5: Mark plan complete**
 
 Update this plan file so completed verification and integration checkboxes are checked.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-11-phase5d-source-map-ci-upload-implementation.md

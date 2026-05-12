@@ -135,6 +135,21 @@ export type SourceMapArtifact = {
   uploadedByUserId: string;
 };
 
+export type SourceMapUploadToken = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
+
+export type CreatedSourceMapUploadToken = SourceMapUploadToken & {
+  secret: string;
+};
+
 export type SourceMapArtifactQuery = {
   projectId: string;
   environmentId: string;

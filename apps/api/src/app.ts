@@ -9,6 +9,7 @@ import {
   registerAdminRoutes,
   type AlertAdministrationDependencies,
   type AdminResourceDependencies,
+  type SourceMapUploadTokenAdministrationDependencies,
   type SourceMapAdministrationDependencies,
   type UserAdministrationDependencies
 } from "./routes/admin.js";
@@ -17,6 +18,7 @@ import { registerConsoleRoutes, type ConsoleRouteOptions } from "./routes/consol
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
 import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
+import { registerSourceMapUploadRoutes, type SourceMapUploadRouteDependencies } from "./routes/source-map-uploads.js";
 import { registerSystemRoutes, type SystemHealthDependencies } from "./routes/system.js";
 
 export type BuildAppOptions = {
@@ -26,6 +28,9 @@ export type BuildAppOptions = {
   adminResources?: AdminResourceDependencies;
   alerts?: AlertRouteDependencies & AlertAdministrationDependencies;
   sourceMaps?: SourceMapAdministrationDependencies & { maxUploadBytes?: number };
+  sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
+  sourceMapUploads?: SourceMapUploadRouteDependencies;
+  createSourceMapUploadToken?: () => { secret: string; prefix: string };
   ingestion?: IngestionDependencies;
   query?: QueryDependencies;
   system?: SystemHealthDependencies;
@@ -74,6 +79,8 @@ export async function buildApp(options: BuildAppOptions) {
     adminResources: options.adminResources,
     alerts: options.alerts,
     sourceMaps: options.sourceMaps,
+    sourceMapUploadTokens: options.sourceMapUploadTokens,
+    createSourceMapUploadToken: options.createSourceMapUploadToken,
     apiKeyPepper: options.apiKeyPepper,
     hashApiKeySecret: options.hashApiKeySecret,
     nodeEnv: options.nodeEnv
@@ -82,6 +89,7 @@ export async function buildApp(options: BuildAppOptions) {
     auth: options.auth,
     alerts: options.alerts
   });
+  registerSourceMapUploadRoutes(app, options.sourceMapUploads);
   registerIngestionRoutes(app, options.ingestion);
   registerQueryRoutes(app, {
     auth: options.auth,

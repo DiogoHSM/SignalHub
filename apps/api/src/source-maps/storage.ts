@@ -8,7 +8,11 @@ import {
   getSourceMapArtifact,
   type SourceMapArtifactRecord
 } from "@signal-hub/db/repositories/source-maps.js";
-import type { SourceMapBundleUploadInput, SourceMapUploadInput } from "../routes/admin.js";
+import type {
+  SourceMapBundleUploadInput,
+  SourceMapUploadAttribution,
+  SourceMapUploadInput
+} from "../routes/admin.js";
 import { extractSourceMapsFromZip, inferMinifiedFileFromMap, parseSourceMapJson } from "./parser.js";
 
 export type StoredArtifact = {
@@ -112,6 +116,18 @@ function assertUniqueMinifiedFiles(sourceMaps: Array<{ minifiedFile: string }>):
   }
 }
 
+function sourceMapArtifactUploader(input: SourceMapUploadInput | SourceMapBundleUploadInput): SourceMapUploadAttribution {
+  if (typeof input.uploadedByTokenId === "string") {
+    return { uploadedByTokenId: input.uploadedByTokenId };
+  }
+
+  if (typeof input.uploadedByUserId === "string") {
+    return { uploadedByUserId: input.uploadedByUserId };
+  }
+
+  throw new Error("source_map_uploader_missing");
+}
+
 export async function uploadSingleSourceMap(input: {
   db: Db;
   localDir: string;
@@ -143,7 +159,7 @@ export async function uploadSingleSourceMap(input: {
       byteSize: stored.byteSize,
       sha256: stored.sha256,
       storagePath: stored.storagePath,
-      uploadedByUserId: input.input.uploadedByUserId
+      ...sourceMapArtifactUploader(input.input)
     });
 
     return [artifact];
@@ -198,7 +214,7 @@ export async function uploadSourceMapBundle(input: {
           byteSize: stored.byteSize,
           sha256: stored.sha256,
           storagePath: stored.storagePath,
-          uploadedByUserId: input.input.uploadedByUserId
+          ...sourceMapArtifactUploader(input.input)
         });
         artifacts.push(artifact);
       }

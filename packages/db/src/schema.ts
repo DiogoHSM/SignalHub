@@ -49,6 +49,18 @@ export interface ApiKeysTable {
   revoked_at: NullableTimestamp;
 }
 
+export type SourceMapUploadTokensTable = {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  prefix: string;
+  hash: string;
+  created_at: Timestamp;
+  last_used_at: NullableTimestamp;
+  revoked_at: NullableTimestamp;
+};
+
 export interface EventsTable {
   id: string;
   project_id: string;
@@ -333,7 +345,8 @@ export interface SourceMapArtifactsTable {
   byte_size: number;
   sha256: string;
   storage_path: string;
-  uploaded_by_user_id: string;
+  uploaded_by_user_id: string | null;
+  uploaded_by_token_id: string | null;
   created_at: Timestamp;
   deleted_at: NullableTimestamp;
 }
@@ -367,6 +380,7 @@ export interface Database {
   projects: ProjectsTable;
   environments: EnvironmentsTable;
   api_keys: ApiKeysTable;
+  source_map_upload_tokens: SourceMapUploadTokensTable;
   events: EventsTable;
   breadcrumbs: BreadcrumbsTable;
   error_groups: ErrorGroupsTable;

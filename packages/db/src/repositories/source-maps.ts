@@ -18,7 +18,8 @@ export type SourceMapArtifactRecord = {
   byteSize: number;
   sha256: string;
   storagePath: string;
-  uploadedByUserId: string;
+  uploadedByUserId: string | null;
+  uploadedByTokenId: string | null;
   createdAt: Date;
   deletedAt: Date | null;
 };
@@ -47,7 +48,11 @@ export type SourceMapScope = {
   release?: string;
 };
 
-export type CreateSourceMapArtifactInput = {
+type SourceMapArtifactUploader =
+  | { uploadedByUserId: string; uploadedByTokenId?: never }
+  | { uploadedByUserId?: never; uploadedByTokenId: string };
+
+export type CreateSourceMapArtifactInput = SourceMapArtifactUploader & {
   projectId: string;
   environmentId: string;
   release: string;
@@ -57,7 +62,6 @@ export type CreateSourceMapArtifactInput = {
   byteSize: number;
   sha256: string;
   storagePath: string;
-  uploadedByUserId: string;
 };
 
 export type ReplaceErrorStackResolutionsInput = {
@@ -91,6 +95,7 @@ function toSourceMapArtifact(row: SourceMapArtifactRow): SourceMapArtifactRecord
     sha256: row.sha256,
     storagePath: row.storage_path,
     uploadedByUserId: row.uploaded_by_user_id,
+    uploadedByTokenId: row.uploaded_by_token_id,
     createdAt: row.created_at,
     deletedAt: row.deleted_at
   };
@@ -185,7 +190,8 @@ export async function createSourceMapArtifact(
       byte_size: input.byteSize,
       sha256: input.sha256,
       storage_path: input.storagePath,
-      uploaded_by_user_id: input.uploadedByUserId
+      uploaded_by_user_id: "uploadedByUserId" in input ? input.uploadedByUserId : null,
+      uploaded_by_token_id: "uploadedByTokenId" in input ? input.uploadedByTokenId : null
     })
     .returningAll()
     .executeTakeFirstOrThrow();

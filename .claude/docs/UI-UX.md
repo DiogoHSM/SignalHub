@@ -13,7 +13,7 @@ SignalHub includes an admin-only Integration Console.
 
 - Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
-- Keep `Artifacts` as a compact admin mode for source-map upload, filtering, and deletion for the active project/environment.
+- Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
 - Keep `System` as a quiet operational mode for service health, queue depth, ingestion freshness, retention status, and backup status.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
@@ -60,6 +60,7 @@ SignalHub includes an admin-only Integration Console.
 ## Artifacts UX
 
 - Artifacts should stay operational: release filter, single-map upload, bundle upload, uploaded artifact list, and delete actions should fit the active project/environment workspace.
+- Artifacts includes compact source-map upload token management for the active project/environment. Token secrets are shown once after creation.
 - Upload controls should support single `.map` files and `.zip` bundles.
 - Operators must provide release metadata because resolution uses strict release matching and does not guess across releases.
 - Artifact rows should prioritize release, minified file, original filename, size, upload time, and a short delete action.

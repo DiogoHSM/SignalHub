@@ -91,6 +91,13 @@ import {
   listSourceMapArtifacts,
   replaceErrorStackResolutions
 } from "../src/repositories/source-maps.js";
+import {
+  createSourceMapUploadTokenRecord,
+  findSourceMapUploadTokenByPrefix,
+  listSourceMapUploadTokens,
+  revokeSourceMapUploadToken,
+  updateSourceMapUploadTokenLastUsed
+} from "../src/repositories/source-map-upload-tokens.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
@@ -237,6 +244,268 @@ describe("repositories", () => {
     });
   });
 
+  it("runs source map upload token migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, prefix, hash, last_used_at, revoked_at from source_map_upload_tokens limit 0`.execute(db);
+      await sql`select uploaded_by_user_id, uploaded_by_token_id from source_map_artifacts limit 0`.execute(db);
+    });
+  });
+
+  it("enforces source map upload token scope and artifact attribution constraints", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_scope_a', 'Scope A'), ('prj_scope_b', 'Scope B')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_scope_a', 'prj_scope_a', 'Production'), ('env_scope_b', 'prj_scope_b', 'Production')
+      `.execute(db);
+      await sql`
+        insert into users (id, email, password_hash, is_admin)
+        values ('usr_source_map_constraints', 'source-map-constraints@example.com', 'hash', true)
+      `.execute(db);
+
+      await expect(sql`
+        insert into source_map_upload_tokens (id, project_id, environment_id, name, prefix, hash)
+        values ('smut_bad_scope', 'prj_scope_a', 'env_scope_b', 'CI', 'shsmap_bad_scope', 'hash_bad_scope')
+      `.execute(db)).rejects.toThrow();
+
+      await sql`
+        insert into source_map_upload_tokens (id, project_id, environment_id, name, prefix, hash)
+        values ('smut_constraints', 'prj_scope_a', 'env_scope_a', 'CI', 'shsmap_constraints', 'hash_constraints')
+      `.execute(db);
+
+      await expect(sql`
+        insert into source_map_artifacts (
+          id, project_id, environment_id, release, minified_file, original_filename, content_type,
+          byte_size, sha256, storage_path, uploaded_by_user_id, uploaded_by_token_id
+        )
+        values (
+          'smap_missing_uploader', 'prj_scope_a', 'env_scope_a', 'web@1.0.0', 'missing.js',
+          'missing.js.map', 'application/json', 42, 'sha_missing', '/tmp/missing.js.map', null, null
+        )
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into source_map_artifacts (
+          id, project_id, environment_id, release, minified_file, original_filename, content_type,
+          byte_size, sha256, storage_path, uploaded_by_user_id, uploaded_by_token_id
+        )
+        values (
+          'smap_both_uploaders', 'prj_scope_a', 'env_scope_a', 'web@1.0.0', 'both.js',
+          'both.js.map', 'application/json', 42, 'sha_both', '/tmp/both.js.map',
+          'usr_source_map_constraints', 'smut_constraints'
+        )
+      `.execute(db)).rejects.toThrow();
+    });
+  });
+
+  it("creates lists finds uses and revokes source map upload tokens", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Token Lifecycle" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const firstToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Manual Upload",
+        prefix: "shsmap_lifecycle_a",
+        hash: "hash_lifecycle_a"
+      });
+      const token = await createSourceMapUploadTokenRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "GitHub Actions",
+        prefix: "shsmap_lifecycle_b",
+        hash: "hash_lifecycle_b"
+      });
+      await sql`
+        update source_map_upload_tokens
+        set created_at = '2026-05-10T00:00:00.000Z'
+        where id = ${firstToken.id}
+      `.execute(db);
+
+      expect(token.id).toMatch(/^smtok_/);
+      expect(token).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "GitHub Actions",
+        prefix: "shsmap_lifecycle_b",
+        hash: "hash_lifecycle_b",
+        lastUsedAt: null,
+        revokedAt: null
+      });
+      expect(token.createdAt).toBeInstanceOf(Date);
+
+      const listed = await listSourceMapUploadTokens(db, {
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(listed.map((item) => item.id)).toEqual([token.id, firstToken.id]);
+
+      const found = await findSourceMapUploadTokenByPrefix(db, "shsmap_lifecycle_b");
+      expect(found?.id).toBe(token.id);
+
+      await updateSourceMapUploadTokenLastUsed(db, token.id);
+      const used = await findSourceMapUploadTokenByPrefix(db, "shsmap_lifecycle_b");
+      expect(used?.lastUsedAt).toBeInstanceOf(Date);
+      const usedAtBeforeRevoke = used?.lastUsedAt;
+
+      await revokeSourceMapUploadToken(db, {
+        id: token.id,
+        projectId: project.id,
+        environmentId: environment.id
+      });
+
+      await updateSourceMapUploadTokenLastUsed(db, token.id);
+      const afterRevoke = await findSourceMapUploadTokenByPrefix(db, "shsmap_lifecycle_b");
+      expect(afterRevoke).toBeUndefined();
+      const [revoked] = await listSourceMapUploadTokens(db, {
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(revoked.lastUsedAt).toEqual(usedAtBeforeRevoke);
+    });
+  });
+
+  it("rejects source map upload tokens for inactive missing or mismatched scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const activeProject = await createProject(db, { name: "Source Map Token Active Scope" });
+      const activeEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "production" });
+      const otherProject = await createProject(db, { name: "Source Map Token Other Scope" });
+      const otherEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+      const archivedProject = await createProject(db, { name: "Source Map Token Archived Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      await archiveProject(db, archivedProject.id);
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Source Map Token Archived Environment"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      const invalidInputs = [
+        {
+          projectId: "prj_missing_source_map_token",
+          environmentId: activeEnvironment.id,
+          name: "Missing project",
+          prefix: "shsmap_missing_project",
+          hash: "hash_missing_project"
+        },
+        {
+          projectId: activeProject.id,
+          environmentId: "env_missing_source_map_token",
+          name: "Missing environment",
+          prefix: "shsmap_missing_environment",
+          hash: "hash_missing_environment"
+        },
+        {
+          projectId: activeProject.id,
+          environmentId: otherEnvironment.id,
+          name: "Mismatched environment",
+          prefix: "shsmap_mismatched_environment",
+          hash: "hash_mismatched_environment"
+        },
+        {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "Archived project",
+          prefix: "shsmap_archived_project",
+          hash: "hash_archived_project"
+        },
+        {
+          projectId: archivedEnvironmentProject.id,
+          environmentId: archivedEnvironment.id,
+          name: "Archived environment",
+          prefix: "shsmap_archived_environment",
+          hash: "hash_archived_environment"
+        }
+      ];
+
+      for (const input of invalidInputs) {
+        await expect(createSourceMapUploadTokenRecord(db, input)).rejects.toThrow(
+          "active_source_map_upload_token_scope_not_found"
+        );
+      }
+    });
+  });
+
+  it("finds source map upload tokens by prefix only for active non-revoked scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const activeProject = await createProject(db, { name: "Source Map Token Prefix Active" });
+      const activeEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "production" });
+      const activeToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: activeProject.id,
+        environmentId: activeEnvironment.id,
+        name: "Active token",
+        prefix: "shsmap_prefix_active",
+        hash: "hash_prefix_active"
+      });
+      const revokedToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: activeProject.id,
+        environmentId: activeEnvironment.id,
+        name: "Revoked token",
+        prefix: "shsmap_prefix_revoked",
+        hash: "hash_prefix_revoked"
+      });
+
+      const archivedProject = await createProject(db, { name: "Source Map Token Prefix Archived Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedProjectToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "Archived project token",
+        prefix: "shsmap_prefix_archived_project",
+        hash: "hash_prefix_archived_project"
+      });
+
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Source Map Token Prefix Archived Environment"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      const archivedEnvironmentToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived environment token",
+        prefix: "shsmap_prefix_archived_environment",
+        hash: "hash_prefix_archived_environment"
+      });
+
+      await revokeSourceMapUploadToken(db, {
+        id: revokedToken.id,
+        projectId: activeProject.id,
+        environmentId: activeEnvironment.id
+      });
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      await expect(findSourceMapUploadTokenByPrefix(db, activeToken.prefix)).resolves.toMatchObject({
+        id: activeToken.id
+      });
+      await expect(findSourceMapUploadTokenByPrefix(db, revokedToken.prefix)).resolves.toBeUndefined();
+      await expect(findSourceMapUploadTokenByPrefix(db, archivedProjectToken.prefix)).resolves.toBeUndefined();
+      await expect(findSourceMapUploadTokenByPrefix(db, archivedEnvironmentToken.prefix)).resolves.toBeUndefined();
+    });
+  });
+
   it("prevents breadcrumbs from referencing an environment in another project", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -378,6 +647,33 @@ describe("repositories", () => {
       });
 
       expect(await listSourceMapArtifacts(db, { projectId: "prj_1", environmentId: "env_1" })).toEqual([]);
+    });
+  });
+
+  it("persists source map artifacts uploaded by tokens", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      await sql`
+        insert into source_map_upload_tokens (id, project_id, environment_id, name, prefix, hash)
+        values ('smut_attr', 'prj_1', 'env_1', 'CI', 'shsmap_attr', 'hash_attr')
+      `.execute(db);
+
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.2.3",
+        minifiedFile: "assets/app.js",
+        originalFilename: "app.js.map",
+        contentType: "application/json",
+        byteSize: 42,
+        sha256: "a".repeat(64),
+        storagePath: "/tmp/source-maps/app.js.map",
+        uploadedByTokenId: "smut_attr"
+      });
+
+      expect(artifact.uploadedByUserId).toBeNull();
+      expect(artifact.uploadedByTokenId).toBe("smut_attr");
     });
   });
 

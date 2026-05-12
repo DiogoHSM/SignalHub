@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient, SourceMapApiClient } from "../api/client";
-import type { SourceMapArtifact } from "../api/types";
+import type { SourceMapArtifact, SourceMapUploadToken } from "../api/types";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 
 function client(overrides: Partial<ApiClient & SourceMapApiClient> = {}): ApiClient & SourceMapApiClient {
@@ -58,6 +58,9 @@ function client(overrides: Partial<ApiClient & SourceMapApiClient> = {}): ApiCli
     uploadSourceMap: vi.fn().mockResolvedValue([]),
     uploadSourceMapBundle: vi.fn().mockResolvedValue([]),
     deleteSourceMapArtifact: vi.fn().mockResolvedValue(undefined),
+    listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [] }),
+    createSourceMapUploadToken: vi.fn(),
+    revokeSourceMapUploadToken: vi.fn().mockResolvedValue(undefined),
     getErrorSourceMapResolution: vi.fn(),
     ...overrides
   };
@@ -75,6 +78,20 @@ function artifact(overrides: Partial<SourceMapArtifact> = {}): SourceMapArtifact
     sha256: "sha",
     createdAt: "2026-05-11T12:00:00.000Z",
     uploadedByUserId: "usr_1",
+    ...overrides
+  };
+}
+
+function uploadToken(overrides: Partial<SourceMapUploadToken> = {}): SourceMapUploadToken {
+  return {
+    id: "smtok_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    name: "GitHub Actions",
+    prefix: "shsmap_test",
+    createdAt: "2026-05-11T12:00:00.000Z",
+    lastUsedAt: null,
+    revokedAt: null,
     ...overrides
   };
 }
@@ -228,5 +245,156 @@ describe("ArtifactsPanel", () => {
     expect(screen.getAllByText("Release")).toHaveLength(2);
     expect(screen.getByLabelText("Single map release")).toBeInTheDocument();
     expect(screen.getByLabelText("Bundle release")).toBeInTheDocument();
+  });
+
+  it("loads source map upload tokens for the active project and environment", async () => {
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+      listSourceMapUploadTokens: vi.fn().mockResolvedValue({
+        tokens: [
+          {
+            id: "smtok_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            name: "GitHub Actions",
+            prefix: "shsmap_test",
+            createdAt: "2026-05-11T12:00:00.000Z",
+            lastUsedAt: null,
+            revokedAt: null
+          }
+        ]
+      })
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(await screen.findByText("Upload tokens")).toBeInTheDocument();
+    expect(await screen.findByText("GitHub Actions")).toBeInTheDocument();
+    expect(api.listSourceMapUploadTokens).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("creates a source map upload token and shows its secret once", async () => {
+    const createSourceMapUploadToken = vi.fn().mockResolvedValue({
+      token: {
+        ...uploadToken(),
+        secret: "shsmap_secret"
+      }
+    });
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+      listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [] }),
+      createSourceMapUploadToken
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Token name"), "GitHub Actions");
+    await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+
+    expect(await screen.findByText("shsmap_secret")).toBeInTheDocument();
+    expect(api.createSourceMapUploadToken).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "GitHub Actions"
+    });
+  });
+
+  it("revokes source map upload tokens", async () => {
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+      listSourceMapUploadTokens: vi.fn().mockResolvedValue({
+        tokens: [
+          {
+            id: "smtok_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            name: "GitHub Actions",
+            prefix: "shsmap_test",
+            createdAt: "2026-05-11T12:00:00.000Z",
+            lastUsedAt: null,
+            revokedAt: null
+          }
+        ]
+      }),
+      revokeSourceMapUploadToken: vi.fn().mockResolvedValue(undefined)
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Revoke GitHub Actions" }));
+
+    expect(api.revokeSourceMapUploadToken).toHaveBeenCalledWith("smtok_1", { projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("keeps a created token when an earlier same-scope token load resolves later", async () => {
+    const firstTokenLoad = deferred<{ tokens: SourceMapUploadToken[] }>();
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+      listSourceMapUploadTokens: vi.fn().mockReturnValueOnce(firstTokenLoad.promise),
+      createSourceMapUploadToken: vi.fn().mockResolvedValue({
+        token: {
+          ...uploadToken(),
+          secret: "shsmap_secret"
+        }
+      })
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.type(screen.getByLabelText("Token name"), "GitHub Actions");
+    await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+    expect(await screen.findByRole("button", { name: "Revoke GitHub Actions" })).toBeInTheDocument();
+
+    await act(async () => {
+      firstTokenLoad.resolve({ tokens: [] });
+      await firstTokenLoad.promise;
+    });
+
+    expect(screen.getByRole("button", { name: "Revoke GitHub Actions" })).toBeInTheDocument();
+  });
+
+  it("shows an error when source map upload token creation fails", async () => {
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+      listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [] }),
+      createSourceMapUploadToken: vi.fn().mockRejectedValue(new Error("failed"))
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.type(await screen.findByLabelText("Token name"), "GitHub Actions");
+    await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not create source map upload token");
+  });
+
+  it("shows an error when source map upload token revocation fails", async () => {
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+      listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [uploadToken()] }),
+      revokeSourceMapUploadToken: vi.fn().mockRejectedValue(new Error("failed"))
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Revoke GitHub Actions" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not revoke source map upload token");
+  });
+
+  it("keeps source map artifacts available when upload token methods are unavailable", async () => {
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([artifact()]),
+      listSourceMapUploadTokens: undefined,
+      createSourceMapUploadToken: undefined,
+      revokeSourceMapUploadToken: undefined
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(await screen.findByText("assets/app.min.js")).toBeInTheDocument();
+    expect(screen.getByText("Upload tokens unavailable")).toBeInTheDocument();
+    expect(screen.getByLabelText("Token name")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create token" })).toBeDisabled();
   });
 });

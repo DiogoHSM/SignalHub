@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createApiKey, hashApiKey, verifyApiKey } from "../src/api-keys.js";
+import { createApiKey, createSourceMapUploadToken, hashApiKey, verifyApiKey } from "../src/api-keys.js";
 
 describe("API keys", () => {
   it("creates prefixed API keys and verifies hashed values", async () => {
@@ -20,5 +20,14 @@ describe("API keys", () => {
     expect(apiKey.secret).toHaveLength(43);
     expect(apiKey.prefix).toHaveLength(12);
     expect(apiKey.secret).toMatch(/^sh_[0-9a-zA-Z]{40}$/);
+  });
+
+  it("creates source map upload token secrets", () => {
+    const token = createSourceMapUploadToken();
+
+    expect(token.secret).toHaveLength(47);
+    expect(token.prefix).toHaveLength(16);
+    expect(token.secret).toMatch(/^shsmap_[0-9a-zA-Z]{40}$/);
+    expect(token.prefix).toBe(token.secret.slice(0, 16));
   });
 });

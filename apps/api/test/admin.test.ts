@@ -33,6 +33,7 @@ function sourceMapArtifact(overrides: Partial<Record<string, unknown>> = {}) {
     sha256: "abc123",
     storagePath: "/tmp/source-maps/smap_1.map",
     uploadedByUserId: "usr_1",
+    uploadedByTokenId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
     ...overrides
@@ -361,6 +362,236 @@ describe("admin routes", () => {
 
     expect(response.statusCode).toBe(204);
     expect(revokedApiKeyIds).toEqual(["key_1"]);
+  });
+
+  it("creates source map upload tokens for admins and returns the secret once", async () => {
+    const createToken = vi.fn().mockResolvedValue({
+      id: "smtok_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "GitHub Actions",
+      prefix: "shsmap_test",
+      hash: "hash",
+      createdAt: new Date("2026-05-11T12:00:00.000Z"),
+      lastUsedAt: null,
+      revokedAt: null
+    });
+    const hashApiKeySecret = vi.fn().mockResolvedValue("hash");
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMapUploadTokens: {
+        create: createToken,
+        list: vi.fn(),
+        revoke: vi.fn()
+      },
+      createSourceMapUploadToken: () => ({ secret: "shsmap_test_secret", prefix: "shsmap_test" }),
+      hashApiKeySecret
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-map-upload-tokens",
+      payload: { projectId: "prj_1", environmentId: "env_1", name: "GitHub Actions" }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().token).toMatchObject({
+      id: "smtok_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "GitHub Actions",
+      prefix: "shsmap_test",
+      secret: "shsmap_test_secret"
+    });
+    expect(response.json().token.hash).toBeUndefined();
+    expect(hashApiKeySecret).toHaveBeenCalledWith("shsmap_test_secret");
+    expect(createToken).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "GitHub Actions",
+      prefix: "shsmap_test",
+      hash: "hash"
+    });
+  });
+
+  it("lists source map upload tokens without secrets or hashes", async () => {
+    const listTokens = vi.fn().mockResolvedValue([
+      {
+        id: "smtok_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "GitHub Actions",
+        prefix: "shsmap_test",
+        hash: "hash",
+        createdAt: new Date("2026-05-11T12:00:00.000Z"),
+        lastUsedAt: null,
+        revokedAt: null
+      }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMapUploadTokens: {
+        list: listTokens,
+        create: vi.fn(),
+        revoke: vi.fn()
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/source-map-upload-tokens?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().tokens).toHaveLength(1);
+    expect(response.json().tokens[0]).toMatchObject({
+      id: "smtok_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "GitHub Actions",
+      prefix: "shsmap_test"
+    });
+    expect(response.json().tokens[0].secret).toBeUndefined();
+    expect(response.json().tokens[0].hash).toBeUndefined();
+    expect(listTokens).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("revokes source map upload tokens for admins", async () => {
+    const revoke = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMapUploadTokens: {
+        list: vi.fn(),
+        create: vi.fn(),
+        revoke
+      }
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/admin/source-map-upload-tokens/smtok_1?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(revoke).toHaveBeenCalledWith({ id: "smtok_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects source map upload tokens requests for non-admin users", async () => {
+    const createToken = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      sourceMapUploadTokens: {
+        list: vi.fn(),
+        create: createToken,
+        revoke: vi.fn()
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-map-upload-tokens",
+      payload: { projectId: "prj_1", environmentId: "env_1", name: "GitHub Actions" }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "admin_required" });
+    expect(createToken).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for invalid source map upload tokens request shape", async () => {
+    const createToken = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMapUploadTokens: {
+        list: vi.fn(),
+        create: createToken,
+        revoke: vi.fn()
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-map-upload-tokens",
+      payload: { projectId: "prj_1", environmentId: "", name: "" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_source_map_upload_token_request" });
+    expect(createToken).not.toHaveBeenCalled();
+  });
+
+  it("returns 501 when the source map upload tokens repository is unavailable", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/source-map-upload-tokens?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "source_map_upload_tokens_repository_unavailable" });
+  });
+
+  it("returns 501 when source map upload token hashing is unavailable", async () => {
+    const createToken = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMapUploadTokens: {
+        list: vi.fn(),
+        create: createToken,
+        revoke: vi.fn()
+      },
+      createSourceMapUploadToken: () => ({ secret: "shsmap_test_secret", prefix: "shsmap_test" })
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-map-upload-tokens",
+      payload: { projectId: "prj_1", environmentId: "env_1", name: "GitHub Actions" }
+    });
+
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "source_map_upload_token_hashing_unavailable" });
+    expect(createToken).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when source map upload tokens creation targets an inactive scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      hashApiKeySecret: async () => "hash",
+      sourceMapUploadTokens: {
+        list: vi.fn(),
+        create: async () => {
+          throw new Error("active_source_map_upload_token_scope_not_found");
+        },
+        revoke: vi.fn()
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-map-upload-tokens",
+      payload: { projectId: "prj_archived", environmentId: "env_archived", name: "GitHub Actions" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "source_map_upload_token_scope_not_found" });
   });
 
   it("lists source map artifacts for admins", async () => {
@@ -697,6 +928,86 @@ describe("admin routes", () => {
       await Promise.all(
         createdArtifactInputs.map((input) => expect(access(input.storagePath)).rejects.toThrow())
       );
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes token attribution to source map artifact creation", async () => {
+    vi.resetModules();
+
+    const createdArtifactInputs: Array<Record<string, unknown>> = [];
+    const createSourceMapArtifact = vi.fn(async (_db, input: Record<string, unknown>) => {
+      createdArtifactInputs.push(input);
+      return sourceMapArtifact({
+        storagePath: input.storagePath,
+        uploadedByUserId: input.uploadedByUserId ?? null,
+        uploadedByTokenId: input.uploadedByTokenId ?? null
+      });
+    });
+
+    vi.doMock("@signal-hub/db/repositories/source-maps.js", () => ({
+      createSourceMapArtifact,
+      deleteSourceMapArtifact: vi.fn(),
+      getSourceMapArtifact: vi.fn()
+    }));
+
+    const { uploadSingleSourceMap, uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
+    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const db = {
+      transaction: () => ({
+        execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
+      })
+    };
+    const singleMap = Buffer.from(
+      JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" })
+    );
+    const bundledMap = Buffer.from(
+      JSON.stringify({ version: 3, file: "bundle.min.js", sources: [], names: [], mappings: "" })
+    );
+
+    try {
+      await uploadSingleSourceMap({
+        db: db as never,
+        localDir,
+        input: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "2026.05.10",
+          minifiedFile: "app.min.js",
+          uploadedByTokenId: "smtok_1",
+          originalFilename: "app.min.js.map",
+          contentType: "application/json",
+          content: singleMap
+        }
+      });
+
+      await uploadSourceMapBundle({
+        db: db as never,
+        localDir,
+        input: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "2026.05.10",
+          uploadedByTokenId: "smtok_1",
+          originalFilename: "source-maps.zip",
+          contentType: "application/zip",
+          content: Buffer.from(zipSync({ "bundle.min.js.map": bundledMap }))
+        }
+      });
+
+      expect(createSourceMapArtifact).toHaveBeenCalledTimes(2);
+      expect(createdArtifactInputs).toHaveLength(2);
+      expect(createdArtifactInputs[0]).toMatchObject({
+        minifiedFile: "app.min.js",
+        uploadedByTokenId: "smtok_1"
+      });
+      expect(createdArtifactInputs[0]).not.toHaveProperty("uploadedByUserId");
+      expect(createdArtifactInputs[1]).toMatchObject({
+        minifiedFile: "bundle.min.js",
+        uploadedByTokenId: "smtok_1"
+      });
+      expect(createdArtifactInputs[1]).not.toHaveProperty("uploadedByUserId");
     } finally {
       await rm(localDir, { recursive: true, force: true });
     }

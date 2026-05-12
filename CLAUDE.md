@@ -2,7 +2,7 @@
 
 SignalHub is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. Keep project-facing documentation in English.
 
-- Current phase: Phase 5C Session Timeline and Breadcrumbs.
+- Current phase: Phase 5D Source Map CI Uploads.
 
 ## Canonical Docs
 
@@ -18,13 +18,14 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 
 ## Project Conventions
 
-- The core runtime is a pnpm TypeScript workspace with `apps/api`, `apps/worker`, `@signal-hub/sdk`, and shared packages under `packages/*`.
+- The core runtime is a pnpm TypeScript workspace with `apps/api`, `apps/worker`, `@signal-hub/sdk`, `@signal-hub/cli`, and shared packages under `packages/*`.
 - Use Postgres as the source of truth for Phase 1 operational and typed telemetry data.
 - Use Redis/BullMQ for ingestion queue handoff between API acceptance and worker persistence.
 - Keep ingestion contracts scoped by project and environment API keys.
 - Keep the admin console in `apps/console` and serve its production build from the API at `/console`.
 - Keep Overview and investigation console views read-only unless a design explicitly introduces a mutation workflow.
 - Keep source-map artifact storage local-first for the current release line. Resolution must use strict project, environment, release, and minified-file matching, and the console must not display original source content.
+- Keep source-map upload tokens separate from browser ingestion API keys. They are CI-only secrets created from the Artifacts console and used by `pnpm source-maps:upload`.
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
 
 ## Verification
