@@ -10,7 +10,8 @@ const migrations = [
   { name: "0004_backup_runs.sql", url: new URL("../migrations/0004_backup_runs.sql", import.meta.url) },
   { name: "0005_error_groups.sql", url: new URL("../migrations/0005_error_groups.sql", import.meta.url) },
   { name: "0006_source_maps.sql", url: new URL("../migrations/0006_source_maps.sql", import.meta.url) },
-  { name: "0007_breadcrumbs.sql", url: new URL("../migrations/0007_breadcrumbs.sql", import.meta.url) }
+  { name: "0007_breadcrumbs.sql", url: new URL("../migrations/0007_breadcrumbs.sql", import.meta.url) },
+  { name: "0008_source_map_upload_tokens.sql", url: new URL("../migrations/0008_source_map_upload_tokens.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

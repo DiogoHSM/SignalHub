@@ -237,6 +237,63 @@ describe("repositories", () => {
     });
   });
 
+  it("runs source map upload token migrations", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select id, prefix, hash, last_used_at, revoked_at from source_map_upload_tokens limit 0`.execute(db);
+      await sql`select uploaded_by_user_id, uploaded_by_token_id from source_map_artifacts limit 0`.execute(db);
+    });
+  });
+
+  it("enforces source map upload token scope and artifact attribution constraints", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_scope_a', 'Scope A'), ('prj_scope_b', 'Scope B')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_scope_a', 'prj_scope_a', 'Production'), ('env_scope_b', 'prj_scope_b', 'Production')
+      `.execute(db);
+      await sql`
+        insert into users (id, email, password_hash, is_admin)
+        values ('usr_source_map_constraints', 'source-map-constraints@example.com', 'hash', true)
+      `.execute(db);
+
+      await expect(sql`
+        insert into source_map_upload_tokens (id, project_id, environment_id, name, prefix, hash)
+        values ('smut_bad_scope', 'prj_scope_a', 'env_scope_b', 'CI', 'shsmap_bad_scope', 'hash_bad_scope')
+      `.execute(db)).rejects.toThrow();
+
+      await sql`
+        insert into source_map_upload_tokens (id, project_id, environment_id, name, prefix, hash)
+        values ('smut_constraints', 'prj_scope_a', 'env_scope_a', 'CI', 'shsmap_constraints', 'hash_constraints')
+      `.execute(db);
+
+      await expect(sql`
+        insert into source_map_artifacts (
+          id, project_id, environment_id, release, minified_file, original_filename, content_type,
+          byte_size, sha256, storage_path, uploaded_by_user_id, uploaded_by_token_id
+        )
+        values (
+          'smap_missing_uploader', 'prj_scope_a', 'env_scope_a', 'web@1.0.0', 'missing.js',
+          'missing.js.map', 'application/json', 42, 'sha_missing', '/tmp/missing.js.map', null, null
+        )
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into source_map_artifacts (
+          id, project_id, environment_id, release, minified_file, original_filename, content_type,
+          byte_size, sha256, storage_path, uploaded_by_user_id, uploaded_by_token_id
+        )
+        values (
+          'smap_both_uploaders', 'prj_scope_a', 'env_scope_a', 'web@1.0.0', 'both.js',
+          'both.js.map', 'application/json', 42, 'sha_both', '/tmp/both.js.map',
+          'usr_source_map_constraints', 'smut_constraints'
+        )
+      `.execute(db)).rejects.toThrow();
+    });
+  });
+
   it("prevents breadcrumbs from referencing an environment in another project", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -378,6 +435,33 @@ describe("repositories", () => {
       });
 
       expect(await listSourceMapArtifacts(db, { projectId: "prj_1", environmentId: "env_1" })).toEqual([]);
+    });
+  });
+
+  it("persists source map artifacts uploaded by tokens", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      await sql`
+        insert into source_map_upload_tokens (id, project_id, environment_id, name, prefix, hash)
+        values ('smut_attr', 'prj_1', 'env_1', 'CI', 'shsmap_attr', 'hash_attr')
+      `.execute(db);
+
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.2.3",
+        minifiedFile: "assets/app.js",
+        originalFilename: "app.js.map",
+        contentType: "application/json",
+        byteSize: 42,
+        sha256: "a".repeat(64),
+        storagePath: "/tmp/source-maps/app.js.map",
+        uploadedByTokenId: "smut_attr"
+      });
+
+      expect(artifact.uploadedByUserId).toBeNull();
+      expect(artifact.uploadedByTokenId).toBe("smut_attr");
     });
   });
 
