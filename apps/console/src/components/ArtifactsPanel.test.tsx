@@ -58,6 +58,9 @@ function client(overrides: Partial<ApiClient & SourceMapApiClient> = {}): ApiCli
     uploadSourceMap: vi.fn().mockResolvedValue([]),
     uploadSourceMapBundle: vi.fn().mockResolvedValue([]),
     deleteSourceMapArtifact: vi.fn().mockResolvedValue(undefined),
+    listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [] }),
+    createSourceMapUploadToken: vi.fn(),
+    revokeSourceMapUploadToken: vi.fn().mockResolvedValue(undefined),
     getErrorSourceMapResolution: vi.fn(),
     ...overrides
   };

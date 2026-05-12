@@ -15,7 +15,10 @@ function hasSourceMapClient(client: ApiClient): client is SourceMapClient {
     typeof client.listSourceMapArtifacts === "function" &&
     typeof client.uploadSourceMap === "function" &&
     typeof client.uploadSourceMapBundle === "function" &&
-    typeof client.deleteSourceMapArtifact === "function"
+    typeof client.deleteSourceMapArtifact === "function" &&
+    typeof client.listSourceMapUploadTokens === "function" &&
+    typeof client.createSourceMapUploadToken === "function" &&
+    typeof client.revokeSourceMapUploadToken === "function"
   );
 }
 

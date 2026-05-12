@@ -8,6 +8,7 @@ import type {
   ConsoleConfig,
   CreateAlertRuleInput,
   CreatedApiKey,
+  CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
   Environment,
   ErrorGroupQuery,
@@ -27,6 +28,7 @@ import type {
   SourceMapArtifact,
   SourceMapArtifactQuery,
   SourceMapResolution,
+  SourceMapUploadToken,
   SpanRecord,
   SystemHealthResponse,
   TenantDetailQuery,
@@ -94,6 +96,18 @@ export type SourceMapApiClient = {
   uploadSourceMap: (input: SourceMapUploadInput) => Promise<SourceMapArtifact[]>;
   uploadSourceMapBundle: (input: SourceMapBundleUploadInput) => Promise<SourceMapArtifact[]>;
   deleteSourceMapArtifact: (id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">) => Promise<void>;
+  listSourceMapUploadTokens: (
+    query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">
+  ) => Promise<{ tokens: SourceMapUploadToken[] }>;
+  createSourceMapUploadToken: (input: {
+    projectId: string;
+    environmentId: string;
+    name: string;
+  }) => Promise<{ token: CreatedSourceMapUploadToken }>;
+  revokeSourceMapUploadToken: (
+    id: string,
+    query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">
+  ) => Promise<void>;
   getErrorSourceMapResolution: (
     id: string,
     query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">
@@ -318,6 +332,14 @@ function sourceMapArtifactPath(id: string, query: Pick<SourceMapArtifactQuery, "
   return `/admin/source-maps/${encodePathSegment(id)}?${sourceMapScopeParams(query).toString()}`;
 }
 
+function sourceMapUploadTokensPath(query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): string {
+  return `/admin/source-map-upload-tokens?${sourceMapScopeParams(query).toString()}`;
+}
+
+function sourceMapUploadTokenPath(id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): string {
+  return `/admin/source-map-upload-tokens/${encodePathSegment(id)}?${sourceMapScopeParams(query).toString()}`;
+}
+
 function errorSourceMapResolutionPath(id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): string {
   return `/query/errors/${encodePathSegment(id)}/source-map-resolution?${sourceMapScopeParams(query).toString()}`;
 }
@@ -505,6 +527,15 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & S
     },
     deleteSourceMapArtifact: (id, query) =>
       request<void>(path(apiBasePath, sourceMapArtifactPath(id, query)), { method: "DELETE" }),
+    listSourceMapUploadTokens: (query) =>
+      request<{ tokens: SourceMapUploadToken[] }>(path(apiBasePath, sourceMapUploadTokensPath(query))),
+    createSourceMapUploadToken: (input) =>
+      request<{ token: CreatedSourceMapUploadToken }>(path(apiBasePath, "/admin/source-map-upload-tokens"), {
+        method: "POST",
+        body: input
+      }),
+    revokeSourceMapUploadToken: (id, query) =>
+      request<void>(path(apiBasePath, sourceMapUploadTokenPath(id, query)), { method: "DELETE" }),
     getErrorSourceMapResolution: async (id, query) => {
       const response = await request<AggregateResponse<SourceMapResolution>>(
         path(apiBasePath, errorSourceMapResolutionPath(id, query))

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, createApiClient } from "./client";
-import type { NotificationChannelResponse, OverviewQuery } from "./types";
+import type { CreatedSourceMapUploadToken, NotificationChannelResponse, OverviewQuery, SourceMapUploadToken } from "./types";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -952,6 +952,97 @@ describe("createApiClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/admin/source-maps/art%2F1?project_id=prj%2F1&environment_id=env+1",
       expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("lists source map upload tokens", async () => {
+    const token = {
+      id: "smtok_1",
+      projectId: "prj/1",
+      environmentId: "env 1",
+      name: "GitHub Actions",
+      prefix: "shsmap_test",
+      createdAt: "2026-05-11T12:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null
+    } satisfies SourceMapUploadToken;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { tokens: [token] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").listSourceMapUploadTokens({
+        projectId: "prj/1",
+        environmentId: "env 1"
+      })
+    ).resolves.toEqual({ tokens: [token] });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/source-map-upload-tokens?project_id=prj%2F1&environment_id=env+1", {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: undefined
+    });
+  });
+
+  it("creates source map upload tokens", async () => {
+    const token = {
+      id: "smtok_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "GitHub Actions",
+      prefix: "shsmap_test",
+      secret: "shsmap_secret",
+      createdAt: "2026-05-11T12:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null
+    } satisfies CreatedSourceMapUploadToken;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { token }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").createSourceMapUploadToken({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "GitHub Actions"
+      })
+    ).resolves.toEqual({ token });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/source-map-upload-tokens", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ projectId: "prj_1", environmentId: "env_1", name: "GitHub Actions" })
+    });
+  });
+
+  it("revokes source map upload tokens", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(emptyResponse(204));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").revokeSourceMapUploadToken("smtok/1", {
+        projectId: "prj/1",
+        environmentId: "env 1"
+      })
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/source-map-upload-tokens/smtok%2F1?project_id=prj%2F1&environment_id=env+1",
+      {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        body: undefined
+      }
     );
   });
 });
