@@ -15,6 +15,7 @@
     "lint": "pnpm -r lint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "source-maps:upload": "tsx packages/cli/src/index.ts sourcemaps upload",
     "db:migrate": "tsx scripts/migrate.ts",
     "backup:create": "tsx scripts/backup-create.ts",
     "backup:restore": "tsx scripts/backup-restore.ts",
