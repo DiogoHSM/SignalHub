@@ -577,7 +577,7 @@ const SOURCE_MAP_PAYLOAD_TOO_LARGE_ERRORS = new Set([
   "source_map_zip_too_many_entries"
 ]);
 
-function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
+export function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
   if (!error || typeof error !== "object" || !("message" in error) || typeof error.message !== "string") {
     return undefined;
   }
@@ -622,7 +622,7 @@ function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
   return undefined;
 }
 
-async function parseSourceMapUploadRequest(
+export async function parseSourceMapUploadRequest(
   request: FastifyRequest,
   attribution: SourceMapUploadAttribution
 ): Promise<SourceMapUploadInput | SourceMapBundleUploadInput | undefined> {

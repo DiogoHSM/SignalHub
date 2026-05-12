@@ -53,8 +53,10 @@ import {
 } from "@signal-hub/db/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
+  findSourceMapUploadTokenByPrefix,
   listSourceMapUploadTokens,
-  revokeSourceMapUploadToken
+  revokeSourceMapUploadToken,
+  updateSourceMapUploadTokenLastUsed
 } from "@signal-hub/db/repositories/source-map-upload-tokens.js";
 import {
   getErrorAggregates,
@@ -483,6 +485,38 @@ const app = await buildApp({
         input
       }),
     maxUploadBytes: config.sourceMaps.maxUploadMb * 1024 * 1024
+  },
+  sourceMapUploads: {
+    verifyToken: async (secret) => {
+      const token = await findSourceMapUploadTokenByPrefix(db, secret.slice(0, 16));
+      if (!token) {
+        return null;
+      }
+
+      const valid = await verifyApiKey(token.hash, secret, config.apiKeyPepper);
+      if (!valid) {
+        return null;
+      }
+
+      await updateSourceMapUploadTokenLastUsed(db, token.id);
+      return {
+        id: token.id,
+        projectId: token.projectId,
+        environmentId: token.environmentId
+      };
+    },
+    uploadMap: (input) =>
+      uploadSingleSourceMap({
+        db,
+        localDir: config.sourceMaps.localDir,
+        input
+      }),
+    uploadBundle: (input) =>
+      uploadSourceMapBundle({
+        db,
+        localDir: config.sourceMaps.localDir,
+        input
+      })
   },
   sourceMapUploadTokens: {
     list: (scope) => listSourceMapUploadTokens(db, scope),
