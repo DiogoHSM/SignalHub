@@ -9,6 +9,7 @@ import {
   registerAdminRoutes,
   type AlertAdministrationDependencies,
   type AdminResourceDependencies,
+  type SourceMapUploadTokenAdministrationDependencies,
   type SourceMapAdministrationDependencies,
   type UserAdministrationDependencies
 } from "./routes/admin.js";
@@ -26,6 +27,8 @@ export type BuildAppOptions = {
   adminResources?: AdminResourceDependencies;
   alerts?: AlertRouteDependencies & AlertAdministrationDependencies;
   sourceMaps?: SourceMapAdministrationDependencies & { maxUploadBytes?: number };
+  sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
+  createSourceMapUploadToken?: () => { secret: string; prefix: string };
   ingestion?: IngestionDependencies;
   query?: QueryDependencies;
   system?: SystemHealthDependencies;
@@ -74,6 +77,8 @@ export async function buildApp(options: BuildAppOptions) {
     adminResources: options.adminResources,
     alerts: options.alerts,
     sourceMaps: options.sourceMaps,
+    sourceMapUploadTokens: options.sourceMapUploadTokens,
+    createSourceMapUploadToken: options.createSourceMapUploadToken,
     apiKeyPepper: options.apiKeyPepper,
     hashApiKeySecret: options.hashApiKeySecret,
     nodeEnv: options.nodeEnv
