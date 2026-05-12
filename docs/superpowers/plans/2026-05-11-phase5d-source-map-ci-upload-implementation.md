@@ -639,7 +639,7 @@ git commit -m "feat: attribute source maps to upload tokens"
 - Modify: `apps/api/src/main.ts`
 - Test: `apps/api/test/admin.test.ts`
 
-- [ ] **Step 1: Write failing admin API tests**
+- [x] **Step 1: Write failing admin API tests**
 
 Add to `apps/api/test/admin.test.ts`:
 
@@ -740,7 +740,7 @@ it("revokes source map upload tokens for admins", async () => {
 
 Adjust the local test harness names (`buildTestApp`, `adminCookie`) to match existing `apps/api/test/admin.test.ts` helpers.
 
-- [ ] **Step 2: Run admin API tests to verify failure**
+- [x] **Step 2: Run admin API tests to verify failure**
 
 Run:
 
@@ -750,7 +750,7 @@ pnpm exec vitest run apps/api/test/admin.test.ts -t "source map upload tokens"
 
 Expected: fails because admin routes and dependencies do not exist.
 
-- [ ] **Step 3: Add admin dependency types and redaction**
+- [x] **Step 3: Add admin dependency types and redaction**
 
 Modify `apps/api/src/routes/admin.ts`:
 
@@ -811,7 +811,7 @@ function redactSourceMapUploadToken(token: SourceMapUploadTokenResponse): Omit<S
 }
 ```
 
-- [ ] **Step 4: Add admin routes**
+- [x] **Step 4: Add admin routes**
 
 In `registerAdminRoutes`, before `/admin/source-maps` routes, add:
 
@@ -903,7 +903,7 @@ app.delete("/admin/source-map-upload-tokens/:id", async (request, reply) => {
 });
 ```
 
-- [ ] **Step 5: Wire app and main dependencies**
+- [x] **Step 5: Wire app and main dependencies**
 
 Modify `apps/api/src/app.ts` `BuildAppOptions`:
 
@@ -932,7 +932,7 @@ sourceMapUploadTokens: {
 }
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -943,7 +943,7 @@ pnpm --filter @signal-hub/api build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api/src/routes/admin.ts apps/api/src/app.ts apps/api/src/main.ts apps/api/test/admin.test.ts
