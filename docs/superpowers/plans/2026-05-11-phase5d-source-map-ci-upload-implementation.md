@@ -2261,7 +2261,7 @@ Preserve unrelated untracked memory directories.
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-11-phase5d-source-map-ci-upload-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 ```bash
 pnpm test
@@ -2269,7 +2269,7 @@ pnpm test
 
 Expected: all test files pass with no unhandled errors.
 
-- [ ] **Step 2: Run full build**
+- [x] **Step 2: Run full build**
 
 ```bash
 pnpm build
@@ -2277,7 +2277,7 @@ pnpm build
 
 Expected: all workspace builds pass, including `@signal-hub/cli`.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 ```bash
 docker compose config --quiet
@@ -2285,7 +2285,7 @@ docker compose config --quiet
 
 Expected: exit code 0.
 
-- [ ] **Step 4: Run doctor**
+- [x] **Step 4: Run doctor**
 
 If `.env` exists:
 
@@ -2302,11 +2302,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code 0. Source-map directory warnings are acceptable if no local directory exists in the worktree.
 
-- [ ] **Step 5: Mark plan complete**
+- [x] **Step 5: Mark plan complete**
 
 Update this plan file so completed verification and integration checkboxes are checked.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-11-phase5d-source-map-ci-upload-implementation.md
