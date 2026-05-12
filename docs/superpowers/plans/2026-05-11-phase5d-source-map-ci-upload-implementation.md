@@ -1684,7 +1684,7 @@ git commit -m "feat: add source map upload cli"
 - Modify: `apps/console/src/api/client.ts`
 - Modify: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Write failing client tests**
+- [x] **Step 1: Write failing client tests**
 
 Add to `apps/console/src/api/client.test.ts`:
 
@@ -1754,7 +1754,7 @@ it("revokes source map upload tokens", async () => {
 
 Use existing `mockFetch` helper shape in this test file.
 
-- [ ] **Step 2: Run client tests to verify failure**
+- [x] **Step 2: Run client tests to verify failure**
 
 Run:
 
@@ -1764,7 +1764,7 @@ pnpm exec vitest run apps/console/src/api/client.test.ts -t "source map upload t
 
 Expected: fails because client methods/types do not exist.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 Modify `apps/console/src/api/types.ts`:
 
@@ -1785,7 +1785,7 @@ export type CreatedSourceMapUploadToken = SourceMapUploadToken & {
 };
 ```
 
-- [ ] **Step 4: Add client methods**
+- [x] **Step 4: Add client methods**
 
 Modify `apps/console/src/api/client.ts` imports and `ApiClient`:
 
@@ -1825,7 +1825,7 @@ async revokeSourceMapUploadToken(id, query) {
 }
 ```
 
-- [ ] **Step 5: Add stubs in console tests**
+- [x] **Step 5: Add stubs in console tests**
 
 Search for `createApiClient` or mock `ApiClient` objects in console tests:
 
@@ -1835,7 +1835,7 @@ rg -n "listSourceMaps|uploadSourceMap|ApiClient" apps/console/src -g '*.test.tsx
 
 Add `listSourceMapUploadTokens`, `createSourceMapUploadToken`, and `revokeSourceMapUploadToken` `vi.fn()` stubs anywhere a full `ApiClient` mock is constructed.
 
-- [ ] **Step 6: Run console client tests**
+- [x] **Step 6: Run console client tests**
 
 Run:
 
@@ -1846,7 +1846,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts apps/console/src/**/*.test.tsx
