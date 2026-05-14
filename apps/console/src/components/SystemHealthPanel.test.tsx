@@ -159,9 +159,25 @@ describe("SystemHealthPanel", () => {
     expect(within(retentionCard as HTMLElement).getByText("events 90d")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText("breadcrumbs 30d")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText("source maps 180d")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("source maps enabled")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("source maps batch 100")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText("success")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText(/breadcrumbs 4/)).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText(/source maps 2 artifacts, 2 files/i)).toBeInTheDocument();
+  });
+
+  it("renders disabled source-map retention policy clearly", async () => {
+    const health = healthyResponse();
+    health.retention.policy.sourceMapsEnabled = false;
+    const api = client(vi.fn().mockResolvedValue({ data: health }));
+
+    render(<SystemHealthPanel client={api} />);
+
+    const retentionCard = (await screen.findByRole("heading", { name: "Retention" })).closest("article");
+    expect(retentionCard).not.toBeNull();
+    expect(within(retentionCard as HTMLElement).getByText("source maps disabled")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("source maps 180d")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("source maps batch 100")).toBeInTheDocument();
   });
 
   it("renders backup status without local paths or credentials", async () => {

@@ -231,6 +231,8 @@ export function SystemHealthPanel({ client }: Props) {
                     {retentionPolicyLabels.map(([key, label]) => (
                       <span key={key}>{`${label} ${health.retention.policy[key]}d`}</span>
                     ))}
+                    <span>{`source maps ${health.retention.policy.sourceMapsEnabled ? "enabled" : "disabled"}`}</span>
+                    <span>{`source maps batch ${health.retention.policy.sourceMapsBatchSize}`}</span>
                   </dd>
                 </div>
                 {health.retention.lastRun ? (
@@ -252,12 +254,16 @@ export function SystemHealthPanel({ client }: Props) {
                     <div>
                       <dt>Deleted</dt>
                       <dd>
-                        events {health.retention.lastRun.deleted.events}, errors {health.retention.lastRun.deleted.errors}, traces{" "}
-                        {health.retention.lastRun.deleted.traces}, spans {health.retention.lastRun.deleted.spans}, LLM calls{" "}
-                        {health.retention.lastRun.deleted.llmCalls}, breadcrumbs{" "}
-                        {health.retention.lastRun.deleted.breadcrumbs}, source maps{" "}
-                        {health.retention.lastRun.deleted.sourceMapArtifacts} artifacts,{" "}
-                        {health.retention.lastRun.deleted.sourceMapFiles} files
+                        <span>events {health.retention.lastRun.deleted.events}</span>
+                        <span>errors {health.retention.lastRun.deleted.errors}</span>
+                        <span>traces {health.retention.lastRun.deleted.traces}</span>
+                        <span>spans {health.retention.lastRun.deleted.spans}</span>
+                        <span>LLM calls {health.retention.lastRun.deleted.llmCalls}</span>
+                        <span>breadcrumbs {health.retention.lastRun.deleted.breadcrumbs}</span>
+                        <span>
+                          source maps {health.retention.lastRun.deleted.sourceMapArtifacts} artifacts,{" "}
+                          {health.retention.lastRun.deleted.sourceMapFiles} files
+                        </span>
                       </dd>
                     </div>
                     {health.retention.lastRun.errorMessage ? (
