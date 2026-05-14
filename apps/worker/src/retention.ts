@@ -15,7 +15,9 @@ const zeroDeleted: RetentionDeletedCounts = {
 export type RetentionRuntime = {
   now: () => Date;
   policy: RetentionPolicy;
-  withLock: <T>(run: (lockedRuntime: RetentionLockedRuntime) => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
+  withLock: <T>(
+    run: (lockedRuntime: RetentionLockedRuntime) => Promise<T>
+  ) => Promise<{ locked: false } | { locked: true; result: T }>;
   recordRetentionRun: (input: {
     startedAt: Date;
     finishedAt: Date | null;
@@ -28,13 +30,23 @@ export type RetentionRuntime = {
 
 export type RetentionLockedRuntime = {
   deleteExpiredTelemetry: () => Promise<RetentionDeletedCounts>;
+  deleteExpiredSourceMapArtifacts: () => Promise<
+    Pick<RetentionDeletedCounts, "sourceMapArtifacts" | "sourceMapFiles">
+  >;
 };
 
 export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran: boolean; skipped: boolean }> {
   const startedAt = runtime.now();
   let result: { locked: false } | { locked: true; result: RetentionDeletedCounts };
   try {
-    result = await runtime.withLock((lockedRuntime) => lockedRuntime.deleteExpiredTelemetry());
+    result = await runtime.withLock(async (lockedRuntime) => {
+      const telemetryDeleted = await lockedRuntime.deleteExpiredTelemetry();
+      if (!runtime.policy.sourceMapsEnabled) {
+        return telemetryDeleted;
+      }
+      const sourceMapsDeleted = await lockedRuntime.deleteExpiredSourceMapArtifacts();
+      return { ...telemetryDeleted, ...sourceMapsDeleted };
+    });
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("retention_delete_failed:")) {
       throw error;
