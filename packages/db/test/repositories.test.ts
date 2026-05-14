@@ -750,6 +750,11 @@ describe("repositories", () => {
         "smap_old_1",
         "smap_old_2"
       ]);
+
+      await sql`
+        delete from source_map_artifacts
+        where id in ('smap_older', 'smap_old_1', 'smap_old_2', 'smap_old_deleted', 'smap_fresh')
+      `.execute(db);
     });
   });
 
