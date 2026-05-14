@@ -240,6 +240,11 @@ export interface RetentionRunsTable {
   deleted_spans: DefaultedInteger;
   deleted_llm_calls: DefaultedInteger;
   deleted_breadcrumbs: DefaultedInteger;
+  source_maps_enabled: DefaultedBoolean;
+  source_maps_days: DefaultedInteger;
+  source_maps_batch_size: DefaultedInteger;
+  deleted_source_map_artifacts: DefaultedInteger;
+  deleted_source_map_files: DefaultedInteger;
   events_days: number;
   errors_days: number;
   traces_days: number;

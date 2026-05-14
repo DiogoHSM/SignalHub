@@ -242,7 +242,12 @@ describe("loadConfig", () => {
 
     expect(config.sourceMaps).toEqual({
       localDir: "/var/lib/signalhub/source-maps",
-      maxUploadMb: 50
+      maxUploadMb: 50,
+      retention: {
+        enabled: true,
+        days: 180,
+        batchSize: 100
+      }
     });
   });
 
@@ -255,9 +260,46 @@ describe("loadConfig", () => {
 
     expect(config.sourceMaps).toEqual({
       localDir: "/tmp/signalhub-source-maps",
-      maxUploadMb: 12
+      maxUploadMb: 12,
+      retention: {
+        enabled: true,
+        days: 180,
+        batchSize: 100
+      }
     });
   });
+
+  it("loads source-map retention defaults", () => {
+    const config = loadConfig(baseEnv());
+
+    expect(config.sourceMaps.retention).toEqual({
+      enabled: true,
+      days: 180,
+      batchSize: 100
+    });
+  });
+
+  it("loads explicit source-map retention settings", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      SOURCE_MAPS_RETENTION_ENABLED: "false",
+      SOURCE_MAPS_RETENTION_DAYS: "45",
+      SOURCE_MAPS_RETENTION_BATCH_SIZE: "25"
+    });
+
+    expect(config.sourceMaps.retention).toEqual({
+      enabled: false,
+      days: 45,
+      batchSize: 25
+    });
+  });
+
+  it.each(["SOURCE_MAPS_RETENTION_DAYS", "SOURCE_MAPS_RETENTION_BATCH_SIZE"] as const)(
+    "rejects non-positive %s",
+    (fieldName) => {
+      expect(() => loadConfig({ ...baseEnv(), [fieldName]: "0" })).toThrow();
+    }
+  );
 
   it("requires S3 settings when backup S3 upload is enabled", () => {
     expect(() =>

@@ -253,6 +253,23 @@ describe("repositories", () => {
     });
   });
 
+  it("has source-map retention columns on retention_runs", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`
+        select
+          source_maps_enabled,
+          source_maps_days,
+          source_maps_batch_size,
+          deleted_source_map_artifacts,
+          deleted_source_map_files
+        from retention_runs
+        limit 0
+      `.execute(db);
+    });
+  });
+
   it("enforces source map upload token scope and artifact attribution constraints", async () => {
     await withDb(async (db) => {
       await migrate(db);

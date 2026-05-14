@@ -104,7 +104,13 @@ const rawConfigSchema = z.object({
     emptyStringToUndefined,
     z.string().min(1).default("/var/lib/signalhub/source-maps")
   ),
-  SOURCE_MAPS_MAX_UPLOAD_MB: optionalPositiveInteger(50)
+  SOURCE_MAPS_MAX_UPLOAD_MB: optionalPositiveInteger(50),
+  SOURCE_MAPS_RETENTION_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  SOURCE_MAPS_RETENTION_DAYS: optionalPositiveInteger(180),
+  SOURCE_MAPS_RETENTION_BATCH_SIZE: optionalPositiveInteger(100)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -197,7 +203,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     sourceMaps: {
       localDir: parsed.SOURCE_MAPS_LOCAL_DIR,
-      maxUploadMb: parsed.SOURCE_MAPS_MAX_UPLOAD_MB
+      maxUploadMb: parsed.SOURCE_MAPS_MAX_UPLOAD_MB,
+      retention: {
+        enabled: parsed.SOURCE_MAPS_RETENTION_ENABLED,
+        days: parsed.SOURCE_MAPS_RETENTION_DAYS,
+        batchSize: parsed.SOURCE_MAPS_RETENTION_BATCH_SIZE
+      }
     }
   };
 }
