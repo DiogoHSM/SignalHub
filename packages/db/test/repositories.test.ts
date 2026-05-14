@@ -785,13 +785,15 @@ describe("repositories", () => {
         insert into source_map_artifacts
           (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
         values
-          ('smap_delete_1', ${project.id}, ${environment.id}, 'web@1', 'app.js', 'app.js.map', 'application/json', 1, 'sha1', '/tmp/app.map', ${user.id})
+          ('smap_delete_1', ${project.id}, ${environment.id}, 'web@1', 'app.js', 'app.js.map', 'application/json', 1, 'sha1', '/tmp/app.map', ${user.id}),
+          ('smap_delete_2', ${project.id}, ${environment.id}, 'web@1', 'vendor.js', 'vendor.js.map', 'application/json', 1, 'sha2', '/tmp/vendor.map', ${user.id})
       `.execute(db);
       await sql`
         insert into error_stack_resolutions
           (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
         values
-          ('esr_delete_1', 'err_source_map_delete', ${project.id}, ${environment.id}, 'web@1', 'smap_delete_1', 0, 'app.js', 1, 1, 'src/app.ts', 1, 1)
+          ('esr_delete_1', 'err_source_map_delete', ${project.id}, ${environment.id}, 'web@1', 'smap_delete_1', 0, 'app.js', 1, 1, 'src/app.ts', 1, 1),
+          ('esr_delete_2', 'err_source_map_delete', ${project.id}, ${environment.id}, 'web@1', 'smap_delete_2', 1, 'vendor.js', 1, 1, 'src/vendor.ts', 1, 1)
       `.execute(db);
 
       const deleted = await softDeleteSourceMapArtifactForRetention(db, "smap_delete_1");
@@ -804,7 +806,7 @@ describe("repositories", () => {
       });
       expect(remaining.find((artifact) => artifact.id === "smap_delete_1")).toBeUndefined();
 
-      await sql`delete from source_map_artifacts where id = 'smap_delete_1'`.execute(db);
+      await sql`delete from source_map_artifacts where id in ('smap_delete_1', 'smap_delete_2')`.execute(db);
       await sql`delete from errors where id = 'err_source_map_delete'`.execute(db);
     });
   });
@@ -897,11 +899,55 @@ describe("repositories", () => {
           }
         ]
       });
+      const otherArtifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        minifiedFile: "vendor.min.js",
+        originalFilename: "vendor.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "def456",
+        storagePath: "/tmp/vendor.min.js.map",
+        uploadedByUserId: user.id
+      });
+      await replaceErrorStackResolutions(db, {
+        errorId: "err_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        frames: [
+          {
+            sourceMapArtifactId: artifact.id,
+            frameIndex: 0,
+            minifiedFile: "app.min.js",
+            minifiedLine: 1,
+            minifiedColumn: 42,
+            originalSource: "src/app.ts",
+            originalLine: 10,
+            originalColumn: 3,
+            originalName: "checkout"
+          },
+          {
+            sourceMapArtifactId: otherArtifact.id,
+            frameIndex: 1,
+            minifiedFile: "vendor.min.js",
+            minifiedLine: 2,
+            minifiedColumn: 20,
+            originalSource: "src/vendor.ts",
+            originalLine: 5,
+            originalColumn: 7,
+            originalName: "vendor"
+          }
+        ]
+      });
 
-      expect(await getCachedErrorStackResolution(db, "err_1")).toHaveLength(1);
+      expect(await getCachedErrorStackResolution(db, "err_1")).toHaveLength(2);
       await deleteSourceMapArtifact(db, { id: artifact.id, projectId: "prj_1", environmentId: "env_1" });
       expect(await getCachedErrorStackResolution(db, "err_1")).toEqual([]);
+      await deleteSourceMapArtifact(db, { id: otherArtifact.id, projectId: "prj_1", environmentId: "env_1" });
 
+      await db.deleteFrom("source_map_artifacts").where("id", "in", [artifact.id, otherArtifact.id]).execute();
       await sql`delete from errors where id = 'err_1'`.execute(db);
     });
   });

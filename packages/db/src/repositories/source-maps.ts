@@ -220,6 +220,18 @@ export async function createSourceMapArtifact(
   return toSourceMapArtifact(row);
 }
 
+async function deleteCachedErrorStackResolutionsForArtifact(db: SourceMapDb, sourceMapArtifactId: string): Promise<void> {
+  const rows = await db
+    .selectFrom("error_stack_resolutions")
+    .select("error_id")
+    .where("source_map_artifact_id", "=", sourceMapArtifactId)
+    .execute();
+  const errorIds = [...new Set(rows.map((row) => row.error_id))];
+  if (errorIds.length === 0) return;
+
+  await db.deleteFrom("error_stack_resolutions").where("error_id", "in", errorIds).execute();
+}
+
 export async function deleteSourceMapArtifact(
   db: Db,
   input: { id: string; projectId: string; environmentId: string }
@@ -237,10 +249,7 @@ export async function deleteSourceMapArtifact(
 
     if (!deleted) return null;
 
-    await trx
-      .deleteFrom("error_stack_resolutions")
-      .where("source_map_artifact_id", "=", deleted.id)
-      .execute();
+    await deleteCachedErrorStackResolutionsForArtifact(trx, deleted.id);
 
     return toSourceMapArtifact(deleted);
   });
@@ -262,7 +271,7 @@ export async function softDeleteSourceMapArtifactForRetention(
     .returningAll()
     .executeTakeFirst();
 
-  await db.deleteFrom("error_stack_resolutions").where("source_map_artifact_id", "=", id).execute();
+  await deleteCachedErrorStackResolutionsForArtifact(db, id);
 
   return deleted ? toSourceMapArtifact(deleted) : null;
 }
