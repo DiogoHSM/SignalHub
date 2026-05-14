@@ -707,24 +707,39 @@ describe("repositories", () => {
         passwordHash: "hash",
         isAdmin: true
       });
+      const older = new Date("2025-12-31T00:00:00.000Z");
       const old = new Date("2026-01-01T00:00:00.000Z");
       const fresh = new Date("2026-05-13T00:00:00.000Z");
+      const deletedAt = new Date("2026-01-15T00:00:00.000Z");
 
       await sql`
         insert into source_map_artifacts
-          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id, created_at)
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id, created_at, deleted_at)
         values
-          ('smap_old_1', ${project.id}, ${environment.id}, 'old', 'a.js', 'a.js.map', 'application/json', 1, 'sha1', '/tmp/a.map', ${user.id}, ${old}),
-          ('smap_old_2', ${project.id}, ${environment.id}, 'old', 'b.js', 'b.js.map', 'application/json', 1, 'sha2', '/tmp/b.map', ${user.id}, ${old}),
-          ('smap_fresh', ${project.id}, ${environment.id}, 'fresh', 'c.js', 'c.js.map', 'application/json', 1, 'sha3', '/tmp/c.map', ${user.id}, ${fresh})
+          ('smap_older', ${project.id}, ${environment.id}, 'old', 'z.js', 'z.js.map', 'application/json', 1, 'sha0', '/tmp/z.map', ${user.id}, ${older}, null),
+          ('smap_old_2', ${project.id}, ${environment.id}, 'old', 'b.js', 'b.js.map', 'application/json', 1, 'sha2', '/tmp/b.map', ${user.id}, ${old}, null),
+          ('smap_old_1', ${project.id}, ${environment.id}, 'old', 'a.js', 'a.js.map', 'application/json', 1, 'sha1', '/tmp/a.map', ${user.id}, ${old}, null),
+          ('smap_old_deleted', ${project.id}, ${environment.id}, 'old', 'deleted.js', 'deleted.js.map', 'application/json', 1, 'sha_deleted', '/tmp/deleted.map', ${user.id}, ${older}, ${deletedAt}),
+          ('smap_fresh', ${project.id}, ${environment.id}, 'fresh', 'c.js', 'c.js.map', 'application/json', 1, 'sha3', '/tmp/c.map', ${user.id}, ${fresh}, null)
       `.execute(db);
 
       const expired = await listExpiredSourceMapArtifacts(db, {
         cutoff: new Date("2026-02-01T00:00:00.000Z"),
-        batchSize: 1
+        batchSize: 3
       });
 
-      expect(expired).toEqual([expect.objectContaining({ id: "smap_old_1", storagePath: "/tmp/a.map" })]);
+      expect(expired).toEqual([
+        expect.objectContaining({ id: "smap_older", storagePath: "/tmp/z.map" }),
+        expect.objectContaining({ id: "smap_old_1", storagePath: "/tmp/a.map" }),
+        expect.objectContaining({ id: "smap_old_2", storagePath: "/tmp/b.map" })
+      ]);
+
+      await expect(
+        listExpiredSourceMapArtifacts(db, {
+          cutoff: new Date("2026-02-01T00:00:00.000Z"),
+          batchSize: 2
+        })
+      ).resolves.toHaveLength(2);
     });
   });
 
@@ -2464,7 +2479,7 @@ describe("repositories", () => {
           llmCalls: 5,
           breadcrumbs: 6,
           sourceMapArtifacts: 7,
-          sourceMapFiles: 7
+          sourceMapFiles: 8
         },
         policy: {
           eventsDays: 90,
@@ -2481,7 +2496,7 @@ describe("repositories", () => {
 
       await expect(getLastRetentionRun(db)).resolves.toEqual(run);
       expect(run.deleted.sourceMapArtifacts).toBe(7);
-      expect(run.deleted.sourceMapFiles).toBe(7);
+      expect(run.deleted.sourceMapFiles).toBe(8);
       expect(run.policy.sourceMapsEnabled).toBe(true);
       expect(run.policy.sourceMapsDays).toBe(180);
       expect(run.policy.sourceMapsBatchSize).toBe(100);
