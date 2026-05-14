@@ -804,6 +804,7 @@ describe("repositories", () => {
       });
       expect(remaining.find((artifact) => artifact.id === "smap_delete_1")).toBeUndefined();
 
+      await sql`delete from source_map_artifacts where id = 'smap_delete_1'`.execute(db);
       await sql`delete from errors where id = 'err_source_map_delete'`.execute(db);
     });
   });
