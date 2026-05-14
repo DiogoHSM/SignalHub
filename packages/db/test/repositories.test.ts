@@ -809,6 +809,51 @@ describe("repositories", () => {
     });
   });
 
+  it("clears cached source-map resolutions when retention delete is retried", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Delete Retry Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-delete-retry@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+
+      await insertError(db, {
+        id: "err_source_map_delete_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-01-01T00:00:01.000Z"),
+        message: "Source map delete retry cache",
+        severity: "error",
+        release: "web@1"
+      });
+
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id, deleted_at)
+        values
+          ('smap_delete_retry_1', ${project.id}, ${environment.id}, 'web@1', 'retry.js', 'retry.js.map', 'application/json', 1, 'sha_retry', '/tmp/retry.map', ${user.id}, ${new Date("2026-01-02T00:00:00.000Z")})
+      `.execute(db);
+      await sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_delete_retry_1', 'err_source_map_delete_retry', ${project.id}, ${environment.id}, 'web@1', 'smap_delete_retry_1', 0, 'retry.js', 1, 1, 'src/retry.ts', 1, 1)
+      `.execute(db);
+
+      await expect(getCachedErrorStackResolution(db, "err_source_map_delete_retry")).resolves.toHaveLength(1);
+      await expect(softDeleteSourceMapArtifactForRetention(db, "smap_delete_retry_1")).resolves.toBeNull();
+      await expect(getCachedErrorStackResolution(db, "err_source_map_delete_retry")).resolves.toEqual([]);
+
+      await sql`delete from source_map_artifacts where id = 'smap_delete_retry_1'`.execute(db);
+      await sql`delete from errors where id = 'err_source_map_delete_retry'`.execute(db);
+    });
+  });
+
   it("stores cached stack resolutions and clears them when an artifact is deleted", async () => {
     await withDb(async (db) => {
       await migrate(db);

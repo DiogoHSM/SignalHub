@@ -7,6 +7,10 @@ type SourceMapArtifactRow = Selectable<SourceMapArtifactsTable>;
 type ErrorStackResolutionRow = Selectable<ErrorStackResolutionsTable>;
 type SourceMapDb = Db | Transaction<Database>;
 
+function isTransaction(db: SourceMapDb): db is Transaction<Database> {
+  return db.isTransaction;
+}
+
 export type SourceMapArtifactRecord = {
   id: string;
   projectId: string;
@@ -246,6 +250,10 @@ export async function softDeleteSourceMapArtifactForRetention(
   db: SourceMapDb,
   id: string
 ): Promise<SourceMapArtifactRecord | null> {
+  if (!isTransaction(db)) {
+    return db.transaction().execute((trx) => softDeleteSourceMapArtifactForRetention(trx, id));
+  }
+
   const deleted = await db
     .updateTable("source_map_artifacts")
     .set({ deleted_at: new Date() })
@@ -254,11 +262,9 @@ export async function softDeleteSourceMapArtifactForRetention(
     .returningAll()
     .executeTakeFirst();
 
-  if (!deleted) return null;
+  await db.deleteFrom("error_stack_resolutions").where("source_map_artifact_id", "=", id).execute();
 
-  await db.deleteFrom("error_stack_resolutions").where("source_map_artifact_id", "=", deleted.id).execute();
-
-  return toSourceMapArtifact(deleted);
+  return deleted ? toSourceMapArtifact(deleted) : null;
 }
 
 export async function getCachedErrorStackResolution(

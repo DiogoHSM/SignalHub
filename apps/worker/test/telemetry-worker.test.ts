@@ -487,11 +487,23 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       },
       withLock: async (run) => {
         const result = await run({
-          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 })
+          deleteExpiredTelemetry: async () => ({
+            events: 1,
+            errors: 2,
+            traces: 3,
+            spans: 4,
+            llmCalls: 5,
+            breadcrumbs: 6,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          })
         });
         calls.push("released");
         return { locked: true, result };
@@ -516,7 +528,10 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       },
       withLock: async () => ({ locked: false }),
       recordRetentionRun: async () => {
@@ -537,7 +552,10 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       },
       withLock: async (run) => {
         try {
@@ -556,7 +574,16 @@ describe("runRetentionOnce", () => {
       recordRetentionRun: async (input) => {
         expect(input.status).toBe("failed");
         expect(input.errorMessage).toBe("authorization: [REDACTED]");
-        expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0, breadcrumbs: 0 });
+        expect(input.deleted).toEqual({
+          events: 0,
+          errors: 0,
+          spans: 0,
+          traces: 0,
+          llmCalls: 0,
+          breadcrumbs: 0,
+          sourceMapArtifacts: 0,
+          sourceMapFiles: 0
+        });
         calls.push("recorded");
       }
     });
@@ -578,14 +605,26 @@ describe("runRetentionOnce", () => {
           tracesDays: 90,
           spansDays: 90,
           llmCallsDays: 180,
-          breadcrumbsDays: 30
+          breadcrumbsDays: 30,
+          sourceMapsEnabled: true,
+          sourceMapsDays: 180,
+          sourceMapsBatchSize: 100
         },
         withLock: async (run) => {
           try {
             const result = await run({
               deleteExpiredTelemetry: async () => {
                 calls.push("deleted");
-                return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 };
+                return {
+                  events: 1,
+                  errors: 2,
+                  traces: 3,
+                  spans: 4,
+                  llmCalls: 5,
+                  breadcrumbs: 6,
+                  sourceMapArtifacts: 0,
+                  sourceMapFiles: 0
+                };
               }
             });
             return { locked: true, result };

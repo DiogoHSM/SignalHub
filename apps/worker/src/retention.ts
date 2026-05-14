@@ -1,7 +1,16 @@
 import type { RetentionDeletedCounts, RetentionPolicy } from "@signal-hub/db/repositories/system.js";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
 
-const zeroDeleted: RetentionDeletedCounts = { events: 0, errors: 0, traces: 0, spans: 0, llmCalls: 0, breadcrumbs: 0 };
+const zeroDeleted: RetentionDeletedCounts = {
+  events: 0,
+  errors: 0,
+  traces: 0,
+  spans: 0,
+  llmCalls: 0,
+  breadcrumbs: 0,
+  sourceMapArtifacts: 0,
+  sourceMapFiles: 0
+};
 
 export type RetentionRuntime = {
   now: () => Date;
