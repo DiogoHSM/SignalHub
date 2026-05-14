@@ -1,6 +1,6 @@
 # Phase 5E Source Map Retention Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add worker-owned retention for local source-map artifacts so self-hosted installs do not grow source-map storage forever.
 
@@ -45,7 +45,7 @@
 - Modify: `packages/db/src/schema.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing config tests**
+- [x] **Step 1: Write failing config tests**
 
 Add tests to `packages/config/test/config.test.ts`:
 
@@ -83,7 +83,7 @@ it.each(["SOURCE_MAPS_RETENTION_DAYS", "SOURCE_MAPS_RETENTION_BATCH_SIZE"] as co
 );
 ```
 
-- [ ] **Step 2: Run config tests to verify failure**
+- [x] **Step 2: Run config tests to verify failure**
 
 Run:
 
@@ -93,7 +93,7 @@ pnpm exec vitest run packages/config/test/config.test.ts -t "source-map retentio
 
 Expected: fails because `config.sourceMaps.retention` does not exist.
 
-- [ ] **Step 3: Add config parsing**
+- [x] **Step 3: Add config parsing**
 
 Modify `packages/config/src/index.ts`:
 
@@ -120,7 +120,7 @@ Extend the returned `sourceMaps` object:
     }
 ```
 
-- [ ] **Step 4: Add env examples**
+- [x] **Step 4: Add env examples**
 
 Add to `.env.example` near existing source-map settings:
 
@@ -130,7 +130,7 @@ SOURCE_MAPS_RETENTION_DAYS=180
 SOURCE_MAPS_RETENTION_BATCH_SIZE=100
 ```
 
-- [ ] **Step 5: Write failing migration/schema tests**
+- [x] **Step 5: Write failing migration/schema tests**
 
 Add to `packages/db/test/repositories.test.ts` in the migration smoke area:
 
@@ -151,7 +151,7 @@ it("has source-map retention columns on retention_runs", async () => {
 });
 ```
 
-- [ ] **Step 6: Run DB migration test to verify failure**
+- [x] **Step 6: Run DB migration test to verify failure**
 
 Run:
 
@@ -161,7 +161,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "source-map retent
 
 Expected: fails because the columns do not exist.
 
-- [ ] **Step 7: Add migration 0009**
+- [x] **Step 7: Add migration 0009**
 
 Create `packages/db/migrations/0009_source_map_retention.sql`:
 
@@ -186,7 +186,7 @@ CREATE INDEX IF NOT EXISTS source_map_artifacts_retention_idx
 
 If constraint names already exist in a local database, Postgres will raise on duplicate constraint names. This is acceptable for a new migration because it runs once and tests use fresh databases.
 
-- [ ] **Step 8: Register migration and schema columns**
+- [x] **Step 8: Register migration and schema columns**
 
 Modify `packages/db/src/migrate.ts`:
 
@@ -205,7 +205,7 @@ Modify `RetentionRunsTable` in `packages/db/src/schema.ts`:
   deleted_source_map_files: DefaultedInteger;
 ```
 
-- [ ] **Step 9: Run config and DB tests**
+- [x] **Step 9: Run config and DB tests**
 
 Run:
 
@@ -218,7 +218,7 @@ pnpm --filter @signal-hub/db build
 
 Expected: pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add .env.example packages/config/src/index.ts packages/config/test/config.test.ts packages/db/migrations/0009_source_map_retention.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/test/repositories.test.ts
@@ -232,7 +232,7 @@ git commit -m "feat: add source map retention config schema"
 - Modify: `packages/db/src/repositories/source-maps.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing retention run test**
+- [x] **Step 1: Write failing retention run test**
 
 Add to `packages/db/test/repositories.test.ts` near existing retention run tests:
 
@@ -279,7 +279,7 @@ it("records source-map retention policy and deleted counts", async () => {
 });
 ```
 
-- [ ] **Step 2: Run retention run test to verify failure**
+- [x] **Step 2: Run retention run test to verify failure**
 
 Run:
 
@@ -289,7 +289,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "records source-ma
 
 Expected: TypeScript or runtime failure because source-map retention fields are not handled.
 
-- [ ] **Step 3: Extend retention types and record mapping**
+- [x] **Step 3: Extend retention types and record mapping**
 
 Modify `packages/db/src/repositories/system.ts`:
 
@@ -359,7 +359,7 @@ Update `recordRetentionRun` values:
       source_maps_batch_size: input.policy.sourceMapsBatchSize
 ```
 
-- [ ] **Step 4: Write failing source-map repository tests**
+- [x] **Step 4: Write failing source-map repository tests**
 
 Add `createUser` and `insertError` to existing imports in `packages/db/test/repositories.test.ts` if they are not already imported in the file. Then add:
 
@@ -438,7 +438,7 @@ it("soft-deletes a retained source-map artifact and cached resolutions", async (
 });
 ```
 
-- [ ] **Step 5: Run source-map repository tests to verify failure**
+- [x] **Step 5: Run source-map repository tests to verify failure**
 
 Run:
 
@@ -448,7 +448,7 @@ pnpm exec vitest run packages/db/test/repositories.test.ts -t "source-map artifa
 
 Expected: fails because `listExpiredSourceMapArtifacts` and `softDeleteSourceMapArtifactForRetention` do not exist.
 
-- [ ] **Step 6: Implement source-map repository helpers**
+- [x] **Step 6: Implement source-map repository helpers**
 
 Modify imports/exports in `packages/db/src/repositories/source-maps.ts` as needed, then add:
 
@@ -492,7 +492,7 @@ export async function softDeleteSourceMapArtifactForRetention(
 
 This helper intentionally accepts `SourceMapDb` so the worker can call it inside the existing retention transaction.
 
-- [ ] **Step 7: Run DB tests and build**
+- [x] **Step 7: Run DB tests and build**
 
 Run:
 
@@ -504,7 +504,7 @@ pnpm --filter @signal-hub/db build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/db/src/repositories/system.ts packages/db/src/repositories/source-maps.ts packages/db/test/repositories.test.ts
@@ -519,7 +519,7 @@ git commit -m "feat: add source map retention repository helpers"
 - Modify: `apps/worker/src/main.ts`
 - Modify: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Write failing worker cleanup tests**
+- [x] **Step 1: Write failing worker cleanup tests**
 
 Add imports to `apps/worker/test/telemetry-worker.test.ts`:
 
@@ -686,7 +686,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 ```
 
-- [ ] **Step 2: Run worker cleanup tests to verify failure**
+- [x] **Step 2: Run worker cleanup tests to verify failure**
 
 Run:
 
@@ -696,7 +696,7 @@ pnpm exec vitest run apps/worker/test/telemetry-worker.test.ts -t "deleteExpired
 
 Expected: fails because `apps/worker/src/source-map-retention.ts` does not exist.
 
-- [ ] **Step 3: Implement worker source-map retention helper**
+- [x] **Step 3: Implement worker source-map retention helper**
 
 Create `apps/worker/src/source-map-retention.ts`:
 
@@ -774,7 +774,7 @@ export async function deleteExpiredSourceMapArtifacts(
 }
 ```
 
-- [ ] **Step 4: Write failing retention runtime tests**
+- [x] **Step 4: Write failing retention runtime tests**
 
 Update `apps/worker/test/telemetry-worker.test.ts` existing `runRetentionOnce` tests so `deleted` includes source-map counts and `policy` includes source-map policy. Add a focused test:
 
@@ -863,7 +863,7 @@ it("skips source-map cleanup when source-map retention is disabled", async () =>
 });
 ```
 
-- [ ] **Step 5: Run retention runtime test to verify failure**
+- [x] **Step 5: Run retention runtime test to verify failure**
 
 Run:
 
@@ -873,7 +873,7 @@ pnpm exec vitest run apps/worker/test/telemetry-worker.test.ts -t "source-map de
 
 Expected: fails because `deleteExpiredSourceMapArtifacts` is not part of `RetentionLockedRuntime`.
 
-- [ ] **Step 6: Extend retention runtime**
+- [x] **Step 6: Extend retention runtime**
 
 Modify `apps/worker/src/retention.ts`.
 
@@ -914,7 +914,7 @@ Update the lock run body:
     });
 ```
 
-- [ ] **Step 7: Wire worker main**
+- [x] **Step 7: Wire worker main**
 
 Modify imports in `apps/worker/src/main.ts`:
 
@@ -948,7 +948,7 @@ Add the locked runtime method:
                   })
 ```
 
-- [ ] **Step 8: Run worker tests and build**
+- [x] **Step 8: Run worker tests and build**
 
 Run:
 
@@ -959,7 +959,7 @@ pnpm --filter @signal-hub/worker build
 
 Expected: pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/worker/src/source-map-retention.ts apps/worker/src/retention.ts apps/worker/src/main.ts apps/worker/test/telemetry-worker.test.ts
@@ -977,7 +977,7 @@ git commit -m "feat: add worker source map retention cleanup"
 - Modify: `apps/console/src/components/SystemHealthPanel.tsx`
 - Modify: `apps/console/src/components/SystemHealthPanel.test.tsx`
 
-- [ ] **Step 1: Write failing API system health test**
+- [x] **Step 1: Write failing API system health test**
 
 Modify the default fixture in `apps/api/test/system.test.ts` so retention policy and deleted counts include:
 
@@ -1004,7 +1004,7 @@ expect(snapshot.retention.lastRun?.deleted.sourceMapArtifacts).toBe(2);
 expect(snapshot.retention.lastRun?.deleted.sourceMapFiles).toBe(2);
 ```
 
-- [ ] **Step 2: Run system test to verify failure**
+- [x] **Step 2: Run system test to verify failure**
 
 Run:
 
@@ -1014,7 +1014,7 @@ pnpm exec vitest run apps/api/test/system.test.ts -t "system health"
 
 Expected: fails until API types and serialization include source-map retention fields.
 
-- [ ] **Step 3: Extend API system types and serialization**
+- [x] **Step 3: Extend API system types and serialization**
 
 Modify `apps/api/src/routes/system.ts` deleted/policy types:
 
@@ -1052,7 +1052,7 @@ Modify `apps/api/src/main.ts` retention policy:
   sourceMapsBatchSize: config.sourceMaps.retention.batchSize
 ```
 
-- [ ] **Step 4: Write failing console System panel test**
+- [x] **Step 4: Write failing console System panel test**
 
 In `apps/console/src/components/SystemHealthPanel.test.tsx`, extend the health fixture with source-map policy and counts, then add:
 
@@ -1061,7 +1061,7 @@ expect(await screen.findByText(/source maps 180d/i)).toBeInTheDocument();
 expect(screen.getByText(/source maps 2 artifacts, 2 files/i)).toBeInTheDocument();
 ```
 
-- [ ] **Step 5: Run console System panel test to verify failure**
+- [x] **Step 5: Run console System panel test to verify failure**
 
 Run:
 
@@ -1071,7 +1071,7 @@ pnpm exec vitest run apps/console/src/components/SystemHealthPanel.test.tsx
 
 Expected: fails because the UI does not render source-map retention policy/counts.
 
-- [ ] **Step 6: Extend console types and UI**
+- [x] **Step 6: Extend console types and UI**
 
 Modify `apps/console/src/api/types.ts` `SystemHealthResponse.retention.lastRun.deleted`:
 
@@ -1113,7 +1113,7 @@ events {health.retention.lastRun.deleted.events}, errors {health.retention.lastR
 
 If the policy line gets too crowded, keep the same `span` wrapping pattern; CSS already allows wrapping in `dd`.
 
-- [ ] **Step 7: Run API and console tests/builds**
+- [x] **Step 7: Run API and console tests/builds**
 
 Run:
 
@@ -1126,7 +1126,7 @@ pnpm --filter @signal-hub/console build
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/api/src/routes/system.ts apps/api/src/system-health.ts apps/api/src/main.ts apps/api/test/system.test.ts apps/console/src/api/types.ts apps/console/src/components/SystemHealthPanel.tsx apps/console/src/components/SystemHealthPanel.test.tsx
@@ -1146,7 +1146,7 @@ git commit -m "feat: surface source map retention health"
 - Modify: `CLAUDE.md`
 - Modify external memory: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 In `README.md` Source Maps / Operational Safety sections, add:
 
@@ -1154,7 +1154,7 @@ In `README.md` Source Maps / Operational Safety sections, add:
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 ```
 
-- [ ] **Step 2: Update secrets docs**
+- [x] **Step 2: Update secrets docs**
 
 Add to `.claude/docs/SECRETS.md`:
 
@@ -1170,7 +1170,7 @@ Add operational rule:
 - Source-map retention deletes local source-map files, artifact metadata, and cached stack resolutions. It does not configure object-storage lifecycle policies.
 ```
 
-- [ ] **Step 3: Update deployment and infrastructure docs**
+- [x] **Step 3: Update deployment and infrastructure docs**
 
 Add to `.claude/docs/DEPLOYMENT.md` Source Maps or Retention section:
 
@@ -1184,7 +1184,7 @@ Add to `.claude/docs/INFRASTRUCTURE.md`:
 The worker prunes local source-map artifacts according to `SOURCE_MAPS_RETENTION_*`. Cleanup operates only under `SOURCE_MAPS_LOCAL_DIR`; object storage for source maps remains deferred.
 ```
 
-- [ ] **Step 4: Update architecture, project, UI, and CLAUDE docs**
+- [x] **Step 4: Update architecture, project, UI, and CLAUDE docs**
 
 Update `.claude/docs/ARCHITECTURE.md` retention section:
 
@@ -1219,7 +1219,7 @@ Update `CLAUDE.md`:
 - Keep source-map retention worker-owned, env-configured, and local-storage-only until object storage is explicitly designed.
 ```
 
-- [ ] **Step 5: Update memory**
+- [x] **Step 5: Update memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
@@ -1227,14 +1227,14 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 - Implemented Phase 5E Source Map Retention: worker-owned cleanup of local source-map artifacts, cached stack resolutions, and metadata through the existing retention scheduler and `retention_runs` status path. Retention is global/env-configured; source-map object storage and source-code viewer remain deferred.
 ```
 
-- [ ] **Step 6: Commit SignalHub docs**
+- [x] **Step 6: Commit SignalHub docs**
 
 ```bash
 git add README.md .claude/docs/ARCHITECTURE.md .claude/docs/PROJECT-SUMMARY.md .claude/docs/SECRETS.md .claude/docs/DEPLOYMENT.md .claude/docs/INFRASTRUCTURE.md .claude/docs/UI-UX.md CLAUDE.md
 git commit -m "docs: document source map retention"
 ```
 
-- [ ] **Step 7: Commit memory**
+- [x] **Step 7: Commit memory**
 
 ```bash
 cd /Users/diogo/Developer/Github/claude-config
@@ -1249,7 +1249,7 @@ Preserve unrelated untracked memory directories.
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-13-phase5e-source-map-retention-implementation.md`
 
-- [ ] **Step 1: Run full tests**
+- [x] **Step 1: Run full tests**
 
 ```bash
 pnpm test
@@ -1257,7 +1257,7 @@ pnpm test
 
 Expected: all test files pass with no unhandled errors.
 
-- [ ] **Step 2: Run full build**
+- [x] **Step 2: Run full build**
 
 ```bash
 pnpm build
@@ -1265,7 +1265,7 @@ pnpm build
 
 Expected: all workspace builds pass.
 
-- [ ] **Step 3: Run Compose config verification**
+- [x] **Step 3: Run Compose config verification**
 
 ```bash
 docker compose config --quiet
@@ -1273,7 +1273,7 @@ docker compose config --quiet
 
 Expected: exit code 0.
 
-- [ ] **Step 4: Run doctor**
+- [x] **Step 4: Run doctor**
 
 If `.env` exists:
 
@@ -1290,11 +1290,11 @@ pnpm run doctor -- --env-file /tmp/signalhub-doctor.env
 
 Expected: exit code 0. Source-map directory warnings are acceptable if no local directory exists in the worktree.
 
-- [ ] **Step 5: Mark plan complete**
+- [x] **Step 5: Mark plan complete**
 
 Update this plan file so completed verification and integration checkboxes are checked.
 
-- [ ] **Step 6: Commit plan completion**
+- [x] **Step 6: Commit plan completion**
 
 ```bash
 git add docs/superpowers/plans/2026-05-13-phase5e-source-map-retention-implementation.md

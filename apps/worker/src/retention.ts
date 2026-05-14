@@ -1,12 +1,27 @@
 import type { RetentionDeletedCounts, RetentionPolicy } from "@signal-hub/db/repositories/system.js";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
+import { SourceMapRetentionError } from "./source-map-retention.js";
 
-const zeroDeleted: RetentionDeletedCounts = { events: 0, errors: 0, traces: 0, spans: 0, llmCalls: 0, breadcrumbs: 0 };
+const zeroDeleted: RetentionDeletedCounts = {
+  events: 0,
+  errors: 0,
+  traces: 0,
+  spans: 0,
+  llmCalls: 0,
+  breadcrumbs: 0,
+  sourceMapArtifacts: 0,
+  sourceMapFiles: 0
+};
 
 export type RetentionRuntime = {
   now: () => Date;
   policy: RetentionPolicy;
-  withLock: <T>(run: (lockedRuntime: RetentionLockedRuntime) => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
+  withLock: <T>(
+    run: (lockedRuntime: RetentionLockedRuntime) => Promise<T>
+  ) => Promise<{ locked: false } | { locked: true; result: T }>;
+  deleteExpiredSourceMapArtifacts: () => Promise<
+    Pick<RetentionDeletedCounts, "sourceMapArtifacts" | "sourceMapFiles">
+  >;
   recordRetentionRun: (input: {
     startedAt: Date;
     finishedAt: Date | null;
@@ -44,11 +59,31 @@ export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran
 
   if (!result.locked) return { ran: false, skipped: true };
 
+  let deleted = result.result;
+  if (runtime.policy.sourceMapsEnabled) {
+    try {
+      const sourceMapsDeleted = await runtime.deleteExpiredSourceMapArtifacts();
+      deleted = { ...deleted, ...sourceMapsDeleted };
+    } catch (error) {
+      const sourceMapsDeleted =
+        error instanceof SourceMapRetentionError ? error.deleted : { sourceMapArtifacts: 0, sourceMapFiles: 0 };
+      await runtime.recordRetentionRun({
+        startedAt,
+        finishedAt: runtime.now(),
+        status: "failed",
+        errorMessage: sanitizePreviewText(error instanceof Error ? error.message : String(error)),
+        deleted: { ...deleted, ...sourceMapsDeleted },
+        policy: runtime.policy
+      });
+      return { ran: true, skipped: false };
+    }
+  }
+
   await runtime.recordRetentionRun({
     startedAt,
     finishedAt: runtime.now(),
     status: "success",
-    deleted: result.result,
+    deleted,
     policy: runtime.policy
   });
 

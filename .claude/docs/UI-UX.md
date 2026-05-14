@@ -15,6 +15,7 @@ SignalHub includes an admin-only Integration Console.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
 - Keep `System` as a quiet operational mode for service health, queue depth, ingestion freshness, retention status, and backup status.
+- System shows source-map retention policy and deleted counts inside the existing Retention card.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.

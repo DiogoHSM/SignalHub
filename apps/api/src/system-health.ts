@@ -16,6 +16,8 @@ type RetentionDeletedCounts = {
   spans: number;
   llmCalls: number;
   breadcrumbs: number;
+  sourceMapArtifacts: number;
+  sourceMapFiles: number;
 };
 type RetentionRun = {
   id: string;
@@ -139,6 +141,33 @@ function toBackupHealthRun(run: BackupRun | null): SystemBackupHealthRun | null 
   };
 }
 
+function toRetentionPolicy(policy: RetentionPolicy): RetentionPolicy {
+  return {
+    eventsDays: policy.eventsDays,
+    errorsDays: policy.errorsDays,
+    tracesDays: policy.tracesDays,
+    spansDays: policy.spansDays,
+    llmCallsDays: policy.llmCallsDays,
+    breadcrumbsDays: policy.breadcrumbsDays,
+    sourceMapsEnabled: policy.sourceMapsEnabled,
+    sourceMapsDays: policy.sourceMapsDays,
+    sourceMapsBatchSize: policy.sourceMapsBatchSize
+  };
+}
+
+function toRetentionDeletedCounts(deleted: RetentionDeletedCounts): RetentionDeletedCounts {
+  return {
+    events: deleted.events,
+    errors: deleted.errors,
+    traces: deleted.traces,
+    spans: deleted.spans,
+    llmCalls: deleted.llmCalls,
+    breadcrumbs: deleted.breadcrumbs,
+    sourceMapArtifacts: deleted.sourceMapArtifacts,
+    sourceMapFiles: deleted.sourceMapFiles
+  };
+}
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -250,11 +279,11 @@ export async function createSystemHealthSnapshot(
             status: retentionRunValue.status,
             startedAt: retentionRunValue.startedAt.toISOString(),
             finishedAt: isoOrNull(retentionRunValue.finishedAt),
-            deleted: retentionRunValue.deleted,
+            deleted: toRetentionDeletedCounts(retentionRunValue.deleted),
             errorMessage: retentionRunValue.errorMessage
           }
         : null,
-      policy: dependencies.retention.policy
+      policy: toRetentionPolicy(dependencies.retention.policy)
     },
     backups: {
       enabled: dependencies.backups.enabled,

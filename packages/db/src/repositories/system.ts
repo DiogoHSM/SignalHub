@@ -16,6 +16,9 @@ export type RetentionPolicy = {
   spansDays: number;
   llmCallsDays: number;
   breadcrumbsDays: number;
+  sourceMapsEnabled: boolean;
+  sourceMapsDays: number;
+  sourceMapsBatchSize: number;
 };
 
 export type RetentionExecutionOptions = RetentionPolicy & {
@@ -31,6 +34,8 @@ export type RetentionDeletedCounts = {
   spans: number;
   llmCalls: number;
   breadcrumbs: number;
+  sourceMapArtifacts: number;
+  sourceMapFiles: number;
 };
 
 export type RetentionRunRecord = {
@@ -56,7 +61,9 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       traces: row.deleted_traces,
       spans: row.deleted_spans,
       llmCalls: row.deleted_llm_calls,
-      breadcrumbs: row.deleted_breadcrumbs
+      breadcrumbs: row.deleted_breadcrumbs,
+      sourceMapArtifacts: row.deleted_source_map_artifacts,
+      sourceMapFiles: row.deleted_source_map_files
     },
     policy: {
       eventsDays: row.events_days,
@@ -64,7 +71,10 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       tracesDays: row.traces_days,
       spansDays: row.spans_days,
       llmCallsDays: row.llm_calls_days,
-      breadcrumbsDays: row.breadcrumbs_days
+      breadcrumbsDays: row.breadcrumbs_days,
+      sourceMapsEnabled: row.source_maps_enabled,
+      sourceMapsDays: row.source_maps_days,
+      sourceMapsBatchSize: row.source_maps_batch_size
     }
   };
 }
@@ -182,7 +192,9 @@ export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExe
       cutoff(options.breadcrumbsDays),
       options.batchSize,
       maxBatches
-    )
+    ),
+    sourceMapArtifacts: 0,
+    sourceMapFiles: 0
   };
 }
 
@@ -210,12 +222,17 @@ export async function recordRetentionRun(
       deleted_spans: input.deleted.spans,
       deleted_llm_calls: input.deleted.llmCalls,
       deleted_breadcrumbs: input.deleted.breadcrumbs,
+      deleted_source_map_artifacts: input.deleted.sourceMapArtifacts,
+      deleted_source_map_files: input.deleted.sourceMapFiles,
       events_days: input.policy.eventsDays,
       errors_days: input.policy.errorsDays,
       traces_days: input.policy.tracesDays,
       spans_days: input.policy.spansDays,
       llm_calls_days: input.policy.llmCallsDays,
-      breadcrumbs_days: input.policy.breadcrumbsDays
+      breadcrumbs_days: input.policy.breadcrumbsDays,
+      source_maps_enabled: input.policy.sourceMapsEnabled,
+      source_maps_days: input.policy.sourceMapsDays,
+      source_maps_batch_size: input.policy.sourceMapsBatchSize
     })
     .returningAll()
     .executeTakeFirstOrThrow();

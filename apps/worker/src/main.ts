@@ -21,6 +21,10 @@ import {
   withRetentionLock
 } from "@signal-hub/db/repositories/system.js";
 import {
+  listExpiredSourceMapArtifacts,
+  softDeleteSourceMapArtifactForRetention
+} from "@signal-hub/db/repositories/source-maps.js";
+import {
   evaluateAlertRule,
   getNotificationChannel,
   listActiveAlertRules,
@@ -39,6 +43,7 @@ import {
   type TelemetryWriter
 } from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
+import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
 
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
@@ -77,7 +82,10 @@ const retentionPolicy = {
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
-  breadcrumbsDays: config.retention.breadcrumbsDays
+  breadcrumbsDays: config.retention.breadcrumbsDays,
+  sourceMapsEnabled: config.sourceMaps.retention.enabled,
+  sourceMapsDays: config.sourceMaps.retention.days,
+  sourceMapsBatchSize: config.sourceMaps.retention.batchSize
 };
 
 const stopRetention = config.retention.enabled
@@ -98,6 +106,15 @@ const stopRetention = config.retention.enabled
                   })
               })
             ),
+          deleteExpiredSourceMapArtifacts: () =>
+            deleteExpiredSourceMapArtifacts({
+              localDir: config.sourceMaps.localDir,
+              now: new Date(),
+              retentionDays: config.sourceMaps.retention.days,
+              batchSize: config.sourceMaps.retention.batchSize,
+              listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(db, input),
+              softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
+            }),
           recordRetentionRun: (input) => recordRetentionRun(db, input)
         })
     })

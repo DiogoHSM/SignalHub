@@ -58,13 +58,13 @@ Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operato
 
 ## Operational Config
 
-Retention, alert scheduler, backup scheduler, and source-map storage settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
+Retention, alert scheduler, backup scheduler, source-map storage, and source-map retention settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
 
 ## Operational Safety
 
 The worker runs telemetry retention by default. Retention environment variables control scheduled deletion of old telemetry with bounded delete statements; each run can process a limited number of batches and later scheduled runs continue draining older rows.
 
-Retention only deletes telemetry rows. Operational metadata, projects, environments, users, and API keys are not deleted by retention.
+Retention deletes telemetry rows and, when source-map retention is enabled, local source-map artifacts. Operational metadata, projects, environments, users, and API keys are not deleted by retention.
 
 | Telemetry type | Default retention |
 | --- | --- |
@@ -75,7 +75,9 @@ Retention only deletes telemetry rows. Operational metadata, projects, environme
 | LLM calls | 180 days |
 | Breadcrumbs | 30 days |
 
-Set `RETENTION_ENABLED=false` to disable scheduled deletion. The other retention variables configure the run interval, batch size, and per-table retention windows.
+Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
+
+Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
 The console `System` mode is available to logged-in users. It shows API, worker, Postgres, Redis, queue, ingestion freshness, and retention status from the system health endpoint.
 
@@ -125,7 +127,9 @@ Webhook secrets are write-only. Saved secret values are redacted and are never r
 
 Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by project, environment, release, and minified filename; SignalHub does not guess across releases.
 
-Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/signalhub/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached frame resolutions for that artifact and removes the local file.
+Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/signalhub/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
+
+Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
 Raw error details resolve production stack frames on demand when the error has a matching release and uploaded map. The console shows original file, line, column, and symbol metadata only. It does not display source code or `sourcesContent`.
 

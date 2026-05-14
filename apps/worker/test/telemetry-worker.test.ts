@@ -1,6 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path, { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { LookupFunction } from "node:net";
 import type { TelemetryJobPayload } from "@signal-hub/queues";
@@ -13,6 +13,7 @@ import {
 import { runBackupOnce } from "../src/backups.js";
 import { startHeartbeat } from "../src/heartbeat.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
+import { deleteExpiredSourceMapArtifacts, SourceMapRetentionError } from "../src/source-map-retention.js";
 import {
   backfillErrorGroupsUntilDrained,
   buildDeadLetterJobInput,
@@ -476,6 +477,445 @@ describe("backup scheduler integration helpers", () => {
   });
 });
 
+describe("deleteExpiredSourceMapArtifacts", () => {
+  it("deletes expired source-map files before metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const filePath = path.join(root, "artifact.map");
+    try {
+      await writeFile(filePath, "{}");
+      const calls: string[] = [];
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts: async () => [
+          {
+            id: "smap_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: null
+          }
+        ],
+        softDeleteArtifact: async (id) => {
+          calls.push(id);
+          return {
+            id,
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: new Date("2026-05-13T00:00:00.000Z")
+          };
+        }
+      });
+
+      await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(calls).toEqual(["smap_1"]);
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("tolerates missing source-map files and still removes metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const filePath = path.join(root, "missing.map");
+    try {
+      const deletedIds: string[] = [];
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts: async () => [
+          {
+            id: "smap_missing",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: null
+          }
+        ],
+        softDeleteArtifact: async (id) => {
+          deletedIds.push(id);
+          return {
+            id,
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: new Date("2026-05-13T00:00:00.000Z")
+          };
+        }
+      });
+
+      expect(deletedIds).toEqual(["smap_missing"]);
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("tolerates missing source-map parent directories and still removes metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const filePath = path.join(root, "missing-parent", "missing.map");
+    try {
+      const deletedIds: string[] = [];
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts: async () => [
+          {
+            id: "smap_missing_parent",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: null
+          }
+        ],
+        softDeleteArtifact: async (id) => {
+          deletedIds.push(id);
+          return {
+            id,
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: new Date("2026-05-13T00:00:00.000Z")
+          };
+        }
+      });
+
+      expect(deletedIds).toEqual(["smap_missing_parent"]);
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("tolerates source-map files disappearing before removal and still removes metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const filePath = path.join(root, "raced.map");
+    try {
+      await writeFile(filePath, "{}");
+      const deletedIds: string[] = [];
+
+      const runtime = {
+        localDir: root,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts: async () => [
+          {
+            id: "smap_raced",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: null
+          }
+        ],
+        softDeleteArtifact: async (id: string) => {
+          deletedIds.push(id);
+          return {
+            id,
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: new Date("2026-05-13T00:00:00.000Z")
+          };
+        },
+        removeFile: async (resolvedPath: string) => {
+          await rm(resolvedPath, { force: true });
+          const error = new Error("file disappeared") as Error & { code: string };
+          error.code = "ENOENT";
+          throw error;
+        }
+      };
+
+      const result = await deleteExpiredSourceMapArtifacts(runtime);
+
+      expect(deletedIds).toEqual(["smap_raced"]);
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects source-map paths outside the local directory", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const outside = path.join(tmpdir(), "outside-source-map.map");
+    try {
+      await writeFile(outside, "{}");
+
+      await expect(
+        deleteExpiredSourceMapArtifacts({
+          localDir: root,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          listExpiredArtifacts: async () => [
+            {
+              id: "smap_outside",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              release: "web@1",
+              minifiedFile: "app.js",
+              originalFilename: "app.js.map",
+              contentType: "application/json",
+              byteSize: 2,
+              sha256: "sha",
+              storagePath: outside,
+              uploadedByUserId: "usr_1",
+              uploadedByTokenId: null,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              deletedAt: null
+            }
+          ],
+          softDeleteArtifact: async () => {
+            throw new Error("metadata should not be deleted");
+          }
+        })
+      ).rejects.toThrow("source_map_storage_path_invalid");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { force: true });
+    }
+  });
+
+  it("accepts files stored under the real source-map directory when localDir is a symlink", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const linkPath = path.join(tmpdir(), `signalhub-sourcemaps-link-${process.pid}-${Date.now()}`);
+    try {
+      const realRoot = await realpath(root);
+      await symlink(realRoot, linkPath, "dir");
+      const filePath = path.join(realRoot, "artifact.map");
+      await writeFile(filePath, "{}");
+      const deletedIds: string[] = [];
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: linkPath,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts: async () => [
+          {
+            id: "smap_symlink_dir",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: null
+          }
+        ],
+        softDeleteArtifact: async (id) => {
+          deletedIds.push(id);
+          return {
+            id,
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: new Date("2026-05-13T00:00:00.000Z")
+          };
+        }
+      });
+
+      await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(deletedIds).toEqual(["smap_symlink_dir"]);
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+    } finally {
+      await rm(linkPath, { force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects symlink source-map artifact paths without deleting target files or metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    try {
+      const targetPath = path.join(root, "target.map");
+      const linkPath = path.join(root, "artifact.map");
+      await writeFile(targetPath, "{}");
+      await symlink(targetPath, linkPath);
+      let metadataDeleted = false;
+
+      await expect(
+        deleteExpiredSourceMapArtifacts({
+          localDir: root,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          listExpiredArtifacts: async () => [
+            {
+              id: "smap_symlink_file",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              release: "web@1",
+              minifiedFile: "app.js",
+              originalFilename: "app.js.map",
+              contentType: "application/json",
+              byteSize: 2,
+              sha256: "sha",
+              storagePath: linkPath,
+              uploadedByUserId: "usr_1",
+              uploadedByTokenId: null,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              deletedAt: null
+            }
+          ],
+          softDeleteArtifact: async () => {
+            metadataDeleted = true;
+            throw new Error("metadata should not be deleted");
+          }
+        })
+      ).rejects.toThrow("source_map_storage_path_invalid");
+
+      await expect(readFile(targetPath, "utf8")).resolves.toBe("{}");
+      expect(metadataDeleted).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects missing source-map files under symlink parents outside the local directory", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-outside-"));
+    try {
+      const linkPath = path.join(root, "linked-parent");
+      const filePath = path.join(linkPath, "missing.map");
+      await symlink(outsideRoot, linkPath, "dir");
+      let metadataDeleted = false;
+
+      await expect(
+        deleteExpiredSourceMapArtifacts({
+          localDir: root,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          listExpiredArtifacts: async () => [
+            {
+              id: "smap_symlink_parent",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              release: "web@1",
+              minifiedFile: "app.js",
+              originalFilename: "app.js.map",
+              contentType: "application/json",
+              byteSize: 2,
+              sha256: "sha",
+              storagePath: filePath,
+              uploadedByUserId: "usr_1",
+              uploadedByTokenId: null,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              deletedAt: null
+            }
+          ],
+          softDeleteArtifact: async () => {
+            metadataDeleted = true;
+            throw new Error("metadata should not be deleted");
+          }
+        })
+      ).rejects.toThrow("source_map_storage_path_invalid");
+
+      expect(metadataDeleted).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("runRetentionOnce", () => {
   it("records successful retention runs", async () => {
     const calls: string[] = [];
@@ -487,15 +927,28 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       },
       withLock: async (run) => {
         const result = await run({
-          deleteExpiredTelemetry: async () => ({ events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 })
+          deleteExpiredTelemetry: async () => ({
+            events: 1,
+            errors: 2,
+            traces: 3,
+            spans: 4,
+            llmCalls: 5,
+            breadcrumbs: 6,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          })
         });
         calls.push("released");
         return { locked: true, result };
       },
+      deleteExpiredSourceMapArtifacts: async () => ({ sourceMapArtifacts: 0, sourceMapFiles: 0 }),
       recordRetentionRun: async (input) => {
         expect(input.status).toBe("success");
         expect(input.deleted.events).toBe(1);
@@ -516,9 +969,15 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       },
       withLock: async () => ({ locked: false }),
+      deleteExpiredSourceMapArtifacts: async () => {
+        throw new Error("should_not_delete_source_maps");
+      },
       recordRetentionRun: async () => {
         throw new Error("should_not_record");
       }
@@ -537,7 +996,10 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       },
       withLock: async (run) => {
         try {
@@ -553,10 +1015,22 @@ describe("runRetentionOnce", () => {
           calls.push("released");
         }
       },
+      deleteExpiredSourceMapArtifacts: async () => {
+        throw new Error("should_not_delete_source_maps");
+      },
       recordRetentionRun: async (input) => {
         expect(input.status).toBe("failed");
         expect(input.errorMessage).toBe("authorization: [REDACTED]");
-        expect(input.deleted).toEqual({ events: 0, errors: 0, spans: 0, traces: 0, llmCalls: 0, breadcrumbs: 0 });
+        expect(input.deleted).toEqual({
+          events: 0,
+          errors: 0,
+          spans: 0,
+          traces: 0,
+          llmCalls: 0,
+          breadcrumbs: 0,
+          sourceMapArtifacts: 0,
+          sourceMapFiles: 0
+        });
         calls.push("recorded");
       }
     });
@@ -578,14 +1052,26 @@ describe("runRetentionOnce", () => {
           tracesDays: 90,
           spansDays: 90,
           llmCallsDays: 180,
-          breadcrumbsDays: 30
+          breadcrumbsDays: 30,
+          sourceMapsEnabled: true,
+          sourceMapsDays: 180,
+          sourceMapsBatchSize: 100
         },
         withLock: async (run) => {
           try {
             const result = await run({
               deleteExpiredTelemetry: async () => {
                 calls.push("deleted");
-                return { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 };
+                return {
+                  events: 1,
+                  errors: 2,
+                  traces: 3,
+                  spans: 4,
+                  llmCalls: 5,
+                  breadcrumbs: 6,
+                  sourceMapArtifacts: 0,
+                  sourceMapFiles: 0
+                };
               }
             });
             return { locked: true, result };
@@ -593,6 +1079,7 @@ describe("runRetentionOnce", () => {
             calls.push("released");
           }
         },
+        deleteExpiredSourceMapArtifacts: async () => ({ sourceMapArtifacts: 0, sourceMapFiles: 0 }),
         recordRetentionRun: async (input) => {
           calls.push(`recorded:${input.status}:${input.deleted.events}`);
           throw recordError;
@@ -601,6 +1088,215 @@ describe("runRetentionOnce", () => {
     ).rejects.toThrow(recordError);
 
     expect(calls).toEqual(["deleted", "released", "recorded:success:1"]);
+  });
+
+  it("records source-map deletion counts after telemetry retention releases the lock", async () => {
+    const calls: string[] = [];
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-13T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      },
+      withLock: async (run) => {
+        const result = await run({
+          deleteExpiredTelemetry: async () => {
+            calls.push("telemetry");
+            return {
+              events: 0,
+              errors: 0,
+              traces: 0,
+              spans: 0,
+              llmCalls: 0,
+              breadcrumbs: 0,
+              sourceMapArtifacts: 0,
+              sourceMapFiles: 0
+            };
+          }
+        });
+        calls.push("released");
+        return { locked: true, result };
+      },
+      deleteExpiredSourceMapArtifacts: async () => {
+        calls.push("sourceMaps");
+        return { sourceMapArtifacts: 2, sourceMapFiles: 2 };
+      },
+      recordRetentionRun: async (input) => {
+        expect(input.deleted.sourceMapArtifacts).toBe(2);
+        expect(input.deleted.sourceMapFiles).toBe(2);
+        calls.push("recorded");
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false });
+    expect(calls).toEqual(["telemetry", "released", "sourceMaps", "recorded"]);
+  });
+
+  it("skips source-map cleanup when source-map retention is disabled", async () => {
+    let sourceMapCleanupCalled = false;
+
+    await runRetentionOnce({
+      now: () => new Date("2026-05-13T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: false,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      },
+      withLock: async (run) => ({
+        locked: true,
+        result: await run({
+          deleteExpiredTelemetry: async () => ({
+            events: 0,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            breadcrumbs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          })
+        })
+      }),
+      deleteExpiredSourceMapArtifacts: async () => {
+        sourceMapCleanupCalled = true;
+        return { sourceMapArtifacts: 1, sourceMapFiles: 1 };
+      },
+      recordRetentionRun: async (input) => {
+        expect(input.deleted.sourceMapArtifacts).toBe(0);
+        expect(input.deleted.sourceMapFiles).toBe(0);
+      }
+    });
+
+    expect(sourceMapCleanupCalled).toBe(false);
+  });
+
+  it("records failed retention runs when source-map cleanup fails after telemetry deletion", async () => {
+    const calls: string[] = [];
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-13T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      },
+      withLock: async (run) => {
+        try {
+          const result = await run({
+            deleteExpiredTelemetry: async () => {
+              calls.push("telemetry");
+              return {
+                events: 1,
+                errors: 0,
+                traces: 0,
+                spans: 0,
+                llmCalls: 0,
+                breadcrumbs: 0,
+                sourceMapArtifacts: 0,
+                sourceMapFiles: 0
+              };
+            }
+          });
+          return { locked: true, result };
+        } finally {
+          calls.push("released");
+        }
+      },
+      deleteExpiredSourceMapArtifacts: async () => {
+        calls.push("sourceMaps");
+        throw new Error("authorization: Bearer source-map-token");
+      },
+      recordRetentionRun: async (input) => {
+        expect(input.status).toBe("failed");
+        expect(input.errorMessage).toBe("authorization: [REDACTED]");
+        expect(input.deleted).toEqual({
+          events: 1,
+          errors: 0,
+          traces: 0,
+          spans: 0,
+          llmCalls: 0,
+          breadcrumbs: 0,
+          sourceMapArtifacts: 0,
+          sourceMapFiles: 0
+        });
+        calls.push("recorded");
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false });
+    expect(calls).toEqual(["telemetry", "released", "sourceMaps", "recorded"]);
+  });
+
+  it("records partial source-map counts when source-map cleanup fails after one artifact", async () => {
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-13T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      },
+      withLock: async (run) => ({
+        locked: true,
+        result: await run({
+          deleteExpiredTelemetry: async () => ({
+            events: 1,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            breadcrumbs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          })
+        })
+      }),
+      deleteExpiredSourceMapArtifacts: async () => {
+        throw new SourceMapRetentionError("source_map_storage_path_invalid", {
+          sourceMapArtifacts: 1,
+          sourceMapFiles: 1
+        });
+      },
+      recordRetentionRun: async (input) => {
+        expect(input.status).toBe("failed");
+        expect(input.errorMessage).toBe("source_map_storage_path_invalid");
+        expect(input.deleted).toEqual({
+          events: 1,
+          errors: 0,
+          traces: 0,
+          spans: 0,
+          llmCalls: 0,
+          breadcrumbs: 0,
+          sourceMapArtifacts: 1,
+          sourceMapFiles: 1
+        });
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false });
   });
 });
 

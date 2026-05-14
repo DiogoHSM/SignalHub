@@ -1,4 +1,5 @@
 import type { Selectable, Transaction } from "kysely";
+import { sql } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
 import type { Database, ErrorStackResolutionsTable, SourceMapArtifactsTable } from "../schema.js";
@@ -6,6 +7,10 @@ import type { Database, ErrorStackResolutionsTable, SourceMapArtifactsTable } fr
 type SourceMapArtifactRow = Selectable<SourceMapArtifactsTable>;
 type ErrorStackResolutionRow = Selectable<ErrorStackResolutionsTable>;
 type SourceMapDb = Db | Transaction<Database>;
+
+function isTransaction(db: SourceMapDb): db is Transaction<Database> {
+  return db.isTransaction;
+}
 
 export type SourceMapArtifactRecord = {
   id: string;
@@ -138,6 +143,23 @@ export async function listSourceMapArtifacts(
   return rows.map(toSourceMapArtifact);
 }
 
+export async function listExpiredSourceMapArtifacts(
+  db: SourceMapDb,
+  input: { cutoff: Date; batchSize: number }
+): Promise<SourceMapArtifactRecord[]> {
+  const rows = await db
+    .selectFrom("source_map_artifacts")
+    .selectAll()
+    .where("deleted_at", "is", null)
+    .where("created_at", "<", input.cutoff)
+    .orderBy("created_at", "asc")
+    .orderBy("id", "asc")
+    .limit(input.batchSize)
+    .execute();
+
+  return rows.map(toSourceMapArtifact);
+}
+
 export async function getSourceMapArtifact(
   db: SourceMapDb,
   input: { id: string; projectId: string; environmentId: string }
@@ -199,6 +221,18 @@ export async function createSourceMapArtifact(
   return toSourceMapArtifact(row);
 }
 
+async function deleteCachedErrorStackResolutionsForArtifact(db: SourceMapDb, sourceMapArtifactId: string): Promise<void> {
+  await sql`
+    with affected_errors as (
+      select distinct error_id
+      from error_stack_resolutions
+      where source_map_artifact_id = ${sourceMapArtifactId}
+    )
+    delete from error_stack_resolutions
+    where error_id in (select error_id from affected_errors)
+  `.execute(db);
+}
+
 export async function deleteSourceMapArtifact(
   db: Db,
   input: { id: string; projectId: string; environmentId: string }
@@ -216,13 +250,31 @@ export async function deleteSourceMapArtifact(
 
     if (!deleted) return null;
 
-    await trx
-      .deleteFrom("error_stack_resolutions")
-      .where("source_map_artifact_id", "=", deleted.id)
-      .execute();
+    await deleteCachedErrorStackResolutionsForArtifact(trx, deleted.id);
 
     return toSourceMapArtifact(deleted);
   });
+}
+
+export async function softDeleteSourceMapArtifactForRetention(
+  db: SourceMapDb,
+  id: string
+): Promise<SourceMapArtifactRecord | null> {
+  if (!isTransaction(db)) {
+    return db.transaction().execute((trx) => softDeleteSourceMapArtifactForRetention(trx, id));
+  }
+
+  const deleted = await db
+    .updateTable("source_map_artifacts")
+    .set({ deleted_at: new Date() })
+    .where("id", "=", id)
+    .where("deleted_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  await deleteCachedErrorStackResolutionsForArtifact(db, id);
+
+  return deleted ? toSourceMapArtifact(deleted) : null;
 }
 
 export async function getCachedErrorStackResolution(

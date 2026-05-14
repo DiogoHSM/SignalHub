@@ -2,7 +2,7 @@
 
 SignalHub is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. Keep project-facing documentation in English.
 
-- Current phase: Phase 5D Source Map CI Uploads.
+- Current phase: Phase 5E Source Map Retention.
 
 ## Canonical Docs
 
@@ -25,6 +25,7 @@ SignalHub is a self-hosted telemetry core for product analytics, errors, LLM cal
 - Keep the admin console in `apps/console` and serve its production build from the API at `/console`.
 - Keep Overview and investigation console views read-only unless a design explicitly introduces a mutation workflow.
 - Keep source-map artifact storage local-first for the current release line. Resolution must use strict project, environment, release, and minified-file matching, and the console must not display original source content.
+- Keep source-map retention worker-owned, env-configured, and local-storage-only until object storage is explicitly designed.
 - Keep source-map upload tokens separate from browser ingestion API keys. They are CI-only secrets created from the Artifacts console and used by `pnpm source-maps:upload`.
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
 
