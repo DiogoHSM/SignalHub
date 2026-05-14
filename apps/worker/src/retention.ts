@@ -1,5 +1,6 @@
 import type { RetentionDeletedCounts, RetentionPolicy } from "@signal-hub/db/repositories/system.js";
 import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
+import { SourceMapRetentionError } from "./source-map-retention.js";
 
 const zeroDeleted: RetentionDeletedCounts = {
   events: 0,
@@ -64,12 +65,14 @@ export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran
       const sourceMapsDeleted = await runtime.deleteExpiredSourceMapArtifacts();
       deleted = { ...deleted, ...sourceMapsDeleted };
     } catch (error) {
+      const sourceMapsDeleted =
+        error instanceof SourceMapRetentionError ? error.deleted : { sourceMapArtifacts: 0, sourceMapFiles: 0 };
       await runtime.recordRetentionRun({
         startedAt,
         finishedAt: runtime.now(),
         status: "failed",
         errorMessage: sanitizePreviewText(error instanceof Error ? error.message : String(error)),
-        deleted,
+        deleted: { ...deleted, ...sourceMapsDeleted },
         policy: runtime.policy
       });
       return { ran: true, skipped: false };
