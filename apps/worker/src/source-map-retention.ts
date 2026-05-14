@@ -55,7 +55,7 @@ async function resolveStoragePath(localDir: string, storagePath: string): Promis
 
 async function deleteSourceMapFileIfPresent(localDir: string, storagePath: string): Promise<boolean> {
   const resolvedStoragePath = await resolveStoragePath(localDir, storagePath);
-  if (!resolvedStoragePath) return true;
+  if (!resolvedStoragePath) return false;
   await rm(resolvedStoragePath, { force: false });
   return true;
 }

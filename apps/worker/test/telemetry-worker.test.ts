@@ -583,7 +583,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     });
 
     expect(deletedIds).toEqual(["smap_missing"]);
-    expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+    expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
   });
 
   it("rejects source-map paths outside the local directory", async () => {
