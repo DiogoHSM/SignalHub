@@ -183,7 +183,17 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
       enabled: true,
       intervalMinutes: 60,
       lastRun: null,
-      policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      }
     },
     backups: {
       enabled: true,
