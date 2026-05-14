@@ -103,18 +103,18 @@ const stopRetention = config.retention.enabled
                     now: new Date(),
                     batchSize: config.retention.batchSize,
                     ...retentionPolicy
-                  }),
-                deleteExpiredSourceMapArtifacts: () =>
-                  deleteExpiredSourceMapArtifacts({
-                    localDir: config.sourceMaps.localDir,
-                    now: new Date(),
-                    retentionDays: config.sourceMaps.retention.days,
-                    batchSize: config.sourceMaps.retention.batchSize,
-                    listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(lockedDb, input),
-                    softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(lockedDb, id)
                   })
               })
             ),
+          deleteExpiredSourceMapArtifacts: () =>
+            deleteExpiredSourceMapArtifacts({
+              localDir: config.sourceMaps.localDir,
+              now: new Date(),
+              retentionDays: config.sourceMaps.retention.days,
+              batchSize: config.sourceMaps.retention.batchSize,
+              listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(db, input),
+              softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
+            }),
           recordRetentionRun: (input) => recordRetentionRun(db, input)
         })
     })

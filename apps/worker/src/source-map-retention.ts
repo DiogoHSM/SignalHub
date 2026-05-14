@@ -33,9 +33,7 @@ function assertInsideLocalDir(localDir: string, storagePath: string): void {
 
 async function resolveStoragePath(localDir: string, storagePath: string): Promise<string | null> {
   const resolvedLocalDir = await realpath(localDir);
-  const resolvedInputLocalDir = path.resolve(localDir);
   const resolvedStoragePath = path.resolve(storagePath);
-  assertInsideLocalDir(resolvedInputLocalDir, resolvedStoragePath);
 
   try {
     const targetStats = await lstat(resolvedStoragePath);
@@ -47,6 +45,8 @@ async function resolveStoragePath(localDir: string, storagePath: string): Promis
     return realStoragePath;
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      const realStorageParent = await realpath(path.dirname(resolvedStoragePath));
+      assertInsideLocalDir(resolvedLocalDir, path.join(realStorageParent, path.basename(resolvedStoragePath)));
       return null;
     }
     throw error;
