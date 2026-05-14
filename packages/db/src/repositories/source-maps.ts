@@ -1,4 +1,5 @@
 import type { Selectable, Transaction } from "kysely";
+import { sql } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
 import type { Database, ErrorStackResolutionsTable, SourceMapArtifactsTable } from "../schema.js";
@@ -221,15 +222,15 @@ export async function createSourceMapArtifact(
 }
 
 async function deleteCachedErrorStackResolutionsForArtifact(db: SourceMapDb, sourceMapArtifactId: string): Promise<void> {
-  const rows = await db
-    .selectFrom("error_stack_resolutions")
-    .select("error_id")
-    .where("source_map_artifact_id", "=", sourceMapArtifactId)
-    .execute();
-  const errorIds = [...new Set(rows.map((row) => row.error_id))];
-  if (errorIds.length === 0) return;
-
-  await db.deleteFrom("error_stack_resolutions").where("error_id", "in", errorIds).execute();
+  await sql`
+    with affected_errors as (
+      select distinct error_id
+      from error_stack_resolutions
+      where source_map_artifact_id = ${sourceMapArtifactId}
+    )
+    delete from error_stack_resolutions
+    where error_id in (select error_id from affected_errors)
+  `.execute(db);
 }
 
 export async function deleteSourceMapArtifact(
