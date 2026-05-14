@@ -191,7 +191,10 @@ const retentionPolicy = {
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
-  breadcrumbsDays: config.retention.breadcrumbsDays
+  breadcrumbsDays: config.retention.breadcrumbsDays,
+  sourceMapsEnabled: config.sourceMaps.retention.enabled,
+  sourceMapsDays: config.sourceMaps.retention.days,
+  sourceMapsBatchSize: config.sourceMaps.retention.batchSize
 };
 
 function setSessionCookie(reply: CookieCapableReply, userId: string): void {

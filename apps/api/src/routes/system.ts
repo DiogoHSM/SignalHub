@@ -59,6 +59,8 @@ export type SystemHealthSnapshot = {
         spans: number;
         llmCalls: number;
         breadcrumbs: number;
+        sourceMapArtifacts: number;
+        sourceMapFiles: number;
       };
       errorMessage: string | null;
     } | null;
@@ -69,6 +71,9 @@ export type SystemHealthSnapshot = {
       spansDays: number;
       llmCallsDays: number;
       breadcrumbsDays: number;
+      sourceMapsEnabled: boolean;
+      sourceMapsDays: number;
+      sourceMapsBatchSize: number;
     };
   };
   backups: {

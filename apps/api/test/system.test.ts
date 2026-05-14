@@ -17,6 +17,18 @@ const auth = {
   logout: async () => {}
 };
 
+const retentionPolicy = {
+  eventsDays: 90,
+  errorsDays: 180,
+  tracesDays: 90,
+  spansDays: 90,
+  llmCallsDays: 180,
+  breadcrumbsDays: 30,
+  sourceMapsEnabled: true,
+  sourceMapsDays: 180,
+  sourceMapsBatchSize: 100
+};
+
 const systemHealthSnapshot: SystemHealthSnapshot = {
   generatedAt: "2026-05-06T12:00:00.000Z",
   status: "degraded",
@@ -37,8 +49,24 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
   retention: {
     enabled: true,
     intervalMinutes: 60,
-    lastRun: null,
-    policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+    lastRun: {
+      id: "ret_1",
+      status: "success",
+      startedAt: "2026-05-06T10:00:00.000Z",
+      finishedAt: "2026-05-06T10:00:05.000Z",
+      deleted: {
+        events: 10,
+        errors: 1,
+        traces: 3,
+        spans: 8,
+        llmCalls: 2,
+        breadcrumbs: 4,
+        sourceMapArtifacts: 2,
+        sourceMapFiles: 2
+      },
+      errorMessage: null
+    },
+    policy: retentionPolicy
   },
   backups: {
     enabled: true,
@@ -99,7 +127,13 @@ describe("system health routes", () => {
 
     const response = await app.inject({ method: "GET", url: "/system/health" });
     expect(response.statusCode).toBe(200);
-    expect(response.json().data.status).toBe("degraded");
+    const snapshot = response.json().data as SystemHealthSnapshot;
+    expect(snapshot.status).toBe("degraded");
+    expect(snapshot.retention.policy.sourceMapsEnabled).toBe(true);
+    expect(snapshot.retention.policy.sourceMapsDays).toBe(180);
+    expect(snapshot.retention.policy.sourceMapsBatchSize).toBe(100);
+    expect(snapshot.retention.lastRun?.deleted.sourceMapArtifacts).toBe(2);
+    expect(snapshot.retention.lastRun?.deleted.sourceMapFiles).toBe(2);
   });
 
   it("returns unavailable when system health dependency fails", async () => {
@@ -123,7 +157,7 @@ describe("system health routes", () => {
       retention: {
         enabled: true,
         intervalMinutes: 60,
-        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+        policy: retentionPolicy
       },
       backups: {
         enabled: true,
@@ -177,13 +211,84 @@ describe("system health routes", () => {
     expect(snapshot.retention.lastRun).toBeNull();
   });
 
+  it("includes source-map retention policy and deleted counts in snapshots", async () => {
+    const policyWithInternalField = { ...retentionPolicy, internalOnly: "do-not-serialize" };
+    const deletedCountsWithInternalField = {
+      events: 10,
+      errors: 1,
+      traces: 3,
+      spans: 8,
+      llmCalls: 2,
+      breadcrumbs: 4,
+      sourceMapArtifacts: 2,
+      sourceMapFiles: 2,
+      internalOnly: 99
+    };
+
+    const snapshot = await createSystemHealthSnapshot({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      uptimeSeconds: () => 12,
+      retention: {
+        enabled: true,
+        intervalMinutes: 60,
+        policy: policyWithInternalField
+      },
+      backups: {
+        enabled: true,
+        intervalHours: 24,
+        retentionDays: 14,
+        s3Enabled: false
+      },
+      postgresPing: async () => undefined,
+      redisPing: async () => "PONG",
+      getQueueCounts: async () => ({}),
+      getHeartbeat: async () => ({ lastHeartbeatAt: new Date("2026-05-06T11:59:00.000Z") }),
+      getIngestionFreshness: async () => ({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      }),
+      getLastRetentionRun: async () => ({
+        id: "ret_1",
+        status: "success",
+        startedAt: new Date("2026-05-06T10:00:00.000Z"),
+        finishedAt: new Date("2026-05-06T10:00:05.000Z"),
+        deleted: deletedCountsWithInternalField,
+        errorMessage: null
+      }),
+      getBackupStatus: async () => ({
+        latestSuccess: null,
+        latestFailure: null
+      })
+    });
+
+    expect(snapshot.retention.policy.sourceMapsEnabled).toBe(true);
+    expect(snapshot.retention.policy.sourceMapsDays).toBe(180);
+    expect(snapshot.retention.policy.sourceMapsBatchSize).toBe(100);
+    expect(snapshot.retention.policy).toEqual(retentionPolicy);
+    expect(snapshot.retention.lastRun?.deleted.sourceMapArtifacts).toBe(2);
+    expect(snapshot.retention.lastRun?.deleted.sourceMapFiles).toBe(2);
+    expect(snapshot.retention.lastRun?.deleted).toEqual({
+      events: 10,
+      errors: 1,
+      traces: 3,
+      spans: 8,
+      llmCalls: 2,
+      breadcrumbs: 4,
+      sourceMapArtifacts: 2,
+      sourceMapFiles: 2
+    });
+  });
+
   it("includes backup status and marks stale backups degraded", async () => {
     const snapshot = await createSystemHealthSnapshot({
       now: () => new Date("2026-05-06T12:00:00.000Z"),
       retention: {
         enabled: true,
         intervalMinutes: 60,
-        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+        policy: retentionPolicy
       },
       backups: {
         enabled: true,
@@ -233,7 +338,7 @@ describe("system health routes", () => {
       retention: {
         enabled: true,
         intervalMinutes: 60,
-        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+        policy: retentionPolicy
       },
       backups: {
         enabled: true,
@@ -297,7 +402,7 @@ describe("system health routes", () => {
       retention: {
         enabled: true,
         intervalMinutes: 60,
-        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+        policy: retentionPolicy
       },
       backups: {
         enabled: true,
@@ -334,7 +439,7 @@ describe("system health routes", () => {
       retention: {
         enabled: true,
         intervalMinutes: 60,
-        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+        policy: retentionPolicy
       },
       backups: {
         enabled: true,
@@ -383,7 +488,7 @@ describe("system health routes", () => {
       retention: {
         enabled: true,
         intervalMinutes: 60,
-        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+        policy: retentionPolicy
       },
       backups: {
         enabled: true,
@@ -432,7 +537,7 @@ describe("system health routes", () => {
       retention: {
         enabled: true,
         intervalMinutes: 60,
-        policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+        policy: retentionPolicy
       },
       backups: {
         enabled: true,

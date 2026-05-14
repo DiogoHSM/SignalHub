@@ -25,13 +25,23 @@ const ingestionLabels: Array<[keyof SystemHealthResponse["ingestion"], string]> 
   ["lastLlmCallAt", "LLM calls"]
 ];
 
-const retentionPolicyLabels: Array<[keyof SystemHealthResponse["retention"]["policy"], string]> = [
+type RetentionPolicyDayKey =
+  | "eventsDays"
+  | "errorsDays"
+  | "tracesDays"
+  | "spansDays"
+  | "llmCallsDays"
+  | "breadcrumbsDays"
+  | "sourceMapsDays";
+
+const retentionPolicyLabels: Array<[RetentionPolicyDayKey, string]> = [
   ["eventsDays", "events"],
   ["errorsDays", "errors"],
   ["tracesDays", "traces"],
   ["spansDays", "spans"],
   ["llmCallsDays", "LLM calls"],
-  ["breadcrumbsDays", "breadcrumbs"]
+  ["breadcrumbsDays", "breadcrumbs"],
+  ["sourceMapsDays", "source maps"]
 ];
 
 function statusClass(status: ServiceStatus): string {
@@ -218,9 +228,10 @@ export function SystemHealthPanel({ client }: Props) {
                 <div>
                   <dt>Policy</dt>
                   <dd>
-                    {retentionPolicyLabels.map(([key, label]) => (
-                      <span key={key}>{`${label} ${health.retention.policy[key]}d`}</span>
-                    ))}
+                    {retentionPolicyLabels.map(([key, label]) => {
+                      const days = health.retention.policy[key];
+                      return typeof days === "number" ? <span key={key}>{`${label} ${days}d`}</span> : null;
+                    })}
                   </dd>
                 </div>
                 {health.retention.lastRun ? (
@@ -246,6 +257,13 @@ export function SystemHealthPanel({ client }: Props) {
                         {health.retention.lastRun.deleted.traces}, spans {health.retention.lastRun.deleted.spans}, LLM calls{" "}
                         {health.retention.lastRun.deleted.llmCalls}, breadcrumbs{" "}
                         {health.retention.lastRun.deleted.breadcrumbs}
+                        {typeof health.retention.lastRun.deleted.sourceMapArtifacts === "number" &&
+                        typeof health.retention.lastRun.deleted.sourceMapFiles === "number" ? (
+                          <>
+                            , source maps {health.retention.lastRun.deleted.sourceMapArtifacts} artifacts,{" "}
+                            {health.retention.lastRun.deleted.sourceMapFiles} files
+                          </>
+                        ) : null}
                       </dd>
                     </div>
                     {health.retention.lastRun.errorMessage ? (

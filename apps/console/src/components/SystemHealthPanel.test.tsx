@@ -85,10 +85,29 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
         status: "success",
         startedAt: "2026-05-06T10:00:00.000Z",
         finishedAt: "2026-05-06T10:00:05.000Z",
-        deleted: { events: 10, errors: 1, traces: 3, spans: 8, llmCalls: 2, breadcrumbs: 4 },
+        deleted: {
+          events: 10,
+          errors: 1,
+          traces: 3,
+          spans: 8,
+          llmCalls: 2,
+          breadcrumbs: 4,
+          sourceMapArtifacts: 2,
+          sourceMapFiles: 2
+        },
         errorMessage: null
       },
-      policy: { eventsDays: 90, errorsDays: 180, tracesDays: 90, spansDays: 90, llmCallsDays: 180, breadcrumbsDays: 30 }
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      }
     },
     backups: {
       enabled: true,
@@ -139,8 +158,10 @@ describe("SystemHealthPanel", () => {
     expect(within(retentionCard as HTMLElement).getByText("Enabled")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText("events 90d")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText("breadcrumbs 30d")).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText("source maps 180d")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText("success")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText(/breadcrumbs 4/)).toBeInTheDocument();
+    expect(within(retentionCard as HTMLElement).getByText(/source maps 2 artifacts, 2 files/i)).toBeInTheDocument();
   });
 
   it("renders backup status without local paths or credentials", async () => {

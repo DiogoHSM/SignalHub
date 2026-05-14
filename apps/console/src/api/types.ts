@@ -647,7 +647,16 @@ export type SystemHealthResponse = {
       status: "success" | "failed";
       startedAt: string;
       finishedAt: string | null;
-      deleted: { events: number; errors: number; traces: number; spans: number; llmCalls: number; breadcrumbs: number };
+      deleted: {
+        events: number;
+        errors: number;
+        traces: number;
+        spans: number;
+        llmCalls: number;
+        breadcrumbs: number;
+        sourceMapArtifacts?: number;
+        sourceMapFiles?: number;
+      };
       errorMessage: string | null;
     } | null;
     policy: {
@@ -657,6 +666,9 @@ export type SystemHealthResponse = {
       spansDays: number;
       llmCallsDays: number;
       breadcrumbsDays: number;
+      sourceMapsEnabled?: boolean;
+      sourceMapsDays?: number;
+      sourceMapsBatchSize?: number;
     };
   };
   backups: {
