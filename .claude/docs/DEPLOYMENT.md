@@ -80,6 +80,8 @@ Source-map artifact storage is local-first. Set `SOURCE_MAPS_LOCAL_DIR` and `SOU
 
 Admins upload source maps from the console `Artifacts` mode after selecting a project and environment. Single `.map` files and `.zip` bundles are supported. Stack resolution uses strict project, environment, release, and minified filename matching; release values in ingested error payloads must match the uploaded artifact release.
 
+Source-map artifact retention is local-first and worker-owned. Set `SOURCE_MAPS_RETENTION_ENABLED`, `SOURCE_MAPS_RETENTION_DAYS`, and `SOURCE_MAPS_RETENTION_BATCH_SIZE` to control cleanup. The scheduler runs with telemetry retention; setting `RETENTION_ENABLED=false` disables scheduled source-map cleanup too.
+
 ## Backups and Restore
 
 Postgres logical backups are built into the worker. Set `BACKUPS_ENABLED=true`, `BACKUPS_INTERVAL_HOURS`, `BACKUPS_LOCAL_DIR`, and `BACKUPS_RETENTION_DAYS` in `.env` to control scheduled backups and local pruning. The Compose worker mounts `backup_data` at `/var/lib/signalhub/backups`, which matches the default `BACKUPS_LOCAL_DIR`.
@@ -102,7 +104,7 @@ BACKUPS_S3_SECRET_ACCESS_KEY=<r2-secret-access-key>
 BACKUPS_S3_PREFIX=production/signalhub
 ```
 
-For Cloudflare R2, use a private bucket and a scoped token. Remote retention is managed by bucket lifecycle rules in this slice.
+For Cloudflare R2 backup storage, use a private bucket and a scoped token. Remote backup retention is managed by bucket lifecycle rules in this slice. Source-map object storage remains deferred.
 
 Restore is destructive and requires the API and worker to be stopped before running `pg_restore`:
 

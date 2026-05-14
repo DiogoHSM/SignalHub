@@ -21,6 +21,9 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `SIGNALHUB_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/signalhub/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | `50` | Non-secret operational config. Maximum source-map upload size in MiB. |
+| `SOURCE_MAPS_RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables worker cleanup of old local source-map artifacts when telemetry retention is enabled. |
+| `SOURCE_MAPS_RETENTION_DAYS` | No | `180` | Non-secret operational config. Retention window for source-map artifacts by upload time. |
+| `SOURCE_MAPS_RETENTION_BATCH_SIZE` | No | `100` | Non-secret operational config. Maximum source-map artifacts cleaned per retention run. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | `admin@example.com` | Email used by `pnpm seed:admin`. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Initial admin login password. |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enables Google OAuth when set to `true` and all Google settings are present. |
@@ -61,6 +64,7 @@ Operational rules:
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
 - Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalHub stores them locally and the console displays resolved frame metadata only, not source content.
+- Source-map retention deletes local source-map files, artifact metadata, and cached stack resolutions. It does not configure object-storage lifecycle policies.
 - `RETENTION_BREADCRUMBS_DAYS` is not a secret. Breadcrumb payloads can still contain sensitive application data if callers misuse the API, so SDK/browser helpers sanitize aggressively and documentation forbids secrets, form values, bodies, cookies, and headers.
 - Production startup and operator doctor checks reject placeholder values for required production secrets.
 - Doctor output redacts secret values and reports only variable names, status, and actionable remediation.

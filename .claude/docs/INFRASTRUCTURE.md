@@ -41,6 +41,8 @@ Optional remote backup storage can use an S3-compatible private bucket such as C
 
 Source-map storage does not use object storage in this release line. The API owns local source-map writes, reads, and deletes under `SOURCE_MAPS_LOCAL_DIR`.
 
+The worker prunes local source-map artifacts according to `SOURCE_MAPS_RETENTION_*`. Cleanup operates only under `SOURCE_MAPS_LOCAL_DIR`; object storage for source maps remains deferred.
+
 ## Operational Checks
 
 - `pnpm run doctor` runs read-only local operator checks for prerequisites, `.env` shape, placeholder secrets, and safe configuration.
