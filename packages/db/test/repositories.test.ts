@@ -88,8 +88,10 @@ import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
   getCachedErrorStackResolution,
+  listExpiredSourceMapArtifacts,
   listSourceMapArtifacts,
-  replaceErrorStackResolutions
+  replaceErrorStackResolutions,
+  softDeleteSourceMapArtifactForRetention
 } from "../src/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
@@ -691,6 +693,86 @@ describe("repositories", () => {
 
       expect(artifact.uploadedByUserId).toBeNull();
       expect(artifact.uploadedByTokenId).toBe("smut_attr");
+    });
+  });
+
+  it("lists expired source-map artifacts for retention in bounded order", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Retention Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-retention@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const old = new Date("2026-01-01T00:00:00.000Z");
+      const fresh = new Date("2026-05-13T00:00:00.000Z");
+
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id, created_at)
+        values
+          ('smap_old_1', ${project.id}, ${environment.id}, 'old', 'a.js', 'a.js.map', 'application/json', 1, 'sha1', '/tmp/a.map', ${user.id}, ${old}),
+          ('smap_old_2', ${project.id}, ${environment.id}, 'old', 'b.js', 'b.js.map', 'application/json', 1, 'sha2', '/tmp/b.map', ${user.id}, ${old}),
+          ('smap_fresh', ${project.id}, ${environment.id}, 'fresh', 'c.js', 'c.js.map', 'application/json', 1, 'sha3', '/tmp/c.map', ${user.id}, ${fresh})
+      `.execute(db);
+
+      const expired = await listExpiredSourceMapArtifacts(db, {
+        cutoff: new Date("2026-02-01T00:00:00.000Z"),
+        batchSize: 1
+      });
+
+      expect(expired).toEqual([expect.objectContaining({ id: "smap_old_1", storagePath: "/tmp/a.map" })]);
+    });
+  });
+
+  it("soft-deletes a retained source-map artifact and cached resolutions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Delete Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-delete@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+
+      await insertError(db, {
+        id: "err_source_map_delete",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-01-01T00:00:01.000Z"),
+        message: "Source map delete cache",
+        severity: "error",
+        release: "web@1"
+      });
+
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
+        values
+          ('smap_delete_1', ${project.id}, ${environment.id}, 'web@1', 'app.js', 'app.js.map', 'application/json', 1, 'sha1', '/tmp/app.map', ${user.id})
+      `.execute(db);
+      await sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_delete_1', 'err_source_map_delete', ${project.id}, ${environment.id}, 'web@1', 'smap_delete_1', 0, 'app.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db);
+
+      const deleted = await softDeleteSourceMapArtifactForRetention(db, "smap_delete_1");
+
+      expect(deleted).toEqual(expect.objectContaining({ id: "smap_delete_1" }));
+      await expect(getCachedErrorStackResolution(db, "err_source_map_delete")).resolves.toEqual([]);
+      const remaining = await listExpiredSourceMapArtifacts(db, {
+        cutoff: new Date("2030-01-01T00:00:00.000Z"),
+        batchSize: 10
+      });
+      expect(remaining.find((artifact) => artifact.id === "smap_delete_1")).toBeUndefined();
     });
   });
 
@@ -2320,14 +2402,26 @@ describe("repositories", () => {
 
       const startedAt = new Date("2026-05-06T12:00:00.000Z");
       const finishedAt = new Date("2026-05-06T12:00:05.000Z");
-      const deleted = { events: 1, errors: 2, traces: 3, spans: 4, llmCalls: 5, breadcrumbs: 6 };
+      const deleted = {
+        events: 1,
+        errors: 2,
+        traces: 3,
+        spans: 4,
+        llmCalls: 5,
+        breadcrumbs: 6,
+        sourceMapArtifacts: 0,
+        sourceMapFiles: 0
+      };
       const policy = {
         eventsDays: 90,
         errorsDays: 180,
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       };
 
       const run = await recordRetentionRun(db, {
@@ -2348,6 +2442,49 @@ describe("repositories", () => {
         policy
       });
       await expect(getLastRetentionRun(db)).resolves.toEqual(run);
+    });
+  });
+
+  it("records source-map retention policy and deleted counts", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const startedAt = new Date("2026-05-13T10:00:00.000Z");
+      const finishedAt = new Date("2026-05-13T10:00:05.000Z");
+
+      const run = await recordRetentionRun(db, {
+        startedAt,
+        finishedAt,
+        status: "success",
+        deleted: {
+          events: 1,
+          errors: 2,
+          traces: 3,
+          spans: 4,
+          llmCalls: 5,
+          breadcrumbs: 6,
+          sourceMapArtifacts: 7,
+          sourceMapFiles: 7
+        },
+        policy: {
+          eventsDays: 90,
+          errorsDays: 180,
+          tracesDays: 90,
+          spansDays: 90,
+          llmCallsDays: 180,
+          breadcrumbsDays: 30,
+          sourceMapsEnabled: true,
+          sourceMapsDays: 180,
+          sourceMapsBatchSize: 100
+        }
+      });
+
+      await expect(getLastRetentionRun(db)).resolves.toEqual(run);
+      expect(run.deleted.sourceMapArtifacts).toBe(7);
+      expect(run.deleted.sourceMapFiles).toBe(7);
+      expect(run.policy.sourceMapsEnabled).toBe(true);
+      expect(run.policy.sourceMapsDays).toBe(180);
+      expect(run.policy.sourceMapsBatchSize).toBe(100);
     });
   });
 
@@ -2478,7 +2615,10 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       });
 
       expect(deleted).toEqual({
@@ -2487,7 +2627,9 @@ describe("repositories", () => {
         traces: 1,
         spans: 1,
         llmCalls: 1,
-        breadcrumbs: 0
+        breadcrumbs: 0,
+        sourceMapArtifacts: 0,
+        sourceMapFiles: 0
       });
 
       const filters = { projectId: project.id, environmentId: environment.id, limit: 10 };
@@ -2543,7 +2685,10 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       });
 
       expect(deleted.breadcrumbs).toBe(1);
@@ -2591,7 +2736,10 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
-        breadcrumbsDays: 30
+        breadcrumbsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
       });
 
       expect(deleted.events).toBe(1);

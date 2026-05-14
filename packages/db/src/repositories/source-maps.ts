@@ -138,6 +138,23 @@ export async function listSourceMapArtifacts(
   return rows.map(toSourceMapArtifact);
 }
 
+export async function listExpiredSourceMapArtifacts(
+  db: SourceMapDb,
+  input: { cutoff: Date; batchSize: number }
+): Promise<SourceMapArtifactRecord[]> {
+  const rows = await db
+    .selectFrom("source_map_artifacts")
+    .selectAll()
+    .where("deleted_at", "is", null)
+    .where("created_at", "<", input.cutoff)
+    .orderBy("created_at", "asc")
+    .orderBy("id", "asc")
+    .limit(input.batchSize)
+    .execute();
+
+  return rows.map(toSourceMapArtifact);
+}
+
 export async function getSourceMapArtifact(
   db: SourceMapDb,
   input: { id: string; projectId: string; environmentId: string }
@@ -223,6 +240,25 @@ export async function deleteSourceMapArtifact(
 
     return toSourceMapArtifact(deleted);
   });
+}
+
+export async function softDeleteSourceMapArtifactForRetention(
+  db: SourceMapDb,
+  id: string
+): Promise<SourceMapArtifactRecord | null> {
+  const deleted = await db
+    .updateTable("source_map_artifacts")
+    .set({ deleted_at: new Date() })
+    .where("id", "=", id)
+    .where("deleted_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  if (!deleted) return null;
+
+  await db.deleteFrom("error_stack_resolutions").where("source_map_artifact_id", "=", deleted.id).execute();
+
+  return toSourceMapArtifact(deleted);
 }
 
 export async function getCachedErrorStackResolution(
