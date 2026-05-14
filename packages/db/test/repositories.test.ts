@@ -740,6 +740,16 @@ describe("repositories", () => {
           batchSize: 2
         })
       ).resolves.toHaveLength(2);
+
+      const allExpired = await listExpiredSourceMapArtifacts(db, {
+        cutoff: new Date("2026-02-01T00:00:00.000Z"),
+        batchSize: 10
+      });
+      expect(allExpired.map((artifact) => artifact.id).filter((id) => id.startsWith("smap_"))).toEqual([
+        "smap_older",
+        "smap_old_1",
+        "smap_old_2"
+      ]);
     });
   });
 
@@ -2496,6 +2506,25 @@ describe("repositories", () => {
         }
       });
 
+      await expect(
+        db
+          .selectFrom("retention_runs")
+          .select([
+            "deleted_source_map_artifacts",
+            "deleted_source_map_files",
+            "source_maps_enabled",
+            "source_maps_days",
+            "source_maps_batch_size"
+          ])
+          .where("id", "=", run.id)
+          .executeTakeFirstOrThrow()
+      ).resolves.toEqual({
+        deleted_source_map_artifacts: 7,
+        deleted_source_map_files: 8,
+        source_maps_enabled: true,
+        source_maps_days: 180,
+        source_maps_batch_size: 100
+      });
       await expect(getLastRetentionRun(db)).resolves.toEqual(run);
       expect(run.deleted.sourceMapArtifacts).toBe(7);
       expect(run.deleted.sourceMapFiles).toBe(8);
