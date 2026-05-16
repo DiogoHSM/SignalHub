@@ -22,7 +22,7 @@
 | Docker | `Docker version 29.4.2, build 055a478` |
 | Docker Compose | `Docker Compose version v5.1.3` |
 | Trial checkout path | `/private/tmp/signalhub-phase6a-rc` |
-| Fresh volumes confirmed | `not yet` |
+| Fresh volumes confirmed | `yes: no signalhub_phase6a_rc_* volumes existed before first start` |
 
 ## Command Log
 
@@ -42,6 +42,14 @@
 | 3.3 | `pnpm install` | Dependencies install successfully | Exited 0; lockfile was already up to date but trial checkout became dirty with `packages/cli: {}` importer | friction |
 | 3.4 | `pnpm run doctor` | Pre-start diagnostics exit 0 | Exited 0 with warnings for missing/unwritable `SOURCE_MAPS_LOCAL_DIR` and unreachable API health/readiness before startup | pass |
 | 3.5 | `docker compose -p signalhub_phase6a_rc config --quiet` | Compose config renders successfully | Exited 0 | pass |
+| 4.1 | `docker volume ls --format '{{.Name}}' \| rg '^signalhub_phase6a_rc_'` | No existing trial volumes | No matches; command exited 1 | pass |
+| 4.2 | `docker compose -p signalhub_phase6a_rc up -d postgres redis` | Postgres and Redis start | Containers started and became healthy | pass |
+| 4.3 | `docker compose -p signalhub_phase6a_rc run --rm api pnpm seed:admin` | Bootstrap admin is seeded | Image built and `Bootstrap admin created` | pass |
+| 4.4 | `docker compose -p signalhub_phase6a_rc up -d --build` | Full stack starts | API and worker containers started | pass |
+| 4.5 | `docker compose -p signalhub_phase6a_rc ps` | Services are running | Postgres/Redis healthy; API/worker running | pass |
+| 4.6 | `pnpm run doctor -- --compose --api-url http://localhost:3000` | Compose-aware diagnostics exit 0 | Exited 0; all running-service checks passed; `SOURCE_MAPS_LOCAL_DIR` host warning remained | pass |
+| 4.7 | `curl -fsS http://localhost:3000/health` | API health responds | `{"ok":true}` | pass |
+| 4.8 | `curl -fsS http://localhost:3000/ready` | API readiness responds | `{"ok":true,"checks":{"postgres":true,"redis":true}}` | pass |
 
 ## Drill Results
 
@@ -51,11 +59,11 @@
 | `.env` prepared with non-placeholder secrets | pass | `.env` was created from `.env.example`; placeholder scan returned no matches. |
 | Pre-start doctor | pass | `pnpm run doctor` exited 0 with expected pre-start warnings for API reachability and source-map local directory availability. |
 | Compose config render | pass | `docker compose -p signalhub_phase6a_rc config --quiet` exited 0. |
-| Dependencies started | pending | pending |
-| Bootstrap admin seeded | pending | pending |
-| Full stack started | pending | pending |
-| Compose-aware doctor | pending | pending |
-| Health and readiness | pending | pending |
+| Dependencies started | pass | `docker compose -p signalhub_phase6a_rc up -d postgres redis` started fresh Postgres and Redis containers with healthy status. |
+| Bootstrap admin seeded | pass | `docker compose -p signalhub_phase6a_rc run --rm api pnpm seed:admin` exited 0 and created the bootstrap admin. |
+| Full stack started | pass | `docker compose -p signalhub_phase6a_rc up -d --build` started API and worker; `docker compose ps` showed all four services running. |
+| Compose-aware doctor | pass | `pnpm run doctor -- --compose --api-url http://localhost:3000` exited 0 with all running-service checks passing. |
+| Health and readiness | pass | `/health` returned `{"ok":true}` and `/ready` returned healthy Postgres/Redis checks. |
 | Console login | pending | pending |
 | Project/environment/API key setup | pending | pending |
 | Event ingestion and query | pending | pending |
@@ -90,6 +98,22 @@
 - **Actual:** The trial checkout `pnpm-lock.yaml` gained an empty `packages/cli: {}` importer.
 - **Evidence:** `git -C /private/tmp/signalhub-phase6a-rc diff -- pnpm-lock.yaml`
 - **Impact:** Not a runtime blocker. Classify during Task 9; likely a small lockfile consistency fix if repeated in the main worktree.
+
+### Finding 3: Docker Build Emits Optional Native Binding Warnings
+
+- **Class:** Release friction candidate
+- **Expected:** The documented Compose build path should avoid alarming install output where practical.
+- **Actual:** The API image build completed, but optional native bindings for `cpu-features` and `ssh2` emitted compiler/Python warnings inside `pnpm install --frozen-lockfile`.
+- **Evidence:** `docker compose -p signalhub_phase6a_rc run --rm api pnpm seed:admin`
+- **Impact:** Not a blocker because the image built and the admin seed succeeded. Classify during Task 9 as possible documentation note or Docker image dependency follow-up.
+
+### Finding 4: Host-Side Doctor Warns About Container Source Map Directory
+
+- **Class:** Release friction candidate
+- **Expected:** Compose-aware doctor should be easy to interpret after the stack is running.
+- **Actual:** `pnpm run doctor -- --compose --api-url http://localhost:3000` exited 0 and all running-service checks passed, but still warned that `SOURCE_MAPS_LOCAL_DIR` is missing or not writable on the host.
+- **Evidence:** `pnpm run doctor -- --compose --api-url http://localhost:3000`
+- **Impact:** Not a blocker. Classify during Task 9; likely a doctor message precision issue because Compose mounts `source_map_data` inside the API container.
 
 ## Fixes Made
 
