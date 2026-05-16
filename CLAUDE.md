@@ -2,7 +2,7 @@
 
 SignalHub is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. Keep project-facing documentation in English.
 
-- Current phase: Phase 5E Source Map Retention.
+- Current phase: Phase 6A Release Candidate Install Trial.
 
 ## Canonical Docs
 

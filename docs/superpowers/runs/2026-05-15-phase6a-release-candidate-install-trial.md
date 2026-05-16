@@ -2,15 +2,15 @@
 
 ## Summary
 
-- **Status:** In progress
+- **Status:** Complete
 - **Commit under test:** `a342c67`
 - **Trial checkout:** `/private/tmp/signalhub-phase6a-rc`
 - **Compose project:** `signalhub_phase6a_rc`
 - **API URL:** `http://localhost:3000`
 - **Console URL:** `http://localhost:3000/console`
 - **Started:** `2026-05-15 18:30 America/Sao_Paulo`
-- **Completed:** `pending`
-- **Final recommendation:** `pending`
+- **Completed:** `2026-05-16 01:24 America/Sao_Paulo`
+- **Final recommendation:** `Ready for Phase 6B automated smoke planning`
 
 ## Environment
 
@@ -106,7 +106,7 @@
 | Manual backup | pass | `docker compose -p signalhub_phase6a_rc run --rm worker pnpm backup:create` completed and produced `/var/lib/signalhub/backups/signalhub-20260516T021742Z.dump`. |
 | Guarded restore | pass | Restore without `--yes` failed with `Restore requires --yes`; restore with `--yes` completed with `Backup restored`. |
 | Post-restore smoke | pass | API/worker restarted; `/health`, `/ready`, and compose-aware doctor passed after repairing the disposable checkout's pnpm virtual store layout; restored Events, Errors, and Session Timeline queries returned the known Phase 6A smoke records. |
-| Final verification | pending | pending |
+| Final verification | pass | `pnpm test`, `pnpm build`, `docker compose config --quiet`, `pnpm run doctor`, Compose-aware doctor, `/health`, and `/ready` passed. |
 
 ## Findings
 
@@ -222,4 +222,4 @@
 
 ## Final Recommendation
 
-Pending completion of the drill.
+Phase 6A passed. The fresh-install RC drill completed with no release blockers, targeted install-path fixes were applied and verified, and the final verification suite passed. Phase 6B should plan the deferred automated smoke harness and evaluate whether Docker build optional native binding noise can be reduced.
