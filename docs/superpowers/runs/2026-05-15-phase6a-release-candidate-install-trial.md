@@ -57,6 +57,10 @@
 | 5.5 | `curl ... -d '{"name":"Phase 6A RC Project"}' http://localhost:3000/admin/projects` | Create RC project | Created `prj_z78juzi3y5clme31hsrzk9vx` | pass |
 | 5.6 | `curl ... /admin/projects/prj_z78juzi3y5clme31hsrzk9vx/environments` | Create `production` environment | Created `env_4vs5de0d613e7cssjy5i5gdf` | pass |
 | 5.7 | `curl ... /admin/projects/prj_z78juzi3y5clme31hsrzk9vx/api-keys` | Create ingestion API key | Created `key_d97a2i5bnz5bkl8rpm465zy0`; one-time secret stored only under `/private/tmp` | pass |
+| 6.1 | `POST /v1/events` with token read from `/private/tmp` | Event accepted | Returned HTTP 202 with `evt_d3o5liba4v2zu8sxxro6rpfg` | pass |
+| 6.2 | `POST /v1/errors`, `/v1/traces`, `/v1/spans`, `/v1/llm`, `/v1/breadcrumbs` | Core signals accepted | Each endpoint returned HTTP 202 with accepted IDs | pass |
+| 6.3 | `sleep 5` | Allow worker persistence | Completed | pass |
+| 6.4 | Query Events, Errors, Error Groups, Traces, Spans, LLM, LLM aggregate, Entities, Users, and Session Timeline | Smoke data is queryable | Verification script found all expected Phase 6A markers | pass |
 
 ## Drill Results
 
@@ -73,12 +77,12 @@
 | Health and readiness | pass | `/health` returned `{"ok":true}` and `/ready` returned healthy Postgres/Redis checks. |
 | Console login | pass | HTTP login succeeded with the actual seeded admin `admin@example.com`; the planned `phase6a-admin@example.com` login failed because the `.env` replacement command left the default email unchanged. |
 | Project/environment/API key setup | pass | Created RC project `prj_z78juzi3y5clme31hsrzk9vx`, `production` environment `env_4vs5de0d613e7cssjy5i5gdf`, and one ingestion API key; secret was stored only in `/private/tmp`. |
-| Event ingestion and query | pending | pending |
-| Error ingestion, grouping, and raw drilldown | pending | pending |
-| Trace/span ingestion and query | pending | pending |
-| LLM ingestion and aggregate query | pending | pending |
-| Breadcrumb ingestion and error session context | pending | pending |
-| Entities and Users visibility | pending | pending |
+| Event ingestion and query | pass | Event accepted and `/query/events` returned `phase6a.account.created`. |
+| Error ingestion, grouping, and raw drilldown | pass | Error accepted; `/query/errors` returned `Phase 6A checkout failed` and `/query/error-groups` returned `phase6a-checkout-error`. |
+| Trace/span ingestion and query | pass | Trace and span accepted; query endpoints returned `trace_phase6a` and `phase6a.db.query`. |
+| LLM ingestion and aggregate query | pass | LLM call accepted; `/query/llm-calls` returned `phase6a_summary` and `/query/aggregates/llm` reflected the smoke cost. |
+| Breadcrumb ingestion and error session context | pass | Breadcrumb accepted and `/query/sessions/sess_phase6a/timeline` returned `Phase 6A selected shipping method`. |
+| Entities and Users visibility | pass | Tenant and user query surfaces returned `tenant_phase6a` and `user_phase6a`. |
 | Source-map token creation | pending | pending |
 | Source-map upload | pending | pending |
 | Source-map resolution | pending | pending |
