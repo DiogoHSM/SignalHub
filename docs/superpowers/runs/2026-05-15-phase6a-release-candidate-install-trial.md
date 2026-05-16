@@ -50,6 +50,13 @@
 | 4.6 | `pnpm run doctor -- --compose --api-url http://localhost:3000` | Compose-aware diagnostics exit 0 | Exited 0; all running-service checks passed; `SOURCE_MAPS_LOCAL_DIR` host warning remained | pass |
 | 4.7 | `curl -fsS http://localhost:3000/health` | API health responds | `{"ok":true}` | pass |
 | 4.8 | `curl -fsS http://localhost:3000/ready` | API readiness responds | `{"ok":true,"checks":{"postgres":true,"redis":true}}` | pass |
+| 5.1 | `curl -fsS -c /private/tmp/signalhub-phase6a-cookies.txt ... /auth/login` with `phase6a-admin@example.com` | Login succeeds with planned admin email | Returned HTTP 401 | friction |
+| 5.2 | `docker compose -p signalhub_phase6a_rc exec -T postgres psql ... select email from users` | Identify seeded bootstrap admin email | Database contained `admin@example.com` | pass |
+| 5.3 | `curl -fsS -c /private/tmp/signalhub-phase6a-cookies.txt ... /auth/login` with `admin@example.com` | Login succeeds with actual seeded admin | Returned admin session user | pass |
+| 5.4 | `curl -fsS -b /private/tmp/signalhub-phase6a-cookies.txt http://localhost:3000/auth/me` | Session cookie is valid | Returned `admin@example.com` admin user | pass |
+| 5.5 | `curl ... -d '{"name":"Phase 6A RC Project"}' http://localhost:3000/admin/projects` | Create RC project | Created `prj_z78juzi3y5clme31hsrzk9vx` | pass |
+| 5.6 | `curl ... /admin/projects/prj_z78juzi3y5clme31hsrzk9vx/environments` | Create `production` environment | Created `env_4vs5de0d613e7cssjy5i5gdf` | pass |
+| 5.7 | `curl ... /admin/projects/prj_z78juzi3y5clme31hsrzk9vx/api-keys` | Create ingestion API key | Created `key_d97a2i5bnz5bkl8rpm465zy0`; one-time secret stored only under `/private/tmp` | pass |
 
 ## Drill Results
 
@@ -64,8 +71,8 @@
 | Full stack started | pass | `docker compose -p signalhub_phase6a_rc up -d --build` started API and worker; `docker compose ps` showed all four services running. |
 | Compose-aware doctor | pass | `pnpm run doctor -- --compose --api-url http://localhost:3000` exited 0 with all running-service checks passing. |
 | Health and readiness | pass | `/health` returned `{"ok":true}` and `/ready` returned healthy Postgres/Redis checks. |
-| Console login | pending | pending |
-| Project/environment/API key setup | pending | pending |
+| Console login | pass | HTTP login succeeded with the actual seeded admin `admin@example.com`; the planned `phase6a-admin@example.com` login failed because the `.env` replacement command left the default email unchanged. |
+| Project/environment/API key setup | pass | Created RC project `prj_z78juzi3y5clme31hsrzk9vx`, `production` environment `env_4vs5de0d613e7cssjy5i5gdf`, and one ingestion API key; secret was stored only in `/private/tmp`. |
 | Event ingestion and query | pending | pending |
 | Error ingestion, grouping, and raw drilldown | pending | pending |
 | Trace/span ingestion and query | pending | pending |
@@ -114,6 +121,22 @@
 - **Actual:** `pnpm run doctor -- --compose --api-url http://localhost:3000` exited 0 and all running-service checks passed, but still warned that `SOURCE_MAPS_LOCAL_DIR` is missing or not writable on the host.
 - **Evidence:** `pnpm run doctor -- --compose --api-url http://localhost:3000`
 - **Impact:** Not a blocker. Classify during Task 9; likely a doctor message precision issue because Compose mounts `source_map_data` inside the API container.
+
+### Finding 5: Planned Admin Email Replacement Did Not Apply
+
+- **Class:** Release friction candidate
+- **Expected:** The Task 3 `.env` replacement command should change `BOOTSTRAP_ADMIN_EMAIL` to `phase6a-admin@example.com`.
+- **Actual:** `.env` kept `BOOTSTRAP_ADMIN_EMAIL=admin@example.com`, so login with `phase6a-admin@example.com` returned HTTP 401 while login with `admin@example.com` succeeded.
+- **Evidence:** `rg -n "BOOTSTRAP_ADMIN_EMAIL" /private/tmp/signalhub-phase6a-rc/.env`; `curl ... /auth/login`; database user query.
+- **Impact:** Not a product runtime blocker. Classify during Task 9 as a plan/docs command issue caused by the unescaped `@` in the Perl expression.
+
+### Finding 6: Chained Shell Commands With Runtime Variables Were Brittle In The Drill Harness
+
+- **Class:** Release friction candidate
+- **Expected:** The scripted curl examples using command substitution should be reliable enough to follow during the drill.
+- **Actual:** Chained shell commands using `PROJECT_ID=$(cat ...)` returned `curl: (7) Failed to connect to localhost port 3000`, while the same curl request with the literal project ID succeeded immediately.
+- **Evidence:** Project and environment creation attempts during Task 5.
+- **Impact:** Not an application blocker. Continue with literal IDs for the manual drill and classify during Task 9 as a plan-command robustness issue.
 
 ## Fixes Made
 
