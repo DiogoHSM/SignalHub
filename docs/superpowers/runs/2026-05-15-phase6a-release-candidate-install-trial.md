@@ -68,6 +68,15 @@
 | 7.5 | `pnpm source-maps:upload --file ... --minified-file app.min.js` with env vars | Upload source map by working CLI style | Uploaded 1 source map artifact for `app.min.js` | pass |
 | 7.6 | `GET /query/errors/err_f3owa13f9p8e0mc3mr9e2wu1/source-map-resolution` | Resolve matching stack frame | Response included `src/app.ts`, line 42, name `checkout` | pass |
 | 7.7 | `GET /system/health` | System health includes operational status | Response included service health, `retention.policy.sourceMaps*`, and `backups` status | pass |
+| 8.1 | `docker compose -p signalhub_phase6a_rc run --rm worker pnpm backup:create` | Manual backup completes | `Backup completed`; latest dump path `/var/lib/signalhub/backups/signalhub-20260516T021742Z.dump` | pass |
+| 8.2 | `docker compose -p signalhub_phase6a_rc stop api worker` | API and worker stop before restore | Both services stopped | pass |
+| 8.3 | `docker compose -p signalhub_phase6a_rc run --rm worker pnpm backup:restore -- "$BACKUP_PATH"` | Restore refuses to run without explicit confirmation | Failed with `Restore requires --yes` | pass |
+| 8.4 | `docker compose -p signalhub_phase6a_rc run --rm worker pnpm backup:restore -- "$BACKUP_PATH" --yes` | Confirmed restore completes | `Backup restored` | pass |
+| 8.5 | `docker compose -p signalhub_phase6a_rc start api worker` | API and worker restart | Both services started | pass |
+| 8.6 | `curl -fsS http://localhost:3000/health` | API health responds after restore | `{"ok":true}` | pass |
+| 8.7 | `curl -fsS http://localhost:3000/ready` | API readiness responds after restore | `{"ok":true,"checks":{"postgres":true,"redis":true}}` | pass |
+| 8.8 | `pnpm run doctor -- --compose --api-url http://localhost:3000` | Post-restore diagnostics pass | Initially failed because `tsx` resolved through an external pnpm virtual store; after reinstalling trial dependencies with `--config.virtual-store-dir=node_modules/.pnpm`, doctor exited 0 with the known `SOURCE_MAPS_LOCAL_DIR` warning | friction |
+| 8.9 | Query restored Events, Errors, and Session Timeline | Known pre-backup smoke data remains queryable after restore | `/query/events` returned `phase6a.account.created`; `/query/errors` returned `err_f3owa13f9p8e0mc3mr9e2wu1`; `/query/sessions/sess_phase6a/timeline` returned trace, event, error, LLM, and breadcrumb items | pass |
 
 ## Drill Results
 
@@ -94,9 +103,9 @@
 | Source-map upload | pass | CLI uploaded `/private/tmp/signalhub-phase6a-app.min.js.map` for release `web@phase6a` and minified file `app.min.js` after using the working no-extra-`--` invocation. |
 | Source-map resolution | pass | Error `err_f3owa13f9p8e0mc3mr9e2wu1` resolved to `src/app.ts` with original name `checkout`. |
 | System health visibility | pass | Browser System panel loaded healthy service/operation status; `/system/health` included retention policy fields for source maps and `backups` status. |
-| Manual backup | pending | pending |
-| Guarded restore | pending | pending |
-| Post-restore smoke | pending | pending |
+| Manual backup | pass | `docker compose -p signalhub_phase6a_rc run --rm worker pnpm backup:create` completed and produced `/var/lib/signalhub/backups/signalhub-20260516T021742Z.dump`. |
+| Guarded restore | pass | Restore without `--yes` failed with `Restore requires --yes`; restore with `--yes` completed with `Backup restored`. |
+| Post-restore smoke | pass | API/worker restarted; `/health`, `/ready`, and compose-aware doctor passed after repairing the disposable checkout's pnpm virtual store layout; restored Events, Errors, and Session Timeline queries returned the known Phase 6A smoke records. |
 | Final verification | pending | pending |
 
 ## Findings
@@ -156,6 +165,14 @@
 - **Actual:** The CLI received the extra `--` as an argument and failed with `Unknown option`.
 - **Evidence:** `pnpm source-maps:upload -- --endpoint http://localhost:3000 ...`
 - **Impact:** Not a product blocker because the upload succeeded with environment variables and no extra `--`. Classify during Task 9 as a docs/package-script usage fix.
+
+### Finding 8: Host pnpm Config Pointed The Trial Checkout At Another Repo's Virtual Store
+
+- **Class:** Release friction candidate
+- **Expected:** `pnpm install` in the disposable trial checkout should create a self-contained `node_modules/.pnpm` virtual store.
+- **Actual:** The trial checkout's dependency symlinks pointed to `/Users/diogo/Developer/Github/social_media_agency/node_modules/.pnpm`; `pnpm run doctor -- --compose --api-url http://localhost:3000` initially failed with `Cannot find module '/private/tmp/signalhub-phase6a-rc/node_modules/tsx/dist/cli.mjs'`.
+- **Evidence:** `pnpm config list` reported `virtual-store-dir=/Users/diogo/Developer/Github/social_media_agency/node_modules/.pnpm`; `readlink /private/tmp/signalhub-phase6a-rc/node_modules/tsx`; post-restore doctor succeeded after `rm -rf node_modules` and `pnpm install --config.virtual-store-dir=node_modules/.pnpm`.
+- **Impact:** Not an application runtime blocker. Classify during Task 9 as local environment contamination and consider whether the project should document or defensively override this for release drills.
 
 ## Fixes Made
 
