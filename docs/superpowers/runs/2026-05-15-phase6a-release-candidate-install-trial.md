@@ -61,6 +61,13 @@
 | 6.2 | `POST /v1/errors`, `/v1/traces`, `/v1/spans`, `/v1/llm`, `/v1/breadcrumbs` | Core signals accepted | Each endpoint returned HTTP 202 with accepted IDs | pass |
 | 6.3 | `sleep 5` | Allow worker persistence | Completed | pass |
 | 6.4 | Query Events, Errors, Error Groups, Traces, Spans, LLM, LLM aggregate, Entities, Users, and Session Timeline | Smoke data is queryable | Verification script found all expected Phase 6A markers | pass |
+| 7.1 | Browser login at `http://localhost:3000/console` | Console login succeeds | Authenticated console loaded for `admin@example.com` | pass |
+| 7.2 | Browser mode checks for Setup, Overview, Investigate, Artifacts, and System | Primary console surfaces load | Overview/System loaded; Investigate views showed Phase 6A markers across Events, Errors, Traces, LLM, Entities, and Users | pass |
+| 7.3 | `POST /admin/source-map-upload-tokens` | Create source-map upload token | Created `smtok_ms9b3gl03cixjhwpur5yr9ie`; one-time secret stored only under `/private/tmp` | pass |
+| 7.4 | `pnpm source-maps:upload -- --endpoint ...` | Upload source map by documented CLI style | Failed with `Unknown option` because the CLI received a literal `--` | friction |
+| 7.5 | `pnpm source-maps:upload --file ... --minified-file app.min.js` with env vars | Upload source map by working CLI style | Uploaded 1 source map artifact for `app.min.js` | pass |
+| 7.6 | `GET /query/errors/err_f3owa13f9p8e0mc3mr9e2wu1/source-map-resolution` | Resolve matching stack frame | Response included `src/app.ts`, line 42, name `checkout` | pass |
+| 7.7 | `GET /system/health` | System health includes operational status | Response included service health, `retention.policy.sourceMaps*`, and `backups` status | pass |
 
 ## Drill Results
 
@@ -83,10 +90,10 @@
 | LLM ingestion and aggregate query | pass | LLM call accepted; `/query/llm-calls` returned `phase6a_summary` and `/query/aggregates/llm` reflected the smoke cost. |
 | Breadcrumb ingestion and error session context | pass | Breadcrumb accepted and `/query/sessions/sess_phase6a/timeline` returned `Phase 6A selected shipping method`. |
 | Entities and Users visibility | pass | Tenant and user query surfaces returned `tenant_phase6a` and `user_phase6a`. |
-| Source-map token creation | pending | pending |
-| Source-map upload | pending | pending |
-| Source-map resolution | pending | pending |
-| System health visibility | pending | pending |
+| Source-map token creation | pass | Created source-map upload token `smtok_ms9b3gl03cixjhwpur5yr9ie`; secret was stored only under `/private/tmp`. |
+| Source-map upload | pass | CLI uploaded `/private/tmp/signalhub-phase6a-app.min.js.map` for release `web@phase6a` and minified file `app.min.js` after using the working no-extra-`--` invocation. |
+| Source-map resolution | pass | Error `err_f3owa13f9p8e0mc3mr9e2wu1` resolved to `src/app.ts` with original name `checkout`. |
+| System health visibility | pass | Browser System panel loaded healthy service/operation status; `/system/health` included retention policy fields for source maps and `backups` status. |
 | Manual backup | pending | pending |
 | Guarded restore | pending | pending |
 | Post-restore smoke | pending | pending |
@@ -141,6 +148,14 @@
 - **Actual:** Chained shell commands using `PROJECT_ID=$(cat ...)` returned `curl: (7) Failed to connect to localhost port 3000`, while the same curl request with the literal project ID succeeded immediately.
 - **Evidence:** Project and environment creation attempts during Task 5.
 - **Impact:** Not an application blocker. Continue with literal IDs for the manual drill and classify during Task 9 as a plan-command robustness issue.
+
+### Finding 7: Source Map CLI Examples Pass A Literal `--`
+
+- **Class:** Release friction candidate
+- **Expected:** The documented `pnpm source-maps:upload -- --endpoint ...` style should invoke the source-map uploader successfully.
+- **Actual:** The CLI received the extra `--` as an argument and failed with `Unknown option`.
+- **Evidence:** `pnpm source-maps:upload -- --endpoint http://localhost:3000 ...`
+- **Impact:** Not a product blocker because the upload succeeded with environment variables and no extra `--`. Classify during Task 9 as a docs/package-script usage fix.
 
 ## Fixes Made
 
