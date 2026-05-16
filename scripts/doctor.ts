@@ -174,9 +174,14 @@ export function checkDirectoryWritable(path: string): boolean {
   }
 }
 
-function checkSourceMapDirectory(env: DoctorEnv, checkDirectoryWritablePath: (path: string) => boolean): DoctorResult[] {
+function checkSourceMapDirectory(
+  env: DoctorEnv,
+  checkDirectoryWritablePath: (path: string) => boolean,
+  options: DoctorOptions
+): DoctorResult[] {
   const localDir = env.SOURCE_MAPS_LOCAL_DIR?.trim();
   if (!localDir) return [];
+  if (options.compose) return [];
   return checkDirectoryWritablePath(localDir) ? [] : [createResult("warn", "SOURCE_MAPS_LOCAL_DIR is missing or not writable")];
 }
 
@@ -329,7 +334,7 @@ export async function buildDoctorResults(dependencies: BuildDoctorDependencies):
     env = parseEnvFile(readFile(options.envFile));
     results.push(createResult("pass", `${options.envFile} exists`));
     results.push(...checkEnvValues(env));
-    results.push(...checkSourceMapDirectory(env, checkDirectoryWritable));
+    results.push(...checkSourceMapDirectory(env, checkDirectoryWritable, options));
   }
 
   results.push(await checkCommand("Docker Compose config", ["docker", "compose", "config", "--quiet"], runCommand, "warn"));

@@ -116,7 +116,7 @@
 - **Expected:** `README.md` lists Node.js 22 as the prerequisite.
 - **Actual:** The trial host reports Node.js `v25.9.0`.
 - **Evidence:** `node --version`; `pnpm run doctor` still reported `[PASS] Node.js version check passed`.
-- **Impact:** Not a blocker. Classify during Task 9 as either acceptable version-range behavior or documentation precision follow-up.
+- **Impact:** Not a blocker. Fixed by clarifying the Node.js 22.x release baseline in operator docs.
 
 ### Finding 2: `pnpm install` Dirties The Trial Checkout Lockfile
 
@@ -124,7 +124,7 @@
 - **Expected:** `pnpm install` in a fresh checkout should leave committed files unchanged when the lockfile is current.
 - **Actual:** The trial checkout `pnpm-lock.yaml` gained an empty `packages/cli: {}` importer.
 - **Evidence:** `git -C /private/tmp/signalhub-phase6a-rc diff -- pnpm-lock.yaml`
-- **Impact:** Not a runtime blocker. Classify during Task 9; likely a small lockfile consistency fix if repeated in the main worktree.
+- **Impact:** Not a runtime blocker. Fixed by adding the missing lockfile importer and a repo-local pnpm virtual store override.
 
 ### Finding 3: Docker Build Emits Optional Native Binding Warnings
 
@@ -132,7 +132,7 @@
 - **Expected:** The documented Compose build path should avoid alarming install output where practical.
 - **Actual:** The API image build completed, but optional native bindings for `cpu-features` and `ssh2` emitted compiler/Python warnings inside `pnpm install --frozen-lockfile`.
 - **Evidence:** `docker compose -p signalhub_phase6a_rc run --rm api pnpm seed:admin`
-- **Impact:** Not a blocker because the image built and the admin seed succeeded. Classify during Task 9 as possible documentation note or Docker image dependency follow-up.
+- **Impact:** Not a blocker because the image built and the admin seed succeeded. Deferred to a follow-up for dependency/image strategy evaluation.
 
 ### Finding 4: Host-Side Doctor Warns About Container Source Map Directory
 
@@ -140,7 +140,7 @@
 - **Expected:** Compose-aware doctor should be easy to interpret after the stack is running.
 - **Actual:** `pnpm run doctor -- --compose --api-url http://localhost:3000` exited 0 and all running-service checks passed, but still warned that `SOURCE_MAPS_LOCAL_DIR` is missing or not writable on the host.
 - **Evidence:** `pnpm run doctor -- --compose --api-url http://localhost:3000`
-- **Impact:** Not a blocker. Classify during Task 9; likely a doctor message precision issue because Compose mounts `source_map_data` inside the API container.
+- **Impact:** Not a blocker. Fixed by skipping the host writability check in compose-aware doctor runs.
 
 ### Finding 5: Planned Admin Email Replacement Did Not Apply
 
@@ -148,7 +148,7 @@
 - **Expected:** The Task 3 `.env` replacement command should change `BOOTSTRAP_ADMIN_EMAIL` to `phase6a-admin@example.com`.
 - **Actual:** `.env` kept `BOOTSTRAP_ADMIN_EMAIL=admin@example.com`, so login with `phase6a-admin@example.com` returned HTTP 401 while login with `admin@example.com` succeeded.
 - **Evidence:** `rg -n "BOOTSTRAP_ADMIN_EMAIL" /private/tmp/signalhub-phase6a-rc/.env`; `curl ... /auth/login`; database user query.
-- **Impact:** Not a product runtime blocker. Classify during Task 9 as a plan/docs command issue caused by the unescaped `@` in the Perl expression.
+- **Impact:** Not a product runtime blocker. Fixed by escaping `@` in the Phase 6A plan's `.env` replacement command.
 
 ### Finding 6: Chained Shell Commands With Runtime Variables Were Brittle In The Drill Harness
 
@@ -156,7 +156,7 @@
 - **Expected:** The scripted curl examples using command substitution should be reliable enough to follow during the drill.
 - **Actual:** Chained shell commands using `PROJECT_ID=$(cat ...)` returned `curl: (7) Failed to connect to localhost port 3000`, while the same curl request with the literal project ID succeeded immediately.
 - **Evidence:** Project and environment creation attempts during Task 5.
-- **Impact:** Not an application blocker. Continue with literal IDs for the manual drill and classify during Task 9 as a plan-command robustness issue.
+- **Impact:** Not an application blocker. Deferred to a follow-up because a robust scripted drill harness is outside Phase 6A.
 
 ### Finding 7: Source Map CLI Examples Pass A Literal `--`
 
@@ -164,7 +164,7 @@
 - **Expected:** The documented `pnpm source-maps:upload -- --endpoint ...` style should invoke the source-map uploader successfully.
 - **Actual:** The CLI received the extra `--` as an argument and failed with `Unknown option`.
 - **Evidence:** `pnpm source-maps:upload -- --endpoint http://localhost:3000 ...`
-- **Impact:** Not a product blocker because the upload succeeded with environment variables and no extra `--`. Classify during Task 9 as a docs/package-script usage fix.
+- **Impact:** Not a product blocker because the upload succeeded with environment variables and no extra `--`. Fixed by removing the extra separator from source-map upload examples.
 
 ### Finding 8: Host pnpm Config Pointed The Trial Checkout At Another Repo's Virtual Store
 
@@ -172,15 +172,53 @@
 - **Expected:** `pnpm install` in the disposable trial checkout should create a self-contained `node_modules/.pnpm` virtual store.
 - **Actual:** The trial checkout's dependency symlinks pointed to `/Users/diogo/Developer/Github/social_media_agency/node_modules/.pnpm`; `pnpm run doctor -- --compose --api-url http://localhost:3000` initially failed with `Cannot find module '/private/tmp/signalhub-phase6a-rc/node_modules/tsx/dist/cli.mjs'`.
 - **Evidence:** `pnpm config list` reported `virtual-store-dir=/Users/diogo/Developer/Github/social_media_agency/node_modules/.pnpm`; `readlink /private/tmp/signalhub-phase6a-rc/node_modules/tsx`; post-restore doctor succeeded after `rm -rf node_modules` and `pnpm install --config.virtual-store-dir=node_modules/.pnpm`.
-- **Impact:** Not an application runtime blocker. Classify during Task 9 as local environment contamination and consider whether the project should document or defensively override this for release drills.
+- **Impact:** Not an application runtime blocker. Fixed by adding a repo-local pnpm virtual store override.
 
 ## Fixes Made
 
-No fixes made yet.
+### Fix 1: Clarified The Node.js Release Baseline
+
+- **Finding:** Finding 1
+- **Files changed:** `README.md`, `.claude/docs/STACK.md`
+- **Verification:** Documentation now states that Node.js 22.x is the supported release baseline while newer Node.js versions may work for local drills.
+
+### Fix 2: Made pnpm Installs Self-Contained And Lockfile-Stable
+
+- **Finding:** Findings 2 and 8
+- **Files changed:** `.npmrc`, `pnpm-lock.yaml`
+- **Verification:** `pnpm config get virtual-store-dir` now returns `node_modules/.pnpm`; `pnpm install` reports `Lockfile is up to date` and leaves the checkout with only intentional changes.
+
+### Fix 3: Removed The Misleading Compose Source-Map Directory Warning
+
+- **Finding:** Finding 4
+- **Files changed:** `scripts/doctor.ts`, `scripts/doctor.test.ts`
+- **Verification:** `pnpm exec vitest scripts/doctor.test.ts --run`; `COMPOSE_PROJECT_NAME=signalhub_phase6a_rc pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /private/tmp/signalhub-phase6a-rc/.env`
+
+### Fix 4: Escaped The Phase 6A Admin Email Replacement Command
+
+- **Finding:** Finding 5
+- **Files changed:** `docs/superpowers/plans/2026-05-15-phase6a-release-candidate-install-trial-implementation.md`
+- **Verification:** Applying the corrected `perl -0pi` command to a temporary `.env.example` copy produced `BOOTSTRAP_ADMIN_EMAIL=phase6a-admin@example.com` with no remaining placeholder secrets.
+
+### Fix 5: Removed The Extra Source-Map Upload Argument Separator
+
+- **Finding:** Finding 7
+- **Files changed:** `README.md`, `docs/superpowers/plans/2026-05-15-phase6a-release-candidate-install-trial-implementation.md`
+- **Verification:** `pnpm exec vitest packages/cli/test/source-maps.test.ts --run`; `pnpm source-maps:upload --file /private/tmp/signalhub-phase6a-app.min.js.map --minified-file app.min.js` with the Phase 6A environment variables uploaded one artifact for release `web@phase6a-rerun`.
 
 ## Follow-Ups
 
-No follow-ups recorded yet.
+### Follow-Up 1: Reduce Optional Native Binding Noise During Docker Builds
+
+- **Finding:** Finding 3
+- **Reason deferred:** The image built and seeded successfully; reducing optional `cpu-features`/`ssh2` native binding warnings needs dependency or image strategy evaluation beyond the narrow install-path fixes.
+- **Suggested next phase:** Phase 6B or later
+
+### Follow-Up 2: Harden The Manual Drill Harness Against Brittle Shell State
+
+- **Finding:** Finding 6
+- **Reason deferred:** Making the chained curl examples robust points toward a scripted smoke harness, which the Phase 6A design explicitly deferred.
+- **Suggested next phase:** Phase 6B or later
 
 ## Final Recommendation
 

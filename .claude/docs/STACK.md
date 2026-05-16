@@ -2,7 +2,7 @@
 
 ## Runtime
 
-- Node.js 22.
+- Node.js 22.x release baseline. Newer Node.js versions may work for local drills, but 22.x is the supported target.
 - pnpm 9.15.x workspaces.
 - TypeScript with native ESM.
 

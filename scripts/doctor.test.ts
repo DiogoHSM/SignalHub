@@ -246,6 +246,19 @@ describe("doctor orchestration", () => {
     expect(results).not.toContainEqual(sourceMapDirectoryWarning);
   });
 
+  it("does not warn about host source map directory writability in compose mode", async () => {
+    const results = await buildDoctorResults({
+      options: { compose: true, envFile: ".env", apiUrl: "http://localhost:3000" },
+      fileExists: (path) => path === ".env",
+      readFile: () => buildEnvContent({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/var/lib/signalhub/source-maps" }),
+      runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      fetchHealth: async () => ({ ok: true, status: 200 }),
+      checkDirectoryWritable: () => false
+    });
+
+    expect(results).not.toContainEqual(sourceMapDirectoryWarning);
+  });
+
   it("redacts secrets when running the doctor", async () => {
     const exitCode = await runDoctor({
       options: { compose: false, envFile: ".env" },

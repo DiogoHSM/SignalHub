@@ -25,7 +25,7 @@ SignalHub does not implement a SaaS workspace model, billing, invites, per-proje
 
 ## Prerequisites
 
-- Node.js 22
+- Node.js 22.x is the release baseline. Newer Node.js versions may work for local drills, but 22.x is the supported target.
 - pnpm 9.15.x
 - Docker and Docker Compose
 
@@ -140,7 +140,7 @@ Admins can create source-map upload tokens from the console `Artifacts` mode. Th
 Generic shell example:
 
 ```sh
-pnpm source-maps:upload -- \
+pnpm source-maps:upload \
   --endpoint https://signalhub.example.com \
   --token "$SIGNALHUB_SOURCE_MAP_TOKEN" \
   --project-id "$SIGNALHUB_PROJECT_ID" \
@@ -154,7 +154,7 @@ GitHub Actions example:
 ```yaml
 - name: Upload source maps
   run: |
-    pnpm source-maps:upload -- \
+    pnpm source-maps:upload \
       --endpoint "${{ secrets.SIGNALHUB_ENDPOINT }}" \
       --token "${{ secrets.SIGNALHUB_SOURCE_MAP_TOKEN }}" \
       --project-id "${{ secrets.SIGNALHUB_PROJECT_ID }}" \

@@ -260,7 +260,7 @@ Run from the trial checkout:
 
 ```sh
 cp .env.example .env
-perl -0pi -e 's/signalhub-local-only-change-me/signalhub-phase6a-local-password-42/g; s/change-me-to-a-long-random-secret/phase6a-session-secret-000000000000000000000000/g; s/change-me-to-a-long-random-pepper/phase6a-api-key-pepper-000000000000000000000/g; s/change-me-admin-password-32-chars-min/phase6a-admin-password-00000000000000000000/g; s/admin@example.com/phase6a-admin@example.com/g' .env
+perl -0pi -e 's/signalhub-local-only-change-me/signalhub-phase6a-local-password-42/g; s/change-me-to-a-long-random-secret/phase6a-session-secret-000000000000000000000000/g; s/change-me-to-a-long-random-pepper/phase6a-api-key-pepper-000000000000000000000/g; s/change-me-admin-password-32-chars-min/phase6a-admin-password-00000000000000000000/g; s/admin\@example\.com/phase6a-admin\@example.com/g' .env
 ```
 
 Expected: `.env` exists in `/private/tmp/signalhub-phase6a-rc` with no production placeholder secrets.
@@ -813,7 +813,7 @@ Run:
 SOURCE_MAP_TOKEN="$(cat /private/tmp/signalhub-phase6a-source-map-token-secret.txt)"
 PROJECT_ID="$(cat /private/tmp/signalhub-phase6a-project-id.txt)"
 ENVIRONMENT_ID="$(cat /private/tmp/signalhub-phase6a-environment-id.txt)"
-pnpm source-maps:upload -- \
+pnpm source-maps:upload \
   --endpoint http://localhost:3000 \
   --token "${SOURCE_MAP_TOKEN}" \
   --project-id "${PROJECT_ID}" \
