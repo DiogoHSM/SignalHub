@@ -390,7 +390,7 @@ describe("smoke compose source map upload", () => {
       } as Response;
     };
 
-    const response = await uploadSourceMapFile("http://localhost:3000", {
+    const response = await uploadSourceMapFile("http://localhost:3000/", {
       token: "shsmap_secret",
       projectId: "prj_1",
       environmentId: "env_1",
@@ -405,7 +405,43 @@ describe("smoke compose source map upload", () => {
     expect(calls[0][0]).toBe("http://localhost:3000/v1/source-maps");
     const headers = new Headers(calls[0][1].headers);
     expect(headers.get("authorization")).toBe("Bearer shsmap_secret");
+    expect(headers.get("content-type")).toBeNull();
+
     expect(calls[0][1].body).toBeInstanceOf(FormData);
+    const body = calls[0][1].body as FormData;
+    expect(body.get("project_id")).toBe("prj_1");
+    expect(body.get("environment_id")).toBe("env_1");
+    expect(body.get("release")).toBe("web@phase6b");
+    expect(body.get("minified_file")).toBe("app.min.js");
+    expect(body.get("file")).toBeInstanceOf(Blob);
+  });
+
+  it("throws SmokeHttpError when source map upload is rejected", async () => {
+    const fetchImpl = async () =>
+      ({
+        ok: false,
+        status: 403,
+        headers: new Headers(),
+        json: async () => ({ error: "forbidden" }),
+        text: async () => "scope mismatch"
+      }) as Response;
+
+    const promise = uploadSourceMapFile("http://localhost:3000", {
+      token: "shsmap_secret",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "web@phase6b",
+      filePath: "/tmp/app.min.js.map",
+      minifiedFile: "app.min.js",
+      fileContent: "{}",
+      fetchImpl
+    });
+
+    await expect(promise).rejects.toBeInstanceOf(SmokeHttpError);
+    await expect(promise).rejects.toMatchObject({
+      status: 403,
+      body: "scope mismatch"
+    });
   });
 });
 
