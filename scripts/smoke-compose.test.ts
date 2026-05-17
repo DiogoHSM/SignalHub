@@ -9,6 +9,7 @@ import { parseSmokeArgs } from "./smoke-compose/args.js";
 import { formatCommandFailure, runCommand } from "./smoke-compose/command.js";
 import { cleanupPlan } from "./smoke-compose/cleanup.js";
 import { createSmokePayloads, sourceMapFixtureContent } from "./smoke-compose/fixtures.js";
+import { SmokeHttpError, createCookieJar, expectArrayContains, getJson, pollUntil, postJson } from "./smoke-compose/http.js";
 import { createRedactor } from "./smoke-compose/redaction.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
@@ -299,5 +300,69 @@ describe("smoke compose fixtures", () => {
     expect(content.file).toBe("app.min.js");
     expect(content.sources).toEqual(["src/app.ts"]);
     expect(content.names).toContain("checkout");
+  });
+});
+
+describe("smoke compose HTTP helpers", () => {
+  it("keeps session cookies from set-cookie responses", async () => {
+    const jar = createCookieJar();
+    const fetchImpl = async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "set-cookie": "sid=abc123; Path=/; HttpOnly" }),
+        json: async () => ({ user: { email: "phase6b-admin@example.com" } }),
+        text: async () => "{}"
+      }) as Response;
+
+    const response = await postJson<{ user: { email: string } }>("http://localhost:3000/auth/login", { email: "a", password: "b" }, {
+      fetchImpl,
+      cookieJar: jar
+    });
+
+    expect(response.user.email).toBe("phase6b-admin@example.com");
+    expect(jar.header()).toBe("sid=abc123");
+  });
+
+  it("throws SmokeHttpError with redacted body text", async () => {
+    const fetchImpl = async () =>
+      ({
+        ok: false,
+        status: 401,
+        headers: new Headers(),
+        json: async () => ({ error: "bad secret" }),
+        text: async () => '{"error":"bad secret"}'
+      }) as Response;
+
+    const promise = getJson("http://localhost:3000/auth/me", {
+      fetchImpl,
+      redact: (value) => value.replace("secret", "[REDACTED]")
+    });
+
+    await expect(promise).rejects.toBeInstanceOf(SmokeHttpError);
+    await expect(promise).rejects.toMatchObject({
+      status: 401,
+      body: '{"error":"bad [REDACTED]"}'
+    });
+  });
+
+  it("polls until the callback returns a value", async () => {
+    let attempts = 0;
+
+    await expect(
+      pollUntil(
+        "wait for data",
+        async () => {
+          attempts += 1;
+          return attempts === 3 ? "ready" : null;
+        },
+        { attempts: 5, delayMs: 1 }
+      )
+    ).resolves.toBe("ready");
+  });
+
+  it("asserts arrays contain matching objects", () => {
+    expectArrayContains([{ name: "phase6b.account.created" }], (item) => item.name === "phase6b.account.created", "event marker");
+    expect(() => expectArrayContains([], () => false, "missing marker")).toThrow("Expected missing marker");
   });
 });
