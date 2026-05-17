@@ -159,7 +159,7 @@ describe("smoke compose command execution", () => {
       const child = new HangingFakeProcess();
       let settled = false;
       const promise = runCommand(
-        { command: "sleep", args: ["10"], timeoutMs: 5 },
+        { command: "pnpm", args: ["source-maps:upload", "--token", "super-secret"], timeoutMs: 5 },
         {
           spawnProcess: () => child
         }
@@ -180,7 +180,9 @@ describe("smoke compose command execution", () => {
 
       const error = await promise;
       expect(error).toBeInstanceOf(Error);
-      expect(error.message).toContain("sleep 10 timed out after 5ms");
+      expect(error.message).toContain("pnpm timed out after 5ms");
+      expect(error.message).not.toContain("--token");
+      expect(error.message).not.toContain("super-secret");
       expect(settled).toBe(true);
     } finally {
       vi.useRealTimers();

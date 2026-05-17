@@ -99,7 +99,7 @@ export function runCommand(input: CommandInput, dependencies: RunCommandDependen
 
     function onClose(code: number | null) {
       if (timedOut) {
-        settle(() => reject(new Error(`${commandToString(input)} timed out after ${timeoutMs}ms`)));
+        settle(() => reject(new Error(`${input.command} timed out after ${timeoutMs}ms`)));
         return;
       }
 
