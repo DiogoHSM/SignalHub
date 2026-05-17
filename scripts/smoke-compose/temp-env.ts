@@ -14,7 +14,12 @@ export function defaultSmokeSecrets(runId: string): GeneratedSecrets {
   };
 }
 
-export function createSmokeEnvContent(envExample: string, secrets: GeneratedSecrets, apiUrl: string): string {
+export function createSmokeEnvContent(
+  envExample: string,
+  secrets: GeneratedSecrets,
+  apiUrl: string,
+  envFilePath?: string
+): string {
   const databaseUrl = `postgres://signalhub:${secrets.postgresPassword}@localhost:5432/signalhub`;
   const replacements = new Map([
     ["signalhub-local-only-change-me", secrets.postgresPassword],
@@ -44,6 +49,9 @@ export function createSmokeEnvContent(envExample: string, secrets: GeneratedSecr
   upsert("SIGNALHUB_PUBLIC_ENDPOINT", apiUrl);
   upsert("BOOTSTRAP_ADMIN_EMAIL", secrets.adminEmail);
   upsert("BOOTSTRAP_ADMIN_PASSWORD", secrets.adminPassword);
+  if (envFilePath) {
+    upsert("SIGNALHUB_ENV_FILE", envFilePath);
+  }
 
   return lines.join("\n");
 }
@@ -60,7 +68,7 @@ export async function writeSmokeResources(input: {
   const envFile = join(tempDir, ".env");
   const sourceMapFile = join(tempDir, "app.min.js.map");
 
-  await writeFile(envFile, createSmokeEnvContent(envExample, secrets, input.apiUrl));
+  await writeFile(envFile, createSmokeEnvContent(envExample, secrets, input.apiUrl, envFile));
   await writeFile(sourceMapFile, sourceMapFixtureContent());
 
   return { tempDir, envFile, sourceMapFile, secrets };

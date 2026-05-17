@@ -38,6 +38,7 @@ export function createSmokePayloads(runId: string) {
       source: "smoke-compose",
       release: `web@${runId}`,
       name: `${runId}.checkout`,
+      started_at: "2026-05-17T12:00:29.000Z",
       duration_ms: 2400,
       status: "success"
     },
@@ -48,10 +49,10 @@ export function createSmokePayloads(runId: string) {
       session_id: `sess_${runId}`,
       trace_id: `trace_${runId}`,
       span_id: `span_${runId}`,
-      parent_span_id: null,
       source: "smoke-compose",
       release: `web@${runId}`,
       name: `${runId}.db.query`,
+      started_at: "2026-05-17T12:00:31.000Z",
       duration_ms: 120,
       status: "success"
     },

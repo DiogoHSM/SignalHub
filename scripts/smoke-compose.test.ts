@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { spanPayloadSchema, tracePayloadSchema } from "@signal-hub/telemetry/ingestion-schemas";
 import { describe, expect, it, vi } from "vitest";
 import { parseSmokeArgs } from "./smoke-compose/args.js";
 import { formatCommandFailure, runCommand } from "./smoke-compose/command.js";
@@ -258,11 +259,19 @@ describe("smoke compose temp env", () => {
       });
 
       expect(resources.envFile).toContain(root);
-      expect(await readFile(resources.envFile, "utf8")).toContain("BOOTSTRAP_ADMIN_EMAIL=phase6b-admin@example.com");
+      const envContent = await readFile(resources.envFile, "utf8");
+      expect(envContent).toContain("BOOTSTRAP_ADMIN_EMAIL=phase6b-admin@example.com");
+      expect(envContent).toContain(`SIGNALHUB_ENV_FILE=${resources.envFile}`);
       expect(await readFile(resources.sourceMapFile, "utf8")).toContain('"sources":["src/app.ts"]');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("lets compose services load the generated env file path", async () => {
+    const compose = await readFile("docker-compose.yml", "utf8");
+
+    expect(compose.match(/path: \$\{SIGNALHUB_ENV_FILE:-\.env\}/g)).toHaveLength(2);
   });
 });
 
@@ -274,6 +283,14 @@ describe("smoke compose fixtures", () => {
     expect(payloads.error.fingerprint).toBe("phase6b-checkout-error");
     expect(payloads.trace.trace_id).toBe("trace_phase6b");
     expect(payloads.breadcrumb.message).toBe("Phase 6B selected shipping method");
+  });
+
+  it("creates traces accepted by the ingestion schema", () => {
+    expect(() => tracePayloadSchema.parse(createSmokePayloads("phase6b").trace)).not.toThrow();
+  });
+
+  it("creates spans accepted by the ingestion schema", () => {
+    expect(() => spanPayloadSchema.parse(createSmokePayloads("phase6b").span)).not.toThrow();
   });
 
   it("creates a source map that resolves app.min.js to src/app.ts", () => {
