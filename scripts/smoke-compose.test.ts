@@ -1,11 +1,16 @@
 import { EventEmitter } from "node:events";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { parseSmokeArgs } from "./smoke-compose/args.js";
 import { formatCommandFailure, runCommand } from "./smoke-compose/command.js";
 import { cleanupPlan } from "./smoke-compose/cleanup.js";
+import { createSmokePayloads, sourceMapFixtureContent } from "./smoke-compose/fixtures.js";
 import { createRedactor } from "./smoke-compose/redaction.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
+import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
 
 describe("smoke compose primitives", () => {
   it("uses default smoke options", () => {
@@ -208,5 +213,74 @@ describe("smoke compose cleanup plan", () => {
       message:
         "Preserved Compose project signalhub_keep and temp directory /tmp/signalhub-smoke-2. Inspect logs with docker compose -p signalhub_keep logs."
     });
+  });
+});
+
+describe("smoke compose temp env", () => {
+  it("generates non-example local values from env example content", () => {
+    const secrets = defaultSmokeSecrets("phase6b");
+    const env = createSmokeEnvContent(
+      [
+        "DATABASE_URL=postgres://signalhub:signalhub-local-only-change-me@localhost:5432/signalhub",
+        "REDIS_URL=redis://localhost:6379",
+        "SESSION_SECRET=change-me-to-a-long-random-secret",
+        "API_KEY_PEPPER=change-me-to-a-long-random-pepper",
+        "BOOTSTRAP_ADMIN_EMAIL=admin@example.com",
+        "BOOTSTRAP_ADMIN_PASSWORD=change-me-admin-password-32-chars-min",
+        "POSTGRES_PASSWORD=signalhub-local-only-change-me",
+        "SIGNALHUB_PUBLIC_ENDPOINT=http://localhost:3000"
+      ].join("\n"),
+      secrets,
+      "http://localhost:3000"
+    );
+
+    expect(env).toContain("BOOTSTRAP_ADMIN_EMAIL=phase6b-admin@example.com");
+    expect(env).toContain("SIGNALHUB_PUBLIC_ENDPOINT=http://localhost:3000");
+    expect(env).not.toContain("change-me");
+    expect(env).not.toContain("signalhub-local-only-change-me");
+  });
+
+  it("writes env and source-map resources into a temp directory", async () => {
+    const root = join(tmpdir(), `signalhub-smoke-test-${Date.now()}`);
+    await mkdir(root, { recursive: true });
+    const envExample = join(root, ".env.example");
+    await writeFile(
+      envExample,
+      "BOOTSTRAP_ADMIN_EMAIL=admin@example.com\nBOOTSTRAP_ADMIN_PASSWORD=change-me-admin-password-32-chars-min\n"
+    );
+
+    try {
+      const resources = await writeSmokeResources({
+        tempRoot: root,
+        envExamplePath: envExample,
+        apiUrl: "http://localhost:3000",
+        runId: "phase6b"
+      });
+
+      expect(resources.envFile).toContain(root);
+      expect(await readFile(resources.envFile, "utf8")).toContain("BOOTSTRAP_ADMIN_EMAIL=phase6b-admin@example.com");
+      expect(await readFile(resources.sourceMapFile, "utf8")).toContain('"sources":["src/app.ts"]');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("smoke compose fixtures", () => {
+  it("creates deterministic payloads with a run marker", () => {
+    const payloads = createSmokePayloads("phase6b");
+
+    expect(payloads.event.name).toBe("phase6b.account.created");
+    expect(payloads.error.fingerprint).toBe("phase6b-checkout-error");
+    expect(payloads.trace.trace_id).toBe("trace_phase6b");
+    expect(payloads.breadcrumb.message).toBe("Phase 6B selected shipping method");
+  });
+
+  it("creates a source map that resolves app.min.js to src/app.ts", () => {
+    const content = JSON.parse(sourceMapFixtureContent());
+
+    expect(content.file).toBe("app.min.js");
+    expect(content.sources).toEqual(["src/app.ts"]);
+    expect(content.names).toContain("checkout");
   });
 });
