@@ -9,7 +9,15 @@ import { parseSmokeArgs } from "./smoke-compose/args.js";
 import { formatCommandFailure, runCommand } from "./smoke-compose/command.js";
 import { cleanupPlan } from "./smoke-compose/cleanup.js";
 import { createSmokePayloads, sourceMapFixtureContent } from "./smoke-compose/fixtures.js";
-import { SmokeHttpError, createCookieJar, expectArrayContains, getJson, pollUntil, postJson } from "./smoke-compose/http.js";
+import {
+  SmokeHttpError,
+  createCookieJar,
+  expectArrayContains,
+  getJson,
+  pollUntil,
+  postJson,
+  uploadSourceMapFile
+} from "./smoke-compose/http.js";
 import { createRedactor } from "./smoke-compose/redaction.js";
 import { runSmokeCompose } from "./smoke-compose/runner.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
@@ -365,6 +373,39 @@ describe("smoke compose HTTP helpers", () => {
   it("asserts arrays contain matching objects", () => {
     expectArrayContains([{ name: "phase6b.account.created" }], (item) => item.name === "phase6b.account.created", "event marker");
     expect(() => expectArrayContains([], () => false, "missing marker")).toThrow("Expected missing marker");
+  });
+});
+
+describe("smoke compose source map upload", () => {
+  it("uploads a source map file with a bearer token", async () => {
+    const calls: Array<[string, RequestInit]> = [];
+    const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push([String(url), init ?? {}]);
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({ artifacts: [{ minifiedFile: "app.min.js" }] }),
+        text: async () => "{}"
+      } as Response;
+    };
+
+    const response = await uploadSourceMapFile("http://localhost:3000", {
+      token: "shsmap_secret",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "web@phase6b",
+      filePath: "/tmp/app.min.js.map",
+      minifiedFile: "app.min.js",
+      fileContent: "{}",
+      fetchImpl
+    });
+
+    expect(response.artifacts[0].minifiedFile).toBe("app.min.js");
+    expect(calls[0][0]).toBe("http://localhost:3000/v1/source-maps");
+    const headers = new Headers(calls[0][1].headers);
+    expect(headers.get("authorization")).toBe("Bearer shsmap_secret");
+    expect(calls[0][1].body).toBeInstanceOf(FormData);
   });
 });
 

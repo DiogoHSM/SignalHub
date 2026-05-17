@@ -1,8 +1,17 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { parseSmokeArgs } from "./args.js";
 import { cleanupPlan } from "./cleanup.js";
 import { formatCommandFailure, runCommand as runCommandImpl } from "./command.js";
 import { createSmokePayloads } from "./fixtures.js";
+import {
+  createCookieJar,
+  expectArrayContains,
+  getJson,
+  pollUntil,
+  postBearerJson,
+  postJson,
+  uploadSourceMapFile
+} from "./http.js";
 import { createRedactor } from "./redaction.js";
 import { createStepRecorder, renderSummary } from "./steps.js";
 import { writeSmokeResources } from "./temp-env.js";
@@ -12,18 +21,24 @@ type PreparedResources = SmokeResources & {
   secrets: GeneratedSecrets;
 };
 
+type SmokeScope = { projectId: string; environmentId: string; errorId: string };
+let lastSmokeScope: SmokeScope | undefined;
+
+type HttpSmokeInput = {
+  apiUrl: string;
+  adminEmail: string;
+  adminPassword: string;
+  sourceMapFile: string;
+  phase: "pre-restore" | "post-restore";
+  redact: (value: string) => string;
+  addSecret?: (secret: string | undefined) => void;
+};
+
 export type SmokeRunnerDependencies = {
   getCommit: () => Promise<string>;
   prepareResources: () => Promise<PreparedResources>;
   runCommand: (input: CommandInput) => Promise<CommandResult>;
-  runHttpSmoke: (input: {
-    apiUrl: string;
-    adminEmail: string;
-    adminPassword: string;
-    sourceMapFile: string;
-    phase: "pre-restore" | "post-restore";
-    redact: (value: string) => string;
-  }) => Promise<void>;
+  runHttpSmoke: (input: HttpSmokeInput) => Promise<void>;
   removeTempDir: (dir: string) => Promise<void>;
 };
 
@@ -68,9 +83,229 @@ async function assertCommand(
   return result;
 }
 
-async function defaultRunHttpSmoke(): Promise<void> {
-  createSmokePayloads("phase6b");
-  throw new Error("HTTP smoke flow requires the Task 6 implementation before pnpm smoke:compose is run against real services");
+function pathUrl(apiUrl: string, path: string): string {
+  return `${apiUrl}${path}`;
+}
+
+function queryUrl(apiUrl: string, path: string, params: Record<string, string | number | undefined>): string {
+  const query = Object.entries(params)
+    .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join("&");
+  return `${apiUrl}${path}?${query}`;
+}
+
+function encodedPath(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function requireString(value: string | undefined, label: string): string {
+  if (!value) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
+}
+
+async function defaultRunHttpSmoke(input: HttpSmokeInput): Promise<void> {
+  const runId = "phase6b";
+  const payloads = createSmokePayloads(runId);
+  const apiUrl = input.apiUrl.replace(/\/+$/, "");
+  const cookieJar = createCookieJar();
+
+  await postJson(pathUrl(apiUrl, "/auth/login"), { email: input.adminEmail, password: input.adminPassword }, {
+    cookieJar,
+    redact: input.redact
+  });
+
+  if (input.phase === "post-restore") {
+    if (!lastSmokeScope) {
+      throw new Error("Missing smoke project identifiers for post-restore check");
+    }
+
+    await assertRestoredSmokeData(apiUrl, cookieJar, lastSmokeScope, payloads, input.redact);
+    return;
+  }
+
+  const projectResponse = await postJson<{ project: { id: string } }>(
+    pathUrl(apiUrl, "/admin/projects"),
+    { name: "Phase 6B Smoke Harness" },
+    { cookieJar, redact: input.redact }
+  );
+  const projectId = projectResponse.project.id;
+
+  const environmentResponse = await postJson<{ environment: { id: string } }>(
+    pathUrl(apiUrl, `/admin/projects/${encodedPath(projectId)}/environments`),
+    { name: "production" },
+    { cookieJar, redact: input.redact }
+  );
+  const environmentId = environmentResponse.environment.id;
+
+  const apiKeyResponse = await postJson<{ apiKey: { secret?: string } }>(
+    pathUrl(apiUrl, `/admin/projects/${encodedPath(projectId)}/api-keys`),
+    { environmentId, name: "Phase 6B Smoke Ingestion" },
+    { cookieJar, redact: input.redact }
+  );
+  const apiKeySecret = requireString(apiKeyResponse.apiKey.secret, "admin API key secret");
+  input.addSecret?.(apiKeySecret);
+
+  const sourceMapTokenResponse = await postJson<{ token: { secret?: string } }>(
+    pathUrl(apiUrl, "/admin/source-map-upload-tokens"),
+    { projectId, environmentId, name: "Phase 6B Smoke Source Maps" },
+    { cookieJar, redact: input.redact }
+  );
+  const sourceMapTokenSecret = requireString(sourceMapTokenResponse.token.secret, "source map upload token secret");
+  input.addSecret?.(sourceMapTokenSecret);
+
+  await postBearerJson(pathUrl(apiUrl, "/v1/events"), payloads.event, apiKeySecret, { redact: input.redact });
+  const errorResponse = await postBearerJson<{ accepted: true; id: string }>(
+    pathUrl(apiUrl, "/v1/errors"),
+    payloads.error,
+    apiKeySecret,
+    { redact: input.redact }
+  );
+  await postBearerJson(pathUrl(apiUrl, "/v1/traces"), payloads.trace, apiKeySecret, { redact: input.redact });
+  await postBearerJson(pathUrl(apiUrl, "/v1/spans"), payloads.span, apiKeySecret, { redact: input.redact });
+  await postBearerJson(pathUrl(apiUrl, "/v1/llm"), payloads.llm, apiKeySecret, { redact: input.redact });
+  await postBearerJson(pathUrl(apiUrl, "/v1/breadcrumbs"), payloads.breadcrumb, apiKeySecret, { redact: input.redact });
+
+  await uploadSourceMapFile(apiUrl, {
+    token: sourceMapTokenSecret,
+    projectId,
+    environmentId,
+    release: "web@phase6b",
+    filePath: input.sourceMapFile,
+    minifiedFile: "app.min.js",
+    fileContent: await readFile(input.sourceMapFile, "utf8")
+  });
+
+  const scope = { projectId, environmentId, errorId: errorResponse.id };
+  await pollUntil(
+    "smoke event query",
+    async () => {
+      const response = await getJson<{ data: Array<{ name: string }> }>(
+        scopedQueryUrl(apiUrl, "/query/events", scope, { event_name: payloads.event.name }),
+        { cookieJar, redact: input.redact }
+      );
+      return response.data.some((event) => event.name === payloads.event.name) ? response : null;
+    },
+    { attempts: 20, delayMs: 500 }
+  );
+
+  await assertPreRestoreSmokeData(apiUrl, cookieJar, scope, payloads, input.redact);
+  lastSmokeScope = scope;
+}
+
+function scopedQueryUrl(
+  apiUrl: string,
+  path: string,
+  scope: Pick<SmokeScope, "projectId" | "environmentId">,
+  params: Record<string, string | number | undefined> = {}
+): string {
+  return queryUrl(apiUrl, path, {
+    project_id: scope.projectId,
+    environment_id: scope.environmentId,
+    ...params
+  });
+}
+
+async function assertPreRestoreSmokeData(
+  apiUrl: string,
+  cookieJar: ReturnType<typeof createCookieJar>,
+  scope: SmokeScope,
+  payloads: ReturnType<typeof createSmokePayloads>,
+  redact: (value: string) => string
+): Promise<void> {
+  const errors = await getJson<{ data: Array<{ id: string; message: string }> }>(
+    scopedQueryUrl(apiUrl, "/query/errors", scope, { fingerprint: payloads.error.fingerprint }),
+    { cookieJar, redact }
+  );
+  expectArrayContains(errors.data, (error) => error.message === payloads.error.message, "smoke error message");
+
+  const errorGroups = await getJson<{ data: Array<{ fingerprint: string }> }>(
+    scopedQueryUrl(apiUrl, "/query/error-groups", scope, { fingerprint: payloads.error.fingerprint }),
+    { cookieJar, redact }
+  );
+  expectArrayContains(errorGroups.data, (group) => group.fingerprint === payloads.error.fingerprint, "smoke error group");
+
+  const traces = await getJson<{ data: Array<{ traceId: string }> }>(
+    scopedQueryUrl(apiUrl, "/query/traces", scope, { trace_id: payloads.trace.trace_id }),
+    { cookieJar, redact }
+  );
+  expectArrayContains(traces.data, (trace) => trace.traceId === payloads.trace.trace_id, "smoke trace");
+
+  const llmCalls = await getJson<{ data: Array<{ promptName: string | null }> }>(
+    scopedQueryUrl(apiUrl, "/query/llm-calls", scope, { prompt_name: payloads.llm.prompt_name }),
+    { cookieJar, redact }
+  );
+  expectArrayContains(llmCalls.data, (llmCall) => llmCall.promptName === payloads.llm.prompt_name, "smoke LLM call");
+
+  const tenants = await getJson<{ data: { tenants: Array<{ tenantId: string }> } }>(
+    scopedQueryUrl(apiUrl, "/query/entities/tenants", scope),
+    { cookieJar, redact }
+  );
+  expectArrayContains(tenants.data.tenants, (tenant) => tenant.tenantId === payloads.event.tenant_id, "smoke tenant");
+
+  const users = await getJson<{ data: { users: Array<{ userId: string }> } }>(
+    scopedQueryUrl(apiUrl, "/query/users", scope),
+    { cookieJar, redact }
+  );
+  expectArrayContains(users.data.users, (user) => user.userId === payloads.event.user_id, "smoke user");
+
+  await assertSessionTimeline(apiUrl, cookieJar, scope, payloads, redact);
+
+  const sourceMapResolution = await getJson<{
+    data: { status: string; frames: Array<{ originalSource?: string; originalName?: string }> };
+  }>(scopedQueryUrl(apiUrl, `/query/errors/${encodedPath(scope.errorId)}/source-map-resolution`, scope), { cookieJar, redact });
+  if (sourceMapResolution.data.status !== "resolved") {
+    throw new Error(`Expected source map resolution status resolved, received ${sourceMapResolution.data.status}`);
+  }
+  expectArrayContains(
+    sourceMapResolution.data.frames,
+    (frame) => frame.originalSource === "src/app.ts" && frame.originalName === "checkout",
+    "resolved source map frame"
+  );
+}
+
+async function assertRestoredSmokeData(
+  apiUrl: string,
+  cookieJar: ReturnType<typeof createCookieJar>,
+  scope: SmokeScope,
+  payloads: ReturnType<typeof createSmokePayloads>,
+  redact: (value: string) => string
+): Promise<void> {
+  const events = await getJson<{ data: Array<{ name: string }> }>(
+    scopedQueryUrl(apiUrl, "/query/events", scope, { event_name: payloads.event.name }),
+    { cookieJar, redact }
+  );
+  expectArrayContains(events.data, (event) => event.name === payloads.event.name, "restored smoke event");
+
+  const errors = await getJson<{ data: Array<{ id: string; message: string }> }>(
+    scopedQueryUrl(apiUrl, "/query/errors", scope, { fingerprint: payloads.error.fingerprint }),
+    { cookieJar, redact }
+  );
+  expectArrayContains(errors.data, (error) => error.message === payloads.error.message, "restored smoke error");
+
+  const traces = await getJson<{ data: Array<{ traceId: string }> }>(
+    scopedQueryUrl(apiUrl, "/query/traces", scope, { trace_id: payloads.trace.trace_id }),
+    { cookieJar, redact }
+  );
+  expectArrayContains(traces.data, (trace) => trace.traceId === payloads.trace.trace_id, "restored smoke trace");
+
+  await assertSessionTimeline(apiUrl, cookieJar, scope, payloads, redact);
+}
+
+async function assertSessionTimeline(
+  apiUrl: string,
+  cookieJar: ReturnType<typeof createCookieJar>,
+  scope: Pick<SmokeScope, "projectId" | "environmentId">,
+  payloads: ReturnType<typeof createSmokePayloads>,
+  redact: (value: string) => string
+): Promise<void> {
+  const timeline = await getJson<{ data: { items: Array<{ title: string }> } }>(
+    scopedQueryUrl(apiUrl, `/query/sessions/${encodedPath(payloads.event.session_id)}/timeline`, scope),
+    { cookieJar, redact }
+  );
+  expectArrayContains(timeline.data.items, (item) => item.title === payloads.breadcrumb.message, "smoke breadcrumb timeline item");
 }
 
 export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<number> {
@@ -129,7 +364,8 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
       adminPassword: resources.secrets.adminPassword,
       sourceMapFile: resources.sourceMapFile,
       phase: "pre-restore",
-      redact: redactor.redact
+      redact: redactor.redact,
+      addSecret: redactor.add
     });
     recorder.pass("http smoke", "pre-restore data verified");
 
@@ -171,7 +407,8 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
       adminPassword: resources.secrets.adminPassword,
       sourceMapFile: resources.sourceMapFile,
       phase: "post-restore",
-      redact: redactor.redact
+      redact: redactor.redact,
+      addSecret: redactor.add
     });
     recorder.pass("post-restore smoke", "restored data verified");
 

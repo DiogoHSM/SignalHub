@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+
 export class SmokeHttpError extends Error {
   constructor(
     message: string,
@@ -89,6 +91,44 @@ export function postJson<T>(url: string, body: unknown, options?: HttpOptions): 
 
 export function postBearerJson<T>(url: string, body: unknown, bearerToken: string, options: HttpOptions = {}): Promise<T> {
   return postJson<T>(url, body, { ...options, bearerToken });
+}
+
+export async function uploadSourceMapFile(
+  apiUrl: string,
+  input: {
+    token: string;
+    projectId: string;
+    environmentId: string;
+    release: string;
+    filePath: string;
+    minifiedFile: string;
+    fileContent: string;
+    fetchImpl?: typeof fetch;
+  }
+): Promise<{ artifacts: Array<{ minifiedFile: string }> }> {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+  if (!fetchImpl) throw new Error("fetch is unavailable");
+
+  const form = new FormData();
+  form.set("project_id", input.projectId);
+  form.set("environment_id", input.environmentId);
+  form.set("release", input.release);
+  form.set("minified_file", input.minifiedFile);
+  form.set("file", new Blob([input.fileContent], { type: "application/json" }), basename(input.filePath) || "app.min.js.map");
+
+  const response = await fetchImpl(`${apiUrl.replace(/\/+$/, "")}/v1/source-maps`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${input.token}`
+    },
+    body: form
+  });
+
+  if (!response.ok) {
+    throw new SmokeHttpError("source map upload failed", response.status, await response.text());
+  }
+
+  return (await response.json()) as { artifacts: Array<{ minifiedFile: string }> };
 }
 
 export async function pollUntil<T>(
