@@ -1,5 +1,9 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { parseSmokeArgs } from "./smoke-compose/args.js";
+import { formatCommandFailure, runCommand } from "./smoke-compose/command.js";
+import { cleanupPlan } from "./smoke-compose/cleanup.js";
 import { createRedactor } from "./smoke-compose/redaction.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 
@@ -82,5 +86,68 @@ describe("smoke compose primitives", () => {
       "- Warnings: 1",
       "- Failed: 1"
     ].join("\n"));
+  });
+});
+
+class FakeProcess extends EventEmitter {
+  stdout = new PassThrough();
+  stderr = new PassThrough();
+  killedWith: NodeJS.Signals | number | undefined;
+
+  kill(signal?: NodeJS.Signals | number): boolean {
+    this.killedWith = signal;
+    this.emit("close", 143);
+    return true;
+  }
+}
+
+describe("smoke compose command execution", () => {
+  it("captures stdout, stderr, and exit code", async () => {
+    const child = new FakeProcess();
+    const promise = runCommand(
+      { command: "pnpm", args: ["--version"], timeoutMs: 500 },
+      {
+        spawnProcess: () => child
+      }
+    );
+
+    child.stdout.write("9.15.4\n");
+    child.stderr.write("warn\n");
+    child.emit("close", 0);
+
+    await expect(promise).resolves.toEqual({ exitCode: 0, stdout: "9.15.4\n", stderr: "warn\n" });
+  });
+
+  it("formats failures with redacted output", () => {
+    const message = formatCommandFailure(
+      { command: "curl", args: ["http://localhost:3000/auth/login"] },
+      { exitCode: 1, stdout: "", stderr: "password=super-secret" },
+      (value) => value.replaceAll("super-secret", "[REDACTED]")
+    );
+
+    expect(message).toContain("curl http://localhost:3000/auth/login");
+    expect(message).toContain("[REDACTED]");
+    expect(message).not.toContain("super-secret");
+  });
+});
+
+describe("smoke compose cleanup plan", () => {
+  it("removes compose resources and temp files by default", () => {
+    expect(cleanupPlan({ preserve: false, projectName: "signalhub_smoke", tempDir: "/tmp/signalhub-smoke-1" })).toEqual({
+      preserve: false,
+      commands: [["docker", "compose", "-p", "signalhub_smoke", "down", "-v"]],
+      removeTempDir: true,
+      message: "Cleanup will remove Compose resources and /tmp/signalhub-smoke-1"
+    });
+  });
+
+  it("preserves resources when requested", () => {
+    expect(cleanupPlan({ preserve: true, projectName: "signalhub_keep", tempDir: "/tmp/signalhub-smoke-2" })).toEqual({
+      preserve: true,
+      commands: [],
+      removeTempDir: false,
+      message:
+        "Preserved Compose project signalhub_keep and temp directory /tmp/signalhub-smoke-2. Inspect logs with docker compose -p signalhub_keep logs."
+    });
   });
 });
