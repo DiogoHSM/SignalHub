@@ -11,6 +11,7 @@ import { cleanupPlan } from "./smoke-compose/cleanup.js";
 import { createSmokePayloads, sourceMapFixtureContent } from "./smoke-compose/fixtures.js";
 import { SmokeHttpError, createCookieJar, expectArrayContains, getJson, pollUntil, postJson } from "./smoke-compose/http.js";
 import { createRedactor } from "./smoke-compose/redaction.js";
+import { runSmokeCompose } from "./smoke-compose/runner.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
 
@@ -364,5 +365,63 @@ describe("smoke compose HTTP helpers", () => {
   it("asserts arrays contain matching objects", () => {
     expectArrayContains([{ name: "phase6b.account.created" }], (item) => item.name === "phase6b.account.created", "event marker");
     expect(() => expectArrayContains([], () => false, "missing marker")).toThrow("Expected missing marker");
+  });
+});
+
+describe("smoke compose runner", () => {
+  it("runs lifecycle steps with cleanup by default", async () => {
+    const calls: string[] = [];
+    const lines: string[] = [];
+
+    const exitCode = await runSmokeCompose({
+      options: { projectName: "signalhub_smoke", apiUrl: "http://localhost:3000", preserve: false },
+      write: (line) => lines.push(line),
+      dependencies: {
+        getCommit: async () => "abc1234",
+        prepareResources: async () => ({
+          tempDir: "/tmp/signalhub-smoke-1",
+          envFile: "/tmp/signalhub-smoke-1/.env",
+          sourceMapFile: "/tmp/signalhub-smoke-1/app.min.js.map",
+          secrets: {
+            postgresPassword: "postgres-secret",
+            sessionSecret: "session-secret",
+            apiKeyPepper: "pepper-secret",
+            adminEmail: "phase6b-admin@example.com",
+            adminPassword: "admin-secret"
+          }
+        }),
+        runCommand: async (input) => {
+          calls.push([input.command, ...input.args].join(" "));
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        },
+        runHttpSmoke: async () => {
+          calls.push("http-smoke");
+        },
+        removeTempDir: async (dir) => {
+          calls.push(`rm ${dir}`);
+        }
+      }
+    });
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([
+      "pnpm run doctor -- --env-file /tmp/signalhub-smoke-1/.env",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env config --quiet",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env up -d postgres redis",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm api pnpm seed:admin",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env up -d --build",
+      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env",
+      "http-smoke",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:create",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/latest.dump",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env stop api worker",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/latest.dump --yes",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env start api worker",
+      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env",
+      "http-smoke",
+      "docker compose -p signalhub_smoke down -v",
+      "rm /tmp/signalhub-smoke-1"
+    ]);
+    expect(lines.join("\n")).toContain("Smoke summary");
   });
 });
