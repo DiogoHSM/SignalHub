@@ -67,7 +67,7 @@ describe("smoke compose primitives", () => {
     ]);
     expect(
       renderSummary({ commit: "abc1234", projectName: "signalhub_smoke", apiUrl: "http://localhost:3000" }, recorder.results())
-    ).toEqual([
+    ).toBe([
       "Smoke summary",
       "- Commit: abc1234",
       "- Compose project: signalhub_smoke",
@@ -75,6 +75,6 @@ describe("smoke compose primitives", () => {
       "- Passed: 1",
       "- Warnings: 1",
       "- Failed: 1"
-    ]);
+    ].join("\n"));
   });
 });

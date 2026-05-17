@@ -32,7 +32,7 @@ export function createStepRecorder(write: (line: string) => void): StepRecorder 
   };
 }
 
-export function renderSummary(context: SmokeSummaryContext, results: StepResult[]): string[] {
+export function renderSummary(context: SmokeSummaryContext, results: StepResult[]): string {
   return [
     "Smoke summary",
     `- Commit: ${context.commit}`,
@@ -41,7 +41,7 @@ export function renderSummary(context: SmokeSummaryContext, results: StepResult[
     `- Passed: ${countStatus(results, "pass")}`,
     `- Warnings: ${countStatus(results, "warn")}`,
     `- Failed: ${countStatus(results, "fail")}`
-  ];
+  ].join("\n");
 }
 
 function formatStep(result: StepResult): string {
