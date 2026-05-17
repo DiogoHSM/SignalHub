@@ -44,6 +44,12 @@ describe("smoke compose primitives", () => {
     );
   });
 
+  it("redacts uppercase HTTPS credential URLs", () => {
+    const redactor = createRedactor([]);
+
+    expect(redactor.redact("HTTPS://user:pass@example.com/path")).toBe("HTTPS://[REDACTED]@example.com/path");
+  });
+
   it("redacts secrets registered after creation", () => {
     const redactor = createRedactor([]);
 

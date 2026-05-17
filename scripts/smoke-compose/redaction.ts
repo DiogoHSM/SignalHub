@@ -33,15 +33,16 @@ export function createRedactor(initialSecrets: Array<string | undefined>): Redac
 }
 
 function redactUrlCredentials(value: string): string {
-  return value.replace(/\bhttps?:\/\/[^\s]+/g, (candidate) => {
+  return value.replace(/\bhttps?:\/\/[^\s]+/gi, (candidate) => {
     try {
       const url = new URL(candidate);
+      const scheme = candidate.slice(0, candidate.indexOf(":"));
 
       if (!url.username && !url.password) {
         return candidate;
       }
 
-      return `${url.protocol}//${REDACTED}@${url.host}${url.pathname}${url.search}${url.hash}`;
+      return `${scheme}://${REDACTED}@${url.host}${url.pathname}${url.search}${url.hash}`;
     } catch {
       return candidate;
     }
