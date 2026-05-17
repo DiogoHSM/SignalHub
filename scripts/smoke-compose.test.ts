@@ -369,29 +369,42 @@ describe("smoke compose HTTP helpers", () => {
 });
 
 describe("smoke compose runner", () => {
+  const runnerOptions = { projectName: "signalhub_smoke", apiUrl: "http://localhost:3000", preserve: false };
+
+  const preparedResources = async () => ({
+    tempDir: "/tmp/signalhub-smoke-1",
+    envFile: "/tmp/signalhub-smoke-1/.env",
+    sourceMapFile: "/tmp/signalhub-smoke-1/app.min.js.map",
+    secrets: {
+      postgresPassword: "postgres-secret",
+      sessionSecret: "session-secret",
+      apiKeyPepper: "pepper-secret",
+      adminEmail: "phase6b-admin@example.com",
+      adminPassword: "admin-secret"
+    }
+  });
+
+  const commandString = (input: { command: string; args: string[] }) => [input.command, ...input.args].join(" ");
+
   it("runs lifecycle steps with cleanup by default", async () => {
     const calls: string[] = [];
     const lines: string[] = [];
 
     const exitCode = await runSmokeCompose({
-      options: { projectName: "signalhub_smoke", apiUrl: "http://localhost:3000", preserve: false },
+      options: runnerOptions,
       write: (line) => lines.push(line),
       dependencies: {
         getCommit: async () => "abc1234",
-        prepareResources: async () => ({
-          tempDir: "/tmp/signalhub-smoke-1",
-          envFile: "/tmp/signalhub-smoke-1/.env",
-          sourceMapFile: "/tmp/signalhub-smoke-1/app.min.js.map",
-          secrets: {
-            postgresPassword: "postgres-secret",
-            sessionSecret: "session-secret",
-            apiKeyPepper: "pepper-secret",
-            adminEmail: "phase6b-admin@example.com",
-            adminPassword: "admin-secret"
-          }
-        }),
+        prepareResources: preparedResources,
         runCommand: async (input) => {
-          calls.push([input.command, ...input.args].join(" "));
+          const command = commandString(input);
+          calls.push(command);
+          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
+            return { exitCode: 0, stdout: "/var/lib/signalhub/backups/signalhub-smoke.dump\n", stderr: "" };
+          }
+          if (command.includes("backup:restore -- ") && !command.endsWith(" --yes")) {
+            return { exitCode: 1, stdout: "", stderr: "Restore requires --yes" };
+          }
           return { exitCode: 0, stdout: "ok", stderr: "" };
         },
         runHttpSmoke: async () => {
@@ -413,9 +426,10 @@ describe("smoke compose runner", () => {
       "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env",
       "http-smoke",
       "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:create",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/latest.dump",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker sh -lc ls -1t /var/lib/signalhub/backups/*.dump | head -n 1",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-smoke.dump",
       "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env stop api worker",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/latest.dump --yes",
+      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-smoke.dump --yes",
       "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env start api worker",
       "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env",
       "http-smoke",
@@ -423,5 +437,71 @@ describe("smoke compose runner", () => {
       "rm /tmp/signalhub-smoke-1"
     ]);
     expect(lines.join("\n")).toContain("Smoke summary");
+  });
+
+  it("fails if restore without confirmation unexpectedly succeeds and still cleans up", async () => {
+    const calls: string[] = [];
+    const lines: string[] = [];
+
+    const exitCode = await runSmokeCompose({
+      options: runnerOptions,
+      write: (line) => lines.push(line),
+      dependencies: {
+        getCommit: async () => "abc1234",
+        prepareResources: preparedResources,
+        runCommand: async (input) => {
+          const command = commandString(input);
+          calls.push(command);
+          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
+            return { exitCode: 0, stdout: "/var/lib/signalhub/backups/signalhub-smoke.dump\n", stderr: "" };
+          }
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        },
+        runHttpSmoke: async () => {
+          calls.push("http-smoke");
+        },
+        removeTempDir: async (dir) => {
+          calls.push(`rm ${dir}`);
+        }
+      }
+    });
+
+    expect(exitCode).toBe(1);
+    expect(lines.join("\n")).toContain("restore without --yes unexpectedly succeeded");
+    expect(calls).toContain("docker compose -p signalhub_smoke down -v");
+    expect(calls).toContain("rm /tmp/signalhub-smoke-1");
+  });
+
+  it("fails if backup discovery returns no dump path and still cleans up", async () => {
+    const calls: string[] = [];
+    const lines: string[] = [];
+
+    const exitCode = await runSmokeCompose({
+      options: runnerOptions,
+      write: (line) => lines.push(line),
+      dependencies: {
+        getCommit: async () => "abc1234",
+        prepareResources: preparedResources,
+        runCommand: async (input) => {
+          const command = commandString(input);
+          calls.push(command);
+          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
+            return { exitCode: 0, stdout: "\n", stderr: "" };
+          }
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        },
+        runHttpSmoke: async () => {
+          calls.push("http-smoke");
+        },
+        removeTempDir: async (dir) => {
+          calls.push(`rm ${dir}`);
+        }
+      }
+    });
+
+    expect(exitCode).toBe(1);
+    expect(lines.join("\n")).toContain("Backup completed but no dump path was found");
+    expect(calls).toContain("docker compose -p signalhub_smoke down -v");
+    expect(calls).toContain("rm /tmp/signalhub-smoke-1");
   });
 });

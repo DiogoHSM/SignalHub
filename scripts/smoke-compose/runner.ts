@@ -133,14 +133,24 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     });
     recorder.pass("http smoke", "pre-restore data verified");
 
-    const backupPath = "/var/lib/signalhub/backups/latest.dump";
     await run(composeCommand(input.options.projectName, envFile, ["run", "--rm", "worker", "pnpm", "backup:create"]));
     recorder.pass("backup", "manual backup completed");
 
-    await run({
+    const backupDiscovery = await run(
+      composeCommand(input.options.projectName, envFile, ["run", "--rm", "worker", "sh", "-lc", "ls -1t /var/lib/signalhub/backups/*.dump | head -n 1"])
+    );
+    const backupPath = backupDiscovery.stdout.trim();
+    if (!backupPath) {
+      throw new Error("Backup completed but no dump path was found");
+    }
+
+    const unconfirmedRestore = await run({
       ...composeCommand(input.options.projectName, envFile, ["run", "--rm", "worker", "pnpm", "backup:restore", "--", backupPath]),
       allowFailure: true
     });
+    if (unconfirmedRestore.exitCode === 0) {
+      throw new Error("restore without --yes unexpectedly succeeded");
+    }
     recorder.pass("restore guard", "restore without --yes refused");
 
     await run(composeCommand(input.options.projectName, envFile, ["stop", "api", "worker"]));
