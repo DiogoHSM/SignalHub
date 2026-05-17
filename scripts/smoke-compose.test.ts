@@ -19,7 +19,7 @@ import {
   uploadSourceMapFile
 } from "./smoke-compose/http.js";
 import { createRedactor } from "./smoke-compose/redaction.js";
-import { runSmokeCompose } from "./smoke-compose/runner.js";
+import { pollForAssertion, runSmokeCompose } from "./smoke-compose/runner.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
 
@@ -374,6 +374,23 @@ describe("smoke compose HTTP helpers", () => {
     expectArrayContains([{ name: "phase6b.account.created" }], (item) => item.name === "phase6b.account.created", "event marker");
     expect(() => expectArrayContains([], () => false, "missing marker")).toThrow("Expected missing marker");
   });
+
+  it("polls assertions until they stop throwing", async () => {
+    let attempts = 0;
+
+    await pollForAssertion(
+      "eventually persisted smoke data",
+      async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new Error("not persisted yet");
+        }
+      },
+      { attempts: 5, delayMs: 1 }
+    );
+
+    expect(attempts).toBe(3);
+  });
 });
 
 describe("smoke compose source map upload", () => {
@@ -466,6 +483,7 @@ describe("smoke compose runner", () => {
   it("runs lifecycle steps with cleanup by default", async () => {
     const calls: string[] = [];
     const lines: string[] = [];
+    const smokeScope = { projectId: "prj_1", environmentId: "env_1", errorId: "err_1" };
 
     const exitCode = await runSmokeCompose({
       options: runnerOptions,
@@ -484,7 +502,13 @@ describe("smoke compose runner", () => {
           }
           return { exitCode: 0, stdout: "ok", stderr: "" };
         },
-        runHttpSmoke: async () => {
+        runHttpSmoke: async (input) => {
+          if (input.phase === "pre-restore") {
+            calls.push("http-smoke");
+            return smokeScope;
+          }
+
+          expect(input.scope).toEqual(smokeScope);
           calls.push("http-smoke");
         },
         removeTempDir: async (dir) => {
