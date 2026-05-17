@@ -31,8 +31,9 @@ export function truncateOutput(value: string, maxLines = 12): string {
 }
 
 export function formatCommandFailure(input: CommandInput, result: CommandResult, redact: (value: string) => string): string {
+  const command = redact(commandToString(input));
   const output = truncateOutput(result.stderr || result.stdout || `exit ${result.exitCode}`);
-  return `${commandToString(input)} failed\n${redact(output)}`;
+  return `${command} failed\n${redact(output)}`;
 }
 
 export function runCommand(input: CommandInput, dependencies: RunCommandDependencies = {}): Promise<CommandResult> {
@@ -80,7 +81,6 @@ export function runCommand(input: CommandInput, dependencies: RunCommandDependen
       killTimer = setTimeout(() => {
         if (!settled) {
           child.kill("SIGKILL");
-          settle(() => reject(new Error(`${commandToString(input)} timed out after ${timeoutMs}ms`)));
         }
       }, 1000);
     }, timeoutMs);

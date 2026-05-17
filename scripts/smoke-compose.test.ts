@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseSmokeArgs } from "./smoke-compose/args.js";
 import { formatCommandFailure, runCommand } from "./smoke-compose/command.js";
 import { cleanupPlan } from "./smoke-compose/cleanup.js";
@@ -101,6 +101,17 @@ class FakeProcess extends EventEmitter {
   }
 }
 
+class HangingFakeProcess extends EventEmitter {
+  stdout = new PassThrough();
+  stderr = new PassThrough();
+  killedWith: Array<NodeJS.Signals | number | undefined> = [];
+
+  kill(signal?: NodeJS.Signals | number): boolean {
+    this.killedWith.push(signal);
+    return true;
+  }
+}
+
 describe("smoke compose command execution", () => {
   it("captures stdout, stderr, and exit code", async () => {
     const child = new FakeProcess();
@@ -128,6 +139,52 @@ describe("smoke compose command execution", () => {
     expect(message).toContain("curl http://localhost:3000/auth/login");
     expect(message).toContain("[REDACTED]");
     expect(message).not.toContain("super-secret");
+  });
+
+  it("redacts secrets from formatted command arguments", () => {
+    const message = formatCommandFailure(
+      { command: "pnpm", args: ["source-maps:upload", "--token", "super-secret"] },
+      { exitCode: 1, stdout: "", stderr: "upload failed" },
+      (value) => value.replaceAll("super-secret", "[REDACTED]")
+    );
+
+    expect(message).toContain("[REDACTED]");
+    expect(message).not.toContain("super-secret");
+  });
+
+  it("waits for process close after timeout SIGKILL escalation", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const child = new HangingFakeProcess();
+      let settled = false;
+      const promise = runCommand(
+        { command: "sleep", args: ["10"], timeoutMs: 5 },
+        {
+          spawnProcess: () => child
+        }
+      ).catch((error: Error) => {
+        settled = true;
+        return error;
+      });
+
+      await vi.advanceTimersByTimeAsync(5);
+      expect(child.killedWith).toEqual(["SIGTERM"]);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(child.killedWith).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(settled).toBe(false);
+
+      child.emit("close", null);
+
+      const error = await promise;
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain("sleep 10 timed out after 5ms");
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
