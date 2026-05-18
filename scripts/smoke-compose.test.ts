@@ -19,7 +19,7 @@ import {
   uploadSourceMapFile
 } from "./smoke-compose/http.js";
 import { createRedactor } from "./smoke-compose/redaction.js";
-import { pollForAssertion, runSmokeCompose } from "./smoke-compose/runner.js";
+import { isSmokeErrorGroup, pollForAssertion, runSmokeCompose } from "./smoke-compose/runner.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
 
@@ -375,6 +375,10 @@ describe("smoke compose HTTP helpers", () => {
     expect(() => expectArrayContains([], () => false, "missing marker")).toThrow("Expected missing marker");
   });
 
+  it("matches error group responses by grouping fingerprint", () => {
+    expect(isSmokeErrorGroup({ groupingFingerprint: "phase6b-checkout-error" }, "phase6b-checkout-error")).toBe(true);
+  });
+
   it("polls assertions until they stop throwing", async () => {
     let attempts = 0;
 
@@ -513,6 +517,9 @@ describe("smoke compose runner", () => {
         },
         removeTempDir: async (dir) => {
           calls.push(`rm ${dir}`);
+        },
+        wait: async (ms) => {
+          calls.push(`wait ${ms}`);
         }
       }
     });
@@ -538,6 +545,54 @@ describe("smoke compose runner", () => {
       "rm /tmp/signalhub-smoke-1"
     ]);
     expect(lines.join("\n")).toContain("Smoke summary");
+  });
+
+  it("retries compose doctor while the API becomes ready", async () => {
+    const calls: string[] = [];
+    const lines: string[] = [];
+    let composeDoctorAttempts = 0;
+    const smokeScope = { projectId: "prj_1", environmentId: "env_1", errorId: "err_1" };
+
+    const exitCode = await runSmokeCompose({
+      options: runnerOptions,
+      write: (line) => lines.push(line),
+      dependencies: {
+        getCommit: async () => "abc1234",
+        prepareResources: preparedResources,
+        runCommand: async (input) => {
+          const command = commandString(input);
+          calls.push(command);
+          if (command === "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env") {
+            composeDoctorAttempts += 1;
+            if (composeDoctorAttempts === 1) {
+              return { exitCode: 1, stdout: "[FAIL] API /ready is unreachable", stderr: "" };
+            }
+          }
+          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
+            return { exitCode: 0, stdout: "/var/lib/signalhub/backups/signalhub-smoke.dump\n", stderr: "" };
+          }
+          if (command.includes("backup:restore -- ") && !command.endsWith(" --yes")) {
+            return { exitCode: 1, stdout: "", stderr: "Restore requires --yes" };
+          }
+          return { exitCode: 0, stdout: "ok", stderr: "" };
+        },
+        runHttpSmoke: async (input) => {
+          if (input.phase === "pre-restore") {
+            return smokeScope;
+          }
+        },
+        removeTempDir: async (dir) => {
+          calls.push(`rm ${dir}`);
+        },
+        wait: async (ms) => {
+          calls.push(`wait ${ms}`);
+        }
+      }
+    });
+
+    expect(exitCode).toBe(0);
+    expect(composeDoctorAttempts).toBe(3);
+    expect(calls).toContain("wait 2500");
   });
 
   it("fails if restore without confirmation unexpectedly succeeds and still cleans up", async () => {

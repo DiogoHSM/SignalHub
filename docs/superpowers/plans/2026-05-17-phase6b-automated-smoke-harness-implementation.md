@@ -1917,7 +1917,7 @@ git commit -m "feat: discover smoke backup path"
 - Modify only files directly related to smoke runner blockers discovered by this task.
 - Modify: `docs/superpowers/plans/2026-05-17-phase6b-automated-smoke-harness-implementation.md`
 
-- [ ] **Step 1: Run focused unit tests**
+- [x] **Step 1: Run focused unit tests**
 
 Run:
 
@@ -1927,7 +1927,7 @@ pnpm exec vitest scripts/smoke-compose.test.ts --run
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run the smoke harness**
+- [x] **Step 2: Run the smoke harness**
 
 Run:
 
@@ -1937,7 +1937,7 @@ pnpm smoke:compose
 
 Expected: the command exits `0`, prints a summary, removes its Compose resources, and does not print generated secrets.
 
-- [ ] **Step 3: If the smoke fails, classify the failure before editing**
+- [x] **Step 3: If the smoke fails, classify the failure before editing**
 
 If `pnpm smoke:compose` fails, record the failing step in this plan under a new `## Smoke Run Notes` section using this exact format:
 
@@ -1954,7 +1954,7 @@ If `pnpm smoke:compose` fails, record the failing step in this plan under a new 
 
 Use `superpowers:systematic-debugging` before editing for product blockers or unclear failures.
 
-- [ ] **Step 4: Re-run the smoke harness after each fix**
+- [x] **Step 4: Re-run the smoke harness after each fix**
 
 Run:
 
@@ -1964,7 +1964,7 @@ pnpm smoke:compose
 
 Expected: the original failing smoke step now passes, or the failure is classified as a local Docker/environment issue with evidence.
 
-- [ ] **Step 5: Confirm cleanup after smoke**
+- [x] **Step 5: Confirm cleanup after smoke**
 
 Run:
 
@@ -1975,7 +1975,7 @@ docker volume ls --format '{{.Name}}' | rg '^signalhub_smoke_'
 
 Expected: both commands print no smoke containers or volumes. The `rg` command may exit `1` when no volumes remain.
 
-- [ ] **Step 6: Commit Task 8**
+- [x] **Step 6: Commit Task 8**
 
 If no fixes were needed, do not create an empty commit. If fixes were needed, run:
 
@@ -1983,6 +1983,62 @@ If no fixes were needed, do not create an empty commit. If fixes were needed, ru
 git add scripts package.json docs/superpowers/plans/2026-05-17-phase6b-automated-smoke-harness-implementation.md
 git commit -m "fix: stabilize smoke compose runner"
 ```
+
+## Smoke Run Notes
+
+### Smoke Failure 1: Docker Desktop paused
+
+- **Step:** dependencies
+- **Expected:** `pnpm smoke:compose` starts disposable Postgres and Redis Compose services.
+- **Actual:** `docker compose -p signalhub_smoke --env-file <temp-env> up -d postgres redis` failed because Docker reported `Docker Desktop is manually paused. Unpause it through the Whale menu or Dashboard.`
+- **Class:** local Docker/environment issue
+- **Fix:** no code changed; the Docker daemon must be unpaused before the real smoke run can continue.
+- **Verification:** `docker info` reproduced the same paused-Docker error.
+
+### Smoke Failure 2: Host ports already allocated
+
+- **Step:** dependencies
+- **Expected:** `pnpm smoke:compose` starts disposable Postgres and Redis Compose services.
+- **Actual:** preserved container inspection showed Docker could not bind `127.0.0.1:5432` and `127.0.0.1:6379`; those ports were held by another local Compose project.
+- **Class:** local Docker/environment issue
+- **Fix:** no code changed; the conflicting local project was stopped before retrying.
+- **Verification:** `docker ps --format '{{.Names}} {{.Ports}}'` showed no running containers holding the smoke ports before the next run.
+
+### Smoke Failure 3: First API image build exceeded command timeout
+
+- **Step:** seed admin
+- **Expected:** `docker compose run --rm api pnpm seed:admin` seeds the bootstrap admin.
+- **Actual:** the command timed out after `180000ms` during the first smoke run after dependencies started; Docker image inspection showed `signalhub_smoke-api:latest` had just been built.
+- **Class:** local Docker/environment issue
+- **Fix:** no code changed; the next run used the warm local image cache.
+- **Verification:** `pnpm smoke:compose` later passed the `seed admin` step.
+
+### Smoke Failure 4: Compose doctor raced API readiness
+
+- **Step:** compose doctor
+- **Expected:** the compose-mode doctor verifies running services and API `/health` plus `/ready`.
+- **Actual:** the first doctor run failed immediately after `docker compose up -d --build`, while a manual doctor run against the preserved stack passed seconds later.
+- **Class:** harness bug
+- **Fix:** `scripts/smoke-compose/runner.ts` now retries compose-mode doctor checks before failing.
+- **Verification:** `pnpm exec vitest scripts/smoke-compose.test.ts --run` passed with a retry regression, and `pnpm smoke:compose` passed the `compose doctor` step.
+
+### Smoke Failure 5: Error group assertion used the wrong response field
+
+- **Step:** http smoke
+- **Expected:** the smoke query finds the ingested error group by fingerprint.
+- **Actual:** the API returned `groupingFingerprint`, but the smoke assertion checked a non-existent `fingerprint` field, so polling could never match the valid error group response.
+- **Class:** harness bug
+- **Fix:** `scripts/smoke-compose/runner.ts` now matches error groups by `groupingFingerprint`.
+- **Verification:** `pnpm exec vitest scripts/smoke-compose.test.ts --run` passed with a response-shape regression, and `pnpm smoke:compose` completed with `Passed: 12`, `Failed: 0`.
+
+### Smoke Success: Real harness passed
+
+- **Step:** full smoke
+- **Expected:** `pnpm smoke:compose` verifies the Docker Compose release path and cleans up disposable resources.
+- **Actual:** the command passed all 12 smoke steps and printed `Failed: 0`.
+- **Class:** completed verification
+- **Fix:** no further code change needed for Task 8.
+- **Verification:** `docker ps -a --filter name=signalhub_smoke --format '{{.Names}} {{.Status}}'` printed no smoke containers, and `docker volume ls --format '{{.Name}}'` showed no `signalhub_smoke_` volumes.
 
 ## Task 9: Document The Smoke Harness
 

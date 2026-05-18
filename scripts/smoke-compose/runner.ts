@@ -40,6 +40,7 @@ export type SmokeRunnerDependencies = {
   runCommand: (input: CommandInput) => Promise<CommandResult>;
   runHttpSmoke: (input: HttpSmokeInput) => Promise<SmokeScope | void>;
   removeTempDir: (dir: string) => Promise<void>;
+  wait: (ms: number) => Promise<void>;
 };
 
 export type RunSmokeComposeInput = {
@@ -83,6 +84,30 @@ async function assertCommand(
   return result;
 }
 
+async function assertCommandEventually(
+  input: CommandInput,
+  runCommand: (input: CommandInput) => Promise<CommandResult>,
+  redact: (value: string) => string,
+  wait: (ms: number) => Promise<void>,
+  options = { attempts: 12, delayMs: 2500 }
+): Promise<CommandResult> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= options.attempts; attempt += 1) {
+    try {
+      return await assertCommand(input, runCommand, redact);
+    } catch (error) {
+      lastError = error;
+      if (attempt === options.attempts) {
+        break;
+      }
+      await wait(options.delayMs);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 function pathUrl(apiUrl: string, path: string): string {
   return `${apiUrl}${path}`;
 }
@@ -119,6 +144,10 @@ export async function pollForAssertion(
     },
     options
   );
+}
+
+export function isSmokeErrorGroup(group: { groupingFingerprint?: string }, fingerprint: string): boolean {
+  return group.groupingFingerprint === fingerprint;
 }
 
 async function defaultRunHttpSmoke(input: HttpSmokeInput): Promise<SmokeScope | void> {
@@ -238,11 +267,11 @@ async function assertPreRestoreSmokeData(
   });
 
   await pollForAssertion("smoke error group query", async () => {
-    const errorGroups = await getJson<{ data: Array<{ fingerprint: string }> }>(
+    const errorGroups = await getJson<{ data: Array<{ groupingFingerprint: string }> }>(
       scopedQueryUrl(apiUrl, "/query/error-groups", scope, { fingerprint: payloads.error.fingerprint }),
       { cookieJar, redact }
     );
-    expectArrayContains(errorGroups.data, (group) => group.fingerprint === payloads.error.fingerprint, "smoke error group");
+    expectArrayContains(errorGroups.data, (group) => isSmokeErrorGroup(group, payloads.error.fingerprint), "smoke error group");
   });
 
   await pollForAssertion("smoke trace query", async () => {
@@ -350,7 +379,8 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     prepareResources: input.dependencies?.prepareResources ?? (() => defaultPrepareResources(input.options)),
     runCommand: input.dependencies?.runCommand ?? runCommandImpl,
     runHttpSmoke: input.dependencies?.runHttpSmoke ?? defaultRunHttpSmoke,
-    removeTempDir: input.dependencies?.removeTempDir ?? ((dir) => rm(dir, { recursive: true, force: true }))
+    removeTempDir: input.dependencies?.removeTempDir ?? ((dir) => rm(dir, { recursive: true, force: true })),
+    wait: input.dependencies?.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   };
 
   let commit = "unknown";
@@ -385,12 +415,17 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     await run(composeCommand(input.options.projectName, envFile, ["up", "-d", "--build"]));
     recorder.pass("stack", "api and worker started");
 
-    await run({
-      command: "pnpm",
-      args: ["run", "doctor", "--", "--compose", "--api-url", input.options.apiUrl, "--env-file", envFile],
-      env: { COMPOSE_PROJECT_NAME: input.options.projectName },
-      timeoutMs: 60_000
-    });
+    await assertCommandEventually(
+      {
+        command: "pnpm",
+        args: ["run", "doctor", "--", "--compose", "--api-url", input.options.apiUrl, "--env-file", envFile],
+        env: { COMPOSE_PROJECT_NAME: input.options.projectName },
+        timeoutMs: 60_000
+      },
+      dependencies.runCommand,
+      redactor.redact,
+      dependencies.wait
+    );
     recorder.pass("compose doctor", "running checks passed");
 
     const preRestoreScope = await dependencies.runHttpSmoke({
@@ -432,12 +467,17 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     await run(composeCommand(input.options.projectName, envFile, ["start", "api", "worker"]));
     recorder.pass("restore", "confirmed restore completed");
 
-    await run({
-      command: "pnpm",
-      args: ["run", "doctor", "--", "--compose", "--api-url", input.options.apiUrl, "--env-file", envFile],
-      env: { COMPOSE_PROJECT_NAME: input.options.projectName },
-      timeoutMs: 60_000
-    });
+    await assertCommandEventually(
+      {
+        command: "pnpm",
+        args: ["run", "doctor", "--", "--compose", "--api-url", input.options.apiUrl, "--env-file", envFile],
+        env: { COMPOSE_PROJECT_NAME: input.options.projectName },
+        timeoutMs: 60_000
+      },
+      dependencies.runCommand,
+      redactor.redact,
+      dependencies.wait
+    );
 
     await dependencies.runHttpSmoke({
       apiUrl: input.options.apiUrl,
