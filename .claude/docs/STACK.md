@@ -49,6 +49,7 @@
 - `pnpm db:migrate`: run database migrations.
 - `pnpm seed:admin`: seed bootstrap admin.
 - `pnpm source-maps:upload`: upload source-map artifacts from CI using a source-map upload token.
+- `pnpm smoke:compose`: run the local-first Docker Compose release smoke harness.
 - `pnpm test`: run Vitest.
 - `pnpm build`: build all workspace packages.
 

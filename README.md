@@ -269,6 +269,24 @@ Doctor results are reported as pass, warn, or fail. The command exits non-zero o
 
 Use `pnpm run doctor` to run the SignalHub project script. `pnpm doctor` is pnpm's built-in diagnostic command and does not run SignalHub's operator checks.
 
+## Compose Smoke Harness
+
+Run the release smoke harness against disposable Docker Compose resources:
+
+```sh
+pnpm smoke:compose
+```
+
+The harness generates a temporary env file with local-only secrets, starts the Compose dependencies, seeds the bootstrap admin, starts the API and worker, uploads source maps, ingests representative telemetry, verifies query/readiness flows, creates a backup, verifies restore confirmation safety, restores the backup, and checks the restored data.
+
+By default it removes the Compose project and temporary files after the run. Use `--preserve` to inspect a failed run:
+
+```sh
+pnpm smoke:compose --preserve
+```
+
+Use `--project-name` or `SIGNALHUB_SMOKE_PROJECT_NAME` when running multiple smoke jobs on the same Docker host.
+
 ## Upgrade Flow
 
 Create a backup before upgrading, stop writers during migration, then verify the upgraded stack:

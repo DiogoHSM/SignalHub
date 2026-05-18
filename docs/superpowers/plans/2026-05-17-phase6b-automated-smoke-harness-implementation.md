@@ -2049,7 +2049,7 @@ git commit -m "fix: stabilize smoke compose runner"
 - Modify: `.claude/docs/CONSTRAINTS.md`
 - Modify: `docs/superpowers/plans/2026-05-17-phase6b-automated-smoke-harness-implementation.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 In `README.md`, add this section after `## Operator Doctor`:
 
@@ -2075,7 +2075,7 @@ Use `--project-name` or `SIGNALHUB_SMOKE_PROJECT_NAME` when running multiple smo
 
 When inserting this Markdown inside README, keep the nested code fences valid by using normal fenced blocks in the actual file.
 
-- [ ] **Step 2: Update deployment docs**
+- [x] **Step 2: Update deployment docs**
 
 In `.claude/docs/DEPLOYMENT.md`, add this paragraph after the doctor command section:
 
@@ -2083,7 +2083,7 @@ In `.claude/docs/DEPLOYMENT.md`, add this paragraph after the doctor command sec
 For release-readiness checks, run `pnpm smoke:compose` from a clean checkout after dependencies are installed. The command uses disposable Docker Compose resources, generates local-only secrets, verifies the critical install path, and cleans up by default. It is a validation harness, not a production runtime service.
 ```
 
-- [ ] **Step 3: Update stack docs**
+- [x] **Step 3: Update stack docs**
 
 In `.claude/docs/STACK.md`, add this bullet under `## Commands`:
 
@@ -2091,7 +2091,7 @@ In `.claude/docs/STACK.md`, add this bullet under `## Commands`:
 - `pnpm smoke:compose`: run the local-first Docker Compose release smoke harness.
 ```
 
-- [ ] **Step 4: Update constraints docs**
+- [x] **Step 4: Update constraints docs**
 
 In `.claude/docs/CONSTRAINTS.md`, add this bullet under the most relevant constraints section:
 
@@ -2099,7 +2099,7 @@ In `.claude/docs/CONSTRAINTS.md`, add this bullet under the most relevant constr
 - The automated smoke harness validates the Docker Compose install path; it does not introduce Kubernetes, Helm, systemd, hosted SaaS, or additional production deployment support.
 ```
 
-- [ ] **Step 5: Run docs grep checks**
+- [x] **Step 5: Run docs grep checks**
 
 Run:
 
@@ -2109,7 +2109,7 @@ rg -n "smoke:compose|Compose Smoke Harness|release smoke harness" README.md .cla
 
 Expected: output shows the new README section and the `.claude/docs` updates.
 
-- [ ] **Step 6: Commit Task 9**
+- [x] **Step 6: Commit Task 9**
 
 Run:
 
