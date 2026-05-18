@@ -34,7 +34,7 @@ services:
       dockerfile: Dockerfile
     command: pnpm start:api
     env_file:
-      - path: .env
+      - path: ${SIGNALHUB_ENV_FILE:-.env}
         required: false
     environment:
       CONSOLE_ENABLED: "true"
@@ -57,7 +57,7 @@ services:
       dockerfile: Dockerfile
     command: pnpm start:worker
     env_file:
-      - path: .env
+      - path: ${SIGNALHUB_ENV_FILE:-.env}
         required: false
     environment:
       DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-signalhub-local-only-change-me}}@postgres:5432/signalhub

@@ -15,3 +15,4 @@
 - Root-level `SECRETS.md` is ignored and must not be committed.
 - `.claude/docs/SECRETS.md` may be committed only with sanitized variable names, descriptions, and example-safe values.
 - Docker Compose is the only supported production install path; Kubernetes, Helm, and systemd are deferred.
+- The automated release smoke harness validates the Docker Compose install path; it does not introduce Kubernetes, Helm, systemd, hosted SaaS, or additional production deployment support.

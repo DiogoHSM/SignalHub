@@ -55,6 +55,8 @@ Results are reported as pass, warn, or fail. Failures produce a non-zero exit co
 
 Use `pnpm run doctor` to invoke the project script. `pnpm doctor` is pnpm's built-in diagnostic and does not run SignalHub's operator diagnostics.
 
+For release-readiness checks, run `pnpm smoke:compose` from a clean checkout after dependencies are installed. The command uses disposable Docker Compose resources, generates local-only secrets, verifies the critical install path, and cleans up by default. It is a validation harness, not a production runtime service.
+
 ## Services
 
 - `postgres`: Postgres 16, bound to `127.0.0.1:${POSTGRES_PORT:-5432}`.
