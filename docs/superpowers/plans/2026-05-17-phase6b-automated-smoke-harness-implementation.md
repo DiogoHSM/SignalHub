@@ -2125,7 +2125,7 @@ git commit -m "docs: document compose smoke harness"
 - Modify: `docs/superpowers/plans/2026-05-17-phase6b-automated-smoke-harness-implementation.md`
 - Modify: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Run final repo verification**
+- [x] **Step 1: Run final repo verification**
 
 Run:
 
@@ -2139,7 +2139,7 @@ pnpm smoke:compose
 
 Expected: all commands exit `0`. If `pnpm run doctor` requires a local `.env`, create one from `.env.example` with local-only generated values and keep it uncommitted.
 
-- [ ] **Step 2: Update CLAUDE.md**
+- [x] **Step 2: Update CLAUDE.md**
 
 If the implementation completed successfully, update the current phase line in `CLAUDE.md` to:
 
@@ -2153,7 +2153,7 @@ Add this bullet under `Project Conventions`:
 - Use `pnpm smoke:compose` as the local-first release smoke gate for the Docker Compose install path.
 ```
 
-- [ ] **Step 3: Complete the plan checklist**
+- [x] **Step 3: Complete the plan checklist**
 
 In `docs/superpowers/plans/2026-05-17-phase6b-automated-smoke-harness-implementation.md`, check off completed task steps through Task 10 and add final verification notes under this heading:
 
@@ -2168,7 +2168,7 @@ In `docs/superpowers/plans/2026-05-17-phase6b-automated-smoke-harness-implementa
 - Smoke cleanup: no `signalhub_smoke` containers or volumes remained.
 ```
 
-- [ ] **Step 4: Commit final SignalHub docs**
+- [x] **Step 4: Commit final SignalHub docs**
 
 Run:
 
@@ -2210,3 +2210,12 @@ Report:
 - whether smoke resources were cleaned up;
 - unresolved follow-ups;
 - whether SignalHub and config repo are ahead of origin.
+
+## Final Verification Notes
+
+- `pnpm test`: passed with 54 files and 765 tests.
+- `pnpm build`: passed.
+- `docker compose config --quiet`: passed.
+- `pnpm run doctor`: exited 0 with local warnings for `SOURCE_MAPS_LOCAL_DIR` writability and unreachable API health/readiness because the non-Compose API was not running.
+- `pnpm smoke:compose`: passed with 12 smoke steps, 0 warnings, and 0 failures.
+- Smoke cleanup: no `signalhub_smoke` containers or volumes remained.
