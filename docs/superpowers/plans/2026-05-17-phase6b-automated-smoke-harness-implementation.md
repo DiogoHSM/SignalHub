@@ -2179,7 +2179,7 @@ git commit -m "docs: complete phase 6b smoke harness"
 
 Expected: commit succeeds if those files changed. If they did not change, do not create an empty commit.
 
-- [ ] **Step 5: Update versioned memory**
+- [x] **Step 5: Update versioned memory**
 
 Update `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md` with:
 
@@ -2192,7 +2192,7 @@ Update `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Develo
 
 Replace `SHORT_SHA_FROM_FINAL_SIGNALHUB_COMMIT` with the actual final SignalHub commit hash.
 
-- [ ] **Step 6: Commit memory**
+- [x] **Step 6: Commit memory**
 
 Run in `/Users/diogo/Developer/Github/claude-config`:
 
@@ -2201,7 +2201,7 @@ git add projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md
 git commit -m "memory: record SignalHub phase 6b completion"
 ```
 
-- [ ] **Step 7: Final handoff**
+- [x] **Step 7: Final handoff**
 
 Report:
 
