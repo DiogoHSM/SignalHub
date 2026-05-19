@@ -648,7 +648,7 @@ Recorded on 2026-05-19 at 14:15:07 -03 from branch `codex/phase6e-signalmonitor-
 - Modify: `docs/superpowers/plans/2026-05-19-phase6e-signalmonitor-rename-implementation.md`
 - Modify: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Complete active docs phase status**
+- [x] **Step 1: Complete active docs phase status**
 
 In `CLAUDE.md`, ensure:
 
@@ -658,7 +658,7 @@ In `CLAUDE.md`, ensure:
 
 In the plan, check off completed Task 1 through Task 6 steps that have actually been completed.
 
-- [ ] **Step 2: Update versioned memory**
+- [x] **Step 2: Update versioned memory**
 
 Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`:
 
@@ -674,7 +674,7 @@ Append to `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Dev
 
 Replace the phrase `from git rev-parse --short HEAD` with the actual short commit hash before committing memory.
 
-- [ ] **Step 3: Commit final SignalMonitor docs**
+- [x] **Step 3: Commit final SignalMonitor docs**
 
 Run in the SignalMonitor repository:
 
@@ -686,7 +686,7 @@ git push
 
 If neither file changed, do not create an empty commit.
 
-- [ ] **Step 4: Commit memory**
+- [x] **Step 4: Commit memory**
 
 Run in `/Users/diogo/Developer/Github/claude-config`:
 
@@ -736,3 +736,9 @@ Report:
 - repository rename status;
 - whether local directory rename was performed or deferred;
 - unresolved follow-ups for Phase 6D and Phase 6F.
+
+## Task 6 Handoff Notes
+
+- `CLAUDE.md` still records `- Current phase: Phase 6E SignalMonitor Rename.`
+- Completion memory has been updated in the versioned config repo for the current Phase 6E branch head.
+- Repository rename is a post-merge handoff item and has not been performed in this task. After PR #5 is merged, the target GitHub repository rename is `DiogoHSM/sigmon`; local directory rename remains optional after the remote rename.
