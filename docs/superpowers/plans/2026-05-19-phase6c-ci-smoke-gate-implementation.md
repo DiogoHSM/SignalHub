@@ -437,7 +437,7 @@ git commit -m "docs: record phase 6c local verification"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-19-phase6c-ci-smoke-gate-implementation.md`
 
-- [ ] **Step 1: Verify workflow visibility locally through GitHub CLI**
+- [x] **Step 1: Verify workflow visibility locally through GitHub CLI**
 
 After the branch is pushed, run:
 
@@ -447,7 +447,7 @@ gh workflow view CI
 
 Expected: GitHub CLI shows the `CI` workflow. If GitHub has not indexed the workflow yet, record the exact error in the plan and retry after the PR is opened.
 
-- [ ] **Step 2: Inspect PR checks**
+- [x] **Step 2: Inspect PR checks**
 
 After opening the Phase 6C PR, run:
 
@@ -457,7 +457,7 @@ gh pr checks --watch
 
 Expected: the PR reports `test`, `build`, `compose-config`, and `smoke-compose` jobs. If no checks appear, record the exact output and inspect the workflow tab in GitHub.
 
-- [ ] **Step 3: If CI fails, debug systematically before changing code**
+- [x] **Step 3: If CI fails, debug systematically before changing code**
 
 Use `superpowers:systematic-debugging`.
 
@@ -470,7 +470,7 @@ gh run view --log-failed
 
 Expected: logs identify the failing job and step. Do not change workflow or harness behavior until the root cause is understood.
 
-- [ ] **Step 4: Record CI evidence**
+- [x] **Step 4: Record CI evidence**
 
 First run:
 
@@ -486,7 +486,7 @@ Then add a `## GitHub CI Evidence` section to the plan with:
 - observed checks `test`, `build`, `compose-config`, and `smoke-compose`;
 - result status, including the short commit hash from `git rev-parse --short HEAD` if a CI fix was required.
 
-- [ ] **Step 5: Commit CI evidence if it required plan updates**
+- [x] **Step 5: Commit CI evidence if it required plan updates**
 
 Run:
 
@@ -496,6 +496,22 @@ git commit -m "docs: record phase 6c ci evidence"
 ```
 
 If the plan already contains accurate evidence and no files changed, do not create an empty commit.
+
+## GitHub CI Evidence
+
+- Branch push: `git push -u origin codex/phase6c-ci-smoke-gate` succeeded and set upstream tracking for `origin/codex/phase6c-ci-smoke-gate`.
+- Draft PR: https://github.com/DiogoHSM/SignalHub/pull/4
+- PR metadata: draft PR #4 from `codex/phase6c-ci-smoke-gate` into `main`.
+- Source commit verified by CI: `66a582d` (`66a582dd4c69e7c620ea81d8a9a06de1b3505881`).
+- Workflow visibility command: `/opt/homebrew/bin/gh workflow view CI` exited 1 with exact output: `could not find any workflows named CI`.
+- GitHub limitation: `gh workflow view CI` did not resolve the branch-only workflow because the new workflow is not on the default branch yet, but GitHub did run the pull request workflow from this branch.
+- Workflow run: `CI`, pull request event, run https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181, status `completed`, conclusion `success`, created `2026-05-19T14:54:40Z`, updated `2026-05-19T14:55:59Z`.
+- PR check results from `/opt/homebrew/bin/gh pr checks --watch` and `/opt/homebrew/bin/gh pr checks`:
+  - `Build`: pass, 45s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415696
+  - `Compose smoke`: pass, 1m13s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415254
+  - `Docker Compose config`: pass, 24s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415616
+  - `Test`: pass, 1m6s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415745
+- Failed-log debugging: not required; all observed PR checks passed.
 
 ## Task 6: Completion Memory And Handoff
 
