@@ -2,7 +2,7 @@
 
 SignalMonitor is a self-hosted telemetry core for product analytics, error tracking, LLM observability, traces, and spans. One installation can monitor multiple projects and environments. Clients ingest telemetry with project-environment API keys, the API validates and queues each signal in Redis/BullMQ, and the worker sanitizes and persists typed records in Postgres.
 
-The public brand/domain is `sigmon.app`; the planned self-hosted operator deployment is `my.sigmon.app`.
+The intended public website and domain is `sigmon.app`; the future deployed app host is `my.sigmon.app`.
 
 ## Current Capabilities
 

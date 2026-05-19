@@ -1,8 +1,8 @@
 # SignalMonitor Project Context
 
-SignalMonitor is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. Keep project-facing documentation in English.
+SignalMonitor is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. It was formerly developed as SignalHub. Keep project-facing documentation in English.
 
-- Current phase: Phase 6C CI Smoke Gate.
+- Current phase: Phase 6E SignalMonitor Rename.
 
 ## Canonical Docs
 

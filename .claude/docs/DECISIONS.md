@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-05-19: Use SignalMonitor as the product identity
+
+Decision: SignalMonitor is the current product identity. The project was formerly developed as SignalHub. The intended public website/domain is `sigmon.app`, and the intended deployed application host is `my.sigmon.app`.
+
+Rationale: The Phase 6E rename gives the product a clearer monitoring-focused identity while preserving explicit historical context where useful. MicroERP remains Diogo's personal project and first real validation target, not part of the SignalMonitor product or repository.
+
 ## 2026-05-10: Store source maps locally and resolve stacks on demand
 
 Decision: SignalMonitor supports source-map artifacts as a local-first admin workflow. The API stores uploaded `.map` files under `SOURCE_MAPS_LOCAL_DIR`, stores artifact metadata and cached resolved frames in Postgres, and resolves raw error stacks on demand.

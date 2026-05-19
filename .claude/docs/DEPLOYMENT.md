@@ -2,6 +2,12 @@
 
 Docker Compose is the only production-supported self-hosted installation path for this release line. Kubernetes, Helm, systemd, and hosted SaaS deployment are out of scope.
 
+## Deployment Identity
+
+SignalMonitor's intended public website and domain is `sigmon.app`. The intended deployed application host is `my.sigmon.app`.
+
+EasyPanel VPS deployment comes after Phase 6D critical hygiene. Until that work is complete, deployment documentation should describe identity and supported local/Compose paths without implementing the VPS deployment flow.
+
 ## Local Compose
 
 1. Create `.env` from `.env.example`.
