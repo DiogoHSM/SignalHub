@@ -557,7 +557,7 @@ git commit -m "docs: complete phase 6c ci smoke gate"
 
 If neither file changed, do not create an empty commit.
 
-- [ ] **Step 4: Update versioned memory**
+- [x] **Step 4: Update versioned memory**
 
 First run:
 
@@ -574,7 +574,7 @@ Update `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Develo
 - Final verification: local checks passed, and GitHub PR checks were observed or the no-run limitation was recorded with evidence.
 ```
 
-- [ ] **Step 5: Commit memory**
+- [x] **Step 5: Commit memory**
 
 Run in `/Users/diogo/Developer/Github/claude-config`:
 
