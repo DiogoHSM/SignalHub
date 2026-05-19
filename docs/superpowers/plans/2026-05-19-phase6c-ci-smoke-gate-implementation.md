@@ -345,7 +345,7 @@ rg -n "Continuous Integration|CI Gate|GitHub Actions|signalhub_ci_smoke" README.
 
 Expected: output shows the README section and `.claude/docs` updates.
 
-- [ ] **Step 6: Commit docs**
+- [x] **Step 6: Commit docs**
 
 Run:
 
