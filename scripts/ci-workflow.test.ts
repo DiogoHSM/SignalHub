@@ -13,6 +13,19 @@ function expectIncludesAll(value: string, snippets: string[]) {
   }
 }
 
+function jobBlock(content: string, jobName: string): string {
+  const lines = content.split("\n");
+  const start = lines.findIndex((line) => line === `  ${jobName}:`);
+
+  expect(start, `expected job "${jobName}" to exist`).toBeGreaterThanOrEqual(0);
+
+  const end = lines.findIndex(
+    (line, index) => index > start && /^  [\w-]+:$/.test(line)
+  );
+
+  return lines.slice(start, end === -1 ? undefined : end).join("\n");
+}
+
 describe("GitHub Actions CI workflow", () => {
   it("runs for pull requests, main pushes, and manual dispatch", () => {
     const content = workflow();
@@ -29,24 +42,26 @@ describe("GitHub Actions CI workflow", () => {
   it("uses Node 22, Corepack, and frozen pnpm installs in every job", () => {
     const content = workflow();
 
-    expect(content.match(/actions\/setup-node@v4/g)).toHaveLength(4);
-    expect(content.match(/node-version: 22/g)).toHaveLength(4);
-    expect(content.match(/corepack enable/g)).toHaveLength(4);
-    expect(content.match(/corepack prepare pnpm@9\.15\.4 --activate/g)).toHaveLength(4);
-    expect(content.match(/pnpm install --frozen-lockfile/g)).toHaveLength(4);
+    for (const jobName of ["test", "build", "compose-config", "smoke-compose"]) {
+      expectIncludesAll(jobBlock(content, jobName), [
+        "actions/setup-node@v4",
+        "node-version: 22",
+        "corepack enable",
+        "corepack prepare pnpm@9.15.4 --activate",
+        "pnpm install --frozen-lockfile"
+      ]);
+    }
   });
 
   it("keeps tests, build, compose config, and smoke as separate jobs", () => {
     const content = workflow();
 
-    expectIncludesAll(content, [
-      "test:",
-      "build:",
-      "compose-config:",
-      "smoke-compose:",
-      "run: pnpm test",
-      "run: pnpm build",
-      "run: docker compose config --quiet",
+    expectIncludesAll(jobBlock(content, "test"), ["run: pnpm test"]);
+    expectIncludesAll(jobBlock(content, "build"), ["run: pnpm build"]);
+    expectIncludesAll(jobBlock(content, "compose-config"), [
+      "run: docker compose config --quiet"
+    ]);
+    expectIncludesAll(jobBlock(content, "smoke-compose"), [
       "run: pnpm smoke:compose --project-name signalhub_ci_smoke"
     ]);
   });
@@ -54,7 +69,7 @@ describe("GitHub Actions CI workflow", () => {
   it("collects best-effort smoke diagnostics only when the smoke job fails", () => {
     const content = workflow();
 
-    expectIncludesAll(content, [
+    expectIncludesAll(jobBlock(content, "smoke-compose"), [
       "if: failure()",
       "docker compose -p signalhub_ci_smoke ps -a || true",
       "docker compose -p signalhub_ci_smoke logs --no-color || true",
