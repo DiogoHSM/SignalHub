@@ -502,15 +502,16 @@ If the plan already contains accurate evidence and no files changed, do not crea
 - Branch push: `git push -u origin codex/phase6c-ci-smoke-gate` succeeded and set upstream tracking for `origin/codex/phase6c-ci-smoke-gate`.
 - Draft PR: https://github.com/DiogoHSM/SignalHub/pull/4
 - PR metadata: draft PR #4 from `codex/phase6c-ci-smoke-gate` into `main`.
-- Source commit verified by CI: `66a582d` (`66a582dd4c69e7c620ea81d8a9a06de1b3505881`).
+- Final PR-head commit verified by CI: `2840d8b` (`2840d8bf4a8cbb7e1e5fa817181f3f58310f99f7`).
 - Workflow visibility command: `/opt/homebrew/bin/gh workflow view CI` exited 1 with exact output: `could not find any workflows named CI`.
 - GitHub limitation: `gh workflow view CI` did not resolve the branch-only workflow because the new workflow is not on the default branch yet, but GitHub did run the pull request workflow from this branch.
-- Workflow run: `CI`, pull request event, run https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181, status `completed`, conclusion `success`, created `2026-05-19T14:54:40Z`, updated `2026-05-19T14:55:59Z`.
-- PR check results from `/opt/homebrew/bin/gh pr checks --watch` and `/opt/homebrew/bin/gh pr checks`:
-  - `Build`: pass, 45s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415696
-  - `Compose smoke`: pass, 1m13s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415254
-  - `Docker Compose config`: pass, 24s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415616
-  - `Test`: pass, 1m6s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181/job/76767415745
+- Authoritative PR-head workflow run: `CI`, pull request event, run https://github.com/DiogoHSM/SignalHub/actions/runs/26105551330, status `completed`, conclusion `success`.
+- Authoritative PR-head check results from `/opt/homebrew/bin/gh pr checks --watch` and `/opt/homebrew/bin/gh pr checks`:
+  - `Build`: pass, 44s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105551330/job/76768220775
+  - `Compose smoke`: pass, 1m15s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105551330/job/76768220799
+  - `Docker Compose config`: pass, 21s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105551330/job/76768220682
+  - `Test`: pass, 49s, https://github.com/DiogoHSM/SignalHub/actions/runs/26105551330/job/76768221091
+- Prior CI evidence: commit `66a582d` (`66a582dd4c69e7c620ea81d8a9a06de1b3505881`) also passed `CI` on pull request run https://github.com/DiogoHSM/SignalHub/actions/runs/26105327181 before the evidence refresh commit.
 - Failed-log debugging: not required; all observed PR checks passed.
 
 ## Task 6: Completion Memory And Handoff
