@@ -105,15 +105,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Compose smoke harness
-        run: pnpm smoke:compose --project-name signalhub_ci_smoke --preserve
+        run: pnpm smoke:compose --project-name sigmon_ci_smoke --preserve
 
       - name: Collect smoke diagnostics
         if: failure()
         run: |
-          docker compose -p signalhub_ci_smoke ps -a || true
-          docker compose -p signalhub_ci_smoke logs --no-color || true
+          docker compose -p sigmon_ci_smoke ps -a || true
+          docker compose -p sigmon_ci_smoke logs --no-color || true
           docker system df || true
 
       - name: Cleanup smoke resources
         if: always()
-        run: docker compose -p signalhub_ci_smoke down -v || true
+        run: docker compose -p sigmon_ci_smoke down -v || true

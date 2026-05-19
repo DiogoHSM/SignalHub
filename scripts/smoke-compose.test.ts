@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { spanPayloadSchema, tracePayloadSchema } from "@signal-hub/telemetry/ingestion-schemas";
+import { spanPayloadSchema, tracePayloadSchema } from "@sigmon/telemetry/ingestion-schemas";
 import { describe, expect, it, vi } from "vitest";
 import { parseSmokeArgs } from "./smoke-compose/args.js";
 import { formatCommandFailure, runCommand } from "./smoke-compose/command.js";
@@ -26,7 +26,7 @@ import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from 
 describe("smoke compose primitives", () => {
   it("uses default smoke options", () => {
     expect(parseSmokeArgs([], {})).toEqual({
-      projectName: "signalhub_smoke",
+      projectName: "sigmon_smoke",
       apiUrl: "http://localhost:3000",
       preserve: false
     });
@@ -34,12 +34,12 @@ describe("smoke compose primitives", () => {
 
   it("prefers flags over environment defaults", () => {
     expect(
-      parseSmokeArgs(["--project-name", "signalhub_custom", "--api-url", "http://127.0.0.1:3300", "--preserve"], {
-        SIGNALHUB_SMOKE_PROJECT_NAME: "signalhub_env",
-        SIGNALHUB_SMOKE_API_URL: "http://localhost:4400"
+      parseSmokeArgs(["--project-name", "sigmon_custom", "--api-url", "http://127.0.0.1:3300", "--preserve"], {
+        SIGMON_SMOKE_PROJECT_NAME: "sigmon_env",
+        SIGMON_SMOKE_API_URL: "http://localhost:4400"
       })
     ).toEqual({
-      projectName: "signalhub_custom",
+      projectName: "sigmon_custom",
       apiUrl: "http://127.0.0.1:3300",
       preserve: true
     });
@@ -92,11 +92,11 @@ describe("smoke compose primitives", () => {
       "[FAIL] ready - API readiness failed"
     ]);
     expect(
-      renderSummary({ commit: "abc1234", projectName: "signalhub_smoke", apiUrl: "http://localhost:3000" }, recorder.results())
+      renderSummary({ commit: "abc1234", projectName: "sigmon_smoke", apiUrl: "http://localhost:3000" }, recorder.results())
     ).toBe([
       "Smoke summary",
       "- Commit: abc1234",
-      "- Compose project: signalhub_smoke",
+      "- Compose project: sigmon_smoke",
       "- API URL: http://localhost:3000",
       "- Passed: 1",
       "- Warnings: 1",
@@ -208,21 +208,21 @@ describe("smoke compose command execution", () => {
 
 describe("smoke compose cleanup plan", () => {
   it("removes compose resources and temp files by default", () => {
-    expect(cleanupPlan({ preserve: false, projectName: "signalhub_smoke", tempDir: "/tmp/signalhub-smoke-1" })).toEqual({
+    expect(cleanupPlan({ preserve: false, projectName: "sigmon_smoke", tempDir: "/tmp/sigmon-smoke-1" })).toEqual({
       preserve: false,
-      commands: [["docker", "compose", "-p", "signalhub_smoke", "down", "-v"]],
+      commands: [["docker", "compose", "-p", "sigmon_smoke", "down", "-v"]],
       removeTempDir: true,
-      message: "Cleanup will remove Compose resources and /tmp/signalhub-smoke-1"
+      message: "Cleanup will remove Compose resources and /tmp/sigmon-smoke-1"
     });
   });
 
   it("preserves resources when requested", () => {
-    expect(cleanupPlan({ preserve: true, projectName: "signalhub_keep", tempDir: "/tmp/signalhub-smoke-2" })).toEqual({
+    expect(cleanupPlan({ preserve: true, projectName: "sigmon_keep", tempDir: "/tmp/sigmon-smoke-2" })).toEqual({
       preserve: true,
       commands: [],
       removeTempDir: false,
       message:
-        "Preserved Compose project signalhub_keep and temp directory /tmp/signalhub-smoke-2. Inspect logs with docker compose -p signalhub_keep logs."
+        "Preserved Compose project sigmon_keep and temp directory /tmp/sigmon-smoke-2. Inspect logs with docker compose -p sigmon_keep logs."
     });
   });
 });
@@ -232,27 +232,27 @@ describe("smoke compose temp env", () => {
     const secrets = defaultSmokeSecrets("phase6b");
     const env = createSmokeEnvContent(
       [
-        "DATABASE_URL=postgres://signalhub:signalhub-local-only-change-me@localhost:5432/signalhub",
+        "DATABASE_URL=postgres://sigmon:sigmon-local-only-change-me@localhost:5432/sigmon",
         "REDIS_URL=redis://localhost:6379",
         "SESSION_SECRET=change-me-to-a-long-random-secret",
         "API_KEY_PEPPER=change-me-to-a-long-random-pepper",
         "BOOTSTRAP_ADMIN_EMAIL=admin@example.com",
         "BOOTSTRAP_ADMIN_PASSWORD=change-me-admin-password-32-chars-min",
-        "POSTGRES_PASSWORD=signalhub-local-only-change-me",
-        "SIGNALHUB_PUBLIC_ENDPOINT=http://localhost:3000"
+        "POSTGRES_PASSWORD=sigmon-local-only-change-me",
+        "SIGMON_PUBLIC_ENDPOINT=http://localhost:3000"
       ].join("\n"),
       secrets,
       "http://localhost:3000"
     );
 
     expect(env).toContain("BOOTSTRAP_ADMIN_EMAIL=phase6b-admin@example.com");
-    expect(env).toContain("SIGNALHUB_PUBLIC_ENDPOINT=http://localhost:3000");
+    expect(env).toContain("SIGMON_PUBLIC_ENDPOINT=http://localhost:3000");
     expect(env).not.toContain("change-me");
-    expect(env).not.toContain("signalhub-local-only-change-me");
+    expect(env).not.toContain("sigmon-local-only-change-me");
   });
 
   it("writes env and source-map resources into a temp directory", async () => {
-    const root = join(tmpdir(), `signalhub-smoke-test-${Date.now()}`);
+    const root = join(tmpdir(), `sigmon-smoke-test-${Date.now()}`);
     await mkdir(root, { recursive: true });
     const envExample = join(root, ".env.example");
     await writeFile(
@@ -271,7 +271,7 @@ describe("smoke compose temp env", () => {
       expect(resources.envFile).toContain(root);
       const envContent = await readFile(resources.envFile, "utf8");
       expect(envContent).toContain("BOOTSTRAP_ADMIN_EMAIL=phase6b-admin@example.com");
-      expect(envContent).toContain(`SIGNALHUB_ENV_FILE=${resources.envFile}`);
+      expect(envContent).toContain(`SIGMON_ENV_FILE=${resources.envFile}`);
       expect(await readFile(resources.sourceMapFile, "utf8")).toContain('"sources":["src/app.ts"]');
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -281,7 +281,7 @@ describe("smoke compose temp env", () => {
   it("lets compose services load the generated env file path", async () => {
     const compose = await readFile("docker-compose.yml", "utf8");
 
-    expect(compose.match(/path: \$\{SIGNALHUB_ENV_FILE:-\.env\}/g)).toHaveLength(2);
+    expect(compose.match(/path: \$\{SIGMON_ENV_FILE:-\.env\}/g)).toHaveLength(2);
   });
 });
 
@@ -467,12 +467,12 @@ describe("smoke compose source map upload", () => {
 });
 
 describe("smoke compose runner", () => {
-  const runnerOptions = { projectName: "signalhub_smoke", apiUrl: "http://localhost:3000", preserve: false };
+  const runnerOptions = { projectName: "sigmon_smoke", apiUrl: "http://localhost:3000", preserve: false };
 
   const preparedResources = async () => ({
-    tempDir: "/tmp/signalhub-smoke-1",
-    envFile: "/tmp/signalhub-smoke-1/.env",
-    sourceMapFile: "/tmp/signalhub-smoke-1/app.min.js.map",
+    tempDir: "/tmp/sigmon-smoke-1",
+    envFile: "/tmp/sigmon-smoke-1/.env",
+    sourceMapFile: "/tmp/sigmon-smoke-1/app.min.js.map",
     secrets: {
       postgresPassword: "postgres-secret",
       sessionSecret: "session-secret",
@@ -498,8 +498,8 @@ describe("smoke compose runner", () => {
         runCommand: async (input) => {
           const command = commandString(input);
           calls.push(command);
-          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
-            return { exitCode: 0, stdout: "/var/lib/signalhub/backups/signalhub-smoke.dump\n", stderr: "" };
+          if (command.includes("ls -1t /var/lib/sigmon/backups/*.dump")) {
+            return { exitCode: 0, stdout: "/var/lib/sigmon/backups/sigmon-smoke.dump\n", stderr: "" };
           }
           if (command.includes("backup:restore -- ") && !command.endsWith(" --yes")) {
             return { exitCode: 1, stdout: "", stderr: "Restore requires --yes" };
@@ -526,23 +526,23 @@ describe("smoke compose runner", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([
-      "pnpm run doctor -- --env-file /tmp/signalhub-smoke-1/.env",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env config --quiet",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env up -d postgres redis",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm api pnpm seed:admin",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env up -d --build",
-      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env",
+      "pnpm run doctor -- --env-file /tmp/sigmon-smoke-1/.env",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env config --quiet",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env up -d postgres redis",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm api pnpm seed:admin",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env up -d --build",
+      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env",
       "http-smoke",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:create",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker sh -lc ls -1t /var/lib/signalhub/backups/*.dump | head -n 1",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-smoke.dump",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env stop api worker",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-smoke.dump --yes",
-      "docker compose -p signalhub_smoke --env-file /tmp/signalhub-smoke-1/.env start api worker",
-      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker pnpm backup:create",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker sh -lc ls -1t /var/lib/sigmon/backups/*.dump | head -n 1",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/sigmon/backups/sigmon-smoke.dump",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env stop api worker",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/sigmon/backups/sigmon-smoke.dump --yes",
+      "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env start api worker",
+      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env",
       "http-smoke",
-      "docker compose -p signalhub_smoke down -v",
-      "rm /tmp/signalhub-smoke-1"
+      "docker compose -p sigmon_smoke down -v",
+      "rm /tmp/sigmon-smoke-1"
     ]);
     expect(lines.join("\n")).toContain("Smoke summary");
   });
@@ -562,14 +562,14 @@ describe("smoke compose runner", () => {
         runCommand: async (input) => {
           const command = commandString(input);
           calls.push(command);
-          if (command === "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/signalhub-smoke-1/.env") {
+          if (command === "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env") {
             composeDoctorAttempts += 1;
             if (composeDoctorAttempts === 1) {
               return { exitCode: 1, stdout: "[FAIL] API /ready is unreachable", stderr: "" };
             }
           }
-          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
-            return { exitCode: 0, stdout: "/var/lib/signalhub/backups/signalhub-smoke.dump\n", stderr: "" };
+          if (command.includes("ls -1t /var/lib/sigmon/backups/*.dump")) {
+            return { exitCode: 0, stdout: "/var/lib/sigmon/backups/sigmon-smoke.dump\n", stderr: "" };
           }
           if (command.includes("backup:restore -- ") && !command.endsWith(" --yes")) {
             return { exitCode: 1, stdout: "", stderr: "Restore requires --yes" };
@@ -608,8 +608,8 @@ describe("smoke compose runner", () => {
         runCommand: async (input) => {
           const command = commandString(input);
           calls.push(command);
-          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
-            return { exitCode: 0, stdout: "/var/lib/signalhub/backups/signalhub-smoke.dump\n", stderr: "" };
+          if (command.includes("ls -1t /var/lib/sigmon/backups/*.dump")) {
+            return { exitCode: 0, stdout: "/var/lib/sigmon/backups/sigmon-smoke.dump\n", stderr: "" };
           }
           return { exitCode: 0, stdout: "ok", stderr: "" };
         },
@@ -624,8 +624,8 @@ describe("smoke compose runner", () => {
 
     expect(exitCode).toBe(1);
     expect(lines.join("\n")).toContain("restore without --yes unexpectedly succeeded");
-    expect(calls).toContain("docker compose -p signalhub_smoke down -v");
-    expect(calls).toContain("rm /tmp/signalhub-smoke-1");
+    expect(calls).toContain("docker compose -p sigmon_smoke down -v");
+    expect(calls).toContain("rm /tmp/sigmon-smoke-1");
   });
 
   it("fails if backup discovery returns no dump path and still cleans up", async () => {
@@ -641,7 +641,7 @@ describe("smoke compose runner", () => {
         runCommand: async (input) => {
           const command = commandString(input);
           calls.push(command);
-          if (command.includes("ls -1t /var/lib/signalhub/backups/*.dump")) {
+          if (command.includes("ls -1t /var/lib/sigmon/backups/*.dump")) {
             return { exitCode: 0, stdout: "\n", stderr: "" };
           }
           return { exitCode: 0, stdout: "ok", stderr: "" };
@@ -657,7 +657,7 @@ describe("smoke compose runner", () => {
 
     expect(exitCode).toBe(1);
     expect(lines.join("\n")).toContain("Backup completed but no dump path was found");
-    expect(calls).toContain("docker compose -p signalhub_smoke down -v");
-    expect(calls).toContain("rm /tmp/signalhub-smoke-1");
+    expect(calls).toContain("docker compose -p sigmon_smoke down -v");
+    expect(calls).toContain("rm /tmp/sigmon-smoke-1");
   });
 });

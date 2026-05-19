@@ -15,23 +15,23 @@ function resolveEndpoint(apiEndpoint?: string): string {
 
 export function SnippetPanel({ projectId, environmentId, latestSecret, apiEndpoint }: Props) {
   const endpoint = resolveEndpoint(apiEndpoint);
-  const apiKey = latestSecret ?? "SIGNAL_HUB_API_KEY";
+  const apiKey = latestSecret ?? "SIGMON_API_KEY";
   const safeProjectId = projectId ?? "PROJECT_ID";
   const safeEnvironmentId = environmentId ?? "ENVIRONMENT_ID";
   const keyScope = projectId && environmentId ? `${projectId} / ${environmentId}` : "select project / environment";
-  const sdkSnippet = `import { createSignalHubClient } from "@signal-hub/sdk";
+  const sdkSnippet = `import { createSignalMonitorClient } from "@sigmon/sdk";
 
-const signalHub = createSignalHubClient({
+const signalMonitor = createSignalMonitorClient({
   endpoint: "${endpoint}",
   apiKey: "${apiKey}"
 });
 
 // Key scope: ${keyScope}
-signalHub.track("checkout.started", {
+signalMonitor.track("checkout.started", {
   plan: "team"
 });
 
-await signalHub.flush();`;
+await signalMonitor.flush();`;
   const httpSnippet = `curl -X POST "${endpoint}/v1/events" \\
   -H "Authorization: Bearer ${apiKey}" \\
   -H "Content-Type: application/json" \\
@@ -45,10 +45,10 @@ await signalHub.flush();`;
 # Key scope: ${keyScope}
 # Project: ${safeProjectId}
 # Environment: ${safeEnvironmentId}`;
-  const envSnippet = `SIGNAL_HUB_ENDPOINT=${endpoint}
-SIGNAL_HUB_API_KEY=${apiKey}
-SIGNAL_HUB_PROJECT_ID=${safeProjectId}
-SIGNAL_HUB_ENVIRONMENT_ID=${safeEnvironmentId}`;
+  const envSnippet = `SIGMON_ENDPOINT=${endpoint}
+SIGMON_API_KEY=${apiKey}
+SIGMON_PROJECT_ID=${safeProjectId}
+SIGMON_ENVIRONMENT_ID=${safeEnvironmentId}`;
 
   return (
     <section className="panel snippet-panel">

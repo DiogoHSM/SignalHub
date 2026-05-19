@@ -1,5 +1,5 @@
 {
-  "name": "@signal-hub/queues",
+  "name": "@sigmon/queues",
   "version": "0.1.0",
   "private": true,
   "type": "module",

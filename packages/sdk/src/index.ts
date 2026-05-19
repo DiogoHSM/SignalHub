@@ -17,10 +17,10 @@ export type {
   JsonValue,
   LlmInput,
   SignalContext,
-  SignalHubClient,
-  SignalHubClientOptions,
-  SignalHubError,
-  SignalHubErrorCode,
+  SignalMonitorClient,
+  SignalMonitorClientOptions,
+  SignalMonitorError,
+  SignalMonitorErrorCode,
   SignalMetadata,
   SignalStatus,
   SpanInput,
@@ -29,7 +29,7 @@ export type {
 } from "./types.js";
 
 export {
-  createSignalHubClient
+  createSignalMonitorClient
 } from "./client.js";
 
 export {

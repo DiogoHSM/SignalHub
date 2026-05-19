@@ -1,10 +1,10 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
-import { loadConfig } from "@signal-hub/config";
-import { createDb } from "@signal-hub/db";
-import type { TelemetryJobPayload } from "@signal-hub/queues";
-import { recordBackupRun, withBackupLock } from "@signal-hub/db/repositories/backups.js";
-import { backfillErrorGroups } from "@signal-hub/db/repositories/error-groups.js";
+import { loadConfig } from "@sigmon/config";
+import { createDb } from "@sigmon/db";
+import type { TelemetryJobPayload } from "@sigmon/queues";
+import { recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups.js";
+import { backfillErrorGroups } from "@sigmon/db/repositories/error-groups.js";
 import {
   insertBreadcrumb,
   insertError,
@@ -12,18 +12,18 @@ import {
   insertLlmCall,
   insertSpan,
   insertTrace
-} from "@signal-hub/db/repositories/telemetry-writes.js";
-import { insertDeadLetterJob } from "@signal-hub/db/repositories/dead-letter.js";
+} from "@sigmon/db/repositories/telemetry-writes.js";
+import { insertDeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
 import {
   deleteExpiredTelemetry,
   recordRetentionRun,
   upsertHeartbeat,
   withRetentionLock
-} from "@signal-hub/db/repositories/system.js";
+} from "@sigmon/db/repositories/system.js";
 import {
   listExpiredSourceMapArtifacts,
   softDeleteSourceMapArtifactForRetention
-} from "@signal-hub/db/repositories/source-maps.js";
+} from "@sigmon/db/repositories/source-maps.js";
 import {
   evaluateAlertRule,
   getNotificationChannel,
@@ -32,7 +32,7 @@ import {
   recordNotificationDelivery,
   updateAlertRuleEvaluation,
   withAlertEvaluationLock
-} from "@signal-hub/db/repositories/alerts.js";
+} from "@sigmon/db/repositories/alerts.js";
 import { deliverWebhook, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";

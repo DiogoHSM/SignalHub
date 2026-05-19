@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSignalHubClient } from "../src/index.js";
-import type { SignalHubError } from "../src/types.js";
+import { createSignalMonitorClient } from "../src/index.js";
+import type { SignalMonitorError } from "../src/types.js";
 
 const response = (status: number): Response => new Response(null, { status });
 
@@ -8,7 +8,7 @@ function decodeBody(call: Parameters<typeof fetch>): Record<string, unknown> {
   return JSON.parse(String(call[1]?.body)) as Record<string, unknown>;
 }
 
-describe("createSignalHubClient", () => {
+describe("createSignalMonitorClient", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -18,18 +18,18 @@ describe("createSignalHubClient", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
 
     expect(() =>
-      createSignalHubClient({ endpoint: "", apiKey: "test_api_key", fetch: fetchImpl })
+      createSignalMonitorClient({ endpoint: "", apiKey: "test_api_key", fetch: fetchImpl })
     ).toThrow("endpoint is required");
 
     expect(() =>
-      createSignalHubClient({ endpoint: "https://api.signalhub.test", apiKey: "", fetch: fetchImpl })
+      createSignalMonitorClient({ endpoint: "https://api.sigmon.test", apiKey: "", fetch: fetchImpl })
     ).toThrow("apiKey is required");
   });
 
   it("track enqueues an event and flush sends it to the normalized endpoint with default context", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test///",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test///",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0,
@@ -50,7 +50,7 @@ describe("createSignalHubClient", () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl).toHaveBeenCalledWith("https://api.signalhub.test/v1/events", {
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/events", {
       method: "POST",
       headers: {
         authorization: "Bearer test_api_key",
@@ -69,10 +69,10 @@ describe("createSignalHubClient", () => {
   });
 
   it("retains retryable failures by default and discards them when requested", async () => {
-    const onError = vi.fn<(error: SignalHubError) => void>();
+    const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0,
@@ -100,15 +100,15 @@ describe("createSignalHubClient", () => {
       code: "transient_failure",
       message: "Signal delivery failed with a retryable error",
       status: 503,
-      endpoint: "https://api.signalhub.test/v1/events"
+      endpoint: "https://api.sigmon.test/v1/events"
     });
   });
 
   it("removes permanent failures and reports status and endpoint", async () => {
-    const onError = vi.fn<(error: SignalHubError) => void>();
+    const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(401));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0,
@@ -134,14 +134,14 @@ describe("createSignalHubClient", () => {
       code: "permanent_failure",
       message: "Signal delivery failed with a permanent error",
       status: 401,
-      endpoint: "https://api.signalhub.test/v1/events"
+      endpoint: "https://api.sigmon.test/v1/events"
     });
   });
 
   it("does not reject flush or lose accounting when permanent failure onError throws", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(401));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0,
@@ -161,10 +161,10 @@ describe("createSignalHubClient", () => {
   });
 
   it("reports queue overflow and includes the dropped count in flush results", async () => {
-    const onError = vi.fn<(error: SignalHubError) => void>();
+    const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxQueueSize: 1,
@@ -190,8 +190,8 @@ describe("createSignalHubClient", () => {
 
   it("does not throw from track when queue overflow onError throws", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxQueueSize: 1,
@@ -207,10 +207,10 @@ describe("createSignalHubClient", () => {
   });
 
   it("drops oversized payloads before enqueue, avoids fetch, and reports payload_too_large", async () => {
-    const onError = vi.fn<(error: SignalHubError) => void>();
+    const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxSerializedPayloadBytes: 10,
@@ -235,8 +235,8 @@ describe("createSignalHubClient", () => {
 
   it("identify updates default context and shallow-merges metadata", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0,
@@ -265,8 +265,8 @@ describe("createSignalHubClient", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-02T12:00:00.000Z"));
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0
@@ -280,7 +280,7 @@ describe("createSignalHubClient", () => {
     expect(activeTrace.traceId).toBe("trace_supplied");
     expect(activeTrace.startedAt).toEqual(new Date("2026-05-02T12:00:00.000Z"));
     expect(fetchImpl).toHaveBeenCalledWith(
-      "https://api.signalhub.test/v1/traces",
+      "https://api.sigmon.test/v1/traces",
       expect.objectContaining({ body: expect.any(String) })
     );
     expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({
@@ -295,8 +295,8 @@ describe("createSignalHubClient", () => {
 
   it("startTrace end preserves typed trace defaults from start input", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0
@@ -322,8 +322,8 @@ describe("createSignalHubClient", () => {
   it("shutdown flushes pending items directly and stops interval flushing", async () => {
     vi.useFakeTimers();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       flushIntervalMs: 10,
@@ -364,8 +364,8 @@ describe("createSignalHubClient", () => {
           })
       )
       .mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       flushIntervalMs: 10,
@@ -407,8 +407,8 @@ describe("createSignalHubClient", () => {
 
   it("captureError, llm, trace, and span enqueue to their endpoint paths", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0
@@ -422,17 +422,17 @@ describe("createSignalHubClient", () => {
     await client.flush();
 
     expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
-      "https://api.signalhub.test/v1/errors",
-      "https://api.signalhub.test/v1/llm",
-      "https://api.signalhub.test/v1/traces",
-      "https://api.signalhub.test/v1/spans"
+      "https://api.sigmon.test/v1/errors",
+      "https://api.sigmon.test/v1/llm",
+      "https://api.sigmon.test/v1/traces",
+      "https://api.sigmon.test/v1/spans"
     ]);
   });
 
   it("queues manual breadcrumbs", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://signalhub.example.com",
+    const client = createSignalMonitorClient({
+      endpoint: "https://sigmon.example.com",
       apiKey: "sh_test",
       fetch: fetchImpl,
       defaultContext: { sessionId: "sess_1" },
@@ -443,7 +443,7 @@ describe("createSignalHubClient", () => {
     await client.flush();
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      "https://signalhub.example.com/v1/breadcrumbs",
+      "https://sigmon.example.com/v1/breadcrumbs",
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining('"session_id":"sess_1"')
@@ -465,8 +465,8 @@ describe("createSignalHubClient", () => {
           resolveFetch = resolve;
         })
     );
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0
@@ -501,8 +501,8 @@ describe("createSignalHubClient", () => {
           })
       )
       .mockResolvedValue(response(202));
-    const client = createSignalHubClient({
-      endpoint: "https://api.signalhub.test",
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetch: fetchImpl,
       maxRetries: 0

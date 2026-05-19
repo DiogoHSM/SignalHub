@@ -12,7 +12,7 @@ const productionPlaceholders = {
   BOOTSTRAP_ADMIN_PASSWORD: "change-me-admin-password-32-chars-min"
 } as const;
 
-const localOnlyPostgresPassword = "signalhub-local-only-change-me";
+const localOnlyPostgresPassword = "sigmon-local-only-change-me";
 
 function requireNoProductionPlaceholder(name: keyof typeof productionPlaceholders, value: string, nodeEnv: string): void {
   if (nodeEnv === "production" && value === productionPlaceholders[name]) {
@@ -64,7 +64,7 @@ const rawConfigSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((value) => (value === undefined ? undefined : value === "true")),
-  SIGNALHUB_PUBLIC_ENDPOINT: optionalEnvUrl,
+  SIGMON_PUBLIC_ENDPOINT: optionalEnvUrl,
   RETENTION_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -88,7 +88,7 @@ const rawConfigSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   BACKUPS_INTERVAL_HOURS: optionalPositiveInteger(24),
-  BACKUPS_LOCAL_DIR: z.preprocess(emptyStringToUndefined, z.string().min(1).default("/var/lib/signalhub/backups")),
+  BACKUPS_LOCAL_DIR: z.preprocess(emptyStringToUndefined, z.string().min(1).default("/var/lib/sigmon/backups")),
   BACKUPS_RETENTION_DAYS: optionalPositiveInteger(14),
   BACKUPS_S3_ENABLED: z
     .enum(["true", "false"])
@@ -99,10 +99,10 @@ const rawConfigSchema = z.object({
   BACKUPS_S3_BUCKET: optionalEnvString,
   BACKUPS_S3_ACCESS_KEY_ID: optionalEnvString,
   BACKUPS_S3_SECRET_ACCESS_KEY: optionalEnvString,
-  BACKUPS_S3_PREFIX: z.preprocess(emptyStringToUndefined, z.string().default("signalhub")),
+  BACKUPS_S3_PREFIX: z.preprocess(emptyStringToUndefined, z.string().default("sigmon")),
   SOURCE_MAPS_LOCAL_DIR: z.preprocess(
     emptyStringToUndefined,
-    z.string().min(1).default("/var/lib/signalhub/source-maps")
+    z.string().min(1).default("/var/lib/sigmon/source-maps")
   ),
   SOURCE_MAPS_MAX_UPLOAD_MB: optionalPositiveInteger(50),
   SOURCE_MAPS_RETENTION_ENABLED: z
@@ -168,7 +168,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     console: {
       enabled: parsed.CONSOLE_ENABLED ?? (parsed.NODE_ENV === "production"),
-      publicEndpoint: parsed.SIGNALHUB_PUBLIC_ENDPOINT ?? ""
+      publicEndpoint: parsed.SIGMON_PUBLIC_ENDPOINT ?? ""
     },
     retention: {
       enabled: parsed.RETENTION_ENABLED,

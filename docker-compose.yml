@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: signalhub
-      POSTGRES_USER: signalhub
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-signalhub-local-only-change-me}
+      POSTGRES_DB: sigmon
+      POSTGRES_USER: sigmon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sigmon-local-only-change-me}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U signalhub -d signalhub"]
+      test: ["CMD-SHELL", "pg_isready -U sigmon -d sigmon"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -34,17 +34,17 @@ services:
       dockerfile: Dockerfile
     command: pnpm start:api
     env_file:
-      - path: ${SIGNALHUB_ENV_FILE:-.env}
+      - path: ${SIGMON_ENV_FILE:-.env}
         required: false
     environment:
       CONSOLE_ENABLED: "true"
-      DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-signalhub-local-only-change-me}}@postgres:5432/signalhub
+      DATABASE_URL: postgres://sigmon:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-sigmon-local-only-change-me}}@postgres:5432/sigmon
       REDIS_URL: redis://redis:6379
-      SIGNALHUB_PUBLIC_ENDPOINT: ${SIGNALHUB_PUBLIC_ENDPOINT:-http://localhost:3000}
+      SIGMON_PUBLIC_ENDPOINT: ${SIGMON_PUBLIC_ENDPOINT:-http://localhost:3000}
     ports:
       - "3000:3000"
     volumes:
-      - source_map_data:/var/lib/signalhub/source-maps
+      - source_map_data:/var/lib/sigmon/source-maps
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,13 +57,13 @@ services:
       dockerfile: Dockerfile
     command: pnpm start:worker
     env_file:
-      - path: ${SIGNALHUB_ENV_FILE:-.env}
+      - path: ${SIGMON_ENV_FILE:-.env}
         required: false
     environment:
-      DATABASE_URL: postgres://signalhub:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-signalhub-local-only-change-me}}@postgres:5432/signalhub
+      DATABASE_URL: postgres://sigmon:${POSTGRES_PASSWORD_URLENCODED:-${POSTGRES_PASSWORD:-sigmon-local-only-change-me}}@postgres:5432/sigmon
       REDIS_URL: redis://redis:6379
     volumes:
-      - backup_data:/var/lib/signalhub/backups
+      - backup_data:/var/lib/sigmon/backups
     depends_on:
       postgres:
         condition: service_healthy

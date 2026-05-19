@@ -72,21 +72,21 @@ function parseArgs(args: string[]): ParsedArgs {
 function withEnv(parsed: ParsedArgs, env: NodeJS.ProcessEnv): ParsedArgs {
   return {
     ...parsed,
-    endpoint: parsed.endpoint ?? env.SIGNALHUB_ENDPOINT,
-    token: parsed.token ?? env.SIGNALHUB_SOURCE_MAP_TOKEN,
-    projectId: parsed.projectId ?? env.SIGNALHUB_PROJECT_ID,
-    environmentId: parsed.environmentId ?? env.SIGNALHUB_ENVIRONMENT_ID,
-    release: parsed.release ?? env.SIGNALHUB_RELEASE
+    endpoint: parsed.endpoint ?? env.SIGMON_ENDPOINT,
+    token: parsed.token ?? env.SIGMON_SOURCE_MAP_TOKEN,
+    projectId: parsed.projectId ?? env.SIGMON_PROJECT_ID,
+    environmentId: parsed.environmentId ?? env.SIGMON_ENVIRONMENT_ID,
+    release: parsed.release ?? env.SIGMON_RELEASE
   };
 }
 
 function validate(input: ParsedArgs): asserts input is ValidatedInput {
   const required: Array<[keyof ParsedArgs, string]> = [
-    ["endpoint", "--endpoint or SIGNALHUB_ENDPOINT"],
-    ["token", "--token or SIGNALHUB_SOURCE_MAP_TOKEN"],
-    ["projectId", "--project-id or SIGNALHUB_PROJECT_ID"],
-    ["environmentId", "--environment-id or SIGNALHUB_ENVIRONMENT_ID"],
-    ["release", "--release or SIGNALHUB_RELEASE"]
+    ["endpoint", "--endpoint or SIGMON_ENDPOINT"],
+    ["token", "--token or SIGMON_SOURCE_MAP_TOKEN"],
+    ["projectId", "--project-id or SIGMON_PROJECT_ID"],
+    ["environmentId", "--environment-id or SIGMON_ENVIRONMENT_ID"],
+    ["release", "--release or SIGMON_RELEASE"]
   ];
 
   for (const [key, label] of required) {

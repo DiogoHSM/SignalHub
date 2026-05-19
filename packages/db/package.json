@@ -1,5 +1,5 @@
 {
-  "name": "@signal-hub/db",
+  "name": "@sigmon/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",

@@ -23,7 +23,7 @@ export type SignalContext = {
   metadata?: SignalMetadata;
 };
 
-export type SignalHubClientOptions = {
+export type SignalMonitorClientOptions = {
   endpoint: string;
   apiKey: string;
   defaultContext?: SignalContext;
@@ -34,7 +34,7 @@ export type SignalHubClientOptions = {
   maxRetries?: number;
   retryBaseDelayMs?: number;
   maxSerializedPayloadBytes?: number;
-  onError?: (error: SignalHubError) => void;
+  onError?: (error: SignalMonitorError) => void;
 };
 
 export type EventInput = {
@@ -119,21 +119,21 @@ export type FlushResult = {
   dropped: number;
 };
 
-export type SignalHubErrorCode =
+export type SignalMonitorErrorCode =
   | "queue_overflow"
   | "payload_too_large"
   | "permanent_failure"
   | "transient_failure"
   | "invalid_payload";
 
-export type SignalHubError = {
-  code: SignalHubErrorCode;
+export type SignalMonitorError = {
+  code: SignalMonitorErrorCode;
   message: string;
   status?: number;
   endpoint?: string;
 };
 
-export type SignalHubClient = {
+export type SignalMonitorClient = {
   track: (name: string, properties?: SignalMetadata, context?: SignalContext & EventInput) => void;
   captureError: (error: unknown, input?: ErrorInput) => void;
   breadcrumb: (input: BreadcrumbInput, context?: SignalContext) => void;

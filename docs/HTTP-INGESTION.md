@@ -1,12 +1,12 @@
 # HTTP Ingestion
 
-SignalHub accepts authenticated JSON telemetry requests from any HTTP client. API keys are scoped to one project and one environment, so clients do not send project or environment IDs in ingestion payloads.
+SignalMonitor accepts authenticated JSON telemetry requests from any HTTP client. API keys are scoped to one project and one environment, so clients do not send project or environment IDs in ingestion payloads.
 
 ## Base Request
 
 ```http
 POST /v1/events HTTP/1.1
-Host: signalhub.example.com
+Host: sigmon.example.com
 Authorization: Bearer sh_your_api_key
 Content-Type: application/json
 
@@ -15,7 +15,7 @@ Content-Type: application/json
 }
 ```
 
-Successful requests return `202 Accepted` after SignalHub validates the payload and enqueues it for worker persistence.
+Successful requests return `202 Accepted` after SignalMonitor validates the payload and enqueues it for worker persistence.
 
 ```http
 HTTP/1.1 202 Accepted
@@ -76,7 +76,7 @@ Optional fields:
 - `properties`: JSON object with event-specific properties. Defaults to `{}`.
 
 ```bash
-curl -i https://signalhub.example.com/v1/events \
+curl -i https://sigmon.example.com/v1/events \
   -H "Authorization: Bearer sh_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -110,7 +110,7 @@ Optional fields:
 - `context`: JSON object with additional error context. Defaults to `{}`.
 
 ```bash
-curl -i https://signalhub.example.com/v1/errors \
+curl -i https://sigmon.example.com/v1/errors \
   -H "Authorization: Bearer sh_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -147,7 +147,7 @@ Optional fields:
 - `output_preview`: bounded output preview.
 
 ```bash
-curl -i https://signalhub.example.com/v1/llm \
+curl -i https://sigmon.example.com/v1/llm \
   -H "Authorization: Bearer sh_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -181,7 +181,7 @@ Optional fields:
 - `duration_ms`: nonnegative integer duration.
 
 ```bash
-curl -i https://signalhub.example.com/v1/traces \
+curl -i https://sigmon.example.com/v1/traces \
   -H "Authorization: Bearer sh_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -217,7 +217,7 @@ Optional fields:
 - `cost_usd`: nonnegative number.
 
 ```bash
-curl -i https://signalhub.example.com/v1/spans \
+curl -i https://sigmon.example.com/v1/spans \
   -H "Authorization: Bearer sh_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{

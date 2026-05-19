@@ -61,7 +61,7 @@ describe("sendSignal", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test/",
+      endpoint: "https://api.sigmon.test/",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1000,
@@ -72,7 +72,7 @@ describe("sendSignal", () => {
 
     expect(result).toEqual({ ok: true, status: 202 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl).toHaveBeenCalledWith("https://api.signalhub.test/v1/events", {
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/events", {
       method: "POST",
       headers: {
         authorization: "Bearer test_api_key",
@@ -88,7 +88,7 @@ describe("sendSignal", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test",
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1000,
@@ -110,7 +110,7 @@ describe("sendSignal", () => {
       .mockResolvedValueOnce(response(202));
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test",
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1000,
@@ -127,7 +127,7 @@ describe("sendSignal", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(401));
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test",
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1000,
@@ -144,7 +144,7 @@ describe("sendSignal", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test",
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1000,
@@ -161,7 +161,7 @@ describe("sendSignal", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test",
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1000,
@@ -182,7 +182,7 @@ describe("sendSignal", () => {
     });
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test",
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1000,
@@ -204,7 +204,7 @@ describe("sendSignal", () => {
     });
 
     const result = await sendSignal({
-      endpoint: "https://api.signalhub.test",
+      endpoint: "https://api.sigmon.test",
       apiKey: "test_api_key",
       fetchImpl,
       requestTimeoutMs: 1,

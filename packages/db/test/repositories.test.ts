@@ -107,9 +107,9 @@ let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 describe("repositories", () => {
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16-alpine")
-      .withDatabase("signalhub")
-      .withUsername("signalhub")
-      .withPassword("signalhub")
+      .withDatabase("sigmon")
+      .withUsername("sigmon")
+      .withPassword("sigmon")
       .start();
   }, 60_000);
 
@@ -1396,8 +1396,8 @@ describe("repositories", () => {
       const channel = await createNotificationChannel(db, {
         name: "Ops webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
-        secretHeaderName: "X-SignalHub-Secret",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: "X-SignalMonitor-Secret",
         secretHeaderValue: "secret-value",
         enabled: true
       });
@@ -1649,8 +1649,8 @@ describe("repositories", () => {
         finishedAt: new Date("2026-05-06T01:00:05.000Z"),
         status: "failed",
         trigger: "scheduled",
-        filename: "signalhub-20260506T010000Z.dump",
-        localPath: "/var/lib/signalhub/backups/signalhub-20260506T010000Z.dump",
+        filename: "sigmon-20260506T010000Z.dump",
+        localPath: "/var/lib/sigmon/backups/sigmon-20260506T010000Z.dump",
         sizeBytes: null,
         s3Bucket: null,
         s3Key: null,
@@ -1661,11 +1661,11 @@ describe("repositories", () => {
         finishedAt: new Date("2026-05-06T02:00:07.000Z"),
         status: "success",
         trigger: "manual",
-        filename: "signalhub-20260506T020000Z.dump",
-        localPath: "/var/lib/signalhub/backups/signalhub-20260506T020000Z.dump",
+        filename: "sigmon-20260506T020000Z.dump",
+        localPath: "/var/lib/sigmon/backups/sigmon-20260506T020000Z.dump",
         sizeBytes: 1234,
-        s3Bucket: "signalhub-backups",
-        s3Key: "prod/signalhub/signalhub-20260506T020000Z.dump",
+        s3Bucket: "sigmon-backups",
+        s3Key: "prod/sigmon/sigmon-20260506T020000Z.dump",
         errorMessage: null
       });
 
@@ -1702,7 +1702,7 @@ describe("repositories", () => {
           'success',
           'manual',
           'older.dump',
-          '/var/lib/signalhub/backups/older.dump',
+          '/var/lib/sigmon/backups/older.dump',
           100,
           '2026-05-06T03:00:01.000Z'
         ),
@@ -1713,7 +1713,7 @@ describe("repositories", () => {
           'success',
           'manual',
           'newer.dump',
-          '/var/lib/signalhub/backups/newer.dump',
+          '/var/lib/sigmon/backups/newer.dump',
           200,
           '2026-05-06T03:00:02.000Z'
         ),
@@ -1724,7 +1724,7 @@ describe("repositories", () => {
           'failed',
           'scheduled',
           'failed-a.dump',
-          '/var/lib/signalhub/backups/failed-a.dump',
+          '/var/lib/sigmon/backups/failed-a.dump',
           null,
           '2026-05-06T03:00:03.000Z'
         ),
@@ -1735,7 +1735,7 @@ describe("repositories", () => {
           'failed',
           'scheduled',
           'failed-z.dump',
-          '/var/lib/signalhub/backups/failed-z.dump',
+          '/var/lib/sigmon/backups/failed-z.dump',
           null,
           '2026-05-06T03:00:03.000Z'
         )
@@ -1770,7 +1770,7 @@ describe("repositories", () => {
           'success',
           'manual',
           'unsafe.dump',
-          '/var/lib/signalhub/backups/unsafe.dump',
+          '/var/lib/sigmon/backups/unsafe.dump',
           9007199254740992
         )
       `.execute(db);

@@ -107,8 +107,8 @@ function validateSecretHeaderName(value: string): string | null {
   if (!/^[A-Za-z0-9-]+$/.test(value)) {
     return "Secret header name may only contain letters, numbers, and hyphens";
   }
-  if (!/^(x-|signalhub-)/i.test(value)) {
-    return "Secret header name must begin with X- or SignalHub-";
+  if (!/^(x-|sigmon-)/i.test(value)) {
+    return "Secret header name must begin with X- or Sigmon-";
   }
   return null;
 }

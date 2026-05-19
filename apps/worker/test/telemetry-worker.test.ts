@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { LookupFunction } from "node:net";
-import type { TelemetryJobPayload } from "@signal-hub/queues";
+import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
   deliverWebhook,
   runAlertEvaluationOnce,
@@ -438,7 +438,7 @@ describe("buildDeadLetterJobInput", () => {
 
 describe("backup scheduler integration helpers", () => {
   it("records a scheduled backup through injected dependencies", async () => {
-    const localDir = await mkdtemp(join(tmpdir(), "signalhub-main-backups-"));
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-main-backups-"));
     const recordBackupRun = vi.fn(async (input) => input);
     try {
       const result = await runBackupOnce({
@@ -449,7 +449,7 @@ describe("backup scheduler integration helpers", () => {
           intervalHours: 24,
           localDir,
           retentionDays: 14,
-          databaseUrl: "postgres://user:pass@localhost:5432/signalhub",
+          databaseUrl: "postgres://user:pass@localhost:5432/sigmon",
           s3: {
             enabled: false,
             endpoint: "",
@@ -457,7 +457,7 @@ describe("backup scheduler integration helpers", () => {
             bucket: "",
             accessKeyId: "",
             secretAccessKey: "",
-            prefix: "signalhub"
+            prefix: "sigmon"
           }
         },
         withLock: async (run) => ({ locked: true, result: await run() }),
@@ -479,7 +479,7 @@ describe("backup scheduler integration helpers", () => {
 
 describe("deleteExpiredSourceMapArtifacts", () => {
   it("deletes expired source-map files before metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "artifact.map");
     try {
       await writeFile(filePath, "{}");
@@ -538,7 +538,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   });
 
   it("tolerates missing source-map files and still removes metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "missing.map");
     try {
       const deletedIds: string[] = [];
@@ -595,7 +595,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   });
 
   it("tolerates missing source-map parent directories and still removes metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "missing-parent", "missing.map");
     try {
       const deletedIds: string[] = [];
@@ -652,7 +652,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   });
 
   it("tolerates source-map files disappearing before removal and still removes metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "raced.map");
     try {
       await writeFile(filePath, "{}");
@@ -718,7 +718,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   });
 
   it("rejects source-map paths outside the local directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const outside = path.join(tmpdir(), "outside-source-map.map");
     try {
       await writeFile(outside, "{}");
@@ -759,8 +759,8 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   });
 
   it("accepts files stored under the real source-map directory when localDir is a symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
-    const linkPath = path.join(tmpdir(), `signalhub-sourcemaps-link-${process.pid}-${Date.now()}`);
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    const linkPath = path.join(tmpdir(), `sigmon-sourcemaps-link-${process.pid}-${Date.now()}`);
     try {
       const realRoot = await realpath(root);
       await symlink(realRoot, linkPath, "dir");
@@ -822,7 +822,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   });
 
   it("rejects symlink source-map artifact paths without deleting target files or metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     try {
       const targetPath = path.join(root, "target.map");
       const linkPath = path.join(root, "artifact.map");
@@ -869,8 +869,8 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   });
 
   it("rejects missing source-map files under symlink parents outside the local directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-"));
-    const outsideRoot = await mkdtemp(path.join(tmpdir(), "signalhub-sourcemaps-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-outside-"));
     try {
       const linkPath = path.join(root, "linked-parent");
       const filePath = path.join(linkPath, "missing.map");
@@ -1415,7 +1415,7 @@ describe("runAlertEvaluationOnce", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: null,
         secretHeaderValue: null,
         hasSecret: false,
@@ -1464,7 +1464,7 @@ describe("runAlertEvaluationOnce", () => {
         ruleId: "rule_1",
         observedValue: "2",
         threshold: "1",
-        signalhub: { source: "signalhub" }
+        sigmon: { source: "sigmon" }
       })
     ]);
     expect(deliveries).toEqual([
@@ -1578,7 +1578,7 @@ describe("runAlertEvaluationOnce", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: null,
         secretHeaderValue: null,
         hasSecret: false,
@@ -1654,7 +1654,7 @@ describe("deliverWebhook", () => {
     observedValue: "2",
     threshold: "1",
     message: "Errors threshold reached: 2 >= 1",
-    signalhub: { source: "signalhub" as const }
+    sigmon: { source: "sigmon" as const }
   };
   const resolvePublicHostname = async () => [{ address: "93.184.216.34" }];
 
@@ -1666,7 +1666,7 @@ describe("deliverWebhook", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: null,
         secretHeaderValue: null,
         hasSecret: false,
@@ -1689,7 +1689,7 @@ describe("deliverWebhook", () => {
     });
     expect(requestImpl).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: new URL("https://hooks.example.com/signalhub"),
+        url: new URL("https://hooks.example.com/sigmon"),
         body: JSON.stringify(payload)
       })
     );
@@ -1703,7 +1703,7 @@ describe("deliverWebhook", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: null,
         secretHeaderValue: null,
         hasSecret: false,
@@ -1729,9 +1729,9 @@ describe("deliverWebhook", () => {
 
   it("does not send a production request when the webhook URL includes credentials", async () => {
     for (const url of [
-      "https://user@example.com/signalhub",
-      "https://:pass@example.com/signalhub",
-      "https://user:pass@example.com/signalhub"
+      "https://user@example.com/sigmon",
+      "https://:pass@example.com/sigmon",
+      "https://user:pass@example.com/sigmon"
     ]) {
       const requestImpl = vi.fn(async () => ({ status: 204 }));
 
@@ -1774,7 +1774,7 @@ describe("deliverWebhook", () => {
           id: "chn_1",
           name: "Webhook",
           type: "webhook",
-          url: "https://hooks.example.com/signalhub",
+          url: "https://hooks.example.com/sigmon",
           secretHeaderName: null,
           secretHeaderValue: null,
           hasSecret: false,
@@ -1807,7 +1807,7 @@ describe("deliverWebhook", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: null,
         secretHeaderValue: null,
         hasSecret: false,
@@ -1845,7 +1845,7 @@ describe("deliverWebhook", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: null,
         secretHeaderValue: null,
         hasSecret: false,
@@ -1878,8 +1878,8 @@ describe("deliverWebhook", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
-        secretHeaderName: "X-SignalHub-Secret",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: "X-SignalMonitor-Secret",
         secretHeaderValue: "secret-value",
         hasSecret: true,
         enabled: true,
@@ -1897,10 +1897,10 @@ describe("deliverWebhook", () => {
     expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
     expect(requestImpl).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: new URL("https://hooks.example.com/signalhub"),
+        url: new URL("https://hooks.example.com/sigmon"),
         headers: expect.objectContaining({
           "Content-Type": "application/json",
-          "X-SignalHub-Secret": "secret-value"
+          "X-SignalMonitor-Secret": "secret-value"
         }),
         body: JSON.stringify(payload)
       })
@@ -1915,7 +1915,7 @@ describe("deliverWebhook", () => {
         id: "chn_1",
         name: "Webhook",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: "Bad Header",
         secretHeaderValue: "secret-value",
         hasSecret: true,
@@ -1947,7 +1947,7 @@ describe("deliverWebhook", () => {
           id: "chn_1",
           name: "Webhook",
           type: "webhook",
-          url: "https://hooks.example.com/signalhub",
+          url: "https://hooks.example.com/sigmon",
           secretHeaderName,
           secretHeaderValue: "secret-value",
           hasSecret: true,

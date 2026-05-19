@@ -26,13 +26,13 @@
 
 - Argon2 for password hashing.
 - HMAC session signing through Node `crypto`.
-- API key generation and verification in `@signal-hub/telemetry`.
+- API key generation and verification in `@sigmon/telemetry`.
 
 ## Package Layout
 
 - `apps/api`: Fastify application, routes, startup wiring.
 - `apps/worker`: telemetry worker process.
-- `packages/cli`: Node-based SignalHub CLI, currently focused on source-map CI uploads.
+- `packages/cli`: Node-based SignalMonitor CLI, currently focused on source-map CI uploads.
 - `packages/sdk`: TypeScript SDK for sending telemetry to the existing ingestion API.
 - The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb` and optional browser breadcrumb helpers.
 - `packages/config`: environment parsing and validation.

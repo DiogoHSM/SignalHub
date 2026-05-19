@@ -446,7 +446,7 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     recorder.pass("backup", "manual backup completed");
 
     const backupDiscovery = await run(
-      composeCommand(input.options.projectName, envFile, ["run", "--rm", "worker", "sh", "-lc", "ls -1t /var/lib/signalhub/backups/*.dump | head -n 1"])
+      composeCommand(input.options.projectName, envFile, ["run", "--rm", "worker", "sh", "-lc", "ls -1t /var/lib/sigmon/backups/*.dump | head -n 1"])
     );
     const backupPath = backupDiscovery.stdout.trim();
     if (!backupPath) {

@@ -15,7 +15,7 @@ import {
 import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
 
-vi.mock("@signal-hub/db/repositories/source-maps.js", () => ({
+vi.mock("@sigmon/db/repositories/source-maps.js", () => ({
   createSourceMapArtifact: vi.fn(),
   deleteSourceMapArtifact: vi.fn(),
   getSourceMapArtifact: vi.fn()
@@ -157,7 +157,7 @@ describe("source map helpers", () => {
   });
 
   it("keeps stored source maps inside local storage for traversal-like segments", async () => {
-    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
     const escapedDirectory = path.join(path.dirname(localDir), ".._x");
 
     try {
@@ -182,7 +182,7 @@ describe("source map helpers", () => {
   });
 
   it("rejects source map reads outside local storage", async () => {
-    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
 
     try {
       await expect(readSourceMapFile({ localDir, storagePath: path.join(path.dirname(localDir), "outside.map") })).rejects.toThrow(
@@ -194,7 +194,7 @@ describe("source map helpers", () => {
   });
 
   it("rejects source map reads through symlinks inside local storage", async () => {
-    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
     const outsideFile = path.join(path.dirname(localDir), "outside-source-map.map");
     const symlinkPath = path.join(localDir, "linked.map");
 

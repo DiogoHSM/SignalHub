@@ -1,4 +1,4 @@
-import type { TelemetryJobPayload } from "@signal-hub/queues";
+import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
   breadcrumbPayloadSchema,
   eventPayloadSchema,
@@ -6,9 +6,9 @@ import {
   llmCallPayloadSchema,
   spanPayloadSchema,
   tracePayloadSchema
-} from "@signal-hub/telemetry/ingestion-schemas";
-import { sanitizePreviewText, sanitizeValue } from "@signal-hub/telemetry/sanitization";
-import type { InsertDeadLetterJobInput } from "@signal-hub/db/repositories/dead-letter.js";
+} from "@sigmon/telemetry/ingestion-schemas";
+import { sanitizePreviewText, sanitizeValue } from "@sigmon/telemetry/sanitization";
+import type { InsertDeadLetterJobInput } from "@sigmon/db/repositories/dead-letter.js";
 import type {
   InsertBreadcrumbInput,
   InsertErrorInput,
@@ -16,7 +16,7 @@ import type {
   InsertLlmCallInput,
   InsertSpanInput,
   InsertTraceInput
-} from "@signal-hub/db/repositories/telemetry-writes.js";
+} from "@sigmon/db/repositories/telemetry-writes.js";
 
 export type TelemetryWriter = {
   insertEvent(input: InsertEventInput): Promise<void>;

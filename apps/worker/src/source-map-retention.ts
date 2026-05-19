@@ -1,6 +1,6 @@
 import { lstat, realpath, rm } from "node:fs/promises";
 import path from "node:path";
-import type { SourceMapArtifactRecord } from "@signal-hub/db/repositories/source-maps.js";
+import type { SourceMapArtifactRecord } from "@sigmon/db/repositories/source-maps.js";
 
 export type SourceMapRetentionDeletedCounts = {
   sourceMapArtifacts: number;

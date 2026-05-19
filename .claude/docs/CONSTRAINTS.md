@@ -17,3 +17,4 @@
 - Docker Compose is the only supported production install path; Kubernetes, Helm, and systemd are deferred.
 - The automated release smoke harness validates the Docker Compose install path; it does not introduce Kubernetes, Helm, systemd, hosted SaaS, or additional production deployment support.
 - GitHub Actions CI is a verification gate only; it does not publish images, create hosted environments, or expand the supported deployment surface beyond Docker Compose.
+- MicroERP is Diogo's personal validation target and should be treated as a real integration test target for SignalMonitor, not as part of the SignalMonitor product or repository.

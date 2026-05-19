@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 async function tempFile(name: string, content = "{}"): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "signalhub-cli-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "sigmon-cli-"));
   const file = path.join(dir, name);
   await writeFile(file, content);
   return file;
@@ -20,11 +20,11 @@ async function tempFile(name: string, content = "{}"): Promise<string> {
 
 function requiredEnv() {
   return {
-    SIGNALHUB_ENDPOINT: "https://signalhub.example.com",
-    SIGNALHUB_SOURCE_MAP_TOKEN: "shsmap_secret",
-    SIGNALHUB_PROJECT_ID: "prj_1",
-    SIGNALHUB_ENVIRONMENT_ID: "env_1",
-    SIGNALHUB_RELEASE: "web@1.2.3"
+    SIGMON_ENDPOINT: "https://sigmon.example.com",
+    SIGMON_SOURCE_MAP_TOKEN: "shsmap_secret",
+    SIGMON_PROJECT_ID: "prj_1",
+    SIGMON_ENVIRONMENT_ID: "env_1",
+    SIGMON_RELEASE: "web@1.2.3"
   };
 }
 
@@ -42,7 +42,7 @@ describe("source map upload command", () => {
     const exitCode = await runSourceMapUploadCommand(
       [
         "--endpoint",
-        "https://signalhub.example.com",
+        "https://sigmon.example.com",
         "--token",
         "shsmap_secret",
         "--project-id",
@@ -64,7 +64,7 @@ describe("source map upload command", () => {
 
     expect(exitCode).toBe(0);
     expect(fetch).toHaveBeenCalledWith(
-      "https://signalhub.example.com/v1/source-maps",
+      "https://sigmon.example.com/v1/source-maps",
       expect.objectContaining({
         method: "POST",
         headers: { authorization: "Bearer shsmap_secret" }
@@ -91,7 +91,7 @@ describe("source map upload command", () => {
     const stdout: string[] = [];
 
     const exitCode = await runSourceMapUploadCommand(["--bundle", bundle], {
-      env: { ...requiredEnv(), SIGNALHUB_ENDPOINT: "https://signalhub.example.com/" },
+      env: { ...requiredEnv(), SIGMON_ENDPOINT: "https://sigmon.example.com/" },
       stdout: (line) => stdout.push(line),
       stderr: () => undefined
     });
@@ -101,7 +101,7 @@ describe("source map upload command", () => {
 
     expect(exitCode).toBe(0);
     expect(fetch).toHaveBeenCalledWith(
-      "https://signalhub.example.com/v1/source-maps",
+      "https://sigmon.example.com/v1/source-maps",
       expect.objectContaining({ method: "POST" })
     );
     expect(body.get("bundle")).toBeInstanceOf(Blob);
@@ -177,7 +177,7 @@ describe("source map upload command", () => {
     const stderr: string[] = [];
 
     const exitCode = await runSourceMapUploadCommand(["--file", file], {
-      env: { ...requiredEnv(), SIGNALHUB_SOURCE_MAP_TOKEN: "shsmap_super_secret" },
+      env: { ...requiredEnv(), SIGMON_SOURCE_MAP_TOKEN: "shsmap_super_secret" },
       stdout: () => undefined,
       stderr: (line) => stderr.push(line)
     });
@@ -189,7 +189,7 @@ describe("source map upload command", () => {
 
   it("returns failure for missing upload files", async () => {
     const stderr: string[] = [];
-    const missingFile = path.join(os.tmpdir(), "signalhub-cli-missing.map");
+    const missingFile = path.join(os.tmpdir(), "sigmon-cli-missing.map");
 
     const exitCode = await runSourceMapUploadCommand(["--file", missingFile], {
       env: requiredEnv(),

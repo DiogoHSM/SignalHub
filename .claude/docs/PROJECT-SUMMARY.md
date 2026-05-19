@@ -1,10 +1,14 @@
 # Project Summary
 
-SignalHub is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. It gives operators one installable service for capturing standardized signals from multiple projects and environments.
+SignalMonitor is the current product identity for the self-hosted telemetry core formerly developed as SignalHub. It covers product analytics, errors, LLM calls, traces, and spans, giving operators one installable service for capturing standardized signals from multiple projects and environments.
+
+The intended public website and domain is `sigmon.app`. The intended deployed application host is `my.sigmon.app`.
+
+MicroERP is Diogo's personal project and the first real validation target for testing SignalMonitor against a production-shaped integration.
 
 ## Current Phase
 
-Phase 5E: Source Map Retention.
+Phase 6E: SignalMonitor Rename.
 
 Implemented capabilities:
 

@@ -1,12 +1,12 @@
 import type { SmokeOptions } from "./types.js";
 
-const DEFAULT_PROJECT_NAME = "signalhub_smoke";
+const DEFAULT_PROJECT_NAME = "sigmon_smoke";
 const DEFAULT_API_URL = "http://localhost:3000";
 
 export function parseSmokeArgs(args: string[], env: Record<string, string | undefined>): SmokeOptions {
   const options: SmokeOptions = {
-    projectName: normalizeValue(env.SIGNALHUB_SMOKE_PROJECT_NAME) || DEFAULT_PROJECT_NAME,
-    apiUrl: normalizeApiUrl(env.SIGNALHUB_SMOKE_API_URL) || DEFAULT_API_URL,
+    projectName: normalizeValue(env.SIGMON_SMOKE_PROJECT_NAME) || DEFAULT_PROJECT_NAME,
+    apiUrl: normalizeApiUrl(env.SIGMON_SMOKE_API_URL) || DEFAULT_API_URL,
     preserve: false
   };
 

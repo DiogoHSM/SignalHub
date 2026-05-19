@@ -111,23 +111,23 @@ export function checkEnvValues(env: DoctorEnv): DoctorResult[] {
     }
   }
 
-  if (nodeEnv === "production" && env.DATABASE_URL?.includes(":signalhub-local-only-change-me@")) {
+  if (nodeEnv === "production" && env.DATABASE_URL?.includes(":sigmon-local-only-change-me@")) {
     results.push(createResult("fail", "DATABASE_URL uses the local-only Postgres password placeholder"));
   }
 
-  for (const name of ["DATABASE_URL", "REDIS_URL", "SIGNALHUB_PUBLIC_ENDPOINT"] as const) {
+  for (const name of ["DATABASE_URL", "REDIS_URL", "SIGMON_PUBLIC_ENDPOINT"] as const) {
     const value = env[name];
     if (value && !isValidUrl(value)) {
       results.push(createResult("fail", `${name} must be a valid URL`));
     }
   }
 
-  if (nodeEnv === "production" && env.SIGNALHUB_PUBLIC_ENDPOINT) {
-    if (isLocalhostUrl(env.SIGNALHUB_PUBLIC_ENDPOINT)) {
-      results.push(createResult("warn", "SIGNALHUB_PUBLIC_ENDPOINT points to localhost in production"));
+  if (nodeEnv === "production" && env.SIGMON_PUBLIC_ENDPOINT) {
+    if (isLocalhostUrl(env.SIGMON_PUBLIC_ENDPOINT)) {
+      results.push(createResult("warn", "SIGMON_PUBLIC_ENDPOINT points to localhost in production"));
     }
-    if (isPlainHttpUrl(env.SIGNALHUB_PUBLIC_ENDPOINT)) {
-      results.push(createResult("warn", "SIGNALHUB_PUBLIC_ENDPOINT uses plain HTTP in production"));
+    if (isPlainHttpUrl(env.SIGMON_PUBLIC_ENDPOINT)) {
+      results.push(createResult("warn", "SIGMON_PUBLIC_ENDPOINT uses plain HTTP in production"));
     }
   }
 
@@ -346,7 +346,7 @@ export async function buildDoctorResults(dependencies: BuildDoctorDependencies):
     }
   }
 
-  const apiUrl = options.apiUrl ?? env.SIGNALHUB_PUBLIC_ENDPOINT;
+  const apiUrl = options.apiUrl ?? env.SIGMON_PUBLIC_ENDPOINT;
   if (apiUrl && (options.apiUrl || options.compose || isLocalhostUrl(apiUrl))) {
     results.push(...(await checkApiHealth(apiUrl, fetchHealth, options.compose)));
   }

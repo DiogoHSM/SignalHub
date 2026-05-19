@@ -11,12 +11,12 @@
 
 - Postgres image: `postgres:16-alpine`.
 - Redis image: `redis:7-alpine`.
-- Postgres database: `signalhub`.
-- Postgres user: `signalhub`.
+- Postgres database: `sigmon`.
+- Postgres user: `sigmon`.
 - Postgres volume: `postgres_data`.
 - Redis volume: `redis_data`.
-- Backup volume: `backup_data`, mounted into the worker at `/var/lib/signalhub/backups`.
-- Source-map volume: `source_map_data`, mounted into the API at `/var/lib/signalhub/source-maps`.
+- Backup volume: `backup_data`, mounted into the worker at `/var/lib/sigmon/backups`.
+- Source-map volume: `source_map_data`, mounted into the API at `/var/lib/sigmon/source-maps`.
 - Postgres host binding: `127.0.0.1:${POSTGRES_PORT:-5432}`.
 - Redis host binding: `127.0.0.1:${REDIS_PORT:-6379}`.
 - API host binding: `3000:3000`.

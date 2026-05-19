@@ -1,6 +1,6 @@
-import { loadConfig } from "@signal-hub/config";
-import { createDb } from "@signal-hub/db";
-import { migrate } from "@signal-hub/db/migrate.js";
+import { loadConfig } from "@sigmon/config";
+import { createDb } from "@sigmon/db";
+import { migrate } from "@sigmon/db/migrate.js";
 import {
   archiveEnvironment,
   archiveProject,
@@ -15,7 +15,7 @@ import {
   revokeApiKey,
   updateEnvironment,
   updateProject
-} from "@signal-hub/db/repositories/admin.js";
+} from "@sigmon/db/repositories/admin.js";
 import {
   archiveAlertRule,
   archiveNotificationChannel,
@@ -28,7 +28,7 @@ import {
   listNotificationChannels,
   updateAlertRule,
   updateNotificationChannel
-} from "@signal-hub/db/repositories/alerts.js";
+} from "@sigmon/db/repositories/alerts.js";
 import {
   archiveUser,
   createUser,
@@ -38,26 +38,26 @@ import {
   linkGoogleSubject,
   listUsers,
   updateUser
-} from "@signal-hub/db/repositories/users.js";
-import { getBackupStatus } from "@signal-hub/db/repositories/backups.js";
+} from "@sigmon/db/repositories/users.js";
+import { getBackupStatus } from "@sigmon/db/repositories/backups.js";
 import {
   getHeartbeat,
   getIngestionFreshness,
   getLastRetentionRun
-} from "@signal-hub/db/repositories/system.js";
+} from "@sigmon/db/repositories/system.js";
 import {
   findSourceMapArtifactForFrame,
   getCachedErrorStackResolution,
   listSourceMapArtifacts,
   replaceErrorStackResolutions
-} from "@signal-hub/db/repositories/source-maps.js";
+} from "@sigmon/db/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
   findSourceMapUploadTokenByPrefix,
   listSourceMapUploadTokens,
   revokeSourceMapUploadToken,
   updateSourceMapUploadTokenLastUsed
-} from "@signal-hub/db/repositories/source-map-upload-tokens.js";
+} from "@sigmon/db/repositories/source-map-upload-tokens.js";
 import {
   getErrorAggregates,
   getErrorForSourceMapResolution,
@@ -70,18 +70,18 @@ import {
   listLlmCalls,
   listTraceSpans,
   listTraces
-} from "@signal-hub/db/repositories/telemetry-query.js";
-import { getSessionTimeline } from "@signal-hub/db/repositories/session-timeline.js";
+} from "@sigmon/db/repositories/telemetry-query.js";
+import { getSessionTimeline } from "@sigmon/db/repositories/session-timeline.js";
 import {
   getErrorGroup,
   listErrorGroups,
   updateErrorGroupStatus
-} from "@signal-hub/db/repositories/error-groups.js";
-import { getEntityTenantDetail, listEntityTenants } from "@signal-hub/db/repositories/entities-query.js";
-import { getUserDetail, listUsersActivity } from "@signal-hub/db/repositories/users-query.js";
-import { createTelemetryQueue, enqueueTelemetryJob } from "@signal-hub/queues";
-import { hashPassword, verifyPassword } from "@signal-hub/telemetry/auth";
-import { verifyApiKey } from "@signal-hub/telemetry/api-keys";
+} from "@sigmon/db/repositories/error-groups.js";
+import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositories/entities-query.js";
+import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
+import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
+import { hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
+import { verifyApiKey } from "@sigmon/telemetry/api-keys";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Redis } from "ioredis";
@@ -98,7 +98,7 @@ import {
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 
-const sessionCookieName = "signalhub_session";
+const sessionCookieName = "sigmon_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
 type SessionPayload = {

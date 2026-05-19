@@ -1,4 +1,4 @@
-import type { BreadcrumbInput, SignalHubClient, SignalMetadata } from "./types.js";
+import type { BreadcrumbInput, SignalMonitorClient, SignalMetadata } from "./types.js";
 
 export type BrowserBreadcrumbOptions = {
   navigation?: boolean;
@@ -142,7 +142,7 @@ export function summarizeClickedElement(element: unknown): ClickSummary {
 }
 
 export function createBrowserBreadcrumbs(
-  client: Pick<SignalHubClient, "breadcrumb">,
+  client: Pick<SignalMonitorClient, "breadcrumb">,
   options: BrowserBreadcrumbOptions = {}
 ): StopBrowserBreadcrumbs {
   const resolvedOptions = {

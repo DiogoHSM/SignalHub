@@ -3,12 +3,12 @@ import {
   createApiKey,
   createSourceMapUploadToken,
   hashApiKey as hashTelemetryApiKey
-} from "@signal-hub/telemetry/api-keys";
+} from "@sigmon/telemetry/api-keys";
 import { isIP } from "node:net";
 import { z } from "zod";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 import type { AuthDependencies } from "./auth.js";
-import type { AlertRuleRecord, NotificationChannelRecord } from "@signal-hub/db/repositories/alerts.js";
+import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
 
 export interface AdminProject {
   id: string;
@@ -382,7 +382,7 @@ function isValidSecretHeaderName(headerName: string | null | undefined): boolean
   }
 
   const normalizedHeaderName = headerName.toLowerCase();
-  return normalizedHeaderName.startsWith("x-") || normalizedHeaderName.startsWith("signalhub-");
+  return normalizedHeaderName.startsWith("x-") || normalizedHeaderName.startsWith("sigmon-");
 }
 
 function validateWebhookUrl(rawUrl: string, nodeEnv: string | undefined): boolean {

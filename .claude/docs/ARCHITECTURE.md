@@ -1,6 +1,6 @@
 # Architecture
 
-SignalHub is a self-hosted operational core with four runtime components:
+SignalMonitor is a self-hosted operational core with four runtime components:
 
 - Fastify API service.
 - Worker service.

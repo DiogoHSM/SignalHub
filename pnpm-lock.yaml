@@ -93,16 +93,16 @@ importers:
       '@fastify/static':
         specifier: ^9.1.3
         version: 9.1.3
-      '@signal-hub/config':
+      '@sigmon/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@signal-hub/db':
+      '@sigmon/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@signal-hub/queues':
+      '@sigmon/queues':
         specifier: workspace:*
         version: link:../../packages/queues
-      '@signal-hub/telemetry':
+      '@sigmon/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
       fastify:
@@ -118,7 +118,7 @@ importers:
         specifier: ^4.4.2
         version: 4.4.2
     devDependencies:
-      '@signal-hub/worker':
+      '@sigmon/worker':
         specifier: workspace:*
         version: link:../worker
       vitest:
@@ -170,16 +170,16 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1044.0
         version: 3.1044.0
-      '@signal-hub/config':
+      '@sigmon/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@signal-hub/db':
+      '@sigmon/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@signal-hub/queues':
+      '@sigmon/queues':
         specifier: workspace:*
         version: link:../../packages/queues
-      '@signal-hub/telemetry':
+      '@sigmon/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
       bullmq:
@@ -193,13 +193,13 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.17)(jsdom@29.0.2(@noble/hashes@1.8.0))(lightningcss@1.30.1)
 
+  packages/cli: {}
+
   packages/config:
     dependencies:
       zod:
         specifier: ^4.4.2
         version: 4.4.2
-
-  packages/cli: {}
 
   packages/db:
     dependencies:
@@ -239,7 +239,7 @@ importers:
         specifier: ^5.1.11
         version: 5.1.11
     devDependencies:
-      '@signal-hub/telemetry':
+      '@sigmon/telemetry':
         specifier: workspace:*
         version: link:../telemetry
       vitest:

@@ -1,13 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Db } from "@signal-hub/db";
+import type { Db } from "@sigmon/db";
 import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
   getSourceMapArtifact,
   type SourceMapArtifactRecord
-} from "@signal-hub/db/repositories/source-maps.js";
+} from "@sigmon/db/repositories/source-maps.js";
 import type {
   SourceMapBundleUploadInput,
   SourceMapUploadAttribution,

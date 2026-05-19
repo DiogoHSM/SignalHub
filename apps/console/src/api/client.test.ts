@@ -367,10 +367,10 @@ describe("createApiClient", () => {
                 trigger: "scheduled",
                 startedAt: "2026-05-06T00:00:00.000Z",
                 finishedAt: "2026-05-06T00:00:05.000Z",
-                filename: "signalhub-20260506T000000Z.dump",
+                filename: "sigmon-20260506T000000Z.dump",
                 sizeBytes: 1234,
-                s3Bucket: "signalhub-backups",
-                s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+                s3Bucket: "sigmon-backups",
+                s3Key: "prod/sigmon/sigmon-20260506T000000Z.dump",
                 errorMessage: null
               },
               latestFailure: null
@@ -663,8 +663,8 @@ describe("createApiClient", () => {
       id: "chn_1",
       name: "Ops webhook",
       type: "webhook",
-      url: "https://hooks.example.com/signalhub",
-      secretHeaderName: "x-signalhub-secret",
+      url: "https://hooks.example.com/sigmon",
+      secretHeaderName: "x-sigmon-secret",
       hasSecret: true,
       enabled: true,
       createdAt: "2026-05-06T12:00:00.000Z",
@@ -677,8 +677,8 @@ describe("createApiClient", () => {
     const response = await createApiClient().createNotificationChannel({
       name: "Ops webhook",
       type: "webhook",
-      url: "https://hooks.example.com/signalhub",
-      secretHeaderName: "x-signalhub-secret",
+      url: "https://hooks.example.com/sigmon",
+      secretHeaderName: "x-sigmon-secret",
       secretHeaderValue: "super-secret",
       enabled: true
     });
@@ -690,8 +690,8 @@ describe("createApiClient", () => {
         body: JSON.stringify({
           name: "Ops webhook",
           type: "webhook",
-          url: "https://hooks.example.com/signalhub",
-          secretHeaderName: "x-signalhub-secret",
+          url: "https://hooks.example.com/sigmon",
+          secretHeaderName: "x-sigmon-secret",
           secretHeaderValue: "super-secret",
           enabled: true
         })

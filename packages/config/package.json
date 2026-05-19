@@ -1,5 +1,5 @@
 {
-  "name": "@signal-hub/config",
+  "name": "@sigmon/config",
   "version": "0.1.0",
   "private": true,
   "type": "module",

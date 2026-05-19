@@ -4,7 +4,7 @@ import {
   llmCallPayloadSchema,
   spanPayloadSchema,
   tracePayloadSchema
-} from "@signal-hub/telemetry/ingestion-schemas";
+} from "@sigmon/telemetry/ingestion-schemas";
 import { describe, expect, it } from "vitest";
 import {
   createErrorSignal,
