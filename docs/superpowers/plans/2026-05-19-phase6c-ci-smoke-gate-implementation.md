@@ -412,18 +412,7 @@ Expected: the container command prints nothing. The volume command prints nothin
 
 - [x] **Step 6: Record final local verification notes**
 
-Add this section at the bottom of `docs/superpowers/plans/2026-05-19-phase6c-ci-smoke-gate-implementation.md`:
-
-```markdown
-## Local Verification Notes
-
-- Local pnpm verification used `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH"` with `/Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm` so nested repo scripts such as `pnpm -r build` resolve the same pnpm binary, matching the CI Corepack PATH behavior.
-- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm test`: passed; Vitest reported 55 test files and 771 tests passed.
-- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm build`: passed; recursive workspace build completed, including the console Vite production build.
-- `docker compose config --quiet`: passed with exit code 0 and no output.
-- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm smoke:compose`: passed; smoke summary reported commit `0d5406a`, Compose project `signalhub_smoke`, 12 passed, 0 warnings, and 0 failed.
-- Smoke cleanup: `docker ps -a --filter name=signalhub_smoke --format '{{.Names}} {{.Status}}'` printed nothing; `docker volume ls --format '{{.Name}}' | rg '^signalhub_smoke_'` printed nothing and exited 1, which indicates no matching smoke volumes remained.
-```
+Local verification notes were recorded below with exact command outcomes.
 
 - [x] **Step 7: Commit local verification notes**
 
@@ -433,6 +422,15 @@ Run:
 git add docs/superpowers/plans/2026-05-19-phase6c-ci-smoke-gate-implementation.md
 git commit -m "docs: record phase 6c local verification"
 ```
+
+## Local Verification Notes
+
+- Local pnpm verification used `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH"` with `/Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm` so nested repo scripts such as `pnpm -r build` resolve the same pnpm binary, matching the CI Corepack PATH behavior.
+- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm test`: passed; Vitest reported 55 test files and 771 tests passed.
+- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm build`: passed; recursive workspace build completed, including the console Vite production build.
+- `docker compose config --quiet`: passed with exit code 0 and no output.
+- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm smoke:compose`: passed; smoke summary reported commit `0d5406a`, Compose project `signalhub_smoke`, 12 passed, 0 warnings, and 0 failed.
+- Smoke cleanup: `docker ps -a --filter name=signalhub_smoke --format '{{.Names}} {{.Status}}'` printed nothing; `docker volume ls --format '{{.Name}}' | rg '^signalhub_smoke_'` printed nothing and exited 1, which indicates no matching smoke volumes remained.
 
 ## Task 5: GitHub Workflow Verification And PR Evidence
 
