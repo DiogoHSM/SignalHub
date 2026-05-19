@@ -40,6 +40,11 @@
 - `packages/queues`: BullMQ queue creation and enqueue helpers.
 - `packages/telemetry`: ingestion schemas, auth helpers, API key helpers, ids, sanitization.
 
+## CI
+
+- GitHub Actions runs pull request and `main` branch checks on `ubuntu-latest`.
+- CI uses Node.js 22, Corepack, pnpm 9.15.4, Docker Compose, Vitest, and the repo-native `pnpm smoke:compose` runner.
+
 ## Commands
 
 - `pnpm dev:api`: start API in development mode.
