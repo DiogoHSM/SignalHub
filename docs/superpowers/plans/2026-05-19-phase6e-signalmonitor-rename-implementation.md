@@ -52,7 +52,7 @@ Allowed old-name references:
 **Files:**
 - Create: `scripts/branding-contract.test.ts`
 
-- [ ] **Step 1: Write the failing branding contract test**
+- [x] **Step 1: Write the failing branding contract test**
 
 Create `scripts/branding-contract.test.ts`:
 
@@ -174,7 +174,7 @@ describe("SignalMonitor branding contract", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run:
 
@@ -184,7 +184,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: the command exits `1`. The first failure should list active files that still contain old SignalHub identifiers.
 
-- [ ] **Step 3: Commit the failing contract test**
+- [x] **Step 3: Commit the failing contract test**
 
 Run:
 
@@ -209,7 +209,7 @@ git commit -m "test: define signalmonitor branding contract"
 - Modify: `.env.example`
 - Modify: `docker-compose.yml`
 
-- [ ] **Step 1: Apply the active-file mechanical rename**
+- [x] **Step 1: Apply the active-file mechanical rename**
 
 Run this script from the repository root:
 
@@ -284,7 +284,7 @@ NODE
 
 Expected: active code/config/docs files are rewritten; historical `docs/superpowers/**`, `review/**`, and untracked `audit.md` are not rewritten.
 
-- [ ] **Step 2: Regenerate the pnpm lockfile metadata**
+- [x] **Step 2: Regenerate the pnpm lockfile metadata**
 
 Run:
 
@@ -294,7 +294,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: command exits `0`; `pnpm-lock.yaml` now refers to `sigmon` / `@sigmon/*` workspace packages.
 
-- [ ] **Step 3: Inspect package/import references**
+- [x] **Step 3: Inspect package/import references**
 
 Run:
 
@@ -312,7 +312,7 @@ rg -n "@sigmon|sigmon" package.json pnpm-lock.yaml tsconfig.base.json vitest.con
 
 Expected: output includes package names, import aliases, runtime paths, and smoke identifiers under the new names.
 
-- [ ] **Step 4: Run focused branding and workflow tests**
+- [x] **Step 4: Run focused branding and workflow tests**
 
 Run:
 
@@ -322,7 +322,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: all focused tests pass. If failures point at old names, update only the active file named by the failure.
 
-- [ ] **Step 5: Commit the mechanical rename**
+- [x] **Step 5: Commit the mechanical rename**
 
 Run:
 
@@ -348,7 +348,7 @@ git commit -m "refactor: rename runtime identifiers to sigmon"
 - Modify: `docs/HTTP-INGESTION.md`
 - Modify: `docs/superpowers/plans/2026-05-19-phase6e-signalmonitor-rename-implementation.md`
 
-- [ ] **Step 1: Update active project context**
+- [x] **Step 1: Update active project context**
 
 In `CLAUDE.md`, ensure the opening section reads:
 
@@ -366,7 +366,7 @@ In the Project Conventions list, ensure the package bullet uses:
 - The core runtime is a pnpm TypeScript workspace with `apps/api`, `apps/worker`, `@sigmon/sdk`, `@sigmon/cli`, and shared packages under `packages/*`.
 ```
 
-- [ ] **Step 2: Add MicroERP validation context to active docs**
+- [x] **Step 2: Add MicroERP validation context to active docs**
 
 In `.claude/docs/PROJECT-SUMMARY.md`, add this paragraph after the first summary paragraph:
 
@@ -380,7 +380,7 @@ In `.claude/docs/CONSTRAINTS.md`, add this bullet near product/business constrai
 - MicroERP is an internal personal validation project for SignalMonitor, not an external customer commitment.
 ```
 
-- [ ] **Step 3: Add deployment identity to active docs**
+- [x] **Step 3: Add deployment identity to active docs**
 
 In `.claude/docs/DEPLOYMENT.md`, add this paragraph in the top deployment section:
 
@@ -394,7 +394,7 @@ In `README.md`, ensure the intro includes:
 The public brand/domain is `sigmon.app`; the planned self-hosted operator deployment is `my.sigmon.app`.
 ```
 
-- [ ] **Step 4: Update active examples and snippets**
+- [x] **Step 4: Update active examples and snippets**
 
 Run:
 
@@ -404,7 +404,7 @@ rg -n "SignalHub|Signal Hub|signal-hub|signalhub|SIGNALHUB" README.md CLAUDE.md 
 
 Expected: output is limited to exact "formerly SignalHub" wording. If any setup command, package name, env var, path, domain, or active instruction uses an old name, rewrite it to the new name.
 
-- [ ] **Step 5: Run the branding contract test**
+- [x] **Step 5: Run the branding contract test**
 
 Run:
 
@@ -414,7 +414,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit documentation polish**
+- [x] **Step 6: Commit documentation polish**
 
 Run:
 
@@ -428,7 +428,7 @@ git commit -m "docs: rename project identity to signalmonitor"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-19-phase6e-signalmonitor-rename-implementation.md`
 
-- [ ] **Step 1: Run install verification**
+- [x] **Step 1: Run install verification**
 
 Run:
 
@@ -438,7 +438,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: command exits `0`.
 
-- [ ] **Step 2: Run full test suite**
+- [x] **Step 2: Run full test suite**
 
 Run:
 
@@ -448,7 +448,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: all test files and tests pass.
 
-- [ ] **Step 3: Run build**
+- [x] **Step 3: Run build**
 
 Run:
 
@@ -458,7 +458,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: recursive workspace build exits `0`.
 
-- [ ] **Step 4: Validate Docker Compose config**
+- [x] **Step 4: Validate Docker Compose config**
 
 Run:
 
@@ -468,7 +468,7 @@ docker compose config --quiet
 
 Expected: command exits `0`.
 
-- [ ] **Step 5: Run renamed smoke harness**
+- [x] **Step 5: Run renamed smoke harness**
 
 Run:
 
@@ -478,7 +478,7 @@ PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/vers
 
 Expected: command exits `0`, prints `Failed: 0`, uses default Compose project `sigmon_smoke`, and cleans up smoke resources.
 
-- [ ] **Step 6: Confirm smoke cleanup**
+- [x] **Step 6: Confirm smoke cleanup**
 
 Run:
 
@@ -489,7 +489,7 @@ docker volume ls --format '{{.Name}}' | rg '^sigmon_smoke_'
 
 Expected: the container command prints nothing. The volume command prints nothing and may exit `1`.
 
-- [ ] **Step 7: Run old-name and new-name grep evidence**
+- [x] **Step 7: Run old-name and new-name grep evidence**
 
 Run:
 
@@ -507,7 +507,7 @@ rg -n "SignalMonitor|sigmon|SIGMON|@sigmon" README.md CLAUDE.md .claude/docs doc
 
 Expected: output shows the new brand, env vars, package names, paths, smoke names, and docs.
 
-- [ ] **Step 8: Record local verification notes**
+- [x] **Step 8: Record local verification notes**
 
 Add this section before Task 5:
 
@@ -526,7 +526,7 @@ Add this section before Task 5:
 
 Replace the `N` counts with exact observed values before committing.
 
-- [ ] **Step 9: Commit local verification evidence**
+- [x] **Step 9: Commit local verification evidence**
 
 Run:
 
@@ -536,6 +536,21 @@ git commit -m "docs: record phase 6e rename verification"
 ```
 
 If the verification notes are already accurate and no file changed, do not create an empty commit.
+
+## Local Verification Notes
+
+Recorded on 2026-05-19 from branch `codex/phase6e-signalmonitor-rename` at head `c2378bb`.
+
+- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm install --frozen-lockfile`: exited `0`; output reported the lockfile was up to date and dependencies were already up to date.
+- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm test`: exited `1`. Result: `2 failed | 54 passed (56)` test files, `1 failed | 684 passed | 90 skipped (775)` tests. The failures were local Docker/Testcontainers Postgres startup failures, also seen during the pre-rename baseline check in this session: `packages/db/test/repositories.test.ts` failed during the `repositories` suite with `(HTTP code 409) container stopped/paused`, and `apps/api/test/e2e.test.ts` failed with `Health check failed: unhealthy` while starting `postgres:16-alpine`.
+- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm build`: exited `0`; recursive workspace build completed, including the console Vite production build.
+- `docker compose config --quiet`: exited `0` with no output.
+- `PATH="/Users/diogo/.nvm/versions/node/v22.20.0/bin:$PATH" /Users/diogo/.nvm/versions/node/v22.20.0/bin/pnpm smoke:compose`: exited `1`. The smoke harness used Compose project `sigmon_smoke`; summary reported `Passed: 4`, `Warnings: 0`, `Failed: 1`. Failure occurred during `docker compose -p sigmon_smoke --env-file ... run --rm api pnpm seed:admin` because dependencies failed to start: `sigmon_smoke-redis-1 exited (1)`, and Postgres/Redis dependency checks failed.
+- Smoke cleanup inspection: `docker ps -a --filter name=sigmon_smoke --format '{{.Names}} {{.Status}}'` exited `0` and printed nothing. `docker volume ls --format '{{.Name}}' | rg 'sigmon_smoke|signalhub_smoke'` exited `1` and printed nothing, so no matching smoke volumes remained.
+- Old-name grep: `rg "signal-hub|signalhub|SIGNALHUB|@signal-hub|SignalHub|Signal Hub" package.json pnpm-lock.yaml apps packages scripts .github .env.example docker-compose.yml tsconfig.base.json vitest.config.ts README.md CLAUDE.md .claude/docs docs/HTTP-INGESTION.md Dockerfile PRD.md` exited `0`; matches were limited to the branding contract test and explicit explanatory wording that SignalMonitor was formerly developed as SignalHub in `CLAUDE.md`, `.claude/docs/DECISIONS.md`, and `.claude/docs/PROJECT-SUMMARY.md`.
+- New-name grep: `rg "@sigmon|sigmon|SIGMON|SignalMonitor" package.json pnpm-lock.yaml apps packages scripts .github .env.example docker-compose.yml tsconfig.base.json vitest.config.ts README.md CLAUDE.md .claude/docs docs/HTTP-INGESTION.md Dockerfile PRD.md | head -n 80` exited `0` and showed representative active usage of `@sigmon/*`, `sigmon`, `SIGMON_*`, and `SignalMonitor` across `package.json`, `pnpm-lock.yaml`, `tsconfig.base.json`, `CLAUDE.md`, `README.md`, and `vitest.config.ts`.
+
+Full local verification is not green on 2026-05-19 because `pnpm test` and `pnpm smoke:compose` exited non-zero. These are observed local Docker/Testcontainers startup failures, also seen during the pre-rename baseline check in this session; they are recorded here without Phase 6D/infra remediation.
 
 ## Task 5: GitHub PR Verification
 
