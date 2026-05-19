@@ -88,7 +88,7 @@ describe("GitHub Actions CI workflow", () => {
       "run: pnpm test",
       "run: pnpm build",
       "run: docker compose config --quiet",
-      "run: pnpm smoke:compose --project-name signalhub_ci_smoke"
+      "run: pnpm smoke:compose --project-name signalhub_ci_smoke --preserve"
     ]);
   });
 
@@ -99,7 +99,8 @@ describe("GitHub Actions CI workflow", () => {
       "if: failure()",
       "docker compose -p signalhub_ci_smoke ps -a || true",
       "docker compose -p signalhub_ci_smoke logs --no-color || true",
-      "docker system df || true"
+      "docker system df || true",
+      "docker compose -p signalhub_ci_smoke down -v || true"
     ]);
   });
 });
@@ -239,7 +240,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Compose smoke harness
-        run: pnpm smoke:compose --project-name signalhub_ci_smoke
+        run: pnpm smoke:compose --project-name signalhub_ci_smoke --preserve
 
       - name: Collect smoke diagnostics
         if: failure()
@@ -247,6 +248,10 @@ jobs:
           docker compose -p signalhub_ci_smoke ps -a || true
           docker compose -p signalhub_ci_smoke logs --no-color || true
           docker system df || true
+
+      - name: Cleanup smoke resources
+        if: always()
+        run: docker compose -p signalhub_ci_smoke down -v || true
 ```
 
 - [x] **Step 2: Run the workflow contract tests and verify they pass**
@@ -296,7 +301,7 @@ In `README.md`, add this section immediately after `## Compose Smoke Harness`:
 
 Pull requests to `main` and pushes to `main` run the GitHub Actions CI gate. CI installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness.
 
-The smoke job runs `pnpm smoke:compose --project-name signalhub_ci_smoke` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The same `pnpm smoke:compose` command remains available for local release checks.
+The smoke job runs `pnpm smoke:compose --project-name signalhub_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p signalhub_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 ```
 
 - [x] **Step 2: Update deployment docs**
@@ -306,9 +311,9 @@ In `.claude/docs/DEPLOYMENT.md`, add this section after the `## Doctor` section:
 ```markdown
 ## CI Gate
 
-GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name signalhub_ci_smoke`.
+GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name signalhub_ci_smoke --preserve`.
 
-The CI smoke job validates the Docker Compose install path with generated local-only secrets. It does not publish images, create releases, or deploy SignalHub.
+The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p signalhub_ci_smoke down -v || true`. It does not publish images, create releases, or deploy SignalHub.
 ```
 
 - [x] **Step 3: Update stack docs**
@@ -542,7 +547,7 @@ Update `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Develo
 ```markdown
 - Completed Phase 6C CI Smoke Gate on SignalHub commit from `git rev-parse --short HEAD`.
 - Added GitHub Actions CI for pull requests to `main`, pushes to `main`, and manual dispatch.
-- CI runs `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name signalhub_ci_smoke`.
+- CI runs `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name signalhub_ci_smoke --preserve`, then cleans up smoke resources with `docker compose -p signalhub_ci_smoke down -v || true`.
 - Final verification: local checks passed, and GitHub PR checks were observed or the no-run limitation was recorded with evidence.
 ```
 

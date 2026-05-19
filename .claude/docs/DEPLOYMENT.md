@@ -59,9 +59,9 @@ For release-readiness checks, run `pnpm smoke:compose` from a clean checkout aft
 
 ## CI Gate
 
-GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name signalhub_ci_smoke`.
+GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name signalhub_ci_smoke --preserve`.
 
-The CI smoke job validates the Docker Compose install path with generated local-only secrets. It does not publish images, create releases, or deploy SignalHub.
+The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p signalhub_ci_smoke down -v || true`. It does not publish images, create releases, or deploy SignalHub.
 
 ## Services
 
