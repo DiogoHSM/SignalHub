@@ -528,7 +528,7 @@ If the plan already contains accurate evidence and no files changed, do not crea
 - Modify: `docs/superpowers/plans/2026-05-19-phase6c-ci-smoke-gate-implementation.md`
 - Modify: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update CLAUDE.md**
+- [x] **Step 1: Update CLAUDE.md**
 
 If Phase 6C completes successfully, update the current phase line in `CLAUDE.md`:
 
@@ -542,11 +542,11 @@ Add this project convention if it is not already present:
 - Keep GitHub Actions CI focused on tests, build, Docker Compose config validation, and the Compose smoke gate until a dedicated release-management phase expands it.
 ```
 
-- [ ] **Step 2: Complete the plan checklist**
+- [x] **Step 2: Complete the plan checklist**
 
 Check off completed steps in `docs/superpowers/plans/2026-05-19-phase6c-ci-smoke-gate-implementation.md`.
 
-- [ ] **Step 3: Commit final SignalHub docs**
+- [x] **Step 3: Commit final SignalHub docs**
 
 Run:
 
