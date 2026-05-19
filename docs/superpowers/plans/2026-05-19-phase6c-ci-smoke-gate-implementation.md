@@ -34,7 +34,7 @@
 **Files:**
 - Create: `scripts/ci-workflow.test.ts`
 
-- [ ] **Step 1: Write the failing workflow contract tests**
+- [x] **Step 1: Write the failing workflow contract tests**
 
 Create `scripts/ci-workflow.test.ts`:
 
@@ -105,7 +105,7 @@ describe("GitHub Actions CI workflow", () => {
 });
 ```
 
-- [ ] **Step 2: Run the workflow contract tests and verify they fail**
+- [x] **Step 2: Run the workflow contract tests and verify they fail**
 
 Run:
 
@@ -115,7 +115,7 @@ pnpm exec vitest scripts/ci-workflow.test.ts --run
 
 Expected: the command exits `1` because `.github/workflows/ci.yml` does not exist yet.
 
-- [ ] **Step 3: Commit the failing tests**
+- [x] **Step 3: Commit the failing tests**
 
 Run:
 
@@ -130,7 +130,7 @@ git commit -m "test: define ci workflow contract"
 - Create: `.github/workflows/ci.yml`
 - Test: `scripts/ci-workflow.test.ts`
 
-- [ ] **Step 1: Add the CI workflow**
+- [x] **Step 1: Add the CI workflow**
 
 Create `.github/workflows/ci.yml`:
 
@@ -249,7 +249,7 @@ jobs:
           docker system df || true
 ```
 
-- [ ] **Step 2: Run the workflow contract tests and verify they pass**
+- [x] **Step 2: Run the workflow contract tests and verify they pass**
 
 Run:
 
@@ -259,7 +259,7 @@ pnpm exec vitest scripts/ci-workflow.test.ts --run
 
 Expected: the command exits `0` and reports 4 passing tests.
 
-- [ ] **Step 3: Run full tests**
+- [x] **Step 3: Run full tests**
 
 Run:
 
@@ -269,7 +269,7 @@ pnpm test
 
 Expected: all tests pass, including the new workflow contract test.
 
-- [ ] **Step 4: Commit the workflow**
+- [x] **Step 4: Commit the workflow**
 
 Run:
 
@@ -287,7 +287,7 @@ git commit -m "ci: add compose smoke gate workflow"
 - Modify: `.claude/docs/CONSTRAINTS.md`
 - Modify: `docs/superpowers/plans/2026-05-19-phase6c-ci-smoke-gate-implementation.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 In `README.md`, add this section immediately after `## Compose Smoke Harness`:
 
@@ -299,7 +299,7 @@ Pull requests to `main` and pushes to `main` run the GitHub Actions CI gate. CI 
 The smoke job runs `pnpm smoke:compose --project-name signalhub_ci_smoke` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The same `pnpm smoke:compose` command remains available for local release checks.
 ```
 
-- [ ] **Step 2: Update deployment docs**
+- [x] **Step 2: Update deployment docs**
 
 In `.claude/docs/DEPLOYMENT.md`, add this section after the `## Doctor` section:
 
@@ -311,7 +311,7 @@ GitHub Actions runs the release-readiness baseline for pull requests to `main` a
 The CI smoke job validates the Docker Compose install path with generated local-only secrets. It does not publish images, create releases, or deploy SignalHub.
 ```
 
-- [ ] **Step 3: Update stack docs**
+- [x] **Step 3: Update stack docs**
 
 In `.claude/docs/STACK.md`, add this section before `## Commands`:
 
@@ -322,7 +322,7 @@ In `.claude/docs/STACK.md`, add this section before `## Commands`:
 - CI uses Node.js 22, Corepack, pnpm 9.15.4, Docker Compose, Vitest, and the repo-native `pnpm smoke:compose` runner.
 ```
 
-- [ ] **Step 4: Update constraints docs**
+- [x] **Step 4: Update constraints docs**
 
 In `.claude/docs/CONSTRAINTS.md`, add this bullet near the Docker Compose and smoke harness constraints:
 
@@ -330,7 +330,7 @@ In `.claude/docs/CONSTRAINTS.md`, add this bullet near the Docker Compose and sm
 - GitHub Actions CI is a verification gate only; it does not publish images, create hosted environments, or expand the supported deployment surface beyond Docker Compose.
 ```
 
-- [ ] **Step 5: Run docs grep checks**
+- [x] **Step 5: Run docs grep checks**
 
 Run:
 

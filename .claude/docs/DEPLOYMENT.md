@@ -57,6 +57,12 @@ Use `pnpm run doctor` to invoke the project script. `pnpm doctor` is pnpm's buil
 
 For release-readiness checks, run `pnpm smoke:compose` from a clean checkout after dependencies are installed. The command uses disposable Docker Compose resources, generates local-only secrets, verifies the critical install path, and cleans up by default. It is a validation harness, not a production runtime service.
 
+## CI Gate
+
+GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name signalhub_ci_smoke`.
+
+The CI smoke job validates the Docker Compose install path with generated local-only secrets. It does not publish images, create releases, or deploy SignalHub.
+
 ## Services
 
 - `postgres`: Postgres 16, bound to `127.0.0.1:${POSTGRES_PORT:-5432}`.
