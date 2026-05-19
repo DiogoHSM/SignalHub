@@ -74,7 +74,7 @@ Jobs:
 - `test`: run `pnpm test`;
 - `build`: run `pnpm build`;
 - `compose-config`: run `docker compose config --quiet`;
-- `smoke-compose`: run `pnpm smoke:compose --project-name signalhub_ci_smoke`.
+- `smoke-compose`: run `pnpm smoke:compose --project-name signalhub_ci_smoke --preserve`.
 
 The jobs run independently. A failed test job should not hide whether the smoke job would also fail, and a smoke failure should not be confused with TypeScript or unit-test failure.
 
@@ -98,12 +98,12 @@ The workflow should avoid committed secrets. The smoke harness already generates
 The smoke job runs:
 
 ```sh
-pnpm smoke:compose --project-name signalhub_ci_smoke
+pnpm smoke:compose --project-name signalhub_ci_smoke --preserve
 ```
 
-The explicit project name makes CI logs and cleanup easier to understand. It also avoids depending on the default local project name used in operator docs.
+The explicit project name makes CI logs and cleanup easier to understand. It also avoids depending on the default local project name used in operator docs. The `--preserve` flag keeps smoke resources available long enough for CI failure diagnostics.
 
-If the smoke command fails, the workflow should attempt Docker diagnostics even if the smoke runner has already cleaned up:
+If the smoke command fails, the workflow should attempt Docker diagnostics before the explicit cleanup step:
 
 ```sh
 docker compose -p signalhub_ci_smoke ps -a
@@ -111,13 +111,13 @@ docker compose -p signalhub_ci_smoke logs --no-color
 docker system df
 ```
 
-These commands are best-effort diagnostics. They may show no containers if the runner cleaned up successfully. That is acceptable; the smoke command log remains the primary evidence.
+These commands are best-effort diagnostics. They should run before cleanup so failures preserve useful container logs when possible. The smoke command log remains the primary evidence.
 
 ## Error Handling
 
 The workflow should fail fast within each job when the job command fails.
 
-The smoke diagnostic step should run with `if: failure()` so it does not clutter successful runs. Diagnostic commands should not mask the original failure. If a diagnostic command fails because resources were already removed, the job should still report the smoke command as the original failure.
+The smoke diagnostic step should run with `if: failure()` so it does not clutter successful runs. Diagnostic commands should not mask the original failure. A final cleanup step should run with `if: always()` and remove `signalhub_ci_smoke` resources with `docker compose -p signalhub_ci_smoke down -v || true`.
 
 If CI exposes smoke harness timeout or readiness issues that do not appear locally, Phase 6C may tune the harness enough to be reliable in GitHub Actions. Those changes should stay scoped to CI stability and diagnostics. Broad product changes remain out of scope.
 
