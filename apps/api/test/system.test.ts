@@ -80,10 +80,10 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
       trigger: "scheduled",
       startedAt: "2026-05-06T00:00:00.000Z",
       finishedAt: "2026-05-06T00:00:05.000Z",
-      filename: "signalhub-20260506T000000Z.dump",
+      filename: "sigmon-20260506T000000Z.dump",
       sizeBytes: 1234,
-      s3Bucket: "signalhub-backups",
-      s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+      s3Bucket: "sigmon-backups",
+      s3Key: "prod/sigmon/sigmon-20260506T000000Z.dump",
       errorMessage: null
     },
     latestFailure: null
@@ -315,11 +315,11 @@ describe("system health routes", () => {
           trigger: "scheduled",
           startedAt: new Date("2026-05-06T00:00:00.000Z"),
           finishedAt: new Date("2026-05-06T00:00:05.000Z"),
-          filename: "signalhub-20260506T000000Z.dump",
-          localPath: "/var/lib/signalhub/backups/signalhub-20260506T000000Z.dump",
+          filename: "sigmon-20260506T000000Z.dump",
+          localPath: "/var/lib/sigmon/backups/sigmon-20260506T000000Z.dump",
           sizeBytes: 1234,
-          s3Bucket: "signalhub-backups",
-          s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+          s3Bucket: "sigmon-backups",
+          s3Key: "prod/sigmon/sigmon-20260506T000000Z.dump",
           errorMessage: null,
           createdAt: new Date("2026-05-06T00:00:05.000Z")
         },
@@ -329,7 +329,7 @@ describe("system health routes", () => {
 
     expect(snapshot.status).toBe("degraded");
     expect(snapshot.backups.stale).toBe(true);
-    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
+    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/sigmon");
   });
 
   it("marks health degraded when the latest failed backup is newer than the latest success", async () => {
@@ -365,8 +365,8 @@ describe("system health routes", () => {
           trigger: "scheduled",
           startedAt: new Date("2026-05-06T10:00:00.000Z"),
           finishedAt: new Date("2026-05-06T10:00:05.000Z"),
-          filename: "signalhub-20260506T100000Z.dump",
-          localPath: "/var/lib/signalhub/backups/signalhub-20260506T100000Z.dump",
+          filename: "sigmon-20260506T100000Z.dump",
+          localPath: "/var/lib/sigmon/backups/sigmon-20260506T100000Z.dump",
           sizeBytes: 1234,
           s3Bucket: null,
           s3Key: null,
@@ -379,8 +379,8 @@ describe("system health routes", () => {
           trigger: "scheduled",
           startedAt: new Date("2026-05-06T11:00:00.000Z"),
           finishedAt: new Date("2026-05-06T11:00:05.000Z"),
-          filename: "signalhub-20260506T110000Z.dump",
-          localPath: "/var/lib/signalhub/backups/signalhub-20260506T110000Z.dump",
+          filename: "sigmon-20260506T110000Z.dump",
+          localPath: "/var/lib/sigmon/backups/sigmon-20260506T110000Z.dump",
           sizeBytes: null,
           s3Bucket: null,
           s3Key: null,
@@ -393,7 +393,7 @@ describe("system health routes", () => {
     expect(snapshot.status).toBe("degraded");
     expect(snapshot.backups.stale).toBe(false);
     expect(snapshot.backups.latestFailure?.id).toBe("bkp_failure");
-    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
+    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/sigmon");
   });
 
   it("marks backup status unknown when backup metadata cannot be loaded", async () => {
@@ -467,19 +467,19 @@ describe("system health routes", () => {
           trigger: "manual",
           startedAt: new Date("2026-05-06T11:00:00.000Z"),
           finishedAt: new Date("2026-05-06T11:00:05.000Z"),
-          filename: "signalhub-20260506T110000Z.dump",
-          localPath: "/var/lib/signalhub/backups/signalhub-20260506T110000Z.dump",
+          filename: "sigmon-20260506T110000Z.dump",
+          localPath: "/var/lib/sigmon/backups/sigmon-20260506T110000Z.dump",
           sizeBytes: null,
           s3Bucket: null,
           s3Key: null,
-          errorMessage: "pg_restore failed for /var/lib/signalhub/backups/signalhub-20260506T110000Z.dump",
+          errorMessage: "pg_restore failed for /var/lib/sigmon/backups/sigmon-20260506T110000Z.dump",
           createdAt: new Date("2026-05-06T11:00:05.000Z")
         }
       })
     });
 
     expect(snapshot.backups.latestFailure?.errorMessage).toBe("pg_restore failed for [REDACTED_PATH]");
-    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
+    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/sigmon");
   });
 
   it("redacts local backup directory paths from backup failure messages", async () => {
@@ -516,19 +516,19 @@ describe("system health routes", () => {
           trigger: "scheduled",
           startedAt: new Date("2026-05-06T11:00:00.000Z"),
           finishedAt: new Date("2026-05-06T11:00:05.000Z"),
-          filename: "signalhub-20260506T110000Z.dump",
-          localPath: "/var/lib/signalhub/backups/signalhub-20260506T110000Z.dump",
+          filename: "sigmon-20260506T110000Z.dump",
+          localPath: "/var/lib/sigmon/backups/sigmon-20260506T110000Z.dump",
           sizeBytes: null,
           s3Bucket: null,
           s3Key: null,
-          errorMessage: "scandir '/var/lib/signalhub/backups'",
+          errorMessage: "scandir '/var/lib/sigmon/backups'",
           createdAt: new Date("2026-05-06T11:00:05.000Z")
         }
       })
     });
 
     expect(snapshot.backups.latestFailure?.errorMessage).toBe("scandir '[REDACTED_PATH]'");
-    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/signalhub");
+    expect(JSON.stringify(snapshot)).not.toContain("/var/lib/sigmon");
   });
 
   it("redacts custom local backup paths from backup failure messages", async () => {
@@ -565,18 +565,18 @@ describe("system health routes", () => {
           trigger: "scheduled",
           startedAt: new Date("2026-05-06T11:00:00.000Z"),
           finishedAt: new Date("2026-05-06T11:00:05.000Z"),
-          filename: "signalhub-20260506T110000Z.dump",
-          localPath: "/data/signalhub-dumps/signalhub-20260506T110000Z.dump",
+          filename: "sigmon-20260506T110000Z.dump",
+          localPath: "/data/sigmon-dumps/sigmon-20260506T110000Z.dump",
           sizeBytes: null,
           s3Bucket: null,
           s3Key: null,
-          errorMessage: "stat /data/signalhub-dumps/signalhub-20260506T110000Z.dump failed",
+          errorMessage: "stat /data/sigmon-dumps/sigmon-20260506T110000Z.dump failed",
           createdAt: new Date("2026-05-06T11:00:05.000Z")
         }
       })
     });
 
     expect(snapshot.backups.latestFailure?.errorMessage).toBe("stat [REDACTED_PATH] failed");
-    expect(JSON.stringify(snapshot)).not.toContain("/data/signalhub-dumps");
+    expect(JSON.stringify(snapshot)).not.toContain("/data/sigmon-dumps");
   });
 });

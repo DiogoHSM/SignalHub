@@ -11,6 +11,6 @@ if (group === "sourcemaps" && command === "upload") {
   });
   process.exitCode = exitCode;
 } else {
-  console.error("Usage: signalhub sourcemaps upload [options]");
+  console.error("Usage: sigmon sourcemaps upload [options]");
   process.exitCode = 1;
 }

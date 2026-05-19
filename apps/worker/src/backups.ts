@@ -5,10 +5,10 @@ import { execFile } from "node:child_process";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
-import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
+import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
 
 const execFileAsync = promisify(execFile);
-const backupFilenamePattern = /^signalhub-\d{8}T\d{6}Z\.dump$/;
+const backupFilenamePattern = /^sigmon-\d{8}T\d{6}Z\.dump$/;
 type ExecFileFn = (
   file: string,
   args: string[],
@@ -85,7 +85,7 @@ export function createBackupFilename(now: Date): string {
   const hours = now.getUTCHours().toString().padStart(2, "0");
   const minutes = now.getUTCMinutes().toString().padStart(2, "0");
   const seconds = now.getUTCSeconds().toString().padStart(2, "0");
-  return `signalhub-${year}${month}${day}T${hours}${minutes}${seconds}Z.dump`;
+  return `sigmon-${year}${month}${day}T${hours}${minutes}${seconds}Z.dump`;
 }
 
 export function createBackupS3Key(prefix: string, filename: string): string {

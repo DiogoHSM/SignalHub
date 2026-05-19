@@ -18,18 +18,18 @@ import {
 
 const validEnv: DoctorEnv = {
   NODE_ENV: "production",
-  DATABASE_URL: "postgres://signalhub:correct-password@localhost:5432/signalhub",
+  DATABASE_URL: "postgres://sigmon:correct-password@localhost:5432/sigmon",
   REDIS_URL: "redis://localhost:6379",
   SESSION_SECRET: "a-secure-session-secret-with-enough-length",
   API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
   BOOTSTRAP_ADMIN_EMAIL: "admin@example.com",
   BOOTSTRAP_ADMIN_PASSWORD: "correct-horse-battery-staple-long-enough",
   GOOGLE_OAUTH_ENABLED: "false",
-  SIGNALHUB_PUBLIC_ENDPOINT: "https://signalhub.example.com",
+  SIGMON_PUBLIC_ENDPOINT: "https://sigmon.example.com",
   POSTGRES_PASSWORD: "correct-password",
   POSTGRES_PASSWORD_URLENCODED: "",
   BACKUPS_ENABLED: "true",
-  BACKUPS_LOCAL_DIR: "/var/lib/signalhub/backups",
+  BACKUPS_LOCAL_DIR: "/var/lib/sigmon/backups",
   BACKUPS_S3_ENABLED: "false",
   RETENTION_ENABLED: "true",
   ALERTS_ENABLED: "true"
@@ -57,19 +57,19 @@ describe("doctor pure checks", () => {
   it("warns for production localhost public endpoints", () => {
     const results = checkEnvValues({
       ...validEnv,
-      SIGNALHUB_PUBLIC_ENDPOINT: "http://localhost:3000"
+      SIGMON_PUBLIC_ENDPOINT: "http://localhost:3000"
     });
 
     expect(results).toContainEqual(
       expect.objectContaining({
         status: "warn",
-        message: "SIGNALHUB_PUBLIC_ENDPOINT points to localhost in production"
+        message: "SIGMON_PUBLIC_ENDPOINT points to localhost in production"
       })
     );
     expect(results).toContainEqual(
       expect.objectContaining({
         status: "warn",
-        message: "SIGNALHUB_PUBLIC_ENDPOINT uses plain HTTP in production"
+        message: "SIGMON_PUBLIC_ENDPOINT uses plain HTTP in production"
       })
     );
   });
@@ -77,13 +77,13 @@ describe("doctor pure checks", () => {
   it("warns for production IPv6 localhost public endpoints", () => {
     const results = checkEnvValues({
       ...validEnv,
-      SIGNALHUB_PUBLIC_ENDPOINT: "https://[::1]:3000"
+      SIGMON_PUBLIC_ENDPOINT: "https://[::1]:3000"
     });
 
     expect(results).toContainEqual(
       expect.objectContaining({
         status: "warn",
-        message: "SIGNALHUB_PUBLIC_ENDPOINT points to localhost in production"
+        message: "SIGMON_PUBLIC_ENDPOINT points to localhost in production"
       })
     );
   });
@@ -143,9 +143,9 @@ describe("doctor orchestration", () => {
   });
 
   it("ignores the standalone separator forwarded by pnpm run", () => {
-    expect(parseDoctorArgs(["--", "--env-file", "/tmp/signalhub-doctor.env"])).toEqual({
+    expect(parseDoctorArgs(["--", "--env-file", "/tmp/sigmon-doctor.env"])).toEqual({
       compose: false,
-      envFile: "/tmp/signalhub-doctor.env"
+      envFile: "/tmp/sigmon-doctor.env"
     });
   });
 
@@ -250,7 +250,7 @@ describe("doctor orchestration", () => {
     const results = await buildDoctorResults({
       options: { compose: true, envFile: ".env", apiUrl: "http://localhost:3000" },
       fileExists: (path) => path === ".env",
-      readFile: () => buildEnvContent({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/var/lib/signalhub/source-maps" }),
+      readFile: () => buildEnvContent({ ...validEnv, SOURCE_MAPS_LOCAL_DIR: "/var/lib/sigmon/source-maps" }),
       runCommand: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
       fetchHealth: async () => ({ ok: true, status: 200 }),
       checkDirectoryWritable: () => false

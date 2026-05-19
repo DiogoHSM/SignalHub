@@ -15,11 +15,11 @@ describe("auth routes", () => {
       readiness: async () => ({ postgres: true, redis: true }),
       auth: {
         login: async (_email, _password, { reply }) => {
-          reply.setCookie("signalhub_session", "session_1", { httpOnly: true, sameSite: "lax" });
+          reply.setCookie("sigmon_session", "session_1", { httpOnly: true, sameSite: "lax" });
           return { id: "usr_1", email: "admin@example.com", isAdmin: true };
         },
         findSessionUser: async (request) =>
-          request.cookies.signalhub_session === "session_1"
+          request.cookies.sigmon_session === "session_1"
             ? { id: "usr_1", email: "admin@example.com", isAdmin: true }
             : null
       }
@@ -35,7 +35,7 @@ describe("auth routes", () => {
     });
 
     expect(loginResponse.statusCode).toBe(200);
-    expect(loginResponse.headers["set-cookie"]).toContain("signalhub_session=session_1");
+    expect(loginResponse.headers["set-cookie"]).toContain("sigmon_session=session_1");
     expect(loginResponse.json()).toEqual({
       user: { id: "usr_1", email: "admin@example.com", isAdmin: true }
     });
@@ -43,7 +43,7 @@ describe("auth routes", () => {
     const meResponse = await app.inject({
       method: "GET",
       url: "/auth/me",
-      headers: { cookie: "signalhub_session=session_1" }
+      headers: { cookie: "sigmon_session=session_1" }
     });
 
     expect(meResponse.statusCode).toBe(200);
@@ -61,7 +61,7 @@ describe("auth routes", () => {
         findSessionUser: async () => ({ id: "usr_1", email: "admin@example.com", isAdmin: true }),
         logout: async ({ reply }) => {
           logoutCalled = true;
-          reply.clearCookie("signalhub_session");
+          reply.clearCookie("sigmon_session");
         }
       }
     });
@@ -71,7 +71,7 @@ describe("auth routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
     expect(logoutCalled).toBe(true);
-    expect(response.headers["set-cookie"]).toContain("signalhub_session=;");
+    expect(response.headers["set-cookie"]).toContain("sigmon_session=;");
   });
 
   it("keeps Google OAuth inert when disabled", async () => {
@@ -104,7 +104,7 @@ describe("auth routes", () => {
 
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toMatch(/^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?state=/);
-    expect(response.headers["set-cookie"]).toContain("signalhub_oauth_state=");
+    expect(response.headers["set-cookie"]).toContain("sigmon_oauth_state=");
   });
 
   it("rejects Google OAuth callbacks with invalid state", async () => {
@@ -124,7 +124,7 @@ describe("auth routes", () => {
     const response = await app.inject({
       method: "GET",
       url: "/auth/google/callback?code=abc&state=wrong",
-      headers: { cookie: "signalhub_oauth_state=expected" }
+      headers: { cookie: "sigmon_oauth_state=expected" }
     });
 
     expect(response.statusCode).toBe(400);
@@ -143,7 +143,7 @@ describe("auth routes", () => {
           createAuthorizationUrl: (state) => `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
           complete: async (code, state, { reply }) => {
             completed.push({ code, state });
-            reply.setCookie("signalhub_session", "google-session", { httpOnly: true, sameSite: "lax" });
+            reply.setCookie("sigmon_session", "google-session", { httpOnly: true, sameSite: "lax" });
             return { id: "usr_google", email: "user@example.com", isAdmin: false };
           }
         }
@@ -153,7 +153,7 @@ describe("auth routes", () => {
     const response = await app.inject({
       method: "GET",
       url: "/auth/google/callback?code=abc&state=expected",
-      headers: { cookie: "signalhub_oauth_state=expected" }
+      headers: { cookie: "sigmon_oauth_state=expected" }
     });
 
     expect(response.statusCode).toBe(200);
@@ -163,8 +163,8 @@ describe("auth routes", () => {
     expect(completed).toEqual([{ code: "abc", state: "expected" }]);
     expect(response.headers["set-cookie"]).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("signalhub_session=google-session"),
-        expect.stringContaining("signalhub_oauth_state=;")
+        expect.stringContaining("sigmon_session=google-session"),
+        expect.stringContaining("sigmon_oauth_state=;")
       ])
     );
   });

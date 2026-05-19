@@ -46,7 +46,7 @@ function createMultipartPayload(
     | { name: string; filename: string; contentType: string; content: string | Buffer }
   >
 ): { headers: Record<string, string>; payload: Buffer } {
-  const boundary = `signalhub-${Math.random().toString(16).slice(2)}`;
+  const boundary = `sigmon-${Math.random().toString(16).slice(2)}`;
   const chunks: Buffer[] = [];
 
   for (const part of parts) {
@@ -76,7 +76,7 @@ function createMultipartPayload(
 afterEach(async () => {
   await app?.close();
   app = undefined;
-  vi.doUnmock("@signal-hub/db/repositories/source-maps.js");
+  vi.doUnmock("@sigmon/db/repositories/source-maps.js");
   vi.resetModules();
 });
 
@@ -162,12 +162,12 @@ describe("admin routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/admin/projects",
-      payload: { name: "SignalHub" }
+      payload: { name: "SignalMonitor" }
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json().project).toMatchObject({ id: "prj_1", name: "SignalHub" });
-    expect(createdProjects).toEqual([{ name: "SignalHub" }]);
+    expect(response.json().project).toMatchObject({ id: "prj_1", name: "SignalMonitor" });
+    expect(createdProjects).toEqual([{ name: "SignalMonitor" }]);
   });
 
   it("creates an environment for a project", async () => {
@@ -881,14 +881,14 @@ describe("admin routes", () => {
       return sourceMapArtifact({ storagePath: input.storagePath });
     });
 
-    vi.doMock("@signal-hub/db/repositories/source-maps.js", () => ({
+    vi.doMock("@sigmon/db/repositories/source-maps.js", () => ({
       createSourceMapArtifact,
       deleteSourceMapArtifact: vi.fn(),
       getSourceMapArtifact: vi.fn()
     }));
 
     const { uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
-    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
@@ -946,14 +946,14 @@ describe("admin routes", () => {
       });
     });
 
-    vi.doMock("@signal-hub/db/repositories/source-maps.js", () => ({
+    vi.doMock("@sigmon/db/repositories/source-maps.js", () => ({
       createSourceMapArtifact,
       deleteSourceMapArtifact: vi.fn(),
       getSourceMapArtifact: vi.fn()
     }));
 
     const { uploadSingleSourceMap, uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
-    const localDir = await mkdtemp(path.join(tmpdir(), "signalhub-source-maps-"));
+    const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})

@@ -71,7 +71,7 @@ describe("GitHub Actions CI workflow", () => {
       "run: docker compose config --quiet"
     ]);
     expectIncludesAll(jobBlock(content, "smoke-compose"), [
-      "run: pnpm smoke:compose --project-name signalhub_ci_smoke --preserve"
+      "run: pnpm smoke:compose --project-name sigmon_ci_smoke --preserve"
     ]);
   });
 
@@ -81,8 +81,8 @@ describe("GitHub Actions CI workflow", () => {
     expectIncludesAll(jobBlock(content, "smoke-compose"), [
       "- name: Collect smoke diagnostics",
       "if: failure()",
-      "docker compose -p signalhub_ci_smoke ps -a || true",
-      "docker compose -p signalhub_ci_smoke logs --no-color || true",
+      "docker compose -p sigmon_ci_smoke ps -a || true",
+      "docker compose -p sigmon_ci_smoke logs --no-color || true",
       "docker system df || true"
     ]);
 
@@ -100,7 +100,7 @@ describe("GitHub Actions CI workflow", () => {
     expectIncludesAll(smokeJob, [
       "- name: Cleanup smoke resources",
       "if: always()",
-      "run: docker compose -p signalhub_ci_smoke down -v || true"
+      "run: docker compose -p sigmon_ci_smoke down -v || true"
     ]);
     expect(smokeJob.indexOf("- name: Collect smoke diagnostics")).toBeLessThan(
       smokeJob.indexOf("- name: Cleanup smoke resources")

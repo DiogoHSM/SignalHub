@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { AlertEventRecord, AlertRuleRecord, NotificationChannelRecord } from "@signal-hub/db/repositories/alerts.js";
+import type { AlertEventRecord, AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 
@@ -28,8 +28,8 @@ function notificationChannel(overrides: Partial<NotificationChannelRecord> = {})
     id: "chn_1",
     name: "Ops",
     type: "webhook",
-    url: "https://hooks.example.com/signalhub",
-    secretHeaderName: "X-SignalHub-Secret",
+    url: "https://hooks.example.com/sigmon",
+    secretHeaderName: "X-SignalMonitor-Secret",
     secretHeaderValue: "secret",
     hasSecret: true,
     enabled: true,
@@ -242,7 +242,7 @@ describe("admin alert routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/admin/notification-channels",
-      payload: { name: "Ops", type: "webhook", url: "https://hooks.example.com/signalhub", enabled: true }
+      payload: { name: "Ops", type: "webhook", url: "https://hooks.example.com/sigmon", enabled: true }
     });
 
     expect(response.statusCode).toBe(403);
@@ -273,8 +273,8 @@ describe("admin alert routes", () => {
       payload: {
         name: "Ops",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
-        secretHeaderName: "X-SignalHub-Secret",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: "X-SignalMonitor-Secret",
         secretHeaderValue: "secret",
         enabled: true
       }
@@ -299,7 +299,7 @@ describe("admin alert routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/admin/notification-channels",
-      payload: { name: "Ops", type: "webhook", url: "https://hooks.example.com/signalhub", enabled: true }
+      payload: { name: "Ops", type: "webhook", url: "https://hooks.example.com/sigmon", enabled: true }
     });
 
     expect(response.statusCode).toBe(503);
@@ -342,7 +342,7 @@ describe("admin alert routes", () => {
       payload: {
         name: "Ops",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
+        url: "https://hooks.example.com/sigmon",
         secretHeaderName: "Authorization",
         secretHeaderValue: "secret",
         enabled: true
@@ -368,8 +368,8 @@ describe("admin alert routes", () => {
       payload: {
         name: "Ops",
         type: "webhook",
-        url: "https://hooks.example.com/signalhub",
-        secretHeaderName: "X-SignalHub_Secret",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: "X-SignalMonitor_Secret",
         secretHeaderValue: "secret",
         enabled: true
       }

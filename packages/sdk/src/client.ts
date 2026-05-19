@@ -20,9 +20,9 @@ import type {
   LlmInput,
   QueuedSignal,
   SignalContext,
-  SignalHubClient,
-  SignalHubClientOptions,
-  SignalHubError,
+  SignalMonitorClient,
+  SignalMonitorClientOptions,
+  SignalMonitorError,
   SignalMetadata,
   SpanInput,
   StartTraceInput,
@@ -36,7 +36,7 @@ import {
   DEFAULT_RETRY_BASE_DELAY_MS
 } from "./types.js";
 
-export function createSignalHubClient(options: SignalHubClientOptions): SignalHubClient {
+export function createSignalMonitorClient(options: SignalMonitorClientOptions): SignalMonitorClient {
   if (!options.endpoint) {
     throw new Error("endpoint is required");
   }
@@ -67,7 +67,7 @@ export function createSignalHubClient(options: SignalHubClientOptions): SignalHu
   let queuedDuringActiveFlush = false;
   let interval: ReturnType<typeof setInterval> | undefined;
 
-  const reportError = (error: SignalHubError): void => {
+  const reportError = (error: SignalMonitorError): void => {
     try {
       options.onError?.(error);
     } catch {

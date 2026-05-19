@@ -17,9 +17,9 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used to sign human session cookies. |
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
-| `SIGNALHUB_PUBLIC_ENDPOINT` | No | `https://signalhub.example.com` | Public API origin used in console snippets. Defaults to the browser origin when blank. |
-| `SIGNALHUB_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
-| `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/signalhub/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
+| `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets. Defaults to the browser origin when blank. |
+| `SIGMON_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
+| `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/sigmon/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | `50` | Non-secret operational config. Maximum source-map upload size in MiB. |
 | `SOURCE_MAPS_RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables worker cleanup of old local source-map artifacts when telemetry retention is enabled. |
 | `SOURCE_MAPS_RETENTION_DAYS` | No | `180` | Non-secret operational config. Retention window for source-map artifacts by upload time. |
@@ -44,15 +44,15 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |
 | `BACKUPS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled Postgres logical backups in the worker. |
 | `BACKUPS_INTERVAL_HOURS` | No | `24` | Non-secret operational config. Hours between scheduled backup runs. |
-| `BACKUPS_LOCAL_DIR` | No | `/var/lib/signalhub/backups` | Non-secret operational config. Local directory for backup dump files. |
+| `BACKUPS_LOCAL_DIR` | No | `/var/lib/sigmon/backups` | Non-secret operational config. Local directory for backup dump files. |
 | `BACKUPS_RETENTION_DAYS` | No | `14` | Non-secret operational config. Local backup retention window. |
 | `BACKUPS_S3_ENABLED` | No | `false` | Non-secret operational config. Enables S3-compatible backup uploads. |
 | `BACKUPS_S3_ENDPOINT` | If S3 enabled | `https://example.r2.cloudflarestorage.com` | S3-compatible endpoint, for example Cloudflare R2. |
 | `BACKUPS_S3_REGION` | If S3 enabled | `auto` | S3-compatible region. Cloudflare R2 commonly uses `auto`. |
-| `BACKUPS_S3_BUCKET` | If S3 enabled | `signalhub-backups` | Private S3-compatible backup bucket name. |
+| `BACKUPS_S3_BUCKET` | If S3 enabled | `sigmon-backups` | Private S3-compatible backup bucket name. |
 | `BACKUPS_S3_ACCESS_KEY_ID` | If S3 enabled | `example-r2-access-key-id` | S3-compatible access key id. Store only in environment or secret manager. |
 | `BACKUPS_S3_SECRET_ACCESS_KEY` | If S3 enabled | `example-r2-secret-access-key` | S3-compatible secret access key. Store only in environment or secret manager. |
-| `BACKUPS_S3_PREFIX` | No | `production/signalhub` | Non-secret object key prefix for uploaded backups. |
+| `BACKUPS_S3_PREFIX` | No | `production/sigmon` | Non-secret object key prefix for uploaded backups. |
 
 Operational rules:
 
@@ -63,7 +63,7 @@ Operational rules:
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
-- Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalHub stores them locally and the console displays resolved frame metadata only, not source content.
+- Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalMonitor stores them locally and the console displays resolved frame metadata only, not source content.
 - Source-map retention deletes local source-map files, artifact metadata, and cached stack resolutions. It does not configure object-storage lifecycle policies.
 - `RETENTION_BREADCRUMBS_DAYS` is not a secret. Breadcrumb payloads can still contain sensitive application data if callers misuse the API, so SDK/browser helpers sanitize aggressively and documentation forbids secrets, form values, bodies, cookies, and headers.
 - Production startup and operator doctor checks reject placeholder values for required production secrets.

@@ -207,10 +207,10 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
         trigger: "scheduled",
         startedAt: "2026-05-06T00:00:00.000Z",
         finishedAt: "2026-05-06T00:00:05.000Z",
-        filename: "signalhub-20260506T000000Z.dump",
+        filename: "sigmon-20260506T000000Z.dump",
         sizeBytes: 1234,
-        s3Bucket: "signalhub-backups",
-        s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+        s3Bucket: "sigmon-backups",
+        s3Key: "prod/sigmon/sigmon-20260506T000000Z.dump",
         errorMessage: null
       },
       latestFailure: null
@@ -366,7 +366,7 @@ describe("ConsoleShell", () => {
       });
 
       expect(screen.queryByText(/sh_secret_value/)).not.toBeInTheDocument();
-      expect(screen.getAllByText(/SIGNAL_HUB_API_KEY/)).toHaveLength(3);
+      expect(screen.getAllByText(/SIGMON_API_KEY/)).toHaveLength(3);
     } finally {
       root.unmount();
       container.remove();

@@ -12,15 +12,15 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@signal-hub/config": ["packages/config/src/index.ts"],
-      "@signal-hub/db": ["packages/db/src/client.ts"],
-      "@signal-hub/db/*": ["packages/db/src/*"],
-      "@signal-hub/queues": ["packages/queues/src/telemetry-queue.ts"],
-      "@signal-hub/sdk": ["packages/sdk/src/index.ts"],
-      "@signal-hub/sdk/*": ["packages/sdk/src/*"],
-      "@signal-hub/telemetry": ["packages/telemetry/src/types.ts"],
-      "@signal-hub/telemetry/*": ["packages/telemetry/src/*"],
-      "@signal-hub/worker": ["apps/worker/src/telemetry-worker.ts"]
+      "@sigmon/config": ["packages/config/src/index.ts"],
+      "@sigmon/db": ["packages/db/src/client.ts"],
+      "@sigmon/db/*": ["packages/db/src/*"],
+      "@sigmon/queues": ["packages/queues/src/telemetry-queue.ts"],
+      "@sigmon/sdk": ["packages/sdk/src/index.ts"],
+      "@sigmon/sdk/*": ["packages/sdk/src/*"],
+      "@sigmon/telemetry": ["packages/telemetry/src/types.ts"],
+      "@sigmon/telemetry/*": ["packages/telemetry/src/*"],
+      "@sigmon/worker": ["apps/worker/src/telemetry-worker.ts"]
     }
   }
 }

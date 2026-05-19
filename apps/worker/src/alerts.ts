@@ -3,8 +3,8 @@ import { lookup as resolveDns } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
-import type { AlertRuleRecord, NotificationChannelRecord } from "@signal-hub/db/repositories/alerts.js";
-import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
+import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
+import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
 
 export type AlertWebhookPayload = {
   alertEventId: string;
@@ -19,7 +19,7 @@ export type AlertWebhookPayload = {
   observedValue: string;
   threshold: string;
   message: string;
-  signalhub: { source: "signalhub" };
+  sigmon: { source: "sigmon" };
 };
 
 export type DeliveryResult = {
@@ -510,7 +510,7 @@ function validateSecretHeaderName(headerName: string | null | undefined): void {
   }
 
   const normalizedHeaderName = headerName.toLowerCase();
-  if (!normalizedHeaderName.startsWith("x-") && !normalizedHeaderName.startsWith("signalhub-")) {
+  if (!normalizedHeaderName.startsWith("x-") && !normalizedHeaderName.startsWith("sigmon-")) {
     throw new Error("reserved webhook secret header name");
   }
 }
@@ -615,6 +615,6 @@ function toWebhookPayload(
     observedValue,
     threshold: rule.threshold,
     message,
-    signalhub: { source: "signalhub" }
+    sigmon: { source: "sigmon" }
   };
 }

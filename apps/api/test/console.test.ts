@@ -22,7 +22,7 @@ describe("console routes", () => {
       console: {
         enabled: false,
         apiBasePath: "/",
-        apiEndpoint: "https://signalhub.example.com"
+        apiEndpoint: "https://sigmon.example.com"
       }
     });
 
@@ -31,16 +31,16 @@ describe("console routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       apiBasePath: "/",
-      apiEndpoint: "https://signalhub.example.com",
+      apiEndpoint: "https://sigmon.example.com",
       googleOAuthEnabled: true
     });
   });
 
   it("serves built console index when console assets are configured", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "signalhub-console-"));
+    const dir = await mkdtemp(join(tmpdir(), "sigmon-console-"));
     await writeFile(join(dir, "index.html"), '<!doctype html><div id="root"></div>');
     await mkdir(join(dir, "assets"));
-    await writeFile(join(dir, "assets", "app.js"), "console.log('signalhub');");
+    await writeFile(join(dir, "assets", "app.js"), "console.log('sigmon');");
 
     app = await buildApp({
       readiness,
@@ -61,7 +61,7 @@ describe("console routes", () => {
 
     const assetResponse = await app.inject({ method: "GET", url: "/console/assets/app.js" });
     expect(assetResponse.statusCode).toBe(200);
-    expect(assetResponse.body).toBe("console.log('signalhub');");
+    expect(assetResponse.body).toBe("console.log('sigmon');");
 
     const clientRouteResponse = await app.inject({ method: "GET", url: "/console/some/client/route" });
     expect(clientRouteResponse.statusCode).toBe(200);

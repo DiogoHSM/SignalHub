@@ -1,6 +1,6 @@
 # UI and UX
 
-SignalHub includes an admin-only Integration Console.
+SignalMonitor includes an admin-only Integration Console.
 
 ## Console Principles
 

@@ -5,7 +5,7 @@ describe("loadConfig", () => {
   const validEnv = {
     NODE_ENV: "production",
     PORT: "3000",
-    DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+    DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
     REDIS_URL: "redis://localhost:6379",
     SESSION_SECRET: "a-secure-session-secret-with-enough-length",
     API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
@@ -26,7 +26,7 @@ describe("loadConfig", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       PORT: "4000",
-      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
       REDIS_URL: "redis://localhost:6379",
       SESSION_SECRET: "a-secure-session-secret-with-enough-length",
       API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
@@ -44,18 +44,18 @@ describe("loadConfig", () => {
       ...validEnv,
       NODE_ENV: "development",
       CONSOLE_ENABLED: "true",
-      SIGNALHUB_PUBLIC_ENDPOINT: "https://signalhub.example.com"
+      SIGMON_PUBLIC_ENDPOINT: "https://sigmon.example.com"
     });
 
     expect(config.console.enabled).toBe(true);
-    expect(config.console.publicEndpoint).toBe("https://signalhub.example.com");
+    expect(config.console.publicEndpoint).toBe("https://sigmon.example.com");
   });
 
   it("loads retention defaults", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       PORT: "3000",
-      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
       REDIS_URL: "redis://localhost:6379",
       SESSION_SECRET: "a-secure-session-secret-with-enough-length",
       API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
@@ -127,7 +127,7 @@ describe("loadConfig", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       PORT: "3000",
-      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
       REDIS_URL: "redis://localhost:6379",
       SESSION_SECRET: "a-secure-session-secret-with-enough-length",
       API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
@@ -174,7 +174,7 @@ describe("loadConfig", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       PORT: "3000",
-      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
       REDIS_URL: "redis://localhost:6379",
       SESSION_SECRET: "a-secure-session-secret-with-enough-length",
       API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
@@ -186,7 +186,7 @@ describe("loadConfig", () => {
     expect(config.backups).toEqual({
       enabled: true,
       intervalHours: 24,
-      localDir: "/var/lib/signalhub/backups",
+      localDir: "/var/lib/sigmon/backups",
       retentionDays: 14,
       s3: {
         enabled: false,
@@ -195,7 +195,7 @@ describe("loadConfig", () => {
         bucket: "",
         accessKeyId: "",
         secretAccessKey: "",
-        prefix: "signalhub"
+        prefix: "sigmon"
       }
     });
   });
@@ -205,30 +205,30 @@ describe("loadConfig", () => {
       ...validEnv,
       BACKUPS_ENABLED: "false",
       BACKUPS_INTERVAL_HOURS: "6",
-      BACKUPS_LOCAL_DIR: "/tmp/signalhub-backups",
+      BACKUPS_LOCAL_DIR: "/tmp/sigmon-backups",
       BACKUPS_RETENTION_DAYS: "7",
       BACKUPS_S3_ENABLED: "true",
       BACKUPS_S3_ENDPOINT: "https://example.r2.cloudflarestorage.com",
       BACKUPS_S3_REGION: "auto",
-      BACKUPS_S3_BUCKET: "signalhub-backups",
+      BACKUPS_S3_BUCKET: "sigmon-backups",
       BACKUPS_S3_ACCESS_KEY_ID: "access-key",
       BACKUPS_S3_SECRET_ACCESS_KEY: "secret-key",
-      BACKUPS_S3_PREFIX: "prod/signalhub"
+      BACKUPS_S3_PREFIX: "prod/sigmon"
     });
 
     expect(config.backups).toEqual({
       enabled: false,
       intervalHours: 6,
-      localDir: "/tmp/signalhub-backups",
+      localDir: "/tmp/sigmon-backups",
       retentionDays: 7,
       s3: {
         enabled: true,
         endpoint: "https://example.r2.cloudflarestorage.com",
         region: "auto",
-        bucket: "signalhub-backups",
+        bucket: "sigmon-backups",
         accessKeyId: "access-key",
         secretAccessKey: "secret-key",
-        prefix: "prod/signalhub"
+        prefix: "prod/sigmon"
       }
     });
   });
@@ -241,7 +241,7 @@ describe("loadConfig", () => {
     const config = loadConfig(baseEnv());
 
     expect(config.sourceMaps).toEqual({
-      localDir: "/var/lib/signalhub/source-maps",
+      localDir: "/var/lib/sigmon/source-maps",
       maxUploadMb: 50,
       retention: {
         enabled: true,
@@ -254,12 +254,12 @@ describe("loadConfig", () => {
   it("loads custom source map storage config", () => {
     const config = loadConfig({
       ...baseEnv(),
-      SOURCE_MAPS_LOCAL_DIR: "/tmp/signalhub-source-maps",
+      SOURCE_MAPS_LOCAL_DIR: "/tmp/sigmon-source-maps",
       SOURCE_MAPS_MAX_UPLOAD_MB: "12"
     });
 
     expect(config.sourceMaps).toEqual({
-      localDir: "/tmp/signalhub-source-maps",
+      localDir: "/tmp/sigmon-source-maps",
       maxUploadMb: 12,
       retention: {
         enabled: true,
@@ -307,7 +307,7 @@ describe("loadConfig", () => {
         ...validEnv,
         BACKUPS_S3_ENABLED: "true",
         BACKUPS_S3_ENDPOINT: "https://example.r2.cloudflarestorage.com",
-        BACKUPS_S3_BUCKET: "signalhub-backups",
+        BACKUPS_S3_BUCKET: "sigmon-backups",
         BACKUPS_S3_ACCESS_KEY_ID: "access-key"
       })
     ).toThrow("BACKUPS_S3_SECRET_ACCESS_KEY is required when backup S3 upload is enabled");
@@ -317,7 +317,7 @@ describe("loadConfig", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       PORT: "3000",
-      DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
       REDIS_URL: "redis://localhost:6379",
       SESSION_SECRET: "a-secure-session-secret-with-enough-length",
       API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
@@ -347,7 +347,7 @@ describe("loadConfig", () => {
       loadConfig({
         NODE_ENV: "production",
         PORT: "3000",
-        DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+        DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
         REDIS_URL: "redis://localhost:6379",
         SESSION_SECRET: "short",
         API_KEY_PEPPER: "short",
@@ -390,7 +390,7 @@ describe("loadConfig", () => {
       loadConfig({
         ...validEnv,
         NODE_ENV: "production",
-        DATABASE_URL: "postgres://signalhub:signalhub-local-only-change-me@localhost:5432/signalhub"
+        DATABASE_URL: "postgres://sigmon:sigmon-local-only-change-me@localhost:5432/sigmon"
       })
     ).toThrow("DATABASE_URL uses the local-only Postgres password placeholder");
   });
@@ -400,7 +400,7 @@ describe("loadConfig", () => {
       loadConfig({
         ...validEnv,
         NODE_ENV: "production",
-        DATABASE_URL: "postgres://signalhub:signalhub%2Dlocal%2Donly%2Dchange%2Dme@localhost:5432/signalhub"
+        DATABASE_URL: "postgres://sigmon:sigmon%2Dlocal%2Donly%2Dchange%2Dme@localhost:5432/sigmon"
       })
     ).toThrow("DATABASE_URL uses the local-only Postgres password placeholder");
   });
@@ -409,7 +409,7 @@ describe("loadConfig", () => {
     const config = loadConfig({
       NODE_ENV: "test",
       PORT: "3000",
-      DATABASE_URL: "postgres://signalhub:signalhub-local-only-change-me@localhost:5432/signalhub",
+      DATABASE_URL: "postgres://sigmon:sigmon-local-only-change-me@localhost:5432/sigmon",
       REDIS_URL: "redis://localhost:6379",
       SESSION_SECRET: "change-me-to-a-long-random-secret",
       API_KEY_PEPPER: "change-me-to-a-long-random-pepper",
@@ -426,7 +426,7 @@ describe("loadConfig", () => {
       loadConfig({
         NODE_ENV: "test",
         PORT: "3000",
-        DATABASE_URL: "postgres://user:pass@localhost:5432/signalhub",
+        DATABASE_URL: "postgres://user:pass@localhost:5432/sigmon",
         REDIS_URL: "redis://localhost:6379",
         SESSION_SECRET: "a-secure-session-secret-with-enough-length",
         API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",

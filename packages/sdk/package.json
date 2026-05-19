@@ -1,5 +1,5 @@
 {
-  "name": "@signal-hub/sdk",
+  "name": "@sigmon/sdk",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,7 @@
     "nanoid": "^5.1.11"
   },
   "devDependencies": {
-    "@signal-hub/telemetry": "workspace:*",
+    "@sigmon/telemetry": "workspace:*",
     "vitest": "^2.1.8"
   }
 }

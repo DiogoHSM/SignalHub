@@ -1,6 +1,8 @@
-# SignalHub
+# SignalMonitor
 
-SignalHub is a self-hosted telemetry core for product analytics, error tracking, LLM observability, traces, and spans. One installation can monitor multiple projects and environments. Clients ingest telemetry with project-environment API keys, the API validates and queues each signal in Redis/BullMQ, and the worker sanitizes and persists typed records in Postgres.
+SignalMonitor is a self-hosted telemetry core for product analytics, error tracking, LLM observability, traces, and spans. One installation can monitor multiple projects and environments. Clients ingest telemetry with project-environment API keys, the API validates and queues each signal in Redis/BullMQ, and the worker sanitizes and persists typed records in Postgres.
+
+The public brand/domain is `sigmon.app`; the planned self-hosted operator deployment is `my.sigmon.app`.
 
 ## Current Capabilities
 
@@ -21,7 +23,7 @@ SignalHub is a self-hosted telemetry core for product analytics, error tracking,
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 - Read-only operator doctor checks for local and Docker Compose installs.
 
-SignalHub does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, product object storage, or stored log telemetry.
+SignalMonitor does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, product object storage, or stored log telemetry.
 
 ## Prerequisites
 
@@ -42,8 +44,8 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `SESSION_SECRET` | Yes | At least 32 characters outside tests. Signs human session cookies. |
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
 | `CONSOLE_ENABLED` | No | Enables the built Integration Console from the API. Compose sets this to `true`. |
-| `SIGNALHUB_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://signalhub.example.com`. |
-| `SOURCE_MAPS_LOCAL_DIR` | No | Local directory for uploaded source-map artifacts. Defaults to `/var/lib/signalhub/source-maps`. |
+| `SIGMON_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://sigmon.example.com`. |
+| `SOURCE_MAPS_LOCAL_DIR` | No | Local directory for uploaded source-map artifacts. Defaults to `/var/lib/sigmon/source-maps`. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | Maximum source-map upload size in MiB. Defaults to `50`. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | Email for the first admin account. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | At least 32 characters outside tests. Used by the admin seed script. |
@@ -52,7 +54,7 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `GOOGLE_CLIENT_SECRET` | If OAuth enabled | Google OAuth client secret. |
 | `GOOGLE_REDIRECT_URI` | If OAuth enabled | OAuth callback URL, usually `http://localhost:3000/auth/google/callback` locally. |
 
-Google OAuth is optional. It is not open signup: Google sign-in only succeeds for an existing, unarchived local user with a verified Google email. On first successful Google login, SignalHub links that user's Google subject to the local account.
+Google OAuth is optional. It is not open signup: Google sign-in only succeeds for an existing, unarchived local user with a verified Google email. On first successful Google login, SignalMonitor links that user's Google subject to the local account.
 
 Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operator notes. The committed `.claude/docs/SECRETS.md` contains sanitized variable names and safe examples only.
 
@@ -83,9 +85,9 @@ The console `System` mode is available to logged-in users. It shows API, worker,
 
 ## Backups and Restore
 
-The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs `pg_dump` in custom format and writes files named like `signalhub-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`.
+The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs `pg_dump` in custom format and writes files named like `sigmon-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`.
 
-Docker Compose mounts the `backup_data` volume at `/var/lib/signalhub/backups` in the worker container. Local retention deletes old local backup files according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files remain on local storage and, optionally, remote object storage.
+Docker Compose mounts the `backup_data` volume at `/var/lib/sigmon/backups` in the worker container. Local retention deletes old local backup files according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files remain on local storage and, optionally, remote object storage.
 
 Run a manual backup with:
 
@@ -97,7 +99,7 @@ Restore is destructive. Stop the API and worker before restoring so no process w
 
 ```sh
 docker compose stop api worker
-docker compose run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-YYYYMMDDTHHMMSSZ.dump --yes
+docker compose run --rm worker pnpm backup:restore -- /var/lib/sigmon/backups/sigmon-YYYYMMDDTHHMMSSZ.dump --yes
 docker compose start api worker
 ```
 
@@ -107,17 +109,17 @@ For Cloudflare R2, use a private bucket and a scoped token that can write backup
 BACKUPS_S3_ENABLED=true
 BACKUPS_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 BACKUPS_S3_REGION=auto
-BACKUPS_S3_BUCKET=signalhub-backups
+BACKUPS_S3_BUCKET=sigmon-backups
 BACKUPS_S3_ACCESS_KEY_ID=<r2-access-key-id>
 BACKUPS_S3_SECRET_ACCESS_KEY=<r2-secret-access-key>
-BACKUPS_S3_PREFIX=production/signalhub
+BACKUPS_S3_PREFIX=production/sigmon
 ```
 
 Remote retention is handled by bucket lifecycle rules in this slice.
 
 ## Simple Alerts
 
-SignalHub evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
+SignalMonitor evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
 
 Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each delivery attempt. Native email, Telegram, Discord, escalation, silencing, acknowledgement, and retry workflows are out of scope for this slice.
 
@@ -125,9 +127,9 @@ Webhook secrets are write-only. Saved secret values are redacted and are never r
 
 ## Source Maps
 
-Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by project, environment, release, and minified filename; SignalHub does not guess across releases.
+Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by project, environment, release, and minified filename; SignalMonitor does not guess across releases.
 
-Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/signalhub/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
+Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/sigmon/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
 
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
@@ -141,10 +143,10 @@ Generic shell example:
 
 ```sh
 pnpm source-maps:upload \
-  --endpoint https://signalhub.example.com \
-  --token "$SIGNALHUB_SOURCE_MAP_TOKEN" \
-  --project-id "$SIGNALHUB_PROJECT_ID" \
-  --environment-id "$SIGNALHUB_ENVIRONMENT_ID" \
+  --endpoint https://sigmon.example.com \
+  --token "$SIGMON_SOURCE_MAP_TOKEN" \
+  --project-id "$SIGMON_PROJECT_ID" \
+  --environment-id "$SIGMON_ENVIRONMENT_ID" \
   --release "$GITHUB_SHA" \
   --bundle ./dist/source-maps.zip
 ```
@@ -155,10 +157,10 @@ GitHub Actions example:
 - name: Upload source maps
   run: |
     pnpm source-maps:upload \
-      --endpoint "${{ secrets.SIGNALHUB_ENDPOINT }}" \
-      --token "${{ secrets.SIGNALHUB_SOURCE_MAP_TOKEN }}" \
-      --project-id "${{ secrets.SIGNALHUB_PROJECT_ID }}" \
-      --environment-id "${{ secrets.SIGNALHUB_ENVIRONMENT_ID }}" \
+      --endpoint "${{ secrets.SIGMON_ENDPOINT }}" \
+      --token "${{ secrets.SIGMON_SOURCE_MAP_TOKEN }}" \
+      --project-id "${{ secrets.SIGMON_PROJECT_ID }}" \
+      --environment-id "${{ secrets.SIGMON_ENVIRONMENT_ID }}" \
       --release "${{ github.sha }}" \
       --bundle ./dist/source-maps.zip
 ```
@@ -167,7 +169,7 @@ Store upload tokens in CI secret storage. Do not expose them in browser bundles.
 
 ## Breadcrumbs and Session Context
 
-SignalHub supports lightweight breadcrumbs for session debugging. Breadcrumbs are structured telemetry records for navigation, safe clicks, console warnings/errors, failed or slow network summaries, and custom application steps.
+SignalMonitor supports lightweight breadcrumbs for session debugging. Breadcrumbs are structured telemetry records for navigation, safe clicks, console warnings/errors, failed or slow network summaries, and custom application steps.
 
 Manual SDK example:
 
@@ -244,11 +246,11 @@ docker compose up -d --build
 pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
-The API container serves the Integration Console at `http://localhost:3000/console`. Set `SIGNALHUB_PUBLIC_ENDPOINT` to the externally reachable API origin before deploying behind a domain, HTTPS reverse proxy, or non-default port so generated snippets point at the correct endpoint.
+The API container serves the Integration Console at `http://localhost:3000/console`. Set `SIGMON_PUBLIC_ENDPOINT` to the externally reachable API origin before deploying behind a domain, HTTPS reverse proxy, or non-default port so generated snippets point at the correct endpoint.
 
 Compose binds Postgres and Redis to `127.0.0.1` for local tooling. Change `POSTGRES_PORT`, `REDIS_PORT`, and secrets in `.env` before exposing services or reusing the stack outside local development.
 
-If `POSTGRES_PASSWORD` contains URL-reserved characters, set `POSTGRES_PASSWORD_URLENCODED` to the URL-encoded form and use the encoded value in `DATABASE_URL`. If rotating the password on an existing `postgres_data` volume, first change the `signalhub` role password inside Postgres, then update `.env` and restart the API and worker.
+If `POSTGRES_PASSWORD` contains URL-reserved characters, set `POSTGRES_PASSWORD_URLENCODED` to the URL-encoded form and use the encoded value in `DATABASE_URL`. If rotating the password on an existing `postgres_data` volume, first change the `sigmon` role password inside Postgres, then update `.env` and restart the API and worker.
 
 Validate the Compose file with:
 
@@ -267,7 +269,7 @@ pnpm run doctor -- --compose --api-url http://localhost:3000
 
 Doctor results are reported as pass, warn, or fail. The command exits non-zero only when a failure is found; warnings are advisory and keep a zero exit code. The checks are read-only: they validate configuration shape, placeholder usage, local prerequisites, Compose rendering, service reachability, and API health without mutating data or secrets.
 
-Use `pnpm run doctor` to run the SignalHub project script. `pnpm doctor` is pnpm's built-in diagnostic command and does not run SignalHub's operator checks.
+Use `pnpm run doctor` to run the SignalMonitor project script. `pnpm doctor` is pnpm's built-in diagnostic command and does not run SignalMonitor's operator checks.
 
 ## Compose Smoke Harness
 
@@ -285,13 +287,13 @@ By default it removes the Compose project and temporary files after the run. Use
 pnpm smoke:compose --preserve
 ```
 
-Use `--project-name` or `SIGNALHUB_SMOKE_PROJECT_NAME` when running multiple smoke jobs on the same Docker host.
+Use `--project-name` or `SIGMON_SMOKE_PROJECT_NAME` when running multiple smoke jobs on the same Docker host.
 
 ## Continuous Integration
 
 Pull requests to `main` and pushes to `main` run the GitHub Actions CI gate. CI installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness.
 
-The smoke job runs `pnpm smoke:compose --project-name signalhub_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p signalhub_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
+The smoke job runs `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 
 ## Upgrade Flow
 
@@ -314,7 +316,7 @@ Restore is destructive: it replaces the current database state from the selected
 
 ```sh
 docker compose stop api worker
-docker compose run --rm worker pnpm backup:restore -- /var/lib/signalhub/backups/signalhub-YYYYMMDDTHHMMSSZ.dump --yes
+docker compose run --rm worker pnpm backup:restore -- /var/lib/sigmon/backups/sigmon-YYYYMMDDTHHMMSSZ.dump --yes
 docker compose start api worker
 pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
@@ -549,7 +551,7 @@ curl -b cookies.txt \
 ## Troubleshooting
 
 - If `pnpm run doctor` fails before Compose starts, fix `.env`, placeholder secrets, Node/pnpm versions, Docker availability, or Compose rendering before starting services.
-- If `pnpm run doctor -- --compose --api-url http://localhost:3000` fails after startup, check `docker compose ps`, API logs, worker logs, Postgres readiness, Redis readiness, and whether `SIGNALHUB_PUBLIC_ENDPOINT` matches the external origin.
+- If `pnpm run doctor -- --compose --api-url http://localhost:3000` fails after startup, check `docker compose ps`, API logs, worker logs, Postgres readiness, Redis readiness, and whether `SIGMON_PUBLIC_ENDPOINT` matches the external origin.
 - If admin seeding fails, verify `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`, and database connectivity, then rerun `docker compose run --rm api pnpm seed:admin`.
 - If restore fails, keep API and worker stopped, inspect the restore command output, and retry only in the intended environment with the intended dump path.
 

@@ -34,7 +34,7 @@ function createSuccessfulChildProcess(): EventEmitter & { stderr: EventEmitter }
 
 describe("createBackupFilename", () => {
   it("uses a UTC timestamp and no secrets", () => {
-    expect(createBackupFilename(new Date("2026-05-06T12:34:56.000Z"))).toBe("signalhub-20260506T123456Z.dump");
+    expect(createBackupFilename(new Date("2026-05-06T12:34:56.000Z"))).toBe("sigmon-20260506T123456Z.dump");
   });
 });
 
@@ -77,12 +77,12 @@ describe("restoreBackup", () => {
   });
 
   it("passes password through PGPASSWORD and non-secret connection args", async () => {
-    const databaseUrl = "postgres://user:pa%24%24@localhost:5433/signalhub";
+    const databaseUrl = "postgres://user:pa%24%24@localhost:5433/sigmon";
     childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
 
     await restoreBackup({
       databaseUrl,
-      filePath: "/tmp/signalhub.dump"
+      filePath: "/tmp/sigmon.dump"
     });
 
     const [command, args, options] = childProcessMock.spawn.mock.calls[0] ?? [];
@@ -93,7 +93,7 @@ describe("restoreBackup", () => {
       "--no-owner",
       "--no-privileges",
       "--dbname",
-      "signalhub",
+      "sigmon",
       "--host",
       "localhost",
       "--port",
@@ -101,7 +101,7 @@ describe("restoreBackup", () => {
       "--username",
       "user",
       "--",
-      "/tmp/signalhub.dump"
+      "/tmp/sigmon.dump"
     ]);
     expect(args).not.toContain(databaseUrl);
     expect(args?.join(" ")).not.toContain("pa%24%24");
@@ -116,34 +116,34 @@ describe("restoreBackup", () => {
 
   it("preserves non-secret database URL options without putting the password in argv", async () => {
     const databaseUrl =
-      "postgres://user:secret@db.example.com:5432/signalhub?sslmode=require&application_name=signalhub";
+      "postgres://user:secret@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon";
     childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
 
     await restoreBackup({
       databaseUrl,
-      filePath: "/tmp/signalhub.dump"
+      filePath: "/tmp/sigmon.dump"
     });
 
     const [, args, options] = childProcessMock.spawn.mock.calls[0] ?? [];
     expect(args).not.toContain(databaseUrl);
     expect(args?.join(" ")).not.toContain("secret");
-    expect(args).toContain("postgres://user@db.example.com:5432/signalhub?sslmode=require&application_name=signalhub");
+    expect(args).toContain("postgres://user@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon");
     expect(args).toContain("--");
-    expect(args?.slice(-2)).toEqual(["--", "/tmp/signalhub.dump"]);
+    expect(args?.slice(-2)).toEqual(["--", "/tmp/sigmon.dump"]);
     expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
   });
 });
 
 describe("createBackupS3Key", () => {
   it("trims leading and trailing slashes from prefixes", () => {
-    expect(createBackupS3Key("/prod/signalhub/", "signalhub-20260506T123456Z.dump")).toBe(
-      "prod/signalhub/signalhub-20260506T123456Z.dump"
+    expect(createBackupS3Key("/prod/sigmon/", "sigmon-20260506T123456Z.dump")).toBe(
+      "prod/sigmon/sigmon-20260506T123456Z.dump"
     );
   });
 
   it("returns the filename when prefix is empty", () => {
-    expect(createBackupS3Key("", "signalhub-20260506T123456Z.dump")).toBe("signalhub-20260506T123456Z.dump");
-    expect(createBackupS3Key("///", "signalhub-20260506T123456Z.dump")).toBe("signalhub-20260506T123456Z.dump");
+    expect(createBackupS3Key("", "sigmon-20260506T123456Z.dump")).toBe("sigmon-20260506T123456Z.dump");
+    expect(createBackupS3Key("///", "sigmon-20260506T123456Z.dump")).toBe("sigmon-20260506T123456Z.dump");
   });
 });
 
@@ -154,8 +154,8 @@ describe("dumpPostgresDatabase", () => {
     );
 
     await dumpPostgresDatabase({
-      databaseUrl: "postgres://user:pa%24%24@localhost:5433/signalhub",
-      outputPath: "/tmp/signalhub.dump",
+      databaseUrl: "postgres://user:pa%24%24@localhost:5433/sigmon",
+      outputPath: "/tmp/sigmon.dump",
       execFileFn
     });
 
@@ -166,9 +166,9 @@ describe("dumpPostgresDatabase", () => {
       "--no-owner",
       "--no-privileges",
       "--file",
-      "/tmp/signalhub.dump",
+      "/tmp/sigmon.dump",
       "--dbname",
-      "signalhub",
+      "sigmon",
       "--host",
       "localhost",
       "--port",
@@ -176,7 +176,7 @@ describe("dumpPostgresDatabase", () => {
       "--username",
       "user"
     ]);
-    expect(args).not.toContain("postgres://user:pa%24%24@localhost:5433/signalhub");
+    expect(args).not.toContain("postgres://user:pa%24%24@localhost:5433/sigmon");
     expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "pa$$" }) }));
   });
 
@@ -185,25 +185,25 @@ describe("dumpPostgresDatabase", () => {
       async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv }) => undefined
     );
     const databaseUrl =
-      "postgres://user:secret@db.example.com:5432/signalhub?sslmode=require&application_name=signalhub";
+      "postgres://user:secret@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon";
 
     await dumpPostgresDatabase({
       databaseUrl,
-      outputPath: "/tmp/signalhub.dump",
+      outputPath: "/tmp/sigmon.dump",
       execFileFn
     });
 
     const [, args, options] = execFileFn.mock.calls[0] ?? [];
     expect(args).not.toContain(databaseUrl);
     expect(args?.join(" ")).not.toContain("secret");
-    expect(args).toContain("postgres://user@db.example.com:5432/signalhub?sslmode=require&application_name=signalhub");
+    expect(args).toContain("postgres://user@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon");
     expect(args?.join(" ")).toContain("sslmode=require");
-    expect(args?.join(" ")).toContain("application_name=signalhub");
+    expect(args?.join(" ")).toContain("application_name=sigmon");
     expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
   });
 
   it("does not include the raw database URL in thrown pg_dump errors", async () => {
-    const databaseUrl = "postgres://user:secret@localhost:5432/signalhub";
+    const databaseUrl = "postgres://user:secret@localhost:5432/sigmon";
     const execFileFn = vi.fn(async () => {
       throw new Error(`Command failed: pg_dump ${databaseUrl}`);
     });
@@ -211,14 +211,14 @@ describe("dumpPostgresDatabase", () => {
     await expect(
       dumpPostgresDatabase({
         databaseUrl,
-        outputPath: "/tmp/signalhub.dump",
+        outputPath: "/tmp/sigmon.dump",
         execFileFn
       })
     ).rejects.toThrow("pg_dump failed");
     await expect(
       dumpPostgresDatabase({
         databaseUrl,
-        outputPath: "/tmp/signalhub.dump",
+        outputPath: "/tmp/sigmon.dump",
         execFileFn
       })
     ).rejects.not.toThrow(databaseUrl);
@@ -232,8 +232,8 @@ describe("uploadBackupToS3", () => {
     const stream = Readable.from(["backup-content"]);
 
     await uploadBackupToS3({
-      filePath: "/tmp/signalhub.dump",
-      key: "prod/signalhub/signalhub-20260506T120000Z.dump",
+      filePath: "/tmp/sigmon.dump",
+      key: "prod/sigmon/sigmon-20260506T120000Z.dump",
       s3: {
         enabled: true,
         endpoint: "https://example.r2.cloudflarestorage.com",
@@ -241,7 +241,7 @@ describe("uploadBackupToS3", () => {
         bucket: "bucket",
         accessKeyId: "access",
         secretAccessKey: "secret",
-        prefix: "prod/signalhub"
+        prefix: "prod/sigmon"
       },
       createClient,
       createReadStreamFn: () => stream
@@ -261,7 +261,7 @@ describe("uploadBackupToS3", () => {
     expect(sentCommand?.input).toEqual(
       expect.objectContaining({
         Bucket: "bucket",
-        Key: "prod/signalhub/signalhub-20260506T120000Z.dump",
+        Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
         ContentType: "application/octet-stream"
       })
     );
@@ -276,8 +276,8 @@ describe("uploadBackupToS3", () => {
 
     await expect(
       uploadBackupToS3({
-        filePath: "/tmp/signalhub.dump",
-        key: "prod/signalhub/signalhub-20260506T120000Z.dump",
+        filePath: "/tmp/sigmon.dump",
+        key: "prod/sigmon/sigmon-20260506T120000Z.dump",
         s3: {
           enabled: true,
           endpoint: "https://example.r2.cloudflarestorage.com",
@@ -285,7 +285,7 @@ describe("uploadBackupToS3", () => {
           bucket: "bucket",
           accessKeyId: "access",
           secretAccessKey: "secret",
-          prefix: "prod/signalhub"
+          prefix: "prod/sigmon"
         },
         createClient: () => ({ send }),
         createReadStreamFn: () => stream
@@ -297,13 +297,13 @@ describe("uploadBackupToS3", () => {
 });
 
 describe("pruneLocalBackups", () => {
-  it("only deletes old SignalHub dump files", async () => {
-    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
-    const oldBackup = join(localDir, "signalhub-20260401T000000Z.dump");
-    const freshBackup = join(localDir, "signalhub-fresh.dump");
-    const manualBackup = join(localDir, "signalhub-manual.dump");
+  it("only deletes old SignalMonitor dump files", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
+    const oldBackup = join(localDir, "sigmon-20260401T000000Z.dump");
+    const freshBackup = join(localDir, "sigmon-fresh.dump");
+    const manualBackup = join(localDir, "sigmon-manual.dump");
     const unrelatedDump = join(localDir, "other-old.dump");
-    const unrelatedText = join(localDir, "signalhub-old.txt");
+    const unrelatedText = join(localDir, "sigmon-old.txt");
 
     try {
       await writeFile(oldBackup, "old");
@@ -335,13 +335,13 @@ describe("pruneLocalBackups", () => {
 
 describe("runBackupOnce", () => {
   it("creates a local backup, uploads to S3 when enabled, records success, and prunes old local files", async () => {
-    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
-    const oldFile = join(localDir, "signalhub-20260401T000000Z.dump");
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
+    const oldFile = join(localDir, "sigmon-20260401T000000Z.dump");
     await writeFile(oldFile, "old");
     await utimes(oldFile, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
 
     const recordBackupRun = vi.fn(async (input) => input);
-    const upload = vi.fn(async () => ({ bucket: "bucket", key: "prod/signalhub/signalhub-20260506T120000Z.dump" }));
+    const upload = vi.fn(async () => ({ bucket: "bucket", key: "prod/sigmon/sigmon-20260506T120000Z.dump" }));
 
     try {
       const result = await runBackupOnce({
@@ -352,7 +352,7 @@ describe("runBackupOnce", () => {
           intervalHours: 24,
           localDir,
           retentionDays: 14,
-          databaseUrl: "postgres://user:pass@localhost:5432/signalhub",
+          databaseUrl: "postgres://user:pass@localhost:5432/sigmon",
           s3: {
             enabled: true,
             endpoint: "https://example.r2.cloudflarestorage.com",
@@ -360,7 +360,7 @@ describe("runBackupOnce", () => {
             bucket: "bucket",
             accessKeyId: "access",
             secretAccessKey: "secret",
-            prefix: "prod/signalhub"
+            prefix: "prod/sigmon"
           }
         },
         withLock: async (run) => ({ locked: true, result: await run() }),
@@ -372,12 +372,12 @@ describe("runBackupOnce", () => {
       });
 
       expect(result).toEqual({ ran: true, skipped: false });
-      expect(await readFile(join(localDir, "signalhub-20260506T120000Z.dump"), "utf8")).toBe("backup-content");
+      expect(await readFile(join(localDir, "sigmon-20260506T120000Z.dump"), "utf8")).toBe("backup-content");
       await expect(stat(oldFile)).rejects.toThrow();
       expect(upload).toHaveBeenCalledWith(
         expect.objectContaining({
-          filePath: join(localDir, "signalhub-20260506T120000Z.dump"),
-          key: "prod/signalhub/signalhub-20260506T120000Z.dump"
+          filePath: join(localDir, "sigmon-20260506T120000Z.dump"),
+          key: "prod/sigmon/sigmon-20260506T120000Z.dump"
         })
       );
       expect(recordBackupRun).toHaveBeenCalledWith(
@@ -386,7 +386,7 @@ describe("runBackupOnce", () => {
           trigger: "scheduled",
           sizeBytes: 14,
           s3Bucket: "bucket",
-          s3Key: "prod/signalhub/signalhub-20260506T120000Z.dump",
+          s3Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
           errorMessage: null
         })
       );
@@ -396,7 +396,7 @@ describe("runBackupOnce", () => {
   });
 
   it("records a sanitized failed run when S3 upload fails", async () => {
-    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
     const recordBackupRun = vi.fn(async (input) => input);
 
     try {
@@ -409,7 +409,7 @@ describe("runBackupOnce", () => {
             intervalHours: 24,
             localDir,
             retentionDays: 14,
-            databaseUrl: "postgres://user:password@localhost:5432/signalhub",
+            databaseUrl: "postgres://user:password@localhost:5432/sigmon",
             s3: {
               enabled: true,
               endpoint: "https://example.r2.cloudflarestorage.com",
@@ -417,7 +417,7 @@ describe("runBackupOnce", () => {
               bucket: "bucket",
               accessKeyId: "access",
               secretAccessKey: "secret",
-              prefix: "prod/signalhub"
+              prefix: "prod/sigmon"
             }
           },
           withLock: async (run) => ({ locked: true, result: await run() }),
@@ -447,7 +447,7 @@ describe("runBackupOnce", () => {
   });
 
   it("records a sanitized failed run when pruning fails", async () => {
-    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
     const recordBackupRun = vi.fn(async (input) => input);
 
     try {
@@ -460,8 +460,8 @@ describe("runBackupOnce", () => {
             intervalHours: 24,
             localDir,
             retentionDays: 14,
-            databaseUrl: "postgres://user:password@localhost:5432/signalhub",
-            s3: { enabled: false, endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", prefix: "signalhub" }
+            databaseUrl: "postgres://user:password@localhost:5432/sigmon",
+            s3: { enabled: false, endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", prefix: "sigmon" }
           },
           withLock: async (run) => ({ locked: true, result: await run() }),
           dumpDatabase: async (input) => {
@@ -487,7 +487,7 @@ describe("runBackupOnce", () => {
   });
 
   it("records a sanitized failed run when pg_dump fails", async () => {
-    const localDir = await mkdtemp(join(tmpdir(), "signalhub-backups-"));
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
     const recordBackupRun = vi.fn(async (input) => input);
 
     try {
@@ -500,8 +500,8 @@ describe("runBackupOnce", () => {
             intervalHours: 24,
             localDir,
             retentionDays: 14,
-            databaseUrl: "postgres://user:password@localhost:5432/signalhub",
-            s3: { enabled: false, endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", prefix: "signalhub" }
+            databaseUrl: "postgres://user:password@localhost:5432/sigmon",
+            s3: { enabled: false, endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", prefix: "sigmon" }
           },
           withLock: async (run) => ({ locked: true, result: await run() }),
           dumpDatabase: async () => {
@@ -533,8 +533,8 @@ describe("runBackupOnce", () => {
         intervalHours: 24,
         localDir: "/tmp/backups",
         retentionDays: 14,
-        databaseUrl: "postgres://user:pass@localhost:5432/signalhub",
-        s3: { enabled: false, endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", prefix: "signalhub" }
+        databaseUrl: "postgres://user:pass@localhost:5432/sigmon",
+        s3: { enabled: false, endpoint: "", region: "auto", bucket: "", accessKeyId: "", secretAccessKey: "", prefix: "sigmon" }
       },
       withLock: async () => ({ locked: false }),
       dumpDatabase: vi.fn(),

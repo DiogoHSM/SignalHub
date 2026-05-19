@@ -1,5 +1,5 @@
-import type { TelemetryJobKind, TelemetryJobPayload } from "@signal-hub/queues";
-import { createId } from "@signal-hub/telemetry/ids";
+import type { TelemetryJobKind, TelemetryJobPayload } from "@sigmon/queues";
+import { createId } from "@sigmon/telemetry/ids";
 import {
   breadcrumbPayloadSchema,
   errorPayloadSchema,
@@ -7,7 +7,7 @@ import {
   llmCallPayloadSchema,
   spanPayloadSchema,
   tracePayloadSchema
-} from "@signal-hub/telemetry/ingestion-schemas";
+} from "@sigmon/telemetry/ingestion-schemas";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodType } from "zod";
 

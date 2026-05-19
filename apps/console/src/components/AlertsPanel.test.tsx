@@ -79,7 +79,7 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
         name: "Ops",
         type: "webhook",
         url: "https://hooks.example.com",
-        secretHeaderName: "X-SignalHub-Secret",
+        secretHeaderName: "X-SignalMonitor-Secret",
         hasSecret: true,
         enabled: true,
         createdAt: "",
@@ -184,7 +184,7 @@ describe("AlertsPanel", () => {
         name: "Ops",
         type: "webhook",
         url: "https://hooks.example.com",
-        secretHeaderName: "X-SignalHub-Secret",
+        secretHeaderName: "X-SignalMonitor-Secret",
         hasSecret: true,
         enabled: true,
         createdAt: "",
@@ -197,7 +197,7 @@ describe("AlertsPanel", () => {
 
     await userEvent.type(await screen.findByLabelText("Channel name"), "Ops");
     await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com");
-    await userEvent.type(screen.getByLabelText("Secret header name"), "X-SignalHub-Secret");
+    await userEvent.type(screen.getByLabelText("Secret header name"), "X-SignalMonitor-Secret");
     await userEvent.type(screen.getByLabelText("Secret header value"), "secret");
     await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
 
@@ -206,7 +206,7 @@ describe("AlertsPanel", () => {
         name: "Ops",
         type: "webhook",
         url: "https://hooks.example.com",
-        secretHeaderName: "X-SignalHub-Secret",
+        secretHeaderName: "X-SignalMonitor-Secret",
         secretHeaderValue: "secret",
         enabled: true
       })
@@ -260,11 +260,11 @@ describe("AlertsPanel", () => {
     await userEvent.type(screen.getByLabelText("Secret header name"), "Authorization");
     await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Secret header name must begin with X- or SignalHub-");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Secret header name must begin with X- or Sigmon-");
     expect(createNotificationChannel).not.toHaveBeenCalled();
 
     await userEvent.clear(screen.getByLabelText("Secret header name"));
-    await userEvent.type(screen.getByLabelText("Secret header name"), "X SignalHub Secret");
+    await userEvent.type(screen.getByLabelText("Secret header name"), "X SignalMonitor Secret");
     await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Secret header name may only contain letters, numbers, and hyphens");
@@ -585,7 +585,7 @@ describe("AlertsPanel", () => {
 
     await userEvent.type(await screen.findByLabelText("Channel name"), "Unsaved channel");
     await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com/unsaved");
-    await userEvent.type(screen.getByLabelText("Secret header name"), "X-SignalHub-Secret");
+    await userEvent.type(screen.getByLabelText("Secret header name"), "X-SignalMonitor-Secret");
     await userEvent.type(screen.getByLabelText("Secret header value"), "unsaved-secret");
     await userEvent.type(screen.getByLabelText("Rule name"), "Unsaved rule");
     await userEvent.clear(screen.getByLabelText("Window"));

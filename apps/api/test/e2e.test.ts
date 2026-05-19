@@ -2,27 +2,27 @@ import { GenericContainer, Wait } from "testcontainers";
 import { afterAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
-import { processTelemetryJob, type TelemetryWriter } from "@signal-hub/worker";
-import { createApiKey, hashApiKey, verifyApiKey as verifyTelemetryApiKey } from "@signal-hub/telemetry/api-keys";
-import { createDb, type Db } from "@signal-hub/db";
-import { migrate } from "@signal-hub/db/migrate.js";
+import { processTelemetryJob, type TelemetryWriter } from "@sigmon/worker";
+import { createApiKey, hashApiKey, verifyApiKey as verifyTelemetryApiKey } from "@sigmon/telemetry/api-keys";
+import { createDb, type Db } from "@sigmon/db";
+import { migrate } from "@sigmon/db/migrate.js";
 import {
   createApiKeyRecord,
   createEnvironment,
   createProject,
   findApiKeyByPrefix
-} from "@signal-hub/db/repositories/admin.js";
-import { getEntityTenantDetail, listEntityTenants } from "@signal-hub/db/repositories/entities-query.js";
-import { getUserDetail, listUsersActivity } from "@signal-hub/db/repositories/users-query.js";
-import { listEvents } from "@signal-hub/db/repositories/telemetry-query.js";
+} from "@sigmon/db/repositories/admin.js";
+import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositories/entities-query.js";
+import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
+import { listEvents } from "@sigmon/db/repositories/telemetry-query.js";
 import {
   insertError,
   insertEvent,
   insertLlmCall,
   insertSpan,
   insertTrace
-} from "@signal-hub/db/repositories/telemetry-writes.js";
-import { createTelemetryQueue, enqueueTelemetryJob } from "@signal-hub/queues";
+} from "@sigmon/db/repositories/telemetry-writes.js";
+import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
 
 let postgresContainer: Awaited<ReturnType<GenericContainer["start"]>> | undefined;
 let redisContainer: Awaited<ReturnType<GenericContainer["start"]>> | undefined;
@@ -49,13 +49,13 @@ describe("telemetry core e2e", () => {
   it("ingests, processes, persists, and queries a sanitized event", async () => {
     postgresContainer = await new GenericContainer("postgres:16-alpine")
       .withEnvironment({
-        POSTGRES_DB: "signalhub",
-        POSTGRES_USER: "signalhub",
-        POSTGRES_PASSWORD: "signalhub"
+        POSTGRES_DB: "sigmon",
+        POSTGRES_USER: "sigmon",
+        POSTGRES_PASSWORD: "sigmon"
       })
       .withExposedPorts(5432)
       .withHealthCheck({
-        test: ["CMD-SHELL", "pg_isready -U signalhub -d signalhub"],
+        test: ["CMD-SHELL", "pg_isready -U sigmon -d sigmon"],
         interval: 1_000,
         timeout: 5_000,
         retries: 30
@@ -67,9 +67,9 @@ describe("telemetry core e2e", () => {
       .withWaitStrategy(Wait.forLogMessage("Ready to accept connections"))
       .start();
 
-    const databaseUrl = `postgres://signalhub:signalhub@${postgresContainer.getHost()}:${postgresContainer.getMappedPort(
+    const databaseUrl = `postgres://sigmon:sigmon@${postgresContainer.getHost()}:${postgresContainer.getMappedPort(
       5432
-    )}/signalhub`;
+    )}/sigmon`;
     const db = createDb(databaseUrl);
     const redisUrl = `redis://${redisContainer.getHost()}:${redisContainer.getMappedPort(6379)}`;
     const queue = createTelemetryQueue(redisUrl);

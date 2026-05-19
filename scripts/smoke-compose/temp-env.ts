@@ -20,9 +20,9 @@ export function createSmokeEnvContent(
   apiUrl: string,
   envFilePath?: string
 ): string {
-  const databaseUrl = `postgres://signalhub:${secrets.postgresPassword}@localhost:5432/signalhub`;
+  const databaseUrl = `postgres://sigmon:${secrets.postgresPassword}@localhost:5432/sigmon`;
   const replacements = new Map([
-    ["signalhub-local-only-change-me", secrets.postgresPassword],
+    ["sigmon-local-only-change-me", secrets.postgresPassword],
     ["change-me-to-a-long-random-secret", secrets.sessionSecret],
     ["change-me-to-a-long-random-pepper", secrets.apiKeyPepper],
     ["change-me-admin-password-32-chars-min", secrets.adminPassword],
@@ -46,11 +46,11 @@ export function createSmokeEnvContent(
   };
 
   upsert("DATABASE_URL", databaseUrl);
-  upsert("SIGNALHUB_PUBLIC_ENDPOINT", apiUrl);
+  upsert("SIGMON_PUBLIC_ENDPOINT", apiUrl);
   upsert("BOOTSTRAP_ADMIN_EMAIL", secrets.adminEmail);
   upsert("BOOTSTRAP_ADMIN_PASSWORD", secrets.adminPassword);
   if (envFilePath) {
-    upsert("SIGNALHUB_ENV_FILE", envFilePath);
+    upsert("SIGMON_ENV_FILE", envFilePath);
   }
 
   return lines.join("\n");
@@ -62,7 +62,7 @@ export async function writeSmokeResources(input: {
   apiUrl: string;
   runId: string;
 }): Promise<SmokeResources & { secrets: GeneratedSecrets }> {
-  const tempDir = input.tempRoot ?? (await mkdtemp(join(tmpdir(), "signalhub-smoke-")));
+  const tempDir = input.tempRoot ?? (await mkdtemp(join(tmpdir(), "sigmon-smoke-")));
   const secrets = defaultSmokeSecrets(input.runId);
   const envExample = await readFile(input.envExamplePath, "utf8");
   const envFile = join(tempDir, ".env");

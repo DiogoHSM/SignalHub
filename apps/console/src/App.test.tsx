@@ -7,7 +7,7 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
   const bootstrapClient = {
     getConsoleConfig: vi.fn().mockResolvedValue({
       apiBasePath: "/api",
-      apiEndpoint: "https://signalhub.example.com",
+      apiEndpoint: "https://sigmon.example.com",
       googleOAuthEnabled: false
     }),
     getMe: vi.fn(),
@@ -138,6 +138,6 @@ describe("App", () => {
     expect(createApiClient).toHaveBeenNthCalledWith(1);
     expect(createApiClient).toHaveBeenNthCalledWith(2, "/api");
     expect(operationalClient.getMe).toHaveBeenCalled();
-    expect(screen.getAllByText(/https:\/\/signalhub.example.com/)).toHaveLength(3);
+    expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(3);
   });
 });

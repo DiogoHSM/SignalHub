@@ -1,5 +1,5 @@
-import type { RetentionDeletedCounts, RetentionPolicy } from "@signal-hub/db/repositories/system.js";
-import { sanitizePreviewText } from "@signal-hub/telemetry/sanitization";
+import type { RetentionDeletedCounts, RetentionPolicy } from "@sigmon/db/repositories/system.js";
+import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
 import { SourceMapRetentionError } from "./source-map-retention.js";
 
 const zeroDeleted: RetentionDeletedCounts = {

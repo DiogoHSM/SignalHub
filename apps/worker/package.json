@@ -1,5 +1,5 @@
 {
-  "name": "@signal-hub/worker",
+  "name": "@sigmon/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,10 +15,10 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1044.0",
-    "@signal-hub/config": "workspace:*",
-    "@signal-hub/db": "workspace:*",
-    "@signal-hub/queues": "workspace:*",
-    "@signal-hub/telemetry": "workspace:*",
+    "@sigmon/config": "workspace:*",
+    "@sigmon/db": "workspace:*",
+    "@sigmon/queues": "workspace:*",
+    "@sigmon/telemetry": "workspace:*",
     "bullmq": "^5.76.4",
     "ioredis": "^5.10.1"
   },

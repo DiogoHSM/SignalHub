@@ -52,7 +52,7 @@ const googleCallbackQuerySchema = z.object({
   state: z.string().min(1)
 });
 
-const oauthStateCookieName = "signalhub_oauth_state";
+const oauthStateCookieName = "sigmon_oauth_state";
 const oauthStateMaxAgeSeconds = 10 * 60;
 
 function authUnavailable(): AuthDependencies {

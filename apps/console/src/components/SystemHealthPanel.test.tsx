@@ -121,10 +121,10 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
         trigger: "scheduled",
         startedAt: "2026-05-06T00:00:00.000Z",
         finishedAt: "2026-05-06T00:00:05.000Z",
-        filename: "signalhub-20260506T000000Z.dump",
+        filename: "sigmon-20260506T000000Z.dump",
         sizeBytes: 1234,
-        s3Bucket: "signalhub-backups",
-        s3Key: "prod/signalhub/signalhub-20260506T000000Z.dump",
+        s3Bucket: "sigmon-backups",
+        s3Key: "prod/sigmon/sigmon-20260506T000000Z.dump",
         errorMessage: null
       },
       latestFailure: null
@@ -189,9 +189,9 @@ describe("SystemHealthPanel", () => {
     expect(backupsCard).not.toBeNull();
     expect(within(backupsCard as HTMLElement).getByText("Enabled")).toBeInTheDocument();
     expect(within(backupsCard as HTMLElement).getByText("S3 enabled")).toBeInTheDocument();
-    expect(within(backupsCard as HTMLElement).getByText("signalhub-20260506T000000Z.dump")).toBeInTheDocument();
+    expect(within(backupsCard as HTMLElement).getByText("sigmon-20260506T000000Z.dump")).toBeInTheDocument();
     expect(within(backupsCard as HTMLElement).getByText("1234 bytes")).toBeInTheDocument();
-    expect(screen.queryByText(/var\/lib\/signalhub/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/var\/lib\/sigmon/)).not.toBeInTheDocument();
     expect(screen.queryByText(/secret/i)).not.toBeInTheDocument();
   });
 
@@ -213,7 +213,7 @@ describe("SystemHealthPanel", () => {
               trigger: "scheduled",
               startedAt: "2026-05-06T11:00:00.000Z",
               finishedAt: null,
-              filename: "signalhub-20260506T110000Z.dump",
+              filename: "sigmon-20260506T110000Z.dump",
               sizeBytes: null,
               s3Bucket: null,
               s3Key: null,

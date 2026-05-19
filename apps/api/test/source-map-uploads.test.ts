@@ -32,7 +32,7 @@ function multipartBody(
     | { name: string; filename: string; contentType: string; content: string | Buffer }
   >
 ): { headers: Record<string, string>; payload: Buffer } {
-  const boundary = `signalhub-${Math.random().toString(16).slice(2)}`;
+  const boundary = `sigmon-${Math.random().toString(16).slice(2)}`;
   const chunks: Buffer[] = [];
 
   for (const part of parts) {
