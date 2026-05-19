@@ -39,6 +39,15 @@ describe("GitHub Actions CI workflow", () => {
     ]);
   });
 
+  it("uses read-only repository contents permissions", () => {
+    const content = workflow();
+
+    expectIncludesAll(content, ["permissions:", "  contents: read"]);
+    expect(content.indexOf("permissions:")).toBeLessThan(
+      content.indexOf("jobs:")
+    );
+  });
+
   it("uses Node 22, Corepack, and frozen pnpm installs in every job", () => {
     const content = workflow();
 
@@ -62,7 +71,7 @@ describe("GitHub Actions CI workflow", () => {
       "run: docker compose config --quiet"
     ]);
     expectIncludesAll(jobBlock(content, "smoke-compose"), [
-      "run: pnpm smoke:compose --project-name signalhub_ci_smoke"
+      "run: pnpm smoke:compose --project-name signalhub_ci_smoke --preserve"
     ]);
   });
 
@@ -70,10 +79,31 @@ describe("GitHub Actions CI workflow", () => {
     const content = workflow();
 
     expectIncludesAll(jobBlock(content, "smoke-compose"), [
+      "- name: Collect smoke diagnostics",
       "if: failure()",
       "docker compose -p signalhub_ci_smoke ps -a || true",
       "docker compose -p signalhub_ci_smoke logs --no-color || true",
       "docker system df || true"
     ]);
+
+    for (const jobName of ["test", "build", "compose-config"]) {
+      expect(jobBlock(content, jobName)).not.toContain(
+        "- name: Collect smoke diagnostics"
+      );
+    }
+  });
+
+  it("always cleans up preserved smoke resources after diagnostics", () => {
+    const content = workflow();
+    const smokeJob = jobBlock(content, "smoke-compose");
+
+    expectIncludesAll(smokeJob, [
+      "- name: Cleanup smoke resources",
+      "if: always()",
+      "run: docker compose -p signalhub_ci_smoke down -v || true"
+    ]);
+    expect(smokeJob.indexOf("- name: Collect smoke diagnostics")).toBeLessThan(
+      smokeJob.indexOf("- name: Cleanup smoke resources")
+    );
   });
 });
