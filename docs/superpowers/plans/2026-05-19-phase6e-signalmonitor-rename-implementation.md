@@ -698,12 +698,12 @@ git push
 
 Do not stage unrelated config repo files such as `home/CLAUDE.md`, `settings.json`, or other project memory directories.
 
-- [ ] **Step 5: Post-merge GitHub repository rename**
+- [x] **Step 5: Post-merge GitHub repository rename**
 
 After the Phase 6E PR is merged into `main`, run:
 
 ```sh
-/opt/homebrew/bin/gh repo edit DiogoHSM/SignalHub --name sigmon
+/opt/homebrew/bin/gh api -X PATCH repos/DiogoHSM/SignalHub -f name=sigmon
 git remote set-url origin https://github.com/DiogoHSM/sigmon
 git fetch --quiet
 git status -sb
@@ -723,7 +723,7 @@ mv SignalHub sigmon
 
 Then update versioned memory with the new local path slug on the next session. Do not rename the local folder in the middle of an active implementation run.
 
-- [ ] **Step 7: Final handoff**
+- [x] **Step 7: Final handoff**
 
 Report:
 
@@ -741,4 +741,7 @@ Report:
 
 - `CLAUDE.md` still records `- Current phase: Phase 6E SignalMonitor Rename.`
 - Completion memory has been updated in the versioned config repo for the current Phase 6E branch head.
-- Repository rename is a post-merge handoff item and has not been performed in this task. After PR #5 is merged, the target GitHub repository rename is `DiogoHSM/sigmon`; local directory rename remains optional after the remote rename.
+- PR #5 was merged into `main` as `bb5e26e`.
+- GitHub repository rename was completed after merge: `DiogoHSM/SignalHub` is now `DiogoHSM/sigmon`.
+- Local `origin` now points to `https://github.com/DiogoHSM/sigmon`; `main` is synced at `bb5e26e`.
+- Local directory rename was deferred. The current working directory remains `/Users/diogo/Developer/Github/SignalHub`; optional local rename can happen after shells using the old path are closed.
