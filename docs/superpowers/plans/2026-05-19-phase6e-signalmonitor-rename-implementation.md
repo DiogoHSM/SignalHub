@@ -557,7 +557,7 @@ Full local verification is not green on 2026-05-19 because `pnpm test` and `pnpm
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-19-phase6e-signalmonitor-rename-implementation.md`
 
-- [ ] **Step 1: Push the branch and open a draft PR**
+- [x] **Step 1: Push the branch and open a draft PR**
 
 Run:
 
@@ -583,7 +583,7 @@ The PR body should mention:
 - local verification results;
 - no hygiene or VPS deployment changes in this phase.
 
-- [ ] **Step 2: Watch PR checks**
+- [x] **Step 2: Watch PR checks**
 
 Run:
 
@@ -593,7 +593,7 @@ Run:
 
 Expected: the PR reports `Test`, `Build`, `Docker Compose config`, and `Compose smoke` passing under the renamed CI workflow.
 
-- [ ] **Step 3: Record PR evidence**
+- [x] **Step 3: Record PR evidence**
 
 Run:
 
@@ -616,7 +616,7 @@ Add this section before Task 6:
 
 Do not commit this section until every bullet contains observed command output rather than instructional text.
 
-- [ ] **Step 4: Commit PR evidence**
+- [x] **Step 4: Commit PR evidence**
 
 Run:
 
@@ -627,6 +627,19 @@ git push
 ```
 
 If committing evidence triggers another docs-only CI run, wait for the latest PR head checks and report the live result in the handoff.
+
+## GitHub PR Evidence
+
+Recorded on 2026-05-19 at 14:15:07 -03 from branch `codex/phase6e-signalmonitor-rename`.
+
+- Worktree and head before push: `git status -sb` exited `0` with `## codex/phase6e-signalmonitor-rename`; `git log --oneline --max-count=6` showed head `389f866 docs: record phase 6e rename verification` followed by Task 1-3 rename commits.
+- Branch push: `git push -u origin codex/phase6e-signalmonitor-rename` exited `0`, created `origin/codex/phase6e-signalmonitor-rename`, and set the local branch to track the remote branch.
+- Draft PR: `/opt/homebrew/bin/gh pr create --draft --base main --head codex/phase6e-signalmonitor-rename --title '[codex] Rename SignalHub to SignalMonitor' ...` returned `https://github.com/DiogoHSM/SignalHub/pull/5`.
+- PR metadata: `/opt/homebrew/bin/gh pr view 5 --json number,url,headRefName,baseRefName,headRefOid,isDraft,state,statusCheckRollup` exited `0` and returned PR `#5`, URL `https://github.com/DiogoHSM/SignalHub/pull/5`, draft `true`, state `OPEN`, head `codex/phase6e-signalmonitor-rename`, base `main`, and head commit `389f866535d1e3457da7d4047eef4c149230333a`.
+- Local short head: `git rev-parse --short HEAD` exited `0` and returned `389f866`.
+- Check watch: `/opt/homebrew/bin/gh pr checks 5 --watch` exited `0` after reporting `Build`, `Compose smoke`, `Docker Compose config`, and `Test` as `pass`.
+- Final check snapshot before evidence commit: `/opt/homebrew/bin/gh pr checks 5` exited `0` and reported `Build pass 38s`, `Compose smoke pass 1m10s`, `Docker Compose config pass 19s`, and `Test pass 46s`.
+- Notes: none.
 
 ## Task 6: Completion Memory And Repo Rename Handoff
 
