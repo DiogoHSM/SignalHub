@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import {
   buildDoctorResults,
@@ -88,6 +89,19 @@ describe("doctor pure checks", () => {
     );
   });
 
+  it("fails production envs that keep the local-only postgres password placeholder", () => {
+    const results = checkEnvValues({
+      ...validEnv,
+      NODE_ENV: "production",
+      POSTGRES_PASSWORD: "sigmon-local-only-change-me",
+      DATABASE_URL: "postgres://sigmon:sigmon-local-only-change-me@postgres:5432/sigmon"
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({ status: "fail", message: "POSTGRES_PASSWORD must be replaced for production" })
+    );
+  });
+
   it("warns when S3 backups are enabled with missing settings", () => {
     const results = checkEnvValues({
       ...validEnv,
@@ -115,6 +129,32 @@ describe("doctor pure checks", () => {
 
     expect(redactDoctorText(output, ["abc123secretvalue"])).toContain("[REDACTED]");
     expect(redactDoctorText(output, ["abc123secretvalue"])).not.toContain("abc123secretvalue");
+  });
+});
+
+describe("container runtime configuration", () => {
+  const getServiceBlock = (composeText: string, serviceName: string) => {
+    const match = composeText.match(new RegExp(`^  ${serviceName}:\\n[\\s\\S]*?(?=^  \\w|^volumes:)`, "m"));
+    return match?.[0] ?? "";
+  };
+
+  it("defines compose healthchecks for api and worker services", () => {
+    const composeText = readFileSync("docker-compose.yml", "utf8");
+    const healthcheckCount = composeText.match(/^\s+healthcheck:/gm)?.length ?? 0;
+
+    expect(composeText).toContain("  api:");
+    expect(composeText).toContain("  worker:");
+    expect(healthcheckCount).toBeGreaterThanOrEqual(4);
+    expect(getServiceBlock(composeText, "api")).toContain("healthcheck:");
+    expect(getServiceBlock(composeText, "worker")).toContain("healthcheck:");
+  });
+
+  it("hardens the Dockerfile runtime with tini, curl, and a non-root user", () => {
+    const dockerfile = readFileSync("Dockerfile", "utf8");
+
+    expect(dockerfile).toContain("apk add --no-cache postgresql16-client tini curl");
+    expect(dockerfile).toContain("USER sigmon");
+    expect(dockerfile).toContain('ENTRYPOINT ["/sbin/tini", "--"]');
   });
 });
 
