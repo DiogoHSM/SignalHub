@@ -379,6 +379,34 @@ Copy the one-time `apiKey.secret` from the response. The stored record keeps onl
 
 All ingestion endpoints require `Authorization: Bearer sh_YOUR_API_KEY_SECRET`. Successful requests return `202 Accepted` with `{ "accepted": true, "id": "..." }`.
 
+### SDK
+
+Browser apps should import the browser entrypoint and use a scoped browser ingestion key. Browser ingestion keys are expected to be public, so scope them to the intended project and environment.
+
+```ts
+import { createSignalMonitorClient } from "@sigmon/sdk/browser";
+
+const signalMonitor = createSignalMonitorClient({
+  endpoint: "https://sigmon.example.com",
+  apiKey: "sh_BROWSER_INGESTION_KEY"
+});
+
+signalMonitor.track("checkout.started", {
+  plan: "team"
+});
+```
+
+Server-side code should import the node entrypoint. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
+
+```ts
+import { createSignalMonitorClient } from "@sigmon/sdk/node";
+
+const signalMonitor = createSignalMonitorClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://sigmon.example.com",
+  apiKey: process.env.SIGMON_SERVER_INGESTION_KEY ?? ""
+});
+```
+
 ### Event
 
 ```sh
