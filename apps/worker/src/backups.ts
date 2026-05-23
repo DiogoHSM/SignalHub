@@ -156,6 +156,7 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
 export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ bucket: string; key: string }> {
   const createClient = input.createClient ?? ((config: S3ClientConfig) => new S3Client(config));
   const createReadStreamFn = input.createReadStreamFn ?? ((path: string) => createReadStream(path));
+  const sidecarPath = `${input.filePath}.sha256`;
   const client = createClient({
     endpoint: input.s3.endpoint,
     region: input.s3.region,
@@ -165,7 +166,9 @@ export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ buck
     },
     forcePathStyle: true
   });
+  await stat(sidecarPath);
   const body = createReadStreamFn(input.filePath);
+  const sidecarBody = createReadStreamFn(sidecarPath);
 
   try {
     await client.send(
@@ -176,8 +179,17 @@ export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ buck
         ContentType: "application/octet-stream"
       })
     );
+    await client.send(
+      new PutObjectCommand({
+        Bucket: input.s3.bucket,
+        Key: `${input.key}.sha256`,
+        Body: sidecarBody,
+        ContentType: "text/plain"
+      })
+    );
   } finally {
     body.destroy();
+    sidecarBody.destroy();
   }
 
   return { bucket: input.s3.bucket, key: input.key };
@@ -200,9 +212,18 @@ export async function pruneLocalBackups(input: {
       const fileStat = await stat(filePath);
       if (fileStat.mtimeMs < cutoffMs) {
         await unlink(filePath);
+        await unlinkIfExists(`${filePath}.sha256`);
       }
     })
   );
+}
+
+async function unlinkIfExists(filePath: string): Promise<void> {
+  try {
+    await unlink(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran: boolean; skipped: boolean }> {

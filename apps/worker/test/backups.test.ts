@@ -245,57 +245,25 @@ describe("dumpPostgresDatabase", () => {
 });
 
 describe("uploadBackupToS3", () => {
-  it("uses configured S3 client options and uploads as an octet stream", async () => {
+  it("uses configured S3 client options and uploads the dump and checksum sidecar", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const sidecarPath = `${dumpPath}.sha256`;
     const send = vi.fn(async (_command: { input: unknown }) => undefined);
     const createClient = vi.fn(() => ({ send }));
-    const stream = Readable.from(["backup-content"]);
-
-    await uploadBackupToS3({
-      filePath: "/tmp/sigmon.dump",
-      key: "prod/sigmon/sigmon-20260506T120000Z.dump",
-      s3: {
-        enabled: true,
-        endpoint: "https://example.r2.cloudflarestorage.com",
-        region: "auto",
-        bucket: "bucket",
-        accessKeyId: "access",
-        secretAccessKey: "secret",
-        prefix: "prod/sigmon"
-      },
-      createClient,
-      createReadStreamFn: () => stream
+    const streams: Readable[] = [];
+    const createReadStreamFn = vi.fn((path: string) => {
+      const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+      streams.push(stream);
+      return stream;
     });
 
-    expect(createClient).toHaveBeenCalledWith({
-      endpoint: "https://example.r2.cloudflarestorage.com",
-      region: "auto",
-      credentials: {
-        accessKeyId: "access",
-        secretAccessKey: "secret"
-      },
-      forcePathStyle: true
-    });
-    expect(send).toHaveBeenCalledTimes(1);
-    const sentCommand = send.mock.calls[0]?.[0];
-    expect(sentCommand?.input).toEqual(
-      expect.objectContaining({
-        Bucket: "bucket",
-        Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
-        ContentType: "application/octet-stream"
-      })
-    );
-  });
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(sidecarPath, "checksum  sigmon.dump\n");
 
-  it("destroys the backup stream when S3 upload fails", async () => {
-    const stream = Readable.from(["backup-content"]);
-    const destroy = vi.spyOn(stream, "destroy");
-    const send = vi.fn(async () => {
-      throw new Error("s3 failed secret=hidden");
-    });
-
-    await expect(
-      uploadBackupToS3({
-        filePath: "/tmp/sigmon.dump",
+      await uploadBackupToS3({
+        filePath: dumpPath,
         key: "prod/sigmon/sigmon-20260506T120000Z.dump",
         s3: {
           enabled: true,
@@ -306,12 +274,110 @@ describe("uploadBackupToS3", () => {
           secretAccessKey: "secret",
           prefix: "prod/sigmon"
         },
-        createClient: () => ({ send }),
-        createReadStreamFn: () => stream
-      })
-    ).rejects.toThrow("s3 failed secret=hidden");
+        createClient,
+        createReadStreamFn
+      });
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
 
-    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(createClient).toHaveBeenCalledWith({
+      endpoint: "https://example.r2.cloudflarestorage.com",
+      region: "auto",
+      credentials: {
+        accessKeyId: "access",
+        secretAccessKey: "secret"
+      },
+      forcePathStyle: true
+    });
+    expect(createReadStreamFn).toHaveBeenCalledWith(dumpPath);
+    expect(createReadStreamFn).toHaveBeenCalledWith(sidecarPath);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0].input).toEqual(
+      expect.objectContaining({
+        Bucket: "bucket",
+        Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+        ContentType: "application/octet-stream"
+      })
+    );
+    expect(send.mock.calls[1]?.[0].input).toEqual(
+      expect.objectContaining({
+        Bucket: "bucket",
+        Key: "prod/sigmon/sigmon-20260506T120000Z.dump.sha256",
+        ContentType: "text/plain"
+      })
+    );
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
+  });
+
+  it("fails S3 upload when the local checksum sidecar is missing", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const send = vi.fn(async (_command: { input: unknown }) => undefined);
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon/sigmon.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod/sigmon"
+          },
+          createClient: () => ({ send })
+        })
+      ).rejects.toThrow();
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("destroys backup streams when S3 upload fails", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const streams: Readable[] = [];
+    const send = vi.fn(async () => {
+      throw new Error("s3 failed secret=hidden");
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod/sigmon"
+          },
+          createClient: () => ({ send }),
+          createReadStreamFn: (path) => {
+            const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+            streams.push(stream);
+            return stream;
+          }
+        })
+      ).rejects.toThrow("s3 failed secret=hidden");
+
+      expect(streams.every((stream) => stream.destroyed)).toBe(true);
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -319,6 +385,7 @@ describe("pruneLocalBackups", () => {
   it("only deletes old SignalMonitor dump files", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
     const oldBackup = join(localDir, "sigmon-20260401T000000Z.dump");
+    const oldBackupSidecar = `${oldBackup}.sha256`;
     const freshBackup = join(localDir, "sigmon-fresh.dump");
     const manualBackup = join(localDir, "sigmon-manual.dump");
     const unrelatedDump = join(localDir, "other-old.dump");
@@ -326,6 +393,7 @@ describe("pruneLocalBackups", () => {
 
     try {
       await writeFile(oldBackup, "old");
+      await writeFile(oldBackupSidecar, "old-checksum");
       await writeFile(freshBackup, "fresh");
       await writeFile(manualBackup, "manual");
       await writeFile(unrelatedDump, "other");
@@ -342,6 +410,7 @@ describe("pruneLocalBackups", () => {
       });
 
       await expect(stat(oldBackup)).rejects.toThrow();
+      await expect(stat(oldBackupSidecar)).rejects.toThrow();
       await expect(stat(freshBackup)).resolves.toBeTruthy();
       await expect(stat(manualBackup)).resolves.toBeTruthy();
       await expect(stat(unrelatedDump)).resolves.toBeTruthy();
