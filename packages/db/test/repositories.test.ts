@@ -622,6 +622,95 @@ describe("repositories", () => {
     });
   });
 
+  it("ignores duplicate event ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Events" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "evt_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        name: "retry.event"
+      };
+
+      try {
+        await insertEvent(db, input);
+        await insertEvent(db, input);
+
+        const rows = await db.selectFrom("events").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("events").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
+  it("does not increment error group counters for duplicate error ids", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Errors" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "err_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        message: "Retry failed",
+        severity: "error"
+      };
+
+      try {
+        await insertError(db, input);
+        await insertError(db, input);
+
+        const errors = await db.selectFrom("errors").select("id").where("id", "=", input.id).execute();
+        expect(errors).toHaveLength(1);
+        const group = await db
+          .selectFrom("error_groups")
+          .select(["occurrence_count"])
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .executeTakeFirstOrThrow();
+        expect(Number(group.occurrence_count)).toBe(1);
+      } finally {
+        await db.deleteFrom("errors").where("id", "=", input.id).execute();
+        await db.deleteFrom("error_groups").where("project_id", "=", project.id).execute();
+      }
+    });
+  });
+
+  it("ignores duplicate trace ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Traces" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "trc_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        name: "retry.trace",
+        status: "ok",
+        startedAt: new Date("2026-05-23T12:00:00.000Z")
+      };
+
+      try {
+        await insertTrace(db, input);
+        await insertTrace(db, input);
+
+        const rows = await db.selectFrom("traces").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("traces").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
   it("creates lists and soft deletes source map artifacts", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -2125,7 +2214,7 @@ describe("repositories", () => {
     });
   });
 
-  it("rolls back group updates when grouped raw error insertion fails", async () => {
+  it("ignores duplicate grouped raw error ids without updating group stats", async () => {
     await withDb(async (db) => {
       await migrate(db);
       await sql`insert into projects (id, name) values ('prj_grouping_rollback', 'Grouping Rollback')`.execute(db);
@@ -2147,20 +2236,18 @@ describe("repositories", () => {
         release: "1.0.0"
       });
 
-      await expect(
-        insertError(db, {
-          id: "err_grouping_rollback",
-          projectId: "prj_grouping_rollback",
-          environmentId: "env_grouping_rollback",
-          timestamp: new Date("2026-05-10T12:10:00.000Z"),
-          receivedAt: new Date("2026-05-10T12:10:01.000Z"),
-          message: "Checkout failed for order 999999",
-          type: "CheckoutError",
-          severity: "critical",
-          stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
-          release: "1.0.1"
-        })
-      ).rejects.toThrow();
+      await insertError(db, {
+        id: "err_grouping_rollback",
+        projectId: "prj_grouping_rollback",
+        environmentId: "env_grouping_rollback",
+        timestamp: new Date("2026-05-10T12:10:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:10:01.000Z"),
+        message: "Checkout failed for order 999999",
+        type: "CheckoutError",
+        severity: "critical",
+        stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
+        release: "1.0.1"
+      });
 
       const groups = await listErrorGroups(db, {
         projectId: "prj_grouping_rollback",
