@@ -28,3 +28,7 @@
 - Task 7 Docker/Compose hardening received final local verification with `pnpm test scripts/doctor.test.ts`, `docker compose config --quiet`, and `git diff --check`.
 - Task 8 SDK boundary passed independent spec and quality reviews, plus SDK tests/build/lint.
 - Task 9 headers/cookies passed independent final review after OAuth cookie and combined `Set-Cookie` fixes.
+
+## Pull Request
+
+- Draft PR: https://github.com/DiogoHSM/sigmon/pull/6

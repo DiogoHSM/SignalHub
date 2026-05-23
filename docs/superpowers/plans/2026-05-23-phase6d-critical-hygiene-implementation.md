@@ -1571,7 +1571,7 @@ git -C /Users/diogo/Developer/Github/claude-config add projects/-Users-diogo-Dev
 git -C /Users/diogo/Developer/Github/claude-config commit -m "memory: record signalmonitor phase 6d completion" -- projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md
 ```
 
-- [ ] **Step 3: Open PR after local verification**
+- [x] **Step 3: Open PR after local verification**
 
 Use the repository GitHub flow:
 
