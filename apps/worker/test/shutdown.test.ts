@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { runShutdownSteps } from "../src/runtime.js";
+import { describe, expect, it, vi } from "vitest";
+import { runShutdownSteps, runSignalShutdown } from "../src/runtime.js";
 
 describe("worker runtime", () => {
   it("runs shutdown steps sequentially", async () => {
@@ -26,5 +26,22 @@ describe("worker runtime", () => {
       "connection.quit",
       "db.destroy"
     ]);
+  });
+
+  it("logs signal shutdown failures and exits zero", async () => {
+    const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() };
+    const exit = vi.fn();
+
+    await runSignalShutdown({
+      shutdown: async () => {
+        throw new Error("shutdown failed");
+      },
+      logger,
+      failureMessage: "Telemetry worker shutdown failed",
+      exit
+    });
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(0);
   });
 });

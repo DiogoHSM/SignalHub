@@ -50,3 +50,23 @@ export async function runShutdownSteps(
     throw new AggregateError(failures, "One or more shutdown steps failed");
   }
 }
+
+export async function runSignalShutdown({
+  shutdown,
+  logger,
+  failureMessage,
+  exit = process.exit
+}: {
+  shutdown: () => Promise<unknown>;
+  logger: RuntimeLogger;
+  failureMessage: string;
+  exit?: (code: number) => unknown;
+}): Promise<void> {
+  try {
+    await shutdown();
+  } catch (error) {
+    logger.error({ error }, failureMessage);
+  } finally {
+    exit(0);
+  }
+}

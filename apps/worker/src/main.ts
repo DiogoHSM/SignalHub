@@ -44,7 +44,7 @@ import {
 } from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
-import { runShutdownSteps } from "./runtime.js";
+import { runShutdownSteps, runSignalShutdown } from "./runtime.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
@@ -237,21 +237,17 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 }
 
 process.once("SIGINT", (signal) => {
-  void shutdown(signal).then(
-    () => process.exit(0),
-    (error) => {
-      logger.error({ error }, "Telemetry worker shutdown failed");
-      process.exit(1);
-    }
-  );
+  void runSignalShutdown({
+    shutdown: () => shutdown(signal),
+    logger,
+    failureMessage: "Telemetry worker shutdown failed"
+  });
 });
 
 process.once("SIGTERM", (signal) => {
-  void shutdown(signal).then(
-    () => process.exit(0),
-    (error) => {
-      logger.error({ error }, "Telemetry worker shutdown failed");
-      process.exit(1);
-    }
-  );
+  void runSignalShutdown({
+    shutdown: () => shutdown(signal),
+    logger,
+    failureMessage: "Telemetry worker shutdown failed"
+  });
 });

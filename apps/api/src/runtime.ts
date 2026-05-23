@@ -72,3 +72,23 @@ export async function listenWithCleanup({
     throw error;
   }
 }
+
+export async function runSignalShutdown({
+  shutdown,
+  logger,
+  failureMessage,
+  exit = process.exit
+}: {
+  shutdown: () => Promise<unknown>;
+  logger: RuntimeLogger;
+  failureMessage: string;
+  exit?: (code: number) => unknown;
+}): Promise<void> {
+  try {
+    await shutdown();
+  } catch (error) {
+    logger.error({ error }, failureMessage);
+  } finally {
+    exit(0);
+  }
+}

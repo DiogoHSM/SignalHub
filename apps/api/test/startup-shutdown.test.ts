@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { listenWithCleanup, runShutdownSteps } from "../src/runtime.js";
+import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "../src/runtime.js";
 
 describe("API runtime", () => {
   it("runs shutdown steps sequentially", async () => {
@@ -30,6 +30,41 @@ describe("API runtime", () => {
     ).rejects.toThrow("EADDRINUSE");
 
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows listen errors when cleanup also fails", async () => {
+    const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() };
+
+    await expect(
+      listenWithCleanup({
+        listen: async () => {
+          throw new Error("EADDRINUSE");
+        },
+        cleanup: async () => {
+          throw new Error("cleanup failed");
+        },
+        logger
+      })
+    ).rejects.toThrow("EADDRINUSE");
+
+    expect(logger.error).toHaveBeenCalledTimes(2);
+  });
+
+  it("logs signal shutdown failures and exits zero", async () => {
+    const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() };
+    const exit = vi.fn();
+
+    await runSignalShutdown({
+      shutdown: async () => {
+        throw new Error("shutdown failed");
+      },
+      logger,
+      failureMessage: "API shutdown failed",
+      exit
+    });
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(0);
   });
 
   it("continues shutdown after a failed step and throws an aggregate error", async () => {
