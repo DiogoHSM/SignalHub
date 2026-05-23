@@ -125,7 +125,8 @@ export async function buildApp(options: BuildAppOptions) {
   registerHealthRoutes(app, options.readiness);
   registerAuthRoutes(app, {
     auth: options.auth,
-    googleOAuthEnabled: options.googleOAuthEnabled
+    googleOAuthEnabled: options.googleOAuthEnabled,
+    nodeEnv
   });
   await registerConsoleRoutes(app, {
     enabled: options.console?.enabled ?? false,

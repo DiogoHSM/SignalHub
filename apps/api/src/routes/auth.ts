@@ -41,6 +41,7 @@ export type AuthDependencies = {
 export type AuthRouteOptions = {
   auth?: AuthDependencies;
   googleOAuthEnabled?: boolean;
+  nodeEnv?: string;
 };
 
 const loginBodySchema = z.object({
@@ -139,7 +140,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     (reply as CookieCapableReply).setCookie(oauthStateCookieName, state, {
       httpOnly: true,
       sameSite: "lax",
-      secure: "auto",
+      secure: options.nodeEnv === "production" ? true : "auto",
       path: "/auth/google/callback",
       maxAge: oauthStateMaxAgeSeconds
     });

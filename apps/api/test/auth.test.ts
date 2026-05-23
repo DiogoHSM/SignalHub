@@ -161,6 +161,29 @@ describe("auth routes", () => {
     expect(response.headers["set-cookie"]).toContain("sigmon_oauth_state=");
   });
 
+  it("uses secure OAuth state cookies in production", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      nodeEnv: "production",
+      googleOAuthEnabled: true,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null,
+        googleOAuth: {
+          createAuthorizationUrl: (state) => `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
+          complete: async () => null
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/auth/google" });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers["set-cookie"]).toContain("sigmon_oauth_state=");
+    expect(response.headers["set-cookie"]).toContain("Secure");
+    expect(response.headers["set-cookie"]).toContain("Path=/auth/google/callback");
+  });
+
   it("rejects Google OAuth callbacks with invalid state", async () => {
     app = await buildApp({
       readiness: async () => ({ postgres: true, redis: true }),
