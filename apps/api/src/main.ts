@@ -88,7 +88,14 @@ import { Redis } from "ioredis";
 import { sql } from "kysely";
 import { z } from "zod";
 import { buildApp } from "./app.js";
-import type { AuthDependencies, AuthSessionContext, AuthUser, CookieCapableReply } from "./routes/auth.js";
+import {
+  getSessionCookieName,
+  getSessionCookieOptions,
+  type AuthDependencies,
+  type AuthSessionContext,
+  type AuthUser,
+  type CookieCapableReply
+} from "./routes/auth.js";
 import {
   deleteSourceMapArtifactAndFile,
   readSourceMapFile,
@@ -99,7 +106,6 @@ import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 
-const sessionCookieName = "sigmon_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
 type SessionPayload = {
@@ -180,6 +186,7 @@ const googleUserInfoSchema = z.object({
 
 const logger = createStructuredLogger("api");
 const config = loadConfig();
+const sessionCookieName = getSessionCookieName(config.nodeEnv);
 const db = createDb(config.databaseUrl);
 await migrate(db);
 
@@ -207,13 +214,7 @@ function setSessionCookie(reply: CookieCapableReply, userId: string): void {
     },
     config.sessionSecret
   );
-  reply.setCookie(sessionCookieName, sessionToken, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: config.nodeEnv === "production",
-    path: "/",
-    maxAge: sessionMaxAgeSeconds
-  });
+  reply.setCookie(sessionCookieName, sessionToken, getSessionCookieOptions(config.nodeEnv, sessionMaxAgeSeconds));
 }
 
 function createGoogleAuthorizationUrl(state: string): string {

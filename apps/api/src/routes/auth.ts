@@ -55,6 +55,20 @@ const googleCallbackQuerySchema = z.object({
 const oauthStateCookieName = "sigmon_oauth_state";
 const oauthStateMaxAgeSeconds = 10 * 60;
 
+export function getSessionCookieName(nodeEnv: string | undefined): string {
+  return nodeEnv === "production" ? "__Host-sigmon_session" : "sigmon_session";
+}
+
+export function getSessionCookieOptions(nodeEnv: string | undefined, maxAge: number): CookieOptions {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: nodeEnv === "production",
+    path: "/",
+    maxAge
+  };
+}
+
 function authUnavailable(): AuthDependencies {
   return {
     login: async () => null,
@@ -121,6 +135,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     }
 
     const state = randomBytes(32).toString("base64url");
+    // __Host- cookies require Path=/, while OAuth state is intentionally scoped to the callback path.
     (reply as CookieCapableReply).setCookie(oauthStateCookieName, state, {
       httpOnly: true,
       sameSite: "lax",

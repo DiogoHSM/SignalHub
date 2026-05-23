@@ -86,6 +86,19 @@ export async function buildApp(options: BuildAppOptions) {
   };
   const app = Fastify(fastifyOptions);
 
+  app.addHook("onRequest", async (_request, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header(
+      "Content-Security-Policy",
+      "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    );
+    if (nodeEnv === "production") {
+      reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+  });
+
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "Unhandled API error");
     return reply.status(getErrorStatusCode(error)).send({
