@@ -419,6 +419,28 @@ describe("pruneLocalBackups", () => {
       await rm(localDir, { recursive: true, force: true });
     }
   });
+
+  it("ignores missing checksum sidecars when deleting old dump files", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
+    const oldBackup = join(localDir, "sigmon-20260401T000000Z.dump");
+
+    try {
+      await writeFile(oldBackup, "old");
+      await utimes(oldBackup, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
+
+      await expect(
+        pruneLocalBackups({
+          localDir,
+          retentionDays: 14,
+          now: new Date("2026-05-06T12:00:00.000Z")
+        })
+      ).resolves.toBeUndefined();
+
+      await expect(stat(oldBackup)).rejects.toThrow();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("runBackupOnce", () => {
