@@ -74,6 +74,7 @@ import {
   upsertHeartbeat,
   withRetentionLock
 } from "../src/repositories/system.js";
+import { __test as systemRepositoryTest } from "../src/repositories/system.js";
 import { getBackupStatus, recordBackupRun, withBackupLock } from "../src/repositories/backups.js";
 import {
   backfillErrorGroups,
@@ -2872,6 +2873,15 @@ describe("repositories", () => {
       await expect(listLlmCalls(db, filters)).resolves.toEqual([
         expect.objectContaining({ id: "llm_fresh_retention" })
       ]);
+    });
+  });
+
+  it("rejects retention table names outside the telemetry allowlist", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await expect(
+        systemRepositoryTest.deleteExpiredBatchesFromTable(db, "users", new Date("2026-01-01T00:00:00.000Z"), 10, 1)
+      ).rejects.toThrow("retention table is not allowed: users");
     });
   });
 
