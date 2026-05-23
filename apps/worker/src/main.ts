@@ -44,6 +44,7 @@ import {
 } from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
+import { runShutdownSteps } from "./runtime.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
@@ -220,26 +221,37 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
   logger.info({ signal }, "Telemetry worker shutting down");
 
-  const stopResults = await Promise.allSettled([
-    stopBackups(),
-    stopAlerts(),
-    stopRetention(),
-    stopHeartbeat(),
-    worker.close()
-  ]);
-  const resourceResults = await Promise.allSettled([connection.quit(), db.destroy()]);
-  const results = [...stopResults, ...resourceResults];
-  for (const result of results) {
-    if (result.status === "rejected") {
-      logger.error({ error: result.reason }, "Telemetry worker shutdown step failed");
-    }
-  }
+  await runShutdownSteps(
+    [
+      { name: "stopBackups", run: () => stopBackups() },
+      { name: "stopAlerts", run: () => stopAlerts() },
+      { name: "stopRetention", run: () => stopRetention() },
+      { name: "stopHeartbeat", run: () => stopHeartbeat() },
+      { name: "worker.close", run: () => worker.close() },
+      { name: "connection.quit", run: () => connection.quit() },
+      { name: "db.destroy", run: () => db.destroy() }
+    ],
+    10_000,
+    logger
+  );
 }
 
 process.once("SIGINT", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void shutdown(signal).then(
+    () => process.exit(0),
+    (error) => {
+      logger.error({ error }, "Telemetry worker shutdown failed");
+      process.exit(1);
+    }
+  );
 });
 
 process.once("SIGTERM", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void shutdown(signal).then(
+    () => process.exit(0),
+    (error) => {
+      logger.error({ error }, "Telemetry worker shutdown failed");
+      process.exit(1);
+    }
+  );
 });

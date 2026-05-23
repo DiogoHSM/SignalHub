@@ -97,6 +97,7 @@ import {
 } from "./source-maps/storage.js";
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
+import { listenWithCleanup, runShutdownSteps } from "./runtime.js";
 
 const sessionCookieName = "sigmon_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
@@ -539,29 +540,54 @@ const app = await buildApp({
   }
 });
 
-logger.info({ port: config.port }, "API starting");
-await app.listen({ port: config.port, host: "0.0.0.0" });
-
 let shuttingDown = false;
 
-async function shutdown(signal: NodeJS.Signals): Promise<void> {
-  if (shuttingDown) return;
+async function shutdown(signal: NodeJS.Signals, { exit = true }: { exit?: boolean } = {}): Promise<void> {
+  if (shuttingDown) {
+    if (exit) {
+      process.exit(0);
+    }
+    return;
+  }
   shuttingDown = true;
 
   logger.info({ signal }, "API shutting down");
 
-  const results = await Promise.allSettled([app.close(), telemetryQueue.close(), redis.quit(), db.destroy()]);
-  for (const result of results) {
-    if (result.status === "rejected") {
-      logger.error({ error: result.reason }, "API shutdown step failed");
+  try {
+    await runShutdownSteps(
+      [
+        { name: "app.close", run: () => app.close() },
+        { name: "telemetryQueue.close", run: () => telemetryQueue.close() },
+        { name: "redis.quit", run: () => redis.quit() },
+        { name: "db.destroy", run: () => db.destroy() }
+      ],
+      10_000,
+      logger
+    );
+  } catch (error) {
+    if (exit) {
+      logger.error({ error }, "API shutdown failed");
+      process.exit(1);
     }
+    throw error;
+  }
+
+  if (exit) {
+    process.exit(0);
   }
 }
 
+logger.info({ port: config.port }, "API starting");
+await listenWithCleanup({
+  listen: () => app.listen({ port: config.port, host: "0.0.0.0" }),
+  cleanup: () => shutdown("SIGTERM", { exit: false }),
+  logger
+});
+
 process.once("SIGINT", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void shutdown(signal);
 });
 
 process.once("SIGTERM", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void shutdown(signal);
 });
