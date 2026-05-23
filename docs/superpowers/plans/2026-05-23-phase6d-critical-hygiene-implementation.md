@@ -1583,7 +1583,7 @@ gh pr create --draft --base main --head codex/phase6d-critical-hygiene --title "
 
 Expected: PR is created as draft and CI starts.
 
-- [ ] **Step 4: Record CI evidence**
+- [x] **Step 4: Record CI evidence**
 
 After GitHub Actions reports, update the run file with CI check names and statuses, then commit:
 

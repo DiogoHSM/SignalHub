@@ -32,3 +32,11 @@
 ## Pull Request
 
 - Draft PR: https://github.com/DiogoHSM/sigmon/pull/6
+
+## CI Evidence
+
+- Build: passed in 39s.
+- Compose smoke: passed in 1m38s.
+- Docker Compose config: passed in 28s.
+- Test: passed in 47s.
+- Workflow run: https://github.com/DiogoHSM/sigmon/actions/runs/26345557720
