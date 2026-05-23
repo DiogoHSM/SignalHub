@@ -115,8 +115,8 @@ export function checkEnvValues(env: DoctorEnv): DoctorResult[] {
     results.push(createResult("fail", "DATABASE_URL uses the local-only Postgres password placeholder"));
   }
 
-  if (nodeEnv === "production" && env.POSTGRES_PASSWORD === "sigmon-local-only-change-me") {
-    results.push(createResult("fail", "POSTGRES_PASSWORD must be replaced for production"));
+  if (nodeEnv === "production" && (!env.POSTGRES_PASSWORD || env.POSTGRES_PASSWORD === "sigmon-local-only-change-me")) {
+    results.push(createResult("fail", "POSTGRES_PASSWORD must be set and replaced for production"));
   }
 
   for (const name of ["DATABASE_URL", "REDIS_URL", "SIGMON_PUBLIC_ENDPOINT"] as const) {

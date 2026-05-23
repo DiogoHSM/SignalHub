@@ -98,7 +98,20 @@ describe("doctor pure checks", () => {
     });
 
     expect(results).toContainEqual(
-      expect.objectContaining({ status: "fail", message: "POSTGRES_PASSWORD must be replaced for production" })
+      expect.objectContaining({ status: "fail", message: "POSTGRES_PASSWORD must be set and replaced for production" })
+    );
+  });
+
+  it("fails production envs that omit the postgres password", () => {
+    const { POSTGRES_PASSWORD: _postgresPassword, ...env } = validEnv;
+
+    const results = checkEnvValues({
+      ...env,
+      NODE_ENV: "production"
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({ status: "fail", message: "POSTGRES_PASSWORD must be set and replaced for production" })
     );
   });
 
@@ -145,16 +158,19 @@ describe("container runtime configuration", () => {
     expect(composeText).toContain("  api:");
     expect(composeText).toContain("  worker:");
     expect(healthcheckCount).toBeGreaterThanOrEqual(4);
-    expect(getServiceBlock(composeText, "api")).toContain("healthcheck:");
-    expect(getServiceBlock(composeText, "worker")).toContain("healthcheck:");
+    expect(getServiceBlock(composeText, "api")).toContain("curl -fsS http://localhost:3000/health >/dev/null");
+    expect(getServiceBlock(composeText, "worker")).toContain("ps | grep -v grep | grep -q 'worker'");
   });
 
   it("hardens the Dockerfile runtime with tini, curl, and a non-root user", () => {
     const dockerfile = readFileSync("Dockerfile", "utf8");
 
     expect(dockerfile).toContain("apk add --no-cache postgresql16-client tini curl");
+    expect(dockerfile).toContain("addgroup -S sigmon && adduser -S -G sigmon sigmon");
+    expect(dockerfile).toContain("chown -R sigmon:sigmon /app");
     expect(dockerfile).toContain("USER sigmon");
     expect(dockerfile).toContain('ENTRYPOINT ["/sbin/tini", "--"]');
+    expect(dockerfile).toContain('CMD ["pnpm", "start:api"]');
   });
 });
 
