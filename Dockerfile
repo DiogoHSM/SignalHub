@@ -15,7 +15,8 @@ COPY tsconfig.base.json vitest.config.ts ./
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @sigmon/console build
-RUN chown -R sigmon:sigmon /app
+RUN mkdir -p /var/lib/sigmon/backups /var/lib/sigmon/source-maps
+RUN chown -R sigmon:sigmon /app /var/lib/sigmon
 
 USER sigmon
 ENTRYPOINT ["/sbin/tini", "--"]

@@ -167,7 +167,9 @@ describe("container runtime configuration", () => {
 
     expect(dockerfile).toContain("apk add --no-cache postgresql16-client tini curl");
     expect(dockerfile).toContain("addgroup -S sigmon && adduser -S -G sigmon sigmon");
+    expect(dockerfile).toContain("mkdir -p /var/lib/sigmon/backups /var/lib/sigmon/source-maps");
     expect(dockerfile).toContain("chown -R sigmon:sigmon /app");
+    expect(dockerfile).toContain("chown -R sigmon:sigmon /app /var/lib/sigmon");
     expect(dockerfile).toContain("USER sigmon");
     expect(dockerfile).toContain('ENTRYPOINT ["/sbin/tini", "--"]');
     expect(dockerfile).toContain('CMD ["pnpm", "start:api"]');
