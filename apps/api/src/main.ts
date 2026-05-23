@@ -1,4 +1,4 @@
-import { loadConfig } from "@sigmon/config";
+import { createStructuredLogger, loadConfig } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
 import {
@@ -177,6 +177,7 @@ const googleUserInfoSchema = z.object({
   email_verified: z.boolean()
 });
 
+const logger = createStructuredLogger("api");
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
 await migrate(db);
@@ -538,6 +539,7 @@ const app = await buildApp({
   }
 });
 
+logger.info({ port: config.port }, "API starting");
 await app.listen({ port: config.port, host: "0.0.0.0" });
 
 let shuttingDown = false;
@@ -546,12 +548,12 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  console.info(`Received ${signal}, shutting down API`);
+  logger.info({ signal }, "API shutting down");
 
   const results = await Promise.allSettled([app.close(), telemetryQueue.close(), redis.quit(), db.destroy()]);
   for (const result of results) {
     if (result.status === "rejected") {
-      console.error("API shutdown step failed", result.reason);
+      logger.error({ error: result.reason }, "API shutdown step failed");
     }
   }
 }

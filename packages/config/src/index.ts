@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+export * from "./logger.js";
 export * from "./network-security.js";
 
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
