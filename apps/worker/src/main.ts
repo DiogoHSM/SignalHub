@@ -175,6 +175,8 @@ const stopBackups = config.backups.enabled
     })
   : async () => {};
 
+logger.info({ queueName: "telemetry" }, "Telemetry worker started");
+
 worker.on("completed", (job) => {
   logger.info({ jobId: job.id ?? "unknown", jobName: job.name }, "Processed telemetry job");
 });
