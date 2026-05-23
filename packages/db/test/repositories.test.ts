@@ -216,7 +216,7 @@ describe("repositories", () => {
     await withDb(async (db) => {
       await migrate(db);
 
-      await sql`select id, status, trigger, filename, s3_key from backup_runs limit 0`.execute(db);
+      await sql`select id, status, trigger, filename, checksum_sha256, s3_key from backup_runs limit 0`.execute(db);
     });
   });
 
@@ -1742,6 +1742,7 @@ describe("repositories", () => {
         filename: "sigmon-20260506T010000Z.dump",
         localPath: "/var/lib/sigmon/backups/sigmon-20260506T010000Z.dump",
         sizeBytes: null,
+        checksumSha256: null,
         s3Bucket: null,
         s3Key: null,
         errorMessage: "pg_dump failed"
@@ -1754,6 +1755,7 @@ describe("repositories", () => {
         filename: "sigmon-20260506T020000Z.dump",
         localPath: "/var/lib/sigmon/backups/sigmon-20260506T020000Z.dump",
         sizeBytes: 1234,
+        checksumSha256: "a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86",
         s3Bucket: "sigmon-backups",
         s3Key: "prod/sigmon/sigmon-20260506T020000Z.dump",
         errorMessage: null
@@ -1762,9 +1764,19 @@ describe("repositories", () => {
       const status = await getBackupStatus(db);
 
       expect(failed.status).toBe("failed");
+      expect(failed.checksumSha256).toBeNull();
       expect(success.status).toBe("success");
-      expect(status.latestSuccess).toMatchObject({ id: success.id, sizeBytes: 1234 });
-      expect(status.latestFailure).toMatchObject({ id: failed.id, errorMessage: "pg_dump failed" });
+      expect(success.checksumSha256).toBe("a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86");
+      expect(status.latestSuccess).toMatchObject({
+        id: success.id,
+        sizeBytes: 1234,
+        checksumSha256: "a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86"
+      });
+      expect(status.latestFailure).toMatchObject({
+        id: failed.id,
+        checksumSha256: null,
+        errorMessage: "pg_dump failed"
+      });
     });
   });
 

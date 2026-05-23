@@ -16,6 +16,7 @@ export type BackupRunRecord = {
   filename: string;
   localPath: string;
   sizeBytes: number | null;
+  checksumSha256: string | null;
   s3Bucket: string | null;
   s3Key: string | null;
   errorMessage: string | null;
@@ -46,6 +47,7 @@ function toBackupRunRecord(row: BackupRunRow): BackupRunRecord {
     filename: row.filename,
     localPath: row.local_path,
     sizeBytes: toSafeSizeBytes(row.size_bytes),
+    checksumSha256: row.checksum_sha256,
     s3Bucket: row.s3_bucket,
     s3Key: row.s3_key,
     errorMessage: row.error_message,
@@ -63,6 +65,7 @@ export async function recordBackupRun(
     filename: string;
     localPath: string;
     sizeBytes: number | null;
+    checksumSha256: string | null;
     s3Bucket: string | null;
     s3Key: string | null;
     errorMessage: string | null;
@@ -78,6 +81,7 @@ export async function recordBackupRun(
       filename: input.filename,
       local_path: input.localPath,
       size_bytes: input.sizeBytes,
+      checksum_sha256: input.checksumSha256,
       s3_bucket: input.s3Bucket,
       s3_key: input.s3Key,
       error_message: input.errorMessage

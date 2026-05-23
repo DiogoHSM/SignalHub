@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, stat, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { execFile } from "node:child_process";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
@@ -45,6 +46,7 @@ export type BackupRunInput = {
   filename: string;
   localPath: string;
   sizeBytes: number | null;
+  checksumSha256: string | null;
   s3Bucket: string | null;
   s3Key: string | null;
   errorMessage: string | null;
@@ -91,6 +93,20 @@ export function createBackupFilename(now: Date): string {
 export function createBackupS3Key(prefix: string, filename: string): string {
   const trimmedPrefix = prefix.replace(/^\/+|\/+$/g, "");
   return trimmedPrefix === "" ? filename : `${trimmedPrefix}/${filename}`;
+}
+
+export async function calculateFileSha256(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk);
+  }
+
+  return hash.digest("hex");
+}
+
+export async function writeChecksumSidecar(filePath: string, checksum: string): Promise<void> {
+  await writeFile(`${filePath}.sha256`, `${checksum}  ${basename(filePath)}\n`, "utf8");
 }
 
 export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<void> {
@@ -202,6 +218,8 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
       await mkdir(runtime.config.localDir, { recursive: true });
       await dumpDatabase({ databaseUrl: runtime.config.databaseUrl, outputPath: localPath });
       const fileStat = await stat(localPath);
+      const checksumSha256 = await calculateFileSha256(localPath);
+      await writeChecksumSidecar(localPath, checksumSha256);
       let s3Bucket: string | null = null;
       let s3Key: string | null = null;
 
@@ -226,6 +244,7 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
         filename,
         localPath,
         sizeBytes: fileStat.size,
+        checksumSha256,
         s3Bucket,
         s3Key,
         errorMessage: null
@@ -243,6 +262,7 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
       filename,
       localPath,
       sizeBytes: null,
+      checksumSha256: null,
       s3Bucket: null,
       s3Key: null,
       errorMessage: sanitizeBackupError(error)

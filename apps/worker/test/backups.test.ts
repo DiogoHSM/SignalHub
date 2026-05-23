@@ -78,7 +78,7 @@ describe("restoreBackup", () => {
 
   it("passes password through PGPASSWORD and non-secret connection args", async () => {
     const databaseUrl = "postgres://user:pa%24%24@localhost:5433/sigmon";
-    childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
+    childProcessMock.spawn.mockImplementation(() => createSuccessfulChildProcess());
 
     await restoreBackup({
       databaseUrl,
@@ -117,7 +117,7 @@ describe("restoreBackup", () => {
   it("preserves non-secret database URL options without putting the password in argv", async () => {
     const databaseUrl =
       "postgres://user:secret@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon";
-    childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
+    childProcessMock.spawn.mockImplementation(() => createSuccessfulChildProcess());
 
     await restoreBackup({
       databaseUrl,
@@ -131,6 +131,25 @@ describe("restoreBackup", () => {
     expect(args).toContain("--");
     expect(args?.slice(-2)).toEqual(["--", "/tmp/sigmon.dump"]);
     expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
+  });
+
+  it("refuses restore when a checksum sidecar does not match before spawning pg_restore", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-restore-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    await writeFile(dumpPath, "backup-content");
+    await writeFile(`${dumpPath}.sha256`, `deadbeef  sigmon.dump\n`);
+
+    try {
+      await expect(
+        restoreBackup({
+          databaseUrl: "postgres://user:pass@localhost:5432/sigmon",
+          filePath: dumpPath
+        })
+      ).rejects.toThrow("Backup checksum mismatch");
+      expect(childProcessMock.spawn).not.toHaveBeenCalled();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -337,6 +356,8 @@ describe("runBackupOnce", () => {
   it("creates a local backup, uploads to S3 when enabled, records success, and prunes old local files", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
     const oldFile = join(localDir, "sigmon-20260401T000000Z.dump");
+    const dumpPath = join(localDir, "sigmon-20260506T120000Z.dump");
+    const expectedChecksum = "a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86";
     await writeFile(oldFile, "old");
     await utimes(oldFile, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
 
@@ -372,11 +393,12 @@ describe("runBackupOnce", () => {
       });
 
       expect(result).toEqual({ ran: true, skipped: false });
-      expect(await readFile(join(localDir, "sigmon-20260506T120000Z.dump"), "utf8")).toBe("backup-content");
+      expect(await readFile(dumpPath, "utf8")).toBe("backup-content");
+      expect(await readFile(`${dumpPath}.sha256`, "utf8")).toBe(`${expectedChecksum}  sigmon-20260506T120000Z.dump\n`);
       await expect(stat(oldFile)).rejects.toThrow();
       expect(upload).toHaveBeenCalledWith(
         expect.objectContaining({
-          filePath: join(localDir, "sigmon-20260506T120000Z.dump"),
+          filePath: dumpPath,
           key: "prod/sigmon/sigmon-20260506T120000Z.dump"
         })
       );
@@ -385,6 +407,7 @@ describe("runBackupOnce", () => {
           status: "success",
           trigger: "scheduled",
           sizeBytes: 14,
+          checksumSha256: expectedChecksum,
           s3Bucket: "bucket",
           s3Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
           errorMessage: null
@@ -436,6 +459,7 @@ describe("runBackupOnce", () => {
           status: "failed",
           trigger: "scheduled",
           sizeBytes: null,
+          checksumSha256: null,
           s3Bucket: null,
           s3Key: null,
           errorMessage: "S3 upload failed secret=[REDACTED]"
@@ -478,6 +502,7 @@ describe("runBackupOnce", () => {
         expect.objectContaining({
           status: "failed",
           trigger: "scheduled",
+          checksumSha256: null,
           errorMessage: "prune failed password=[REDACTED]"
         })
       );
@@ -515,6 +540,7 @@ describe("runBackupOnce", () => {
         expect.objectContaining({
           status: "failed",
           trigger: "manual",
+          checksumSha256: null,
           errorMessage: "pg_dump failed password=[REDACTED]"
         })
       );

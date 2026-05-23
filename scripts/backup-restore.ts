@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
@@ -43,11 +46,41 @@ export function parseRestoreArgs(argv: string[]): { filePath: string } {
   return { filePath: filePaths[0] };
 }
 
+async function calculateFileSha256(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk);
+  }
+
+  return hash.digest("hex");
+}
+
+export async function verifyBackupChecksum(filePath: string): Promise<void> {
+  let sidecar: string;
+
+  try {
+    sidecar = await readFile(`${filePath}.sha256`, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+
+  const expectedChecksum = sidecar.trim().split(/\s+/, 1)[0];
+  const actualChecksum = await calculateFileSha256(filePath);
+
+  if (!expectedChecksum || actualChecksum !== expectedChecksum) {
+    throw new Error("Backup checksum mismatch");
+  }
+}
+
 export async function restoreBackup(input: {
   databaseUrl: string;
   filePath: string;
   spawnFn?: RestoreSpawnFn;
 }): Promise<void> {
+  await verifyBackupChecksum(input.filePath);
+
   const spawnFn = input.spawnFn ?? spawn;
   const databaseUrl = new URL(input.databaseUrl);
   const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
