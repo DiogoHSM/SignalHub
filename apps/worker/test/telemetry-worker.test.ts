@@ -1637,6 +1637,16 @@ describe("validateWebhookTarget", () => {
       );
     }
   });
+
+  it("rejects IPv4-embedded IPv6 transition webhook targets in development", () => {
+    for (const target of [
+      "http://[64:ff9b::a9fe:a9fe]/hook",
+      "http://[::ffff:0:a9fe:a9fe]/hook",
+      "http://[2002:a9fe:a9fe::1]/hook"
+    ]) {
+      expect(() => validateWebhookTarget(target, "development"), target).toThrow(/unsafe webhook target/);
+    }
+  });
 });
 
 describe("deliverWebhook", () => {
@@ -1831,6 +1841,41 @@ describe("deliverWebhook", () => {
     expect(requestImpl).not.toHaveBeenCalled();
   });
 
+  it("does not send a development request when a hostname resolves to an unsafe IPv4-embedded IPv6 address", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "development",
+      resolveHostname: async () => [{ address: "64:ff9b::a9fe:a9fe", family: 6 }],
+      fetchImpl,
+      requestImpl
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "unsafe webhook target"
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(requestImpl).not.toHaveBeenCalled();
+  });
+
   it("does not send a production request when hostname DNS resolution fails", async () => {
     const requestImpl = vi.fn(async () => ({ status: 204 }));
 
@@ -1889,6 +1934,43 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestLookup,
+      fetchImpl
+    } as Parameters<typeof deliverWebhook>[0] & { requestLookup: LookupFunction });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "unsafe webhook target"
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("blocks development delivery when connection-time DNS rebinds to a private address", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const requestLookup: LookupFunction = (hostname, _options, callback) => {
+      expect(hostname).toBe("hooks.example.com");
+      callback(null, "127.0.0.1", 4);
+    };
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "development",
       resolveHostname: resolvePublicHostname,
       requestLookup,
       fetchImpl

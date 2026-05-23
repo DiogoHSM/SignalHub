@@ -50,9 +50,9 @@ export function isUnsafeWebhookHost(rawHost: string): boolean {
     return true;
   }
 
-  const mappedIpv4Host = parseIpv4MappedIpv6Host(host);
-  if (mappedIpv4Host) {
-    return isUnsafeIpv4Host(mappedIpv4Host);
+  const embeddedIpv4Host = parseIpv4EmbeddedIpv6Host(host);
+  if (embeddedIpv4Host) {
+    return isUnsafeIpv4Host(embeddedIpv4Host);
   }
 
   const ipv4Octets = parseStrictIpv4Host(host);
@@ -118,18 +118,38 @@ function parseStrictIpv4Host(host: string): number[] | null {
   return parsed;
 }
 
-function parseIpv4MappedIpv6Host(host: string): string | null {
+function parseIpv4EmbeddedIpv6Host(host: string): string | null {
   const hextets = parseIpv6Hextets(host);
   if (!hextets) {
     return null;
   }
 
   const hasMappedPrefix = hextets.slice(0, 5).every((hextet) => hextet === 0) && hextets[5] === 0xffff;
-  if (!hasMappedPrefix) {
-    return null;
+  if (hasMappedPrefix) {
+    return ipv4FromHextets(hextets[6], hextets[7]);
   }
 
-  return [hextets[6] >> 8, hextets[6] & 0xff, hextets[7] >> 8, hextets[7] & 0xff].join(".");
+  const hasNat64WellKnownPrefix =
+    hextets[0] === 0x64 && hextets[1] === 0xff9b && hextets.slice(2, 6).every((hextet) => hextet === 0);
+  if (hasNat64WellKnownPrefix) {
+    return ipv4FromHextets(hextets[6], hextets[7]);
+  }
+
+  const hasTranslatedPrefix =
+    hextets.slice(0, 4).every((hextet) => hextet === 0) && hextets[4] === 0xffff && hextets[5] === 0;
+  if (hasTranslatedPrefix) {
+    return ipv4FromHextets(hextets[6], hextets[7]);
+  }
+
+  if (hextets[0] === 0x2002) {
+    return ipv4FromHextets(hextets[1], hextets[2]);
+  }
+
+  return null;
+}
+
+function ipv4FromHextets(high: number, low: number): string {
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
 }
 
 function parseIpv6Hextets(host: string): number[] | null {

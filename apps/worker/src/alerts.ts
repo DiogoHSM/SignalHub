@@ -228,8 +228,6 @@ export async function deliverWebhook(input: {
     }
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
   const body = JSON.stringify(input.payload);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -240,22 +238,13 @@ export async function deliverWebhook(input: {
   }
 
   try {
-    const response =
-      input.nodeEnv === "production"
-        ? await (input.requestImpl ?? defaultWebhookRequest)({
-            url,
-            headers,
-            body,
-            timeoutMs: input.timeoutMs,
-            lookup: createValidatingWebhookLookup(input.requestLookup ?? defaultWebhookLookup)
-          })
-        : await fetchWebhook({
-            fetchImpl: input.fetchImpl,
-            url,
-            headers,
-            body,
-            signal: controller.signal
-          });
+    const response = await (input.requestImpl ?? defaultWebhookRequest)({
+      url,
+      headers,
+      body,
+      timeoutMs: input.timeoutMs,
+      lookup: createValidatingWebhookLookup(input.requestLookup ?? defaultWebhookLookup)
+    });
 
     if (response.status >= 200 && response.status < 300) {
       return { status: "success", responseStatus: response.status, errorMessage: null };
@@ -272,8 +261,6 @@ export async function deliverWebhook(input: {
       responseStatus: null,
       errorMessage: sanitizeMessage(formatWebhookDeliveryError(error))
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -288,25 +275,6 @@ function toResolvedAddresses(addresses: Array<{ address: string; family?: number
 const defaultWebhookLookup: LookupFunction = (hostname, options, callback) => {
   dnsLookup(hostname, options, callback);
 };
-
-async function fetchWebhook(input: {
-  fetchImpl?: typeof fetch;
-  url: URL;
-  headers: Record<string, string>;
-  body: string;
-  signal: AbortSignal;
-}): Promise<{ status: number }> {
-  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
-  if (!fetchImpl) throw new Error("fetch is unavailable");
-
-  return fetchImpl(input.url, {
-    method: "POST",
-    headers: input.headers,
-    body: input.body,
-    redirect: "manual",
-    signal: input.signal
-  });
-}
 
 function defaultWebhookRequest(input: {
   url: URL;
