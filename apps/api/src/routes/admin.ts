@@ -4,7 +4,7 @@ import {
   createSourceMapUploadToken,
   hashApiKey as hashTelemetryApiKey
 } from "@sigmon/telemetry/api-keys";
-import { isIP } from "node:net";
+import { validateWebhookTargetUrl } from "@sigmon/config";
 import { z } from "zod";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 import type { AuthDependencies } from "./auth.js";
@@ -385,23 +385,13 @@ function isValidSecretHeaderName(headerName: string | null | undefined): boolean
   return normalizedHeaderName.startsWith("x-") || normalizedHeaderName.startsWith("sigmon-");
 }
 
-function validateWebhookUrl(rawUrl: string, nodeEnv: string | undefined): boolean {
-  let url: URL;
+function validateWebhookUrl(rawUrl: string, _nodeEnv: string | undefined): boolean {
   try {
-    url = new URL(rawUrl);
+    validateWebhookTargetUrl(rawUrl);
+    return true;
   } catch {
     return false;
   }
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return false;
-  }
-
-  if (url.username !== "" || url.password !== "") {
-    return false;
-  }
-
-  return nodeEnv === "production" ? !isPrivateWebhookHost(url.hostname) : true;
 }
 
 async function validateAlertRuleNotificationChannel(
@@ -432,98 +422,6 @@ async function validateAlertRuleNotificationChannel(
   }
 
   return true;
-}
-
-function isPrivateWebhookHost(rawHost: string): boolean {
-  const host = normalizeLiteralHost(rawHost);
-
-  if (host === "localhost") {
-    return true;
-  }
-
-  const ipVersion = isIP(host);
-  if (ipVersion === 4) {
-    return isPrivateIpv4Host(host);
-  }
-
-  const mappedIpv4Host = parseIpv4MappedIpv6Host(host);
-  if (mappedIpv4Host) {
-    return isPrivateIpv4Host(mappedIpv4Host);
-  }
-
-  if (ipVersion === 6) {
-    return isPrivateIpv6Host(host);
-  }
-
-  return false;
-}
-
-function normalizeLiteralHost(host: string): string {
-  return host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
-}
-
-function parseIpv4MappedIpv6Host(host: string): string | null {
-  const mappedPrefix = "::ffff:";
-  if (!host.startsWith(mappedPrefix)) {
-    return null;
-  }
-
-  const mappedAddress = host.slice(mappedPrefix.length);
-  if (isIP(mappedAddress) === 4) {
-    return mappedAddress;
-  }
-
-  const hextets = mappedAddress.split(":");
-  if (hextets.length !== 2) {
-    return null;
-  }
-
-  const high = parseIpv6MappedHextet(hextets[0]);
-  const low = parseIpv6MappedHextet(hextets[1]);
-  if (high === null || low === null) {
-    return null;
-  }
-
-  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
-}
-
-function parseIpv6MappedHextet(hextet: string | undefined): number | null {
-  if (!hextet || !/^[0-9a-f]{1,4}$/.test(hextet)) {
-    return null;
-  }
-
-  return Number.parseInt(hextet, 16);
-}
-
-function isPrivateIpv4Host(host: string): boolean {
-  const octets = host.split(".").map((octet) => Number(octet));
-  const [first, second] = octets;
-
-  return (
-    host === "0.0.0.0" ||
-    first === 10 ||
-    first === 127 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second !== undefined && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168)
-  );
-}
-
-function isPrivateIpv6Host(host: string): boolean {
-  if (host === "::" || host === "::1" || isUnspecifiedIpv6Host(host)) {
-    return true;
-  }
-
-  const firstHextet = Number.parseInt(host.split(":")[0] ?? "", 16);
-  if (Number.isNaN(firstHextet)) {
-    return false;
-  }
-
-  return (firstHextet & 0xfe00) === 0xfc00 || (firstHextet & 0xffc0) === 0xfe80;
-}
-
-function isUnspecifiedIpv6Host(host: string): boolean {
-  return host.replace(/:/g, "").replace(/0/g, "").length === 0;
 }
 
 function isValidNotificationChannelInput(

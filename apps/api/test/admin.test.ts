@@ -133,6 +133,63 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("rejects unsafe webhook notification-channel URLs in development", async () => {
+    const alerts = {
+      listNotificationChannels: vi.fn(async () => []),
+      createNotificationChannel: vi.fn(async (input) => ({
+        id: "chn_1",
+        name: input.name,
+        type: input.type,
+        url: input.url,
+        secretHeaderName: input.secretHeaderName ?? null,
+        secretHeaderValue: input.secretHeaderValue ?? null,
+        hasSecret: Boolean(input.secretHeaderValue),
+        enabled: input.enabled,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        archivedAt: null
+      })),
+      updateNotificationChannel: vi.fn(),
+      archiveNotificationChannel: vi.fn(),
+      getNotificationChannel: vi.fn(),
+      listAlertRules: vi.fn(async () => []),
+      createAlertRule: vi.fn(),
+      updateAlertRule: vi.fn(),
+      archiveAlertRule: vi.fn()
+    };
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts,
+      nodeEnv: "development"
+    });
+
+    for (const url of [
+      "http://localhost/hook",
+      "http://127.0.0.1/hook",
+      "http://10.0.0.1/hook",
+      "http://172.16.0.1/hook",
+      "http://192.168.1.10/hook",
+      "http://169.254.169.254/latest/meta-data",
+      "http://100.64.0.1/hook",
+      "http://224.0.0.1/hook",
+      "http://[::1]/hook",
+      "http://[fc00::1]/hook",
+      "http://[fe80::1]/hook"
+    ]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/notification-channels",
+        payload: { name: "Unsafe", type: "webhook", url }
+      });
+
+      expect(response.statusCode, url).toBe(400);
+      expect(response.json(), url).toEqual({ error: "invalid_notification_channel_request" });
+    }
+    expect(alerts.createNotificationChannel).not.toHaveBeenCalled();
+  });
+
   it("creates a project", async () => {
     const createdProjects: unknown[] = [];
 

@@ -1613,7 +1613,7 @@ describe("validateWebhookTarget", () => {
 
   it("rejects localhost webhook targets in production", () => {
     expect(() => validateWebhookTarget("http://localhost:3000/hook", "production")).toThrow(
-      /private webhook targets are not allowed/
+      /unsafe webhook target/
     );
   });
 
@@ -1633,7 +1633,7 @@ describe("validateWebhookTarget", () => {
       "http://[::ffff:a00:1]/hook"
     ]) {
       expect(() => validateWebhookTarget(target, "production"), target).toThrow(
-        /private webhook targets are not allowed/
+        /unsafe webhook target/
       );
     }
   });
@@ -1656,7 +1656,7 @@ describe("deliverWebhook", () => {
     message: "Errors threshold reached: 2 >= 1",
     sigmon: { source: "sigmon" as const }
   };
-  const resolvePublicHostname = async () => [{ address: "93.184.216.34" }];
+  const resolvePublicHostname = async () => [{ address: "93.184.216.34", family: 4 }];
 
   it("records non-2xx responses as failed with response status", async () => {
     const requestImpl = vi.fn(async () => ({ status: 500 }));
@@ -1793,10 +1793,42 @@ describe("deliverWebhook", () => {
       expect(result, address).toEqual({
         status: "failed",
         responseStatus: null,
-        errorMessage: expect.stringMatching(/private webhook targets are not allowed/)
+        errorMessage: "unsafe webhook target"
       });
       expect(requestImpl, address).not.toHaveBeenCalled();
     }
+  });
+
+  it("does not send a development request when a hostname resolves to a private address", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://example.test/hook",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "development",
+      resolveHostname: async () => [{ address: "169.254.169.254", family: 4 }],
+      requestImpl
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "unsafe webhook target"
+    });
+    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not send a production request when hostname DNS resolution fails", async () => {
@@ -1865,7 +1897,7 @@ describe("deliverWebhook", () => {
     expect(result).toEqual({
       status: "failed",
       responseStatus: null,
-      errorMessage: expect.stringMatching(/private webhook targets are not allowed/)
+      errorMessage: "unsafe webhook target"
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });

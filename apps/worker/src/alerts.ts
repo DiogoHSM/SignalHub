@@ -4,6 +4,12 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
+import {
+  assertSafeResolvedAddresses,
+  assertSafeWebhookHost,
+  validateWebhookTargetUrl,
+  type ResolvedAddress
+} from "@sigmon/config";
 import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
 
 export type AlertWebhookPayload = {
@@ -69,7 +75,7 @@ type PendingDelivery = {
   payload: AlertWebhookPayload;
 };
 
-type ResolveHostname = (hostname: string) => Promise<Array<{ address: string }>>;
+type ResolveHostname = (hostname: string) => Promise<Array<{ address: string; family?: number }>>;
 type WebhookRequest = (input: {
   url: URL;
   headers: Record<string, string>;
@@ -173,21 +179,8 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
   };
 }
 
-export function validateWebhookTarget(rawUrl: string, nodeEnv: string): URL {
-  const url = new URL(rawUrl);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("webhook URL must use http or https");
-  }
-
-  if (url.username !== "" || url.password !== "") {
-    throw new Error("webhook URL credentials are not allowed");
-  }
-
-  if (nodeEnv === "production" && isPrivateWebhookHost(url.hostname)) {
-    throw new Error("private webhook targets are not allowed in production");
-  }
-
-  return url;
+export function validateWebhookTarget(rawUrl: string, _nodeEnv: string): URL {
+  return validateWebhookTargetUrl(rawUrl);
 }
 
 export async function deliverWebhook(input: {
@@ -221,23 +214,16 @@ export async function deliverWebhook(input: {
     };
   }
 
-  if (input.nodeEnv === "production" && shouldResolveWebhookHostname(url)) {
+  if (shouldResolveWebhookHostname(url)) {
     const resolveHostname = input.resolveHostname ?? defaultResolveHostname;
 
     try {
       const resolved = await resolveHostname(url.hostname);
-      if (resolved.length === 0) {
-        return { status: "failed", responseStatus: null, errorMessage: "Webhook DNS resolution failed" };
+      assertSafeResolvedAddresses(toResolvedAddresses(resolved));
+    } catch (error) {
+      if (error instanceof Error && error.message === "unsafe webhook target") {
+        return { status: "failed", responseStatus: null, errorMessage: "unsafe webhook target" };
       }
-
-      if (resolved.some((entry) => isPrivateWebhookHost(entry.address))) {
-        return {
-          status: "failed",
-          responseStatus: null,
-          errorMessage: "private webhook targets are not allowed in production"
-        };
-      }
-    } catch {
       return { status: "failed", responseStatus: null, errorMessage: "Webhook DNS resolution failed" };
     }
   }
@@ -291,8 +277,12 @@ export async function deliverWebhook(input: {
   }
 }
 
-function defaultResolveHostname(hostname: string): Promise<Array<{ address: string }>> {
+function defaultResolveHostname(hostname: string): Promise<ResolvedAddress[]> {
   return resolveDns(hostname, { all: true });
+}
+
+function toResolvedAddresses(addresses: Array<{ address: string; family?: number }>): ResolvedAddress[] {
+  return addresses.map((address) => ({ address: address.address, family: address.family ?? isIP(address.address) }));
 }
 
 const defaultWebhookLookup: LookupFunction = (hostname, options, callback) => {
@@ -412,22 +402,27 @@ function createValidatingWebhookLookup(lookup: LookupFunction): LookupFunction {
       }
 
       if (Array.isArray(address)) {
-        const privateAddress = address.find((entry) => isPrivateWebhookHost(entry.address));
-        if (privateAddress) {
-          callback(
-            new Error("private webhook targets are not allowed in production"),
-            privateAddress.address,
-            privateAddress.family
-          );
-          return;
+        for (const entry of address) {
+          try {
+            assertSafeWebhookHost(entry.address);
+          } catch (unsafeError) {
+            callback(
+              unsafeError instanceof Error ? unsafeError : new Error("unsafe webhook target"),
+              entry.address,
+              entry.family
+            );
+            return;
+          }
         }
 
         callback(null, address as LookupAddress[], family);
         return;
       }
 
-      if (isPrivateWebhookHost(address)) {
-        callback(new Error("private webhook targets are not allowed in production"), address, family);
+      try {
+        assertSafeWebhookHost(address);
+      } catch (unsafeError) {
+        callback(unsafeError instanceof Error ? unsafeError : new Error("unsafe webhook target"), address, family);
         return;
       }
 
@@ -515,78 +510,10 @@ function validateSecretHeaderName(headerName: string | null | undefined): void {
   }
 }
 
-function isPrivateWebhookHost(rawHost: string): boolean {
-  const host = normalizeLiteralHost(rawHost);
-
-  if (host === "localhost") return true;
-
-  const ipVersion = isIP(host);
-  if (ipVersion === 4) return isPrivateIpv4Host(host);
-  const mappedIpv4Host = parseIpv4MappedIpv6Host(host);
-  if (mappedIpv4Host) return isPrivateIpv4Host(mappedIpv4Host);
-  if (ipVersion === 6) return isPrivateIpv6Host(host);
-
-  return false;
-}
-
 function shouldResolveWebhookHostname(url: URL): boolean {
-  const host = normalizeLiteralHost(url.hostname);
+  const host = url.hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
 
   return host !== "localhost" && isIP(host) === 0;
-}
-
-function normalizeLiteralHost(host: string): string {
-  return host.toLowerCase().replace(/^\[(.*)\]$/, "$1");
-}
-
-function parseIpv4MappedIpv6Host(host: string): string | null {
-  const mappedPrefix = "::ffff:";
-  if (!host.startsWith(mappedPrefix)) return null;
-
-  const mappedAddress = host.slice(mappedPrefix.length);
-  if (isIP(mappedAddress) === 4) return mappedAddress;
-
-  const hextets = mappedAddress.split(":");
-  if (hextets.length !== 2) return null;
-
-  const high = parseIpv6MappedHextet(hextets[0]);
-  const low = parseIpv6MappedHextet(hextets[1]);
-  if (high === null || low === null) return null;
-
-  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join(".");
-}
-
-function parseIpv6MappedHextet(hextet: string): number | null {
-  if (!/^[0-9a-f]{1,4}$/.test(hextet)) return null;
-
-  return Number.parseInt(hextet, 16);
-}
-
-function isPrivateIpv4Host(host: string): boolean {
-  const octets = host.split(".").map((octet) => Number(octet));
-  const [first, second] = octets;
-
-  return (
-    host === "0.0.0.0" ||
-    first === 10 ||
-    first === 127 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168)
-  );
-}
-
-function isPrivateIpv6Host(host: string): boolean {
-  if (host === "::" || host === "::1" || isUnspecifiedIpv6Host(host)) return true;
-
-  const firstHextet = Number.parseInt(host.split(":")[0] ?? "", 16);
-  if (Number.isNaN(firstHextet)) return false;
-
-  return (firstHextet & 0xfe00) === 0xfc00 || (firstHextet & 0xffc0) === 0xfe80;
-}
-
-function isUnspecifiedIpv6Host(host: string): boolean {
-  return host.replace(/:/g, "").replace(/0/g, "").length === 0;
 }
 
 function toWebhookPayload(
