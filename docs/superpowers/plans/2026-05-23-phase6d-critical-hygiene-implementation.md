@@ -57,7 +57,7 @@
 - Test: `apps/api/test/admin.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Write focused failing tests**
+- [x] **Step 1: Write focused failing tests**
 
 Add API notification-channel tests that expect localhost/private/link-local targets to be rejected even when `nodeEnv` is `"development"`:
 
@@ -136,7 +136,7 @@ it("rejects private DNS resolution outside production", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the failing focused tests**
+- [x] **Step 2: Run the failing focused tests**
 
 Run:
 
@@ -146,7 +146,7 @@ pnpm test apps/api/test/admin.test.ts apps/worker/test/telemetry-worker.test.ts
 
 Expected: FAIL because non-production private webhook targets are currently allowed and the expected `"unsafe webhook target"` message does not exist.
 
-- [ ] **Step 3: Create the shared validator**
+- [x] **Step 3: Create the shared validator**
 
 Create `packages/config/src/network-security.ts`:
 
@@ -262,7 +262,7 @@ export {
 } from "./network-security.js";
 ```
 
-- [ ] **Step 4: Replace duplicated route and worker policy**
+- [x] **Step 4: Replace duplicated route and worker policy**
 
 In `apps/api/src/routes/admin.ts`, import `validateWebhookTargetUrl` and change `validateWebhookUrl` to:
 
@@ -307,7 +307,7 @@ if (shouldResolveWebhookHostname(url)) {
 
 Change `createValidatingWebhookLookup` to call `assertSafeWebhookHost` for every returned address. Remove the duplicated worker private-host helpers.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -317,7 +317,7 @@ pnpm test apps/api/test/admin.test.ts apps/worker/test/telemetry-worker.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add packages/config/src/index.ts packages/config/src/network-security.ts apps/api/src/routes/admin.ts apps/api/test/admin.test.ts apps/worker/src/alerts.ts apps/worker/test/telemetry-worker.test.ts
@@ -332,7 +332,7 @@ git commit -m "fix: block unsafe webhook targets in all environments"
 - Modify: `packages/db/src/repositories/telemetry-writes.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write duplicate queue and repository tests**
+- [x] **Step 1: Write duplicate queue and repository tests**
 
 Add a queue test:
 
@@ -410,7 +410,7 @@ it("does not increment error group counters for duplicate error ids", async () =
 });
 ```
 
-- [ ] **Step 2: Run failing focused tests**
+- [x] **Step 2: Run failing focused tests**
 
 Run:
 
@@ -420,7 +420,7 @@ pnpm test packages/queues/test/telemetry-queue.test.ts packages/db/test/reposito
 
 Expected: FAIL. Queue jobs get generated IDs, and duplicate DB inserts currently hit unique constraints.
 
-- [ ] **Step 3: Make queue jobs deterministic**
+- [x] **Step 3: Make queue jobs deterministic**
 
 Update `enqueueTelemetryJob`:
 
@@ -430,7 +430,7 @@ export async function enqueueTelemetryJob(queue: TelemetryQueue, payload: Teleme
 }
 ```
 
-- [ ] **Step 4: Make telemetry inserts idempotent**
+- [x] **Step 4: Make telemetry inserts idempotent**
 
 Add a helper in `packages/db/src/repositories/telemetry-writes.ts`:
 
@@ -451,7 +451,7 @@ if (existing) return;
 
 Then keep group upsert and insert in the same transaction, and add `.onConflict((oc) => oc.column("id").doNothing())` to the insert. After the insert, call `refreshErrorGroupStats` so duplicate race cases recalculate from actual rows instead of optimistic counters.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -461,7 +461,7 @@ pnpm test packages/queues/test/telemetry-queue.test.ts packages/db/test/reposito
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add packages/queues/src/telemetry-queue.ts packages/queues/test/telemetry-queue.test.ts packages/db/src/repositories/telemetry-writes.ts packages/db/test/repositories.test.ts
@@ -479,7 +479,7 @@ git commit -m "fix: make telemetry retries idempotent"
 - Test: `apps/api/test/security-headers.test.ts`
 - Test: `apps/worker/test/telemetry-worker.test.ts`
 
-- [ ] **Step 1: Write failing API error-handler test**
+- [x] **Step 1: Write failing API error-handler test**
 
 Create `apps/api/test/security-headers.test.ts` with this first test:
 
@@ -513,7 +513,7 @@ describe("API hardening", () => {
 });
 ```
 
-- [ ] **Step 2: Run failing focused test**
+- [x] **Step 2: Run failing focused test**
 
 Run:
 
@@ -523,7 +523,7 @@ pnpm test apps/api/test/security-headers.test.ts
 
 Expected: FAIL because the global handler is not installed.
 
-- [ ] **Step 3: Add shared structured logger helper**
+- [x] **Step 3: Add shared structured logger helper**
 
 Create `packages/config/src/logger.ts`:
 
@@ -576,7 +576,7 @@ export function redactLogFields(value: unknown): unknown {
 
 Export it from `packages/config/src/index.ts`.
 
-- [ ] **Step 4: Enable Fastify logger and global handler**
+- [x] **Step 4: Enable Fastify logger and global handler**
 
 In `apps/api/src/app.ts`, change Fastify creation:
 
@@ -605,7 +605,7 @@ app.setErrorHandler((error, request, reply) => {
 
 Keep known route-level status responses intact.
 
-- [ ] **Step 5: Use structured logger in API and worker main files**
+- [x] **Step 5: Use structured logger in API and worker main files**
 
 In `apps/api/src/main.ts` and `apps/worker/src/main.ts`, import `createStructuredLogger` from `@sigmon/config`. Replace startup, shutdown, worker event, scheduler, and dead-letter `console.*` calls with logger calls like:
 
@@ -622,7 +622,7 @@ logger.info({ jobId: job.id, jobName: job.name }, "Processed telemetry job");
 logger.error({ jobId: job?.id, error }, "Telemetry job failed");
 ```
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -634,7 +634,7 @@ pnpm --filter @sigmon/worker build
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add packages/config/src/index.ts packages/config/src/logger.ts apps/api/src/app.ts apps/api/src/main.ts apps/worker/src/main.ts apps/api/test/security-headers.test.ts apps/worker/test/telemetry-worker.test.ts
@@ -651,7 +651,7 @@ git commit -m "fix: add structured runtime logging"
 - Test: `apps/api/test/startup-shutdown.test.ts`
 - Test: `apps/worker/test/shutdown.test.ts`
 
-- [ ] **Step 1: Write runtime helper tests**
+- [x] **Step 1: Write runtime helper tests**
 
 Create API shutdown tests:
 
@@ -690,7 +690,7 @@ describe("API runtime", () => {
 
 Create worker shutdown tests with the same `runShutdownSteps` expectation for `stopBackups`, `stopAlerts`, `stopRetention`, `stopHeartbeat`, `worker.close`, `connection.quit`, and `db.destroy`.
 
-- [ ] **Step 2: Run failing runtime tests**
+- [x] **Step 2: Run failing runtime tests**
 
 Run:
 
@@ -700,7 +700,7 @@ pnpm test apps/api/test/startup-shutdown.test.ts apps/worker/test/shutdown.test.
 
 Expected: FAIL because runtime helper modules do not exist.
 
-- [ ] **Step 3: Add API runtime helper**
+- [x] **Step 3: Add API runtime helper**
 
 Create `apps/api/src/runtime.ts`:
 
@@ -746,7 +746,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 
 Create the equivalent `apps/worker/src/runtime.ts` or share the helper through `packages/config/src/runtime.ts` if the implementation stays identical. Prefer `packages/config/src/runtime.ts` if both apps need the exact same code.
 
-- [ ] **Step 4: Wire API startup and shutdown**
+- [x] **Step 4: Wire API startup and shutdown**
 
 In `apps/api/src/main.ts`, replace direct listen with:
 
@@ -774,7 +774,7 @@ await runShutdownSteps(
 
 Catch and log each failed step inside `runShutdownSteps` if tests are written for continue-on-error behavior; otherwise let shutdown fail and set a non-zero exit in the signal handler.
 
-- [ ] **Step 5: Wire worker shutdown**
+- [x] **Step 5: Wire worker shutdown**
 
 In `apps/worker/src/main.ts`, close schedulers and worker first, then Redis and DB:
 
@@ -793,7 +793,7 @@ await runShutdownSteps(
 );
 ```
 
-- [ ] **Step 6: Run focused tests and builds**
+- [x] **Step 6: Run focused tests and builds**
 
 Run:
 
@@ -805,7 +805,7 @@ pnpm --filter @sigmon/worker build
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add apps/api/src/main.ts apps/api/src/runtime.ts apps/api/test/startup-shutdown.test.ts apps/worker/src/main.ts apps/worker/src/runtime.ts apps/worker/test/shutdown.test.ts
@@ -818,7 +818,7 @@ git commit -m "fix: bound startup and shutdown behavior"
 - Modify: `packages/db/src/repositories/system.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing allowlist test**
+- [x] **Step 1: Write failing allowlist test**
 
 Add a test near retention repository tests:
 
@@ -841,7 +841,7 @@ export const __test = { deleteExpiredBatchesFromTable };
 
 Use `__test.deleteExpiredBatchesFromTable` in the test rather than exporting it as public API.
 
-- [ ] **Step 2: Run failing focused test**
+- [x] **Step 2: Run failing focused test**
 
 Run:
 
@@ -851,7 +851,7 @@ pnpm test packages/db/test/repositories.test.ts
 
 Expected: FAIL because `deleteExpiredBatchesFromTable` is not exposed and table names are unrestricted.
 
-- [ ] **Step 3: Add allowlist type and runtime check**
+- [x] **Step 3: Add allowlist type and runtime check**
 
 In `packages/db/src/repositories/system.ts`:
 
@@ -875,7 +875,7 @@ Change internal call sites to pass `RetentionTable` where straightforward:
 async function deleteExpiredFromTable(db: SystemDb, tableName: RetentionTable, cutoff: Date, batchSize: number)
 ```
 
-- [ ] **Step 4: Run focused test**
+- [x] **Step 4: Run focused test**
 
 Run:
 
@@ -885,7 +885,7 @@ pnpm test packages/db/test/repositories.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```sh
 git add packages/db/src/repositories/system.ts packages/db/test/repositories.test.ts
@@ -903,7 +903,7 @@ git commit -m "fix: restrict retention table deletes"
 - Modify: `apps/worker/test/backups.test.ts`
 - Modify: `scripts/backup-restore.ts`
 
-- [ ] **Step 1: Write failing checksum tests**
+- [x] **Step 1: Write failing checksum tests**
 
 In `apps/worker/test/backups.test.ts`, add:
 
@@ -947,7 +947,7 @@ it("refuses restore when a checksum sidecar does not match", async () => {
 });
 ```
 
-- [ ] **Step 2: Run failing backup tests**
+- [x] **Step 2: Run failing backup tests**
 
 Run:
 
@@ -957,7 +957,7 @@ pnpm test apps/worker/test/backups.test.ts
 
 Expected: FAIL because checksum metadata and sidecar verification do not exist.
 
-- [ ] **Step 3: Add backup checksum migration**
+- [x] **Step 3: Add backup checksum migration**
 
 Create `packages/db/migrations/0010_backup_checksums.sql`:
 
@@ -974,13 +974,13 @@ Update `BackupRunsTable` in `packages/db/src/schema.ts`:
 checksum_sha256: string | null;
 ```
 
-- [ ] **Step 4: Update backup repository types**
+- [x] **Step 4: Update backup repository types**
 
 In `packages/db/src/repositories/backups.ts`, add `checksumSha256: string | null` to `BackupRunRecord` and the `recordBackupRun` input type. Map `row.checksum_sha256` in `toBackupRunRecord`, and insert `checksum_sha256: input.checksumSha256`.
 
 Update repository tests that construct backup rows to include either `checksum_sha256` in raw SQL column lists or rely on the nullable default.
 
-- [ ] **Step 5: Create checksum helpers**
+- [x] **Step 5: Create checksum helpers**
 
 In `apps/worker/src/backups.ts`, import `createHash` and `createReadStream` handling. Add:
 
@@ -1003,7 +1003,7 @@ export async function writeChecksumSidecar(filePath: string, checksum: string): 
 
 After `stat(localPath)`, compute checksum and write sidecar. Record `checksumSha256`.
 
-- [ ] **Step 6: Verify checksum before restore**
+- [x] **Step 6: Verify checksum before restore**
 
 In `scripts/backup-restore.ts`, add:
 
@@ -1027,7 +1027,7 @@ export async function verifyBackupChecksum(filePath: string): Promise<void> {
 
 Call `await verifyBackupChecksum(input.filePath)` at the start of `restoreBackup`, before spawning `pg_restore`.
 
-- [ ] **Step 7: Run focused backup and DB tests**
+- [x] **Step 7: Run focused backup and DB tests**
 
 Run:
 
@@ -1037,7 +1037,7 @@ pnpm test apps/worker/test/backups.test.ts packages/db/test/repositories.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```sh
 git add packages/db/migrations/0010_backup_checksums.sql packages/db/src/migrate.ts packages/db/src/schema.ts packages/db/src/repositories/backups.ts packages/db/test/repositories.test.ts apps/worker/src/backups.ts apps/worker/test/backups.test.ts scripts/backup-restore.ts
@@ -1052,7 +1052,7 @@ git commit -m "fix: verify backup integrity"
 - Modify: `scripts/doctor.ts`
 - Modify: `scripts/doctor.test.ts`
 
-- [ ] **Step 1: Write doctor expectations**
+- [x] **Step 1: Write doctor expectations**
 
 In `scripts/doctor.test.ts`, add checks that production Compose env cannot rely on `sigmon-local-only-change-me` and that rendered Compose config includes healthchecks for API and worker:
 
@@ -1082,7 +1082,7 @@ it("defines API and worker healthchecks", async () => {
 });
 ```
 
-- [ ] **Step 2: Run failing doctor tests**
+- [x] **Step 2: Run failing doctor tests**
 
 Run:
 
@@ -1092,7 +1092,7 @@ pnpm test scripts/doctor.test.ts
 
 Expected: FAIL until doctor and Compose are hardened.
 
-- [ ] **Step 3: Harden Dockerfile**
+- [x] **Step 3: Harden Dockerfile**
 
 Change `Dockerfile`:
 
@@ -1121,7 +1121,7 @@ ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["pnpm", "start:api"]
 ```
 
-- [ ] **Step 4: Add Compose healthchecks**
+- [x] **Step 4: Add Compose healthchecks**
 
 In `docker-compose.yml`, add for API:
 
@@ -1145,7 +1145,7 @@ For worker, use a Node process check:
 
 If `pgrep` is unavailable in Alpine, use `ps | grep -v grep | grep -q 'worker'`.
 
-- [ ] **Step 5: Tighten doctor production placeholder checks**
+- [x] **Step 5: Tighten doctor production placeholder checks**
 
 In `scripts/doctor.ts`, make `validateEnv` return a failure when `NODE_ENV=production` and `POSTGRES_PASSWORD` equals `sigmon-local-only-change-me`:
 
@@ -1157,7 +1157,7 @@ if (nodeEnv === "production" && env.POSTGRES_PASSWORD === "sigmon-local-only-cha
 
 Keep existing `DATABASE_URL` placeholder validation.
 
-- [ ] **Step 6: Run focused checks**
+- [x] **Step 6: Run focused checks**
 
 Run:
 
@@ -1168,7 +1168,7 @@ docker compose config --quiet
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add Dockerfile docker-compose.yml scripts/doctor.ts scripts/doctor.test.ts
@@ -1185,7 +1185,7 @@ git commit -m "fix: harden container runtime defaults"
 - Create: `packages/sdk/test/exports.test.ts`
 - Modify: `README.md`
 
-- [ ] **Step 1: Write package export tests**
+- [x] **Step 1: Write package export tests**
 
 Create `packages/sdk/test/exports.test.ts`:
 
@@ -1216,7 +1216,7 @@ describe("SDK exports", () => {
 });
 ```
 
-- [ ] **Step 2: Run failing SDK tests**
+- [x] **Step 2: Run failing SDK tests**
 
 Run:
 
@@ -1226,7 +1226,7 @@ pnpm test packages/sdk/test/exports.test.ts
 
 Expected: FAIL because `browser.ts`, `node.ts`, and package exports do not exist.
 
-- [ ] **Step 3: Add explicit entrypoints**
+- [x] **Step 3: Add explicit entrypoints**
 
 Create `packages/sdk/src/browser.ts`:
 
@@ -1257,7 +1257,7 @@ export { createSignalMonitorClient } from "./client.js";
 
 Keep `index.ts` as compatibility but update docs to prefer `@sigmon/sdk/browser` for browser apps and `@sigmon/sdk/node` for server-side use.
 
-- [ ] **Step 4: Update package exports**
+- [x] **Step 4: Update package exports**
 
 In `packages/sdk/package.json`:
 
@@ -1278,11 +1278,11 @@ In `packages/sdk/package.json`:
 }
 ```
 
-- [ ] **Step 5: Update README SDK snippets**
+- [x] **Step 5: Update README SDK snippets**
 
 Change browser-facing examples to import from `@sigmon/sdk/browser` and label the key as a browser ingestion key that is expected to be public. Change server examples to import from `@sigmon/sdk/node` and state server-side keys must not be bundled into browser code.
 
-- [ ] **Step 6: Run SDK tests and build**
+- [x] **Step 6: Run SDK tests and build**
 
 Run:
 
@@ -1293,7 +1293,7 @@ pnpm --filter @sigmon/sdk build
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```sh
 git add packages/sdk/package.json packages/sdk/src/browser.ts packages/sdk/src/node.ts packages/sdk/src/index.ts packages/sdk/test/exports.test.ts README.md
@@ -1310,7 +1310,7 @@ git commit -m "fix: clarify sdk runtime entrypoints"
 - Modify: `apps/api/test/auth.test.ts`
 - Modify: `scripts/smoke-compose/http.ts`
 
-- [ ] **Step 1: Add failing header and cookie tests**
+- [x] **Step 1: Add failing header and cookie tests**
 
 Extend `apps/api/test/security-headers.test.ts`:
 
@@ -1363,7 +1363,7 @@ it("uses host-prefixed secure session cookies in production", async () => {
 });
 ```
 
-- [ ] **Step 2: Run failing API tests**
+- [x] **Step 2: Run failing API tests**
 
 Run:
 
@@ -1373,7 +1373,7 @@ pnpm test apps/api/test/security-headers.test.ts apps/api/test/auth.test.ts
 
 Expected: FAIL because headers are absent and app-level auth dependencies still set old cookie names in tests.
 
-- [ ] **Step 3: Add security headers hook**
+- [x] **Step 3: Add security headers hook**
 
 In `apps/api/src/app.ts`, add an `onRequest` or `onSend` hook:
 
@@ -1392,7 +1392,7 @@ app.addHook("onRequest", async (_request, reply) => {
 });
 ```
 
-- [ ] **Step 4: Centralize cookie names and options**
+- [x] **Step 4: Centralize cookie names and options**
 
 In `apps/api/src/main.ts`, set:
 
@@ -1416,7 +1416,7 @@ reply.setCookie(sessionCookieName, sessionToken, {
 
 If smoke cookie parsing breaks on prefixed names, update `scripts/smoke-compose/http.ts` cookie jar parsing to accept any cookie name.
 
-- [ ] **Step 5: Run focused API tests**
+- [x] **Step 5: Run focused API tests**
 
 Run:
 
@@ -1426,7 +1426,7 @@ pnpm test apps/api/test/security-headers.test.ts apps/api/test/auth.test.ts scri
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add apps/api/src/app.ts apps/api/src/main.ts apps/api/src/routes/auth.ts apps/api/test/security-headers.test.ts apps/api/test/auth.test.ts scripts/smoke-compose/http.ts scripts/smoke-compose.test.ts
@@ -1445,7 +1445,7 @@ git commit -m "fix: add http security headers"
 - Modify: `.claude/docs/INFRASTRUCTURE.md`
 - Modify: `.claude/docs/PROJECT-SUMMARY.md`
 
-- [ ] **Step 1: Update active operator docs**
+- [x] **Step 1: Update active operator docs**
 
 Update docs with these exact points:
 
@@ -1458,7 +1458,7 @@ Update docs with these exact points:
 - SDK docs distinguish `@sigmon/sdk/browser` and `@sigmon/sdk/node`.
 - Security headers are enabled; the production session cookie uses the strongest compatible settings.
 
-- [ ] **Step 2: Run docs grep checks**
+- [x] **Step 2: Run docs grep checks**
 
 Run:
 
@@ -1469,7 +1469,7 @@ rg -n "sigmon-local-only-change-me" README.md .claude/docs docker-compose.yml .e
 
 Expected: old-name grep returns only intentional historical notes if any. Placeholder grep is allowed in `.env.example`, local development docs, and production rejection tests only.
 
-- [ ] **Step 3: Commit docs**
+- [x] **Step 3: Commit docs**
 
 ```sh
 git add README.md .claude/docs/ARCHITECTURE.md .claude/docs/DEPLOYMENT.md .claude/docs/STACK.md .claude/docs/CONSTRAINTS.md .claude/docs/SECRETS.md .claude/docs/INFRASTRUCTURE.md .claude/docs/PROJECT-SUMMARY.md
@@ -1482,7 +1482,7 @@ git commit -m "docs: document phase 6d hardening"
 - Modify: `docs/superpowers/plans/2026-05-23-phase6d-critical-hygiene-implementation.md`
 - Create: `docs/superpowers/runs/2026-05-23-phase6d-critical-hygiene.md`
 
-- [ ] **Step 1: Run full local verification**
+- [x] **Step 1: Run full local verification**
 
 Run:
 
@@ -1496,7 +1496,7 @@ pnpm smoke:compose
 
 Expected: PASS. If a command fails, rerun with `rtk proxy <command>` to collect complete output before fixing.
 
-- [ ] **Step 2: Create run evidence file**
+- [x] **Step 2: Create run evidence file**
 
 Create `docs/superpowers/runs/2026-05-23-phase6d-critical-hygiene.md` with:
 
@@ -1527,7 +1527,7 @@ Create `docs/superpowers/runs/2026-05-23-phase6d-critical-hygiene.md` with:
 - `pnpm smoke:compose`: passed, include smoke summary counts.
 ```
 
-- [ ] **Step 3: Replace sample evidence text with observed command output**
+- [x] **Step 3: Replace sample evidence text with observed command output**
 
 Replace the sample phrases in the run file with the observed result and short evidence line, for example:
 
@@ -1535,11 +1535,11 @@ Replace the sample phrases in the run file with the observed result and short ev
 - `pnpm test`: passed, 56 files / 800 tests.
 ```
 
-- [ ] **Step 4: Update the implementation checklist**
+- [x] **Step 4: Update the implementation checklist**
 
 In this plan file, mark completed task checkboxes for the work that was actually completed. Leave no completed work untracked.
 
-- [ ] **Step 5: Commit run evidence**
+- [x] **Step 5: Commit run evidence**
 
 ```sh
 git add docs/superpowers/plans/2026-05-23-phase6d-critical-hygiene-implementation.md docs/superpowers/runs/2026-05-23-phase6d-critical-hygiene.md
