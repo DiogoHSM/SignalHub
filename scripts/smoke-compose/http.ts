@@ -36,7 +36,8 @@ export function createCookieJar(): CookieJar {
       const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
       const setCookieHeaders = getSetCookie?.call(headers) ?? [];
       const fallbackSetCookie = headers.get("set-cookie");
-      const values = setCookieHeaders.length > 0 ? setCookieHeaders : fallbackSetCookie ? splitSetCookieHeader(fallbackSetCookie) : [];
+      const rawValues = setCookieHeaders.length > 0 ? setCookieHeaders : fallbackSetCookie ? [fallbackSetCookie] : [];
+      const values = rawValues.flatMap(splitSetCookieHeader);
 
       for (const value of values) {
         const cookie = value.split(";")[0]?.trim();

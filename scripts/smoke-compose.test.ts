@@ -349,6 +349,18 @@ describe("smoke compose HTTP helpers", () => {
     expect(jar.header()).toBe("__Host-sigmon_session=session_1");
   });
 
+  it("splits combined set-cookie values returned by getSetCookie", async () => {
+    const jar = createCookieJar();
+    const headers = new Headers() as Headers & { getSetCookie: () => string[] };
+    headers.getSetCookie = () => [
+      "a=1; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT, __Host-b=2; Path=/; Secure; HttpOnly, empty=; Path=/"
+    ];
+
+    jar.addFromResponse(headers);
+
+    expect(jar.header()).toBe("a=1; __Host-b=2");
+  });
+
   it("throws SmokeHttpError with redacted body text", async () => {
     const fetchImpl = async () =>
       ({
