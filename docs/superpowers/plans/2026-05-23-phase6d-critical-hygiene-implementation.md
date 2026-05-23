@@ -1551,7 +1551,7 @@ git commit -m "docs: record phase 6d verification"
 **Files:**
 - Modify: `/Users/diogo/Developer/Github/claude-config/projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md`
 
-- [ ] **Step 1: Update versioned memory**
+- [x] **Step 1: Update versioned memory**
 
 Append a `2026-05-23` entry with:
 
@@ -1562,7 +1562,7 @@ Append a `2026-05-23` entry with:
 - Next planned phase: Phase 6F EasyPanel VPS deployment.
 ```
 
-- [ ] **Step 2: Commit memory update in config repo only**
+- [x] **Step 2: Commit memory update in config repo only**
 
 Run:
 
