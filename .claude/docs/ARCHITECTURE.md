@@ -17,12 +17,16 @@ Ingestion:
 4. API generates a signal id, attaches project and environment scope from the API key, enqueues the job, and returns `202 Accepted`.
 5. Worker consumes the job, validates again, recursively sanitizes sensitive values, and writes the typed record into Postgres.
 
+Telemetry queue jobs use deterministic IDs derived from the payload IDs. The worker writes telemetry through idempotent repository paths so duplicate queue delivery or retry attempts do not create duplicate telemetry rows.
+
 Human operations:
 
 1. Admin seed creates the first admin user.
 2. Humans log in through `/auth/login` and receive a signed cookie.
 3. Admin-only routes manage users, projects, environments, and API keys.
 4. Authenticated users can query raw telemetry and aggregates.
+
+Production human sessions use `__Host-sigmon_session` with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`. The OAuth state cookie remains `sigmon_oauth_state` because it is intentionally scoped to `/auth/google/callback`, which is incompatible with the `__Host-` prefix.
 
 ## Storage
 
@@ -148,6 +152,16 @@ The worker also prunes local source-map artifacts when source-map retention is e
 The worker owns the backup scheduler. When `BACKUPS_ENABLED=true`, it creates scheduled Postgres logical backups with `pg_dump` custom format and writes them to `BACKUPS_LOCAL_DIR`. The `backup_runs` table stores backup metadata only: run status, trigger, filename, byte size, optional S3 bucket/key, timestamps, and sanitized error text. Backup dump contents are stored on the configured filesystem path and optional S3-compatible bucket, not in Postgres metadata tables.
 
 The worker also owns simple alert scheduling. When `ALERTS_ENABLED=true`, it evaluates enabled project/environment-scoped `alert_rules` under an advisory lock, records triggered `alert_events`, and sends optional generic webhook notifications through `notification_channels`. Webhook delivery outcomes are stored in `notification_deliveries`.
+
+Generic webhook notification URLs are validated through the shared network-safety boundary in `packages/config`. Targets resolving to local, private, link-local, multicast, loopback, or cloud metadata networks are rejected in every environment. Production webhook delivery fetches the validated resolved address to avoid DNS rebinding after preflight.
+
+API and worker processes use structured logs with secret-bearing fields redacted. The API global error handler logs redacted errors and returns sanitized JSON. API startup failures run cleanup after logging, and API/worker shutdown paths are ordered and bounded.
+
+Backups write SHA-256 sidecar files next to local dump files and upload matching sidecars when S3-compatible upload is enabled. Restore verifies the sidecar when present before running `pg_restore`.
+
+The Docker runtime runs under the non-root `sigmon` user with `tini` as PID 1. Docker Compose defines healthchecks for Postgres, Redis, API, and worker.
+
+API responses include baseline HTTP security headers: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Content-Security-Policy`, and production `Strict-Transport-Security`.
 
 `GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, ingestion freshness, retention policy/run status, and backup status.
 
