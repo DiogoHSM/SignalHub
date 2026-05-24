@@ -86,6 +86,7 @@ import {
   updateErrorGroupStatus,
   updateErrorGroupTriage
 } from "../src/repositories/error-groups.js";
+import { getErrorGroupIncident, suggestErrorGroupPriority } from "../src/repositories/incidents.js";
 import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
@@ -2071,6 +2072,127 @@ describe("repositories", () => {
         lastSpanAt: spanAt,
         lastLlmCallAt: llmAt
       });
+    });
+  });
+
+  it("calculates suggested incident priority from group impact", () => {
+    expect(
+      suggestErrorGroupPriority({
+        severity: "critical",
+        occurrenceCount: 1,
+        affectedUsersCount: 1,
+        affectedTenantsCount: 1,
+        lastRegressedAt: null,
+        now: new Date("2026-05-24T12:00:00.000Z")
+      })
+    ).toBe("urgent");
+
+    expect(
+      suggestErrorGroupPriority({
+        severity: "error",
+        occurrenceCount: 10,
+        affectedUsersCount: 1,
+        affectedTenantsCount: 1,
+        lastRegressedAt: null,
+        now: new Date("2026-05-24T12:00:00.000Z")
+      })
+    ).toBe("high");
+
+    expect(
+      suggestErrorGroupPriority({
+        severity: "warning",
+        occurrenceCount: 1,
+        affectedUsersCount: 1,
+        affectedTenantsCount: 1,
+        lastRegressedAt: null,
+        now: new Date("2026-05-24T12:00:00.000Z")
+      })
+    ).toBe("normal");
+  });
+
+  it("returns an incident with a scoped primary occurrence", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const group = await seedGroupedError(db, {
+        id: "err_incident_primary",
+        projectId: "prj_incident",
+        environmentId: "env_incident",
+        message: "Incident primary failure",
+        severity: "critical",
+        timestamp: new Date("2026-05-24T12:00:00.000Z")
+      });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: "prj_incident",
+        environmentId: "env_incident",
+        errorId: "err_incident_primary",
+        now: new Date("2026-05-24T12:10:00.000Z")
+      });
+
+      expect(incident).toMatchObject({
+        group: { id: group.id },
+        primaryOccurrence: { id: "err_incident_primary", errorGroupId: group.id },
+        priority: null,
+        suggestedPriority: "urgent"
+      });
+    });
+  });
+
+  it("separates strongly related and nearby incident context", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const timestamp = new Date("2026-05-24T12:00:00.000Z");
+      const group = await seedGroupedError(db, {
+        id: "err_incident_context",
+        projectId: "prj_incident_context",
+        environmentId: "env_incident_context",
+        message: "Incident context failure",
+        severity: "error",
+        timestamp
+      });
+
+      await sql`
+        update errors
+        set user_id = 'user_1',
+            tenant_id = 'tenant_1',
+            session_id = 'session_1',
+            trace_id = 'trace_1'
+        where id = 'err_incident_context'
+      `.execute(db);
+      await insertEvent(db, {
+        id: "evt_strong_session",
+        projectId: "prj_incident_context",
+        environmentId: "env_incident_context",
+        name: "checkout.clicked",
+        timestamp: new Date("2026-05-24T11:59:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:59:01.000Z"),
+        userId: "user_1",
+        tenantId: "tenant_1",
+        sessionId: "session_1"
+      });
+      await insertEvent(db, {
+        id: "evt_nearby_user",
+        projectId: "prj_incident_context",
+        environmentId: "env_incident_context",
+        name: "checkout.started",
+        timestamp: new Date("2026-05-24T11:58:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:58:01.000Z"),
+        userId: "user_1",
+        tenantId: "tenant_1"
+      });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: "prj_incident_context",
+        environmentId: "env_incident_context",
+        errorId: "err_incident_context",
+        now: new Date("2026-05-24T12:10:00.000Z")
+      });
+
+      expect(incident?.stronglyRelated.items.map((item) => item.id)).toContain("evt_strong_session");
+      expect(incident?.nearbyContext.items.map((item) => item.id)).toContain("evt_nearby_user");
+      expect(incident?.nearbyContext.items.map((item) => item.id)).not.toContain("evt_strong_session");
     });
   });
 
