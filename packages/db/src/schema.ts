@@ -99,6 +99,7 @@ export interface BreadcrumbsTable {
 }
 
 export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
+export type ErrorGroupPriority = "urgent" | "high" | "normal" | "low";
 
 export interface ErrorGroupsTable {
   id: ColumnType<string, string | undefined, string>;
@@ -110,6 +111,7 @@ export interface ErrorGroupsTable {
   top_stack_frame: string | null;
   severity: string;
   status: ColumnType<ErrorGroupStatus, ErrorGroupStatus | undefined, ErrorGroupStatus>;
+  priority: ErrorGroupPriority | null;
   first_seen_at: Timestamp;
   last_seen_at: Timestamp;
   last_regressed_at: NullableTimestamp;

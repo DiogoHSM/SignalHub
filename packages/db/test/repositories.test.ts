@@ -83,7 +83,8 @@ import {
   getErrorGroup,
   listErrorGroups,
   normalizeErrorGroupingInput,
-  updateErrorGroupStatus
+  updateErrorGroupStatus,
+  updateErrorGroupTriage
 } from "../src/repositories/error-groups.js";
 import {
   createSourceMapArtifact,
@@ -183,6 +184,45 @@ describe("repositories", () => {
         'TypeError: failed'
       )
     `.execute(db);
+  }
+
+  async function seedGroupedError(
+    db: Db,
+    input: {
+      id: string;
+      projectId: string;
+      environmentId: string;
+      message: string;
+      severity: string;
+      timestamp: Date;
+    }
+  ) {
+    await sql`
+      insert into projects (id, name)
+      values (${input.projectId}, ${input.projectId})
+      on conflict (id) do nothing
+    `.execute(db);
+    await sql`
+      insert into environments (id, project_id, name)
+      values (${input.environmentId}, ${input.projectId}, 'production')
+      on conflict (id) do nothing
+    `.execute(db);
+    await insertError(db, {
+      id: input.id,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      message: input.message,
+      severity: input.severity,
+      timestamp: input.timestamp,
+      receivedAt: input.timestamp
+    });
+    const groups = await listErrorGroups(db, {
+      projectId: input.projectId,
+      environmentId: input.environmentId
+    });
+    const group = groups[0];
+    expect(group).toBeDefined();
+    return group;
   }
 
   it("runs migrations idempotently", async () => {
@@ -2329,6 +2369,81 @@ describe("repositories", () => {
       });
 
       expect(ignored).toEqual(expect.objectContaining({ status: "ignored", occurrenceCount: 2, lastRegressedAt: null }));
+    });
+  });
+
+  it("stores and returns error group priority overrides", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const timestamp = new Date("2026-05-24T12:00:00.000Z");
+      const group = await seedGroupedError(db, {
+        id: "err_priority_1",
+        projectId: "prj_priority",
+        environmentId: "env_priority",
+        message: "Priority smoke failure",
+        severity: "critical",
+        timestamp
+      });
+
+      const updated = await updateErrorGroupTriage(db, {
+        id: group!.id,
+        projectId: "prj_priority",
+        environmentId: "env_priority",
+        status: "investigating",
+        priority: "urgent",
+        now: new Date("2026-05-24T12:05:00.000Z")
+      });
+
+      expect(updated).toMatchObject({
+        id: group!.id,
+        status: "investigating",
+        priority: "urgent"
+      });
+
+      const loaded = await getErrorGroup(db, {
+        id: group!.id,
+        projectId: "prj_priority",
+        environmentId: "env_priority"
+      });
+      expect(loaded?.priority).toBe("urgent");
+
+      const [listed] = await listErrorGroups(db, {
+        projectId: "prj_priority",
+        environmentId: "env_priority"
+      });
+      expect(listed!.priority).toBe("urgent");
+    });
+  });
+
+  it("clears an error group priority override", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const group = await seedGroupedError(db, {
+        id: "err_priority_clear_1",
+        projectId: "prj_priority_clear",
+        environmentId: "env_priority_clear",
+        message: "Priority clear smoke failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:00:00.000Z")
+      });
+
+      await updateErrorGroupTriage(db, {
+        id: group!.id,
+        projectId: "prj_priority_clear",
+        environmentId: "env_priority_clear",
+        priority: "high",
+        now: new Date("2026-05-24T12:01:00.000Z")
+      });
+
+      const cleared = await updateErrorGroupTriage(db, {
+        id: group!.id,
+        projectId: "prj_priority_clear",
+        environmentId: "env_priority_clear",
+        priority: null,
+        now: new Date("2026-05-24T12:02:00.000Z")
+      });
+
+      expect(cleared?.priority).toBeNull();
     });
   });
 
