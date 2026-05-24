@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { ErrorGroupIncident } from "../api/types";
+import { IncidentSummary } from "./IncidentSummary";
+import { IncidentTechnicalPanel } from "./IncidentTechnicalPanel";
+import { IncidentTimeline } from "./IncidentTimeline";
+import { IncidentTriagePanel } from "./IncidentTriagePanel";
 
 type LoadState =
   | { status: "loading" }
@@ -50,6 +54,24 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
           {state.status === "unavailable" ? <p className="muted-text">Incident unavailable</p> : null}
         </div>
       </header>
+      {state.status === "ready" ? (
+        <>
+          <IncidentSummary incident={state.incident} />
+          <div className="incident-split">
+            <IncidentTechnicalPanel incident={state.incident} />
+            <div className="incident-column">
+              <IncidentTriagePanel
+                client={client}
+                environmentId={environmentId}
+                incident={state.incident}
+                onUpdated={(incident) => setState({ status: "ready", incident })}
+                projectId={projectId}
+              />
+              <IncidentTimeline incident={state.incident} />
+            </div>
+          </div>
+        </>
+      ) : null}
     </section>
   );
 }
