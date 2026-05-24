@@ -25,19 +25,35 @@ export interface HttpOptions {
 
 export function createCookieJar(): CookieJar {
   const cookies = new Map<string, string>();
+  const splitSetCookieHeader = (value: string): string[] =>
+    value
+      .split(/,(?=\s*[^;,=\s]+=)/)
+      .map((cookie) => cookie.trim())
+      .filter(Boolean);
 
   return {
     addFromResponse(headers) {
-      const setCookie = headers.get("set-cookie");
-      if (!setCookie) return;
+      const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+      const setCookieHeaders = getSetCookie?.call(headers) ?? [];
+      const fallbackSetCookie = headers.get("set-cookie");
+      const rawValues = setCookieHeaders.length > 0 ? setCookieHeaders : fallbackSetCookie ? [fallbackSetCookie] : [];
+      const values = rawValues.flatMap(splitSetCookieHeader);
 
-      const cookie = setCookie.split(";")[0]?.trim();
-      if (!cookie) return;
+      for (const value of values) {
+        const cookie = value.split(";")[0]?.trim();
+        if (!cookie) continue;
 
-      const separatorIndex = cookie.indexOf("=");
-      if (separatorIndex <= 0) return;
+        const separatorIndex = cookie.indexOf("=");
+        if (separatorIndex <= 0) continue;
 
-      cookies.set(cookie.slice(0, separatorIndex), cookie.slice(separatorIndex + 1));
+        const name = cookie.slice(0, separatorIndex);
+        const cookieValue = cookie.slice(separatorIndex + 1);
+        if (!cookieValue) {
+          cookies.delete(name);
+        } else {
+          cookies.set(name, cookieValue);
+        }
+      }
     },
     header() {
       return Array.from(cookies, ([name, value]) => `${name}=${value}`).join("; ");

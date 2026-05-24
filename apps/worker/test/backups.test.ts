@@ -78,7 +78,7 @@ describe("restoreBackup", () => {
 
   it("passes password through PGPASSWORD and non-secret connection args", async () => {
     const databaseUrl = "postgres://user:pa%24%24@localhost:5433/sigmon";
-    childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
+    childProcessMock.spawn.mockImplementation(() => createSuccessfulChildProcess());
 
     await restoreBackup({
       databaseUrl,
@@ -117,7 +117,7 @@ describe("restoreBackup", () => {
   it("preserves non-secret database URL options without putting the password in argv", async () => {
     const databaseUrl =
       "postgres://user:secret@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon";
-    childProcessMock.spawn.mockReturnValue(createSuccessfulChildProcess());
+    childProcessMock.spawn.mockImplementation(() => createSuccessfulChildProcess());
 
     await restoreBackup({
       databaseUrl,
@@ -131,6 +131,25 @@ describe("restoreBackup", () => {
     expect(args).toContain("--");
     expect(args?.slice(-2)).toEqual(["--", "/tmp/sigmon.dump"]);
     expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
+  });
+
+  it("refuses restore when a checksum sidecar does not match before spawning pg_restore", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-restore-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    await writeFile(dumpPath, "backup-content");
+    await writeFile(`${dumpPath}.sha256`, `deadbeef  sigmon.dump\n`);
+
+    try {
+      await expect(
+        restoreBackup({
+          databaseUrl: "postgres://user:pass@localhost:5432/sigmon",
+          filePath: dumpPath
+        })
+      ).rejects.toThrow("Backup checksum mismatch");
+      expect(childProcessMock.spawn).not.toHaveBeenCalled();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -226,57 +245,25 @@ describe("dumpPostgresDatabase", () => {
 });
 
 describe("uploadBackupToS3", () => {
-  it("uses configured S3 client options and uploads as an octet stream", async () => {
+  it("uses configured S3 client options and uploads the dump and checksum sidecar", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const sidecarPath = `${dumpPath}.sha256`;
     const send = vi.fn(async (_command: { input: unknown }) => undefined);
     const createClient = vi.fn(() => ({ send }));
-    const stream = Readable.from(["backup-content"]);
-
-    await uploadBackupToS3({
-      filePath: "/tmp/sigmon.dump",
-      key: "prod/sigmon/sigmon-20260506T120000Z.dump",
-      s3: {
-        enabled: true,
-        endpoint: "https://example.r2.cloudflarestorage.com",
-        region: "auto",
-        bucket: "bucket",
-        accessKeyId: "access",
-        secretAccessKey: "secret",
-        prefix: "prod/sigmon"
-      },
-      createClient,
-      createReadStreamFn: () => stream
+    const streams: Readable[] = [];
+    const createReadStreamFn = vi.fn((path: string) => {
+      const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+      streams.push(stream);
+      return stream;
     });
 
-    expect(createClient).toHaveBeenCalledWith({
-      endpoint: "https://example.r2.cloudflarestorage.com",
-      region: "auto",
-      credentials: {
-        accessKeyId: "access",
-        secretAccessKey: "secret"
-      },
-      forcePathStyle: true
-    });
-    expect(send).toHaveBeenCalledTimes(1);
-    const sentCommand = send.mock.calls[0]?.[0];
-    expect(sentCommand?.input).toEqual(
-      expect.objectContaining({
-        Bucket: "bucket",
-        Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
-        ContentType: "application/octet-stream"
-      })
-    );
-  });
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(sidecarPath, "checksum  sigmon.dump\n");
 
-  it("destroys the backup stream when S3 upload fails", async () => {
-    const stream = Readable.from(["backup-content"]);
-    const destroy = vi.spyOn(stream, "destroy");
-    const send = vi.fn(async () => {
-      throw new Error("s3 failed secret=hidden");
-    });
-
-    await expect(
-      uploadBackupToS3({
-        filePath: "/tmp/sigmon.dump",
+      await uploadBackupToS3({
+        filePath: dumpPath,
         key: "prod/sigmon/sigmon-20260506T120000Z.dump",
         s3: {
           enabled: true,
@@ -287,12 +274,110 @@ describe("uploadBackupToS3", () => {
           secretAccessKey: "secret",
           prefix: "prod/sigmon"
         },
-        createClient: () => ({ send }),
-        createReadStreamFn: () => stream
-      })
-    ).rejects.toThrow("s3 failed secret=hidden");
+        createClient,
+        createReadStreamFn
+      });
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
 
-    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(createClient).toHaveBeenCalledWith({
+      endpoint: "https://example.r2.cloudflarestorage.com",
+      region: "auto",
+      credentials: {
+        accessKeyId: "access",
+        secretAccessKey: "secret"
+      },
+      forcePathStyle: true
+    });
+    expect(createReadStreamFn).toHaveBeenCalledWith(dumpPath);
+    expect(createReadStreamFn).toHaveBeenCalledWith(sidecarPath);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0].input).toEqual(
+      expect.objectContaining({
+        Bucket: "bucket",
+        Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+        ContentType: "application/octet-stream"
+      })
+    );
+    expect(send.mock.calls[1]?.[0].input).toEqual(
+      expect.objectContaining({
+        Bucket: "bucket",
+        Key: "prod/sigmon/sigmon-20260506T120000Z.dump.sha256",
+        ContentType: "text/plain"
+      })
+    );
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
+  });
+
+  it("fails S3 upload when the local checksum sidecar is missing", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const send = vi.fn(async (_command: { input: unknown }) => undefined);
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon/sigmon.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod/sigmon"
+          },
+          createClient: () => ({ send })
+        })
+      ).rejects.toThrow();
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("destroys backup streams when S3 upload fails", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const streams: Readable[] = [];
+    const send = vi.fn(async () => {
+      throw new Error("s3 failed secret=hidden");
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod/sigmon"
+          },
+          createClient: () => ({ send }),
+          createReadStreamFn: (path) => {
+            const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+            streams.push(stream);
+            return stream;
+          }
+        })
+      ).rejects.toThrow("s3 failed secret=hidden");
+
+      expect(streams.every((stream) => stream.destroyed)).toBe(true);
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -300,6 +385,7 @@ describe("pruneLocalBackups", () => {
   it("only deletes old SignalMonitor dump files", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
     const oldBackup = join(localDir, "sigmon-20260401T000000Z.dump");
+    const oldBackupSidecar = `${oldBackup}.sha256`;
     const freshBackup = join(localDir, "sigmon-fresh.dump");
     const manualBackup = join(localDir, "sigmon-manual.dump");
     const unrelatedDump = join(localDir, "other-old.dump");
@@ -307,6 +393,7 @@ describe("pruneLocalBackups", () => {
 
     try {
       await writeFile(oldBackup, "old");
+      await writeFile(oldBackupSidecar, "old-checksum");
       await writeFile(freshBackup, "fresh");
       await writeFile(manualBackup, "manual");
       await writeFile(unrelatedDump, "other");
@@ -323,10 +410,33 @@ describe("pruneLocalBackups", () => {
       });
 
       await expect(stat(oldBackup)).rejects.toThrow();
+      await expect(stat(oldBackupSidecar)).rejects.toThrow();
       await expect(stat(freshBackup)).resolves.toBeTruthy();
       await expect(stat(manualBackup)).resolves.toBeTruthy();
       await expect(stat(unrelatedDump)).resolves.toBeTruthy();
       await expect(stat(unrelatedText)).resolves.toBeTruthy();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores missing checksum sidecars when deleting old dump files", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
+    const oldBackup = join(localDir, "sigmon-20260401T000000Z.dump");
+
+    try {
+      await writeFile(oldBackup, "old");
+      await utimes(oldBackup, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
+
+      await expect(
+        pruneLocalBackups({
+          localDir,
+          retentionDays: 14,
+          now: new Date("2026-05-06T12:00:00.000Z")
+        })
+      ).resolves.toBeUndefined();
+
+      await expect(stat(oldBackup)).rejects.toThrow();
     } finally {
       await rm(localDir, { recursive: true, force: true });
     }
@@ -337,6 +447,8 @@ describe("runBackupOnce", () => {
   it("creates a local backup, uploads to S3 when enabled, records success, and prunes old local files", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "sigmon-backups-"));
     const oldFile = join(localDir, "sigmon-20260401T000000Z.dump");
+    const dumpPath = join(localDir, "sigmon-20260506T120000Z.dump");
+    const expectedChecksum = "a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86";
     await writeFile(oldFile, "old");
     await utimes(oldFile, new Date("2026-04-01T00:00:00.000Z"), new Date("2026-04-01T00:00:00.000Z"));
 
@@ -372,11 +484,12 @@ describe("runBackupOnce", () => {
       });
 
       expect(result).toEqual({ ran: true, skipped: false });
-      expect(await readFile(join(localDir, "sigmon-20260506T120000Z.dump"), "utf8")).toBe("backup-content");
+      expect(await readFile(dumpPath, "utf8")).toBe("backup-content");
+      expect(await readFile(`${dumpPath}.sha256`, "utf8")).toBe(`${expectedChecksum}  sigmon-20260506T120000Z.dump\n`);
       await expect(stat(oldFile)).rejects.toThrow();
       expect(upload).toHaveBeenCalledWith(
         expect.objectContaining({
-          filePath: join(localDir, "sigmon-20260506T120000Z.dump"),
+          filePath: dumpPath,
           key: "prod/sigmon/sigmon-20260506T120000Z.dump"
         })
       );
@@ -385,6 +498,7 @@ describe("runBackupOnce", () => {
           status: "success",
           trigger: "scheduled",
           sizeBytes: 14,
+          checksumSha256: expectedChecksum,
           s3Bucket: "bucket",
           s3Key: "prod/sigmon/sigmon-20260506T120000Z.dump",
           errorMessage: null
@@ -436,6 +550,7 @@ describe("runBackupOnce", () => {
           status: "failed",
           trigger: "scheduled",
           sizeBytes: null,
+          checksumSha256: null,
           s3Bucket: null,
           s3Key: null,
           errorMessage: "S3 upload failed secret=[REDACTED]"
@@ -478,6 +593,7 @@ describe("runBackupOnce", () => {
         expect.objectContaining({
           status: "failed",
           trigger: "scheduled",
+          checksumSha256: null,
           errorMessage: "prune failed password=[REDACTED]"
         })
       );
@@ -515,6 +631,7 @@ describe("runBackupOnce", () => {
         expect.objectContaining({
           status: "failed",
           trigger: "manual",
+          checksumSha256: null,
           errorMessage: "pg_dump failed password=[REDACTED]"
         })
       );

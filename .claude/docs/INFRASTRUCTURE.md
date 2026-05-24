@@ -21,6 +21,10 @@
 - Redis host binding: `127.0.0.1:${REDIS_PORT:-6379}`.
 - API host binding: `3000:3000`.
 
+Compose healthchecks are defined for Postgres, Redis, API, and worker. The API healthcheck calls `/health`; the worker healthcheck verifies the worker process is alive.
+
+The API and worker image runs as the non-root `sigmon` user under `tini`. It includes `curl` for healthchecks and `postgresql16-client` for backup and restore commands.
+
 ## Networking
 
 The API and worker use Compose-internal service names:
@@ -37,7 +41,7 @@ Local Node commands use `.env` values, usually:
 
 Postgres data is stored in `postgres_data`. Redis uses append-only persistence and stores data in `redis_data`. Local backup dumps are stored in `backup_data`. Uploaded source-map artifacts are stored in `source_map_data`; their metadata and cached resolved-frame rows are stored in Postgres.
 
-Optional remote backup storage can use an S3-compatible private bucket such as Cloudflare R2. The worker uploads backup dumps when `BACKUPS_S3_ENABLED=true`; remote retention is controlled by bucket lifecycle rules.
+Optional remote backup storage can use an S3-compatible private bucket such as Cloudflare R2. The worker uploads backup dumps and SHA-256 sidecars when `BACKUPS_S3_ENABLED=true`; remote retention is controlled by bucket lifecycle rules.
 
 Source-map storage does not use object storage in this release line. The API owns local source-map writes, reads, and deletes under `SOURCE_MAPS_LOCAL_DIR`.
 
@@ -49,5 +53,6 @@ The worker prunes local source-map artifacts according to `SOURCE_MAPS_RETENTION
 - `pnpm run doctor -- --compose --api-url http://localhost:3000` adds Compose-aware checks against the running stack.
 - `docker compose config --quiet` validates Compose rendering.
 - Compose checks cover rendered configuration, required services, service reachability, and API health through the configured `--api-url`.
+- Production doctor checks fail when Compose would use the local-only Postgres password placeholder.
 - `GET /ready` checks Postgres and Redis from the API process.
 - Worker health is currently process-level; failed jobs are retried by BullMQ according to queue behavior.

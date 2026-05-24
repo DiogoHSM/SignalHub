@@ -1,4 +1,4 @@
-import { loadConfig } from "@sigmon/config";
+import { createStructuredLogger, loadConfig } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
 import {
@@ -88,7 +88,14 @@ import { Redis } from "ioredis";
 import { sql } from "kysely";
 import { z } from "zod";
 import { buildApp } from "./app.js";
-import type { AuthDependencies, AuthSessionContext, AuthUser, CookieCapableReply } from "./routes/auth.js";
+import {
+  getSessionCookieName,
+  getSessionCookieOptions,
+  type AuthDependencies,
+  type AuthSessionContext,
+  type AuthUser,
+  type CookieCapableReply
+} from "./routes/auth.js";
 import {
   deleteSourceMapArtifactAndFile,
   readSourceMapFile,
@@ -97,8 +104,8 @@ import {
 } from "./source-maps/storage.js";
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
+import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 
-const sessionCookieName = "sigmon_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
 type SessionPayload = {
@@ -177,7 +184,9 @@ const googleUserInfoSchema = z.object({
   email_verified: z.boolean()
 });
 
+const logger = createStructuredLogger("api");
 const config = loadConfig();
+const sessionCookieName = getSessionCookieName(config.nodeEnv);
 const db = createDb(config.databaseUrl);
 await migrate(db);
 
@@ -205,13 +214,7 @@ function setSessionCookie(reply: CookieCapableReply, userId: string): void {
     },
     config.sessionSecret
   );
-  reply.setCookie(sessionCookieName, sessionToken, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: config.nodeEnv === "production",
-    path: "/",
-    maxAge: sessionMaxAgeSeconds
-  });
+  reply.setCookie(sessionCookieName, sessionToken, getSessionCookieOptions(config.nodeEnv, sessionMaxAgeSeconds));
 }
 
 function createGoogleAuthorizationUrl(state: string): string {
@@ -538,28 +541,45 @@ const app = await buildApp({
   }
 });
 
-await app.listen({ port: config.port, host: "0.0.0.0" });
-
 let shuttingDown = false;
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  console.info(`Received ${signal}, shutting down API`);
+  logger.info({ signal }, "API shutting down");
 
-  const results = await Promise.allSettled([app.close(), telemetryQueue.close(), redis.quit(), db.destroy()]);
-  for (const result of results) {
-    if (result.status === "rejected") {
-      console.error("API shutdown step failed", result.reason);
-    }
-  }
+  await runShutdownSteps(
+    [
+      { name: "app.close", run: () => app.close() },
+      { name: "telemetryQueue.close", run: () => telemetryQueue.close() },
+      { name: "redis.quit", run: () => redis.quit() },
+      { name: "db.destroy", run: () => db.destroy() }
+    ],
+    10_000,
+    logger
+  );
 }
 
+logger.info({ port: config.port }, "API starting");
+await listenWithCleanup({
+  listen: () => app.listen({ port: config.port, host: "0.0.0.0" }),
+  cleanup: () => shutdown("SIGTERM"),
+  logger
+});
+
 process.once("SIGINT", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void runSignalShutdown({
+    shutdown: () => shutdown(signal),
+    logger,
+    failureMessage: "API shutdown failed"
+  });
 });
 
 process.once("SIGTERM", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void runSignalShutdown({
+    shutdown: () => shutdown(signal),
+    logger,
+    failureMessage: "API shutdown failed"
+  });
 });

@@ -46,4 +46,27 @@ describe("telemetry queue", () => {
 
     expect(client.status).toBe("end");
   });
+
+  it("uses telemetry payload id as the BullMQ job id", async () => {
+    const queue = createTelemetryQueue(redisUrl);
+    const payload: TelemetryJobPayload = {
+      kind: "event",
+      id: "evt_dedupe",
+      projectId: "project_1",
+      environmentId: "environment_1",
+      payload: { name: "dashboard_created" }
+    };
+
+    try {
+      const first = await enqueueTelemetryJob(queue, payload);
+      const second = await enqueueTelemetryJob(queue, payload);
+
+      expect(first.id).toBe("event|evt_dedupe");
+      expect(second.id).toBe("event|evt_dedupe");
+      expect(await queue.count()).toBe(1);
+    } finally {
+      await queue.obliterate({ force: true });
+      await queue.close();
+    }
+  });
 });

@@ -104,11 +104,15 @@ export async function insertEvent(db: Db, input: InsertEventInput): Promise<void
       name: input.name,
       properties: input.properties ?? {}
     })
+    .onConflict((oc) => oc.column("id").doNothing())
     .execute();
 }
 
 export async function insertError(db: Db, input: InsertErrorInput): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("errors").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
     const grouping = await upsertErrorGroupForOccurrence(trx, {
       projectId: input.projectId,
       environmentId: input.environmentId,
@@ -138,6 +142,7 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
         error_group_id: grouping.groupId,
         grouping_fingerprint: grouping.fingerprint
       })
+      .onConflict((oc) => oc.column("id").doNothing())
       .execute();
 
     await refreshErrorGroupStats(trx, grouping.groupId);
@@ -161,6 +166,7 @@ export async function insertLlmCall(db: Db, input: InsertLlmCallInput): Promise<
       input_preview: nullable(input.inputPreview),
       output_preview: nullable(input.outputPreview)
     })
+    .onConflict((oc) => oc.column("id").doNothing())
     .execute();
 }
 
@@ -175,6 +181,7 @@ export async function insertTrace(db: Db, input: InsertTraceInput): Promise<void
       ended_at: nullable(input.endedAt),
       duration_ms: nullable(input.durationMs)
     })
+    .onConflict((oc) => oc.column("id").doNothing())
     .execute();
 }
 
@@ -195,6 +202,7 @@ export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> 
       error: nullable(input.error),
       cost_usd: nullable(input.costUsd)
     })
+    .onConflict((oc) => oc.column("id").doNothing())
     .execute();
 }
 
@@ -209,5 +217,6 @@ export async function insertBreadcrumb(db: Db, input: InsertBreadcrumbInput): Pr
       level: input.level,
       data: input.data ?? {}
     })
+    .onConflict((oc) => oc.column("id").doNothing())
     .execute();
 }

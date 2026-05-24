@@ -1,6 +1,6 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
-import { loadConfig } from "@sigmon/config";
+import { createStructuredLogger, loadConfig } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import { recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups.js";
@@ -44,7 +44,9 @@ import {
 } from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
+import { runShutdownSteps, runSignalShutdown } from "./runtime.js";
 
+const logger = createStructuredLogger("worker");
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
 const connection = new Redis(config.redisUrl, {
@@ -69,7 +71,7 @@ const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]
 );
 
 void backfillErrorGroupsUntilDrained((input) => backfillErrorGroups(db, input), 500).catch((error) => {
-  console.error("Error group backfill failed", error);
+  logger.error({ error }, "Error group backfill failed");
 });
 
 const stopHeartbeat = startHeartbeat({
@@ -174,12 +176,14 @@ const stopBackups = config.backups.enabled
     })
   : async () => {};
 
+logger.info({ queueName: "telemetry" }, "Telemetry worker started");
+
 worker.on("completed", (job) => {
-  console.info(`Processed telemetry job ${job.id ?? "unknown"} (${job.name})`);
+  logger.info({ jobId: job.id ?? "unknown", jobName: job.name }, "Processed telemetry job");
 });
 
 worker.on("failed", (job, error) => {
-  console.error(`Telemetry job ${job?.id ?? "unknown"} failed`, error);
+  logger.error({ jobId: job?.id ?? "unknown", jobName: job?.name, error }, "Telemetry job failed");
   if (!job) {
     return;
   }
@@ -198,12 +202,15 @@ worker.on("failed", (job, error) => {
       error
     })
   ).catch((deadLetterError: unknown) => {
-    console.error(`Failed to record dead-letter job ${job.id ?? "unknown"}`, deadLetterError);
+    logger.error(
+      { jobId: job.id ?? "unknown", jobName: job.name, error: deadLetterError },
+      "Failed to record dead-letter job"
+    );
   });
 });
 
 worker.on("error", (error) => {
-  console.error("Telemetry worker error", error);
+  logger.error({ error }, "Telemetry worker error");
 });
 
 let shuttingDown = false;
@@ -212,28 +219,35 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  console.info(`Received ${signal}, shutting down telemetry worker`);
+  logger.info({ signal }, "Telemetry worker shutting down");
 
-  const stopResults = await Promise.allSettled([
-    stopBackups(),
-    stopAlerts(),
-    stopRetention(),
-    stopHeartbeat(),
-    worker.close()
-  ]);
-  const resourceResults = await Promise.allSettled([connection.quit(), db.destroy()]);
-  const results = [...stopResults, ...resourceResults];
-  for (const result of results) {
-    if (result.status === "rejected") {
-      console.error("Telemetry worker shutdown step failed", result.reason);
-    }
-  }
+  await runShutdownSteps(
+    [
+      { name: "stopBackups", run: () => stopBackups() },
+      { name: "stopAlerts", run: () => stopAlerts() },
+      { name: "stopRetention", run: () => stopRetention() },
+      { name: "stopHeartbeat", run: () => stopHeartbeat() },
+      { name: "worker.close", run: () => worker.close() },
+      { name: "connection.quit", run: () => connection.quit() },
+      { name: "db.destroy", run: () => db.destroy() }
+    ],
+    10_000,
+    logger
+  );
 }
 
 process.once("SIGINT", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void runSignalShutdown({
+    shutdown: () => shutdown(signal),
+    logger,
+    failureMessage: "Telemetry worker shutdown failed"
+  });
 });
 
 process.once("SIGTERM", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0));
+  void runSignalShutdown({
+    shutdown: () => shutdown(signal),
+    logger,
+    failureMessage: "Telemetry worker shutdown failed"
+  });
 });

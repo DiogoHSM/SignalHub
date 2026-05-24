@@ -74,6 +74,7 @@ import {
   upsertHeartbeat,
   withRetentionLock
 } from "../src/repositories/system.js";
+import { __test as systemRepositoryTest } from "../src/repositories/system.js";
 import { getBackupStatus, recordBackupRun, withBackupLock } from "../src/repositories/backups.js";
 import {
   backfillErrorGroups,
@@ -215,7 +216,7 @@ describe("repositories", () => {
     await withDb(async (db) => {
       await migrate(db);
 
-      await sql`select id, status, trigger, filename, s3_key from backup_runs limit 0`.execute(db);
+      await sql`select id, status, trigger, filename, checksum_sha256, s3_key from backup_runs limit 0`.execute(db);
     });
   });
 
@@ -619,6 +620,95 @@ describe("repositories", () => {
         level: "info",
         data: { from: "/cart", to: "/checkout" }
       });
+    });
+  });
+
+  it("ignores duplicate event ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Events" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "evt_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        name: "retry.event"
+      };
+
+      try {
+        await insertEvent(db, input);
+        await insertEvent(db, input);
+
+        const rows = await db.selectFrom("events").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("events").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
+  it("does not increment error group counters for duplicate error ids", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Errors" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "err_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        message: "Retry failed",
+        severity: "error"
+      };
+
+      try {
+        await insertError(db, input);
+        await insertError(db, input);
+
+        const errors = await db.selectFrom("errors").select("id").where("id", "=", input.id).execute();
+        expect(errors).toHaveLength(1);
+        const group = await db
+          .selectFrom("error_groups")
+          .select(["occurrence_count"])
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .executeTakeFirstOrThrow();
+        expect(Number(group.occurrence_count)).toBe(1);
+      } finally {
+        await db.deleteFrom("errors").where("id", "=", input.id).execute();
+        await db.deleteFrom("error_groups").where("project_id", "=", project.id).execute();
+      }
+    });
+  });
+
+  it("ignores duplicate trace ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Traces" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "trc_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        name: "retry.trace",
+        status: "ok",
+        startedAt: new Date("2026-05-23T12:00:00.000Z")
+      };
+
+      try {
+        await insertTrace(db, input);
+        await insertTrace(db, input);
+
+        const rows = await db.selectFrom("traces").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("traces").where("id", "=", input.id).execute();
+      }
     });
   });
 
@@ -1652,6 +1742,7 @@ describe("repositories", () => {
         filename: "sigmon-20260506T010000Z.dump",
         localPath: "/var/lib/sigmon/backups/sigmon-20260506T010000Z.dump",
         sizeBytes: null,
+        checksumSha256: null,
         s3Bucket: null,
         s3Key: null,
         errorMessage: "pg_dump failed"
@@ -1664,6 +1755,7 @@ describe("repositories", () => {
         filename: "sigmon-20260506T020000Z.dump",
         localPath: "/var/lib/sigmon/backups/sigmon-20260506T020000Z.dump",
         sizeBytes: 1234,
+        checksumSha256: "a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86",
         s3Bucket: "sigmon-backups",
         s3Key: "prod/sigmon/sigmon-20260506T020000Z.dump",
         errorMessage: null
@@ -1672,9 +1764,19 @@ describe("repositories", () => {
       const status = await getBackupStatus(db);
 
       expect(failed.status).toBe("failed");
+      expect(failed.checksumSha256).toBeNull();
       expect(success.status).toBe("success");
-      expect(status.latestSuccess).toMatchObject({ id: success.id, sizeBytes: 1234 });
-      expect(status.latestFailure).toMatchObject({ id: failed.id, errorMessage: "pg_dump failed" });
+      expect(success.checksumSha256).toBe("a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86");
+      expect(status.latestSuccess).toMatchObject({
+        id: success.id,
+        sizeBytes: 1234,
+        checksumSha256: "a92e0ec81286ff0f9ccf5982a22a83a0b70082446d5fd7af0eb9a3ceacd16c86"
+      });
+      expect(status.latestFailure).toMatchObject({
+        id: failed.id,
+        checksumSha256: null,
+        errorMessage: "pg_dump failed"
+      });
     });
   });
 
@@ -2125,7 +2227,7 @@ describe("repositories", () => {
     });
   });
 
-  it("rolls back group updates when grouped raw error insertion fails", async () => {
+  it("ignores duplicate grouped raw error ids without updating group stats", async () => {
     await withDb(async (db) => {
       await migrate(db);
       await sql`insert into projects (id, name) values ('prj_grouping_rollback', 'Grouping Rollback')`.execute(db);
@@ -2147,20 +2249,18 @@ describe("repositories", () => {
         release: "1.0.0"
       });
 
-      await expect(
-        insertError(db, {
-          id: "err_grouping_rollback",
-          projectId: "prj_grouping_rollback",
-          environmentId: "env_grouping_rollback",
-          timestamp: new Date("2026-05-10T12:10:00.000Z"),
-          receivedAt: new Date("2026-05-10T12:10:01.000Z"),
-          message: "Checkout failed for order 999999",
-          type: "CheckoutError",
-          severity: "critical",
-          stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
-          release: "1.0.1"
-        })
-      ).rejects.toThrow();
+      await insertError(db, {
+        id: "err_grouping_rollback",
+        projectId: "prj_grouping_rollback",
+        environmentId: "env_grouping_rollback",
+        timestamp: new Date("2026-05-10T12:10:00.000Z"),
+        receivedAt: new Date("2026-05-10T12:10:01.000Z"),
+        message: "Checkout failed for order 999999",
+        type: "CheckoutError",
+        severity: "critical",
+        stack: "CheckoutError: failed\n    at pay (/app/pay.ts:10:2)",
+        release: "1.0.1"
+      });
 
       const groups = await listErrorGroups(db, {
         projectId: "prj_grouping_rollback",
@@ -2785,6 +2885,15 @@ describe("repositories", () => {
       await expect(listLlmCalls(db, filters)).resolves.toEqual([
         expect.objectContaining({ id: "llm_fresh_retention" })
       ]);
+    });
+  });
+
+  it("rejects retention table names outside the telemetry allowlist", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await expect(
+        systemRepositoryTest.deleteExpiredBatchesFromTable(db, "users", new Date("2026-01-01T00:00:00.000Z"), 10, 1)
+      ).rejects.toThrow("retention table is not allowed: users");
     });
   });
 

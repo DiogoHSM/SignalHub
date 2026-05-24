@@ -8,13 +8,20 @@
 - API keys are only shown once at creation time; persisted records keep a prefix and hash.
 - Worker sanitization runs before telemetry persistence.
 - The API must not return ingestion success unless the queue accepts the job.
+- Telemetry retries must remain idempotent across queue delivery and database persistence.
+- Webhook notification targets must reject local, private, link-local, multicast, loopback, and metadata networks in every environment.
 - `SESSION_SECRET`, `API_KEY_PEPPER`, and `BOOTSTRAP_ADMIN_PASSWORD` must be at least 32 characters outside tests.
+- Production `POSTGRES_PASSWORD` must be set and must not use the local-only Compose placeholder.
+- API and worker logs must be structured and must redact secret-bearing fields.
+- API startup failures must log and run cleanup; shutdown must stay ordered and bounded.
+- Production human sessions must use the strongest compatible cookie settings.
 - Google OAuth is optional. It can authenticate existing, unarchived local users with verified Google email addresses, but it is not open signup.
 - Logs, ClickHouse, product object storage, SaaS workspaces, billing, invites, and full RBAC remain outside the current self-hosted MVP scope.
 - The JavaScript SDK is the only implemented SDK; additional SDKs are deferred.
 - Root-level `SECRETS.md` is ignored and must not be committed.
 - `.claude/docs/SECRETS.md` may be committed only with sanitized variable names, descriptions, and example-safe values.
 - Docker Compose is the only supported production install path; Kubernetes, Helm, and systemd are deferred.
+- The supported container runtime must remain non-root and use `tini` as PID 1.
 - The automated release smoke harness validates the Docker Compose install path; it does not introduce Kubernetes, Helm, systemd, hosted SaaS, or additional production deployment support.
 - GitHub Actions CI is a verification gate only; it does not publish images, create hosted environments, or expand the supported deployment surface beyond Docker Compose.
 - MicroERP is Diogo's personal validation target and should be treated as a real integration test target for SignalMonitor, not as part of the SignalMonitor product or repository.

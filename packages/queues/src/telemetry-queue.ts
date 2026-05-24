@@ -34,5 +34,6 @@ export function createTelemetryQueue(redisUrl: string): TelemetryQueue {
 }
 
 export async function enqueueTelemetryJob(queue: TelemetryQueue, payload: TelemetryJobPayload) {
-  return queue.add(payload.kind, payload);
+  // BullMQ reserves ":" in custom IDs, so keep the kind/id pair deterministic with a safe delimiter.
+  return queue.add(payload.kind, payload, { jobId: `${payload.kind}|${payload.id}` });
 }

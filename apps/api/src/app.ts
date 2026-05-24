@@ -2,7 +2,9 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
-import Fastify from "fastify";
+import { redactLogFields } from "@sigmon/config";
+import Fastify, { type FastifyError, type FastifyHttpOptions } from "fastify";
+import type { Server } from "node:http";
 import { registerRequestContext } from "./plugins/request-context.js";
 import { registerAlertRoutes, type AlertRouteDependencies } from "./routes/alerts.js";
 import {
@@ -42,8 +44,67 @@ export type BuildAppOptions = {
   corsOrigin?: string | string[];
 };
 
+function serializeFastifyError(error: FastifyError): { type: string; message: string; stack: string; [key: string]: unknown } {
+  const redacted = redactLogFields(error) as Record<string, unknown>;
+
+  return {
+    ...redacted,
+    type: typeof redacted.name === "string" ? redacted.name : error.name,
+    message: typeof redacted.message === "string" ? redacted.message : "",
+    stack: typeof redacted.stack === "string" ? redacted.stack : ""
+  };
+}
+
+function getErrorStatusCode(error: unknown): number {
+  if (typeof error !== "object" || error === null || !("statusCode" in error)) {
+    return 500;
+  }
+
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return typeof statusCode === "number" && statusCode >= 400 ? statusCode : 500;
+}
+
 export async function buildApp(options: BuildAppOptions) {
-  const app = Fastify({ logger: false });
+  const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
+  const fastifyOptions: FastifyHttpOptions<Server> = {
+    logger: {
+      level: nodeEnv === "test" ? "silent" : "info",
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          "req.headers['x-api-key']",
+          "req.headers['sigmon-source-map-token']",
+          "res.headers['set-cookie']"
+        ],
+        censor: "[REDACTED]"
+      },
+      serializers: {
+        err: serializeFastifyError
+      }
+    }
+  };
+  const app = Fastify(fastifyOptions);
+
+  app.addHook("onRequest", async (_request, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header(
+      "Content-Security-Policy",
+      "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    );
+    if (nodeEnv === "production") {
+      reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+  });
+
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error({ err: error }, "Unhandled API error");
+    return reply.status(getErrorStatusCode(error)).send({
+      error: "internal_server_error"
+    });
+  });
 
   await app.register(cors, {
     origin: options.corsOrigin ?? false,
@@ -64,7 +125,8 @@ export async function buildApp(options: BuildAppOptions) {
   registerHealthRoutes(app, options.readiness);
   registerAuthRoutes(app, {
     auth: options.auth,
-    googleOAuthEnabled: options.googleOAuthEnabled
+    googleOAuthEnabled: options.googleOAuthEnabled,
+    nodeEnv
   });
   await registerConsoleRoutes(app, {
     enabled: options.console?.enabled ?? false,

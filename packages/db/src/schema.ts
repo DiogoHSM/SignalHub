@@ -263,6 +263,7 @@ export interface BackupRunsTable {
   filename: string;
   local_path: string;
   size_bytes: ColumnType<string | null, string | number | null | undefined, string | number | null>;
+  checksum_sha256: string | null;
   s3_bucket: string | null;
   s3_key: string | null;
   error_message: string | null;

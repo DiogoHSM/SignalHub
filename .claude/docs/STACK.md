@@ -14,6 +14,7 @@
 - `@fastify/multipart` for admin source-map artifact uploads.
 - `@jridgewell/trace-mapping` and `fflate` for source-map frame resolution and ZIP bundle extraction.
 - Optional Google OAuth uses Google authorization-code flow through Node `fetch` and links only existing local users.
+- Baseline security headers are set in the Fastify app hook, including production HSTS.
 
 ## Data and Queue
 
@@ -21,12 +22,15 @@
 - Kysely for SQL access.
 - Redis 7 for queue backing.
 - BullMQ for durable ingestion queueing.
+- Deterministic BullMQ job IDs and idempotent repository writes protect telemetry retries from duplicate persistence.
 
 ## Security Libraries
 
 - Argon2 for password hashing.
 - HMAC session signing through Node `crypto`.
 - API key generation and verification in `@sigmon/telemetry`.
+- Shared webhook target validation in `@sigmon/config` blocks unsafe network ranges.
+- Backup SHA-256 sidecars use Node `crypto`.
 
 ## Package Layout
 
@@ -34,7 +38,7 @@
 - `apps/worker`: telemetry worker process.
 - `packages/cli`: Node-based SignalMonitor CLI, currently focused on source-map CI uploads.
 - `packages/sdk`: TypeScript SDK for sending telemetry to the existing ingestion API.
-- The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb` and optional browser breadcrumb helpers.
+- The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb`, optional browser breadcrumb helpers, and explicit `@sigmon/sdk/browser` and `@sigmon/sdk/node` entrypoints.
 - `packages/config`: environment parsing and validation.
 - `packages/db`: Kysely client, schema, migrations, repositories.
 - `packages/queues`: BullMQ queue creation and enqueue helpers.
@@ -57,6 +61,13 @@
 - `pnpm smoke:compose`: run the local-first Docker Compose release smoke harness.
 - `pnpm test`: run Vitest.
 - `pnpm build`: build all workspace packages.
+
+## Container Runtime
+
+- Docker image base: `node:22-alpine`.
+- Runtime packages: `postgresql16-client`, `curl`, and `tini`.
+- Runtime user: non-root `sigmon`.
+- Docker Compose healthchecks cover Postgres, Redis, API, and worker.
 
 ## Console Stack
 

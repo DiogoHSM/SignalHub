@@ -67,4 +67,7 @@ Operational rules:
 - Source-map retention deletes local source-map files, artifact metadata, and cached stack resolutions. It does not configure object-storage lifecycle policies.
 - `RETENTION_BREADCRUMBS_DAYS` is not a secret. Breadcrumb payloads can still contain sensitive application data if callers misuse the API, so SDK/browser helpers sanitize aggressively and documentation forbids secrets, form values, bodies, cookies, and headers.
 - Production startup and operator doctor checks reject placeholder values for required production secrets.
+- Production doctor checks also fail when `POSTGRES_PASSWORD` is missing or still uses the local-only Compose placeholder.
 - Doctor output redacts secret values and reports only variable names, status, and actionable remediation.
+- Browser ingestion API keys are expected to be public but must remain project/environment scoped. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
+- Production session cookies use `__Host-sigmon_session` with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`.

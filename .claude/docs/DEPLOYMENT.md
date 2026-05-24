@@ -59,6 +59,8 @@ pnpm run doctor -- --compose --api-url http://localhost:3000
 
 Results are reported as pass, warn, or fail. Failures produce a non-zero exit code; warnings do not. The checks validate environment shape, placeholder secrets, local prerequisites, Compose rendering, service reachability, and API health without mutating data or revealing secret values.
 
+In production mode, doctor rejects missing or local-only `POSTGRES_PASSWORD` values, including the Compose fallback placeholder. It also rejects placeholder production secrets.
+
 Use `pnpm run doctor` to invoke the project script. `pnpm doctor` is pnpm's built-in diagnostic and does not run SignalMonitor's operator diagnostics.
 
 For release-readiness checks, run `pnpm smoke:compose` from a clean checkout after dependencies are installed. The command uses disposable Docker Compose resources, generates local-only secrets, verifies the critical install path, and cleans up by default. It is a validation harness, not a production runtime service.
@@ -75,6 +77,8 @@ The CI smoke job validates the Docker Compose install path with generated local-
 - `redis`: Redis 7 with append-only persistence, bound to `127.0.0.1:${REDIS_PORT:-6379}`.
 - `api`: Fastify API on host port `3000`.
 - `worker`: BullMQ telemetry worker.
+
+The API and worker containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. Compose defines healthchecks for all four services.
 
 ## Retention
 
@@ -98,7 +102,7 @@ Source-map artifact retention is local-first and worker-owned. Set `SOURCE_MAPS_
 
 ## Backups and Restore
 
-Postgres logical backups are built into the worker. Set `BACKUPS_ENABLED=true`, `BACKUPS_INTERVAL_HOURS`, `BACKUPS_LOCAL_DIR`, and `BACKUPS_RETENTION_DAYS` in `.env` to control scheduled backups and local pruning. The Compose worker mounts `backup_data` at `/var/lib/sigmon/backups`, which matches the default `BACKUPS_LOCAL_DIR`.
+Postgres logical backups are built into the worker. Set `BACKUPS_ENABLED=true`, `BACKUPS_INTERVAL_HOURS`, `BACKUPS_LOCAL_DIR`, and `BACKUPS_RETENTION_DAYS` in `.env` to control scheduled backups and local pruning. The Compose worker mounts `backup_data` at `/var/lib/sigmon/backups`, which matches the default `BACKUPS_LOCAL_DIR`. Each backup writes a SHA-256 sidecar, and restore verifies the sidecar when present.
 
 The image includes `postgresql16-client` so `pg_dump` and `pg_restore` are available for backup scripts. Manual backups can be run with:
 
@@ -160,6 +164,7 @@ pnpm test
 pnpm build
 docker compose config --quiet
 pnpm run doctor
+pnpm smoke:compose
 ```
 
 ## Console Deployment

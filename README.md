@@ -22,6 +22,7 @@ The intended public website and domain is `sigmon.app`; the future deployed app 
 - Worker-owned simple alerts with internal history and optional webhook delivery.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 - Read-only operator doctor checks for local and Docker Compose installs.
+- Critical runtime hardening for webhook targets, idempotent ingestion retries, structured redacted logs, checksum-verified backups, non-root containers, security headers, and production session cookies.
 
 SignalMonitor does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, product object storage, or stored log telemetry.
 
@@ -62,6 +63,18 @@ Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operato
 
 Retention, alert scheduler, backup scheduler, source-map storage, and source-map retention settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
 
+## Runtime Hardening
+
+Webhook notification URLs are rejected in every environment when they target local, private, link-local, multicast, loopback, or cloud metadata networks. In production, webhook delivery uses the resolved safe address to avoid DNS rebinding between validation and fetch.
+
+Telemetry queue retries are idempotent. Queue jobs use deterministic IDs derived from telemetry payload IDs, and database writes ignore duplicate telemetry IDs.
+
+The API and worker use structured logs with redaction for secret-bearing fields. Unhandled API errors return sanitized JSON while the server logs the redacted error. API startup failures log and run cleanup; API and worker shutdown is ordered and bounded.
+
+Docker images run as the non-root `sigmon` user under `tini`, and Docker Compose defines healthchecks for Postgres, Redis, API, and worker services. Production doctor checks reject local-only password placeholders.
+
+HTTP security headers are set on API responses. In production, the human session cookie uses the `__Host-sigmon_session` name with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`.
+
 ## Operational Safety
 
 The worker runs telemetry retention by default. Retention environment variables control scheduled deletion of old telemetry with bounded delete statements; each run can process a limited number of batches and later scheduled runs continue draining older rows.
@@ -87,7 +100,7 @@ The console `System` mode is available to logged-in users. It shows API, worker,
 
 The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs `pg_dump` in custom format and writes files named like `sigmon-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`.
 
-Docker Compose mounts the `backup_data` volume at `/var/lib/sigmon/backups` in the worker container. Local retention deletes old local backup files according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files remain on local storage and, optionally, remote object storage.
+Docker Compose mounts the `backup_data` volume at `/var/lib/sigmon/backups` in the worker container. Each dump gets a SHA-256 sidecar file, and restore verifies the sidecar when present before running `pg_restore`. Local retention deletes old local backup files and sidecars according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files and sidecars remain on local storage and, optionally, remote object storage.
 
 Run a manual backup with:
 
@@ -378,6 +391,34 @@ Copy the one-time `apiKey.secret` from the response. The stored record keeps onl
 ## Ingestion Examples
 
 All ingestion endpoints require `Authorization: Bearer sh_YOUR_API_KEY_SECRET`. Successful requests return `202 Accepted` with `{ "accepted": true, "id": "..." }`.
+
+### SDK
+
+Browser apps should import the browser entrypoint and use a scoped browser ingestion key. Browser ingestion keys are expected to be public, so scope them to the intended project and environment.
+
+```ts
+import { createSignalMonitorClient } from "@sigmon/sdk/browser";
+
+const signalMonitor = createSignalMonitorClient({
+  endpoint: "https://sigmon.example.com",
+  apiKey: "sh_BROWSER_INGESTION_KEY"
+});
+
+signalMonitor.track("checkout.started", {
+  plan: "team"
+});
+```
+
+Server-side code should import the node entrypoint. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
+
+```ts
+import { createSignalMonitorClient } from "@sigmon/sdk/node";
+
+const signalMonitor = createSignalMonitorClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://sigmon.example.com",
+  apiKey: process.env.SIGMON_SERVER_INGESTION_KEY ?? ""
+});
+```
 
 ### Event
 

@@ -8,6 +8,15 @@ type SystemDb = Db | Transaction<Database>;
 
 const retentionAdvisoryLockId = 927380402914;
 const defaultMaxBatchesPerTable = 25;
+const retentionTables = ["events", "errors", "traces", "spans", "llm_calls", "breadcrumbs"] as const;
+type RetentionTable = (typeof retentionTables)[number];
+const retentionTableSet = new Set<string>(retentionTables);
+
+function assertRetentionTable(tableName: string): asserts tableName is RetentionTable {
+  if (!retentionTableSet.has(tableName)) {
+    throw new Error(`retention table is not allowed: ${tableName}`);
+  }
+}
 
 export type RetentionPolicy = {
   eventsDays: number;
@@ -143,6 +152,8 @@ export async function getHeartbeat(
 }
 
 async function deleteExpiredFromTable(db: SystemDb, tableName: string, cutoff: Date, batchSize: number): Promise<number> {
+  assertRetentionTable(tableName);
+
   const result = await sql<{ deleted_count: string }>`
     with deleted_rows as (
       delete from ${sql.table(tableName)}
@@ -175,6 +186,8 @@ async function deleteExpiredBatchesFromTable(
   }
   return total;
 }
+
+export const __test = { deleteExpiredBatchesFromTable };
 
 export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExecutionOptions): Promise<RetentionDeletedCounts> {
   const cutoff = (days: number) => new Date(options.now.getTime() - days * 24 * 60 * 60 * 1000);

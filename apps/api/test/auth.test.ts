@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
+import { getSessionCookieName, getSessionCookieOptions } from "../src/routes/auth.js";
 
 let app: FastifyInstance | undefined;
 
@@ -10,6 +11,59 @@ afterEach(async () => {
 });
 
 describe("auth routes", () => {
+  it("uses a host-prefixed session cookie name only in production", () => {
+    expect(getSessionCookieName("production")).toBe("__Host-sigmon_session");
+    expect(getSessionCookieName("development")).toBe("sigmon_session");
+    expect(getSessionCookieName("test")).toBe("sigmon_session");
+  });
+
+  it("uses secure root-scoped session cookie options only in production", () => {
+    expect(getSessionCookieOptions("production", 123)).toEqual({
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge: 123
+    });
+    expect(getSessionCookieOptions("development", 123)).toEqual({
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+      path: "/",
+      maxAge: 123
+    });
+  });
+
+  it("uses host-prefixed secure session cookies in production", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      nodeEnv: "production",
+      auth: {
+        login: async (_email, _password, { reply }) => {
+          reply.setCookie("__Host-sigmon_session", "session_1", {
+            httpOnly: true,
+            sameSite: "lax",
+            secure: true,
+            path: "/"
+          });
+          return { id: "usr_1", email: "admin@example.com", isAdmin: true };
+        },
+        findSessionUser: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin@example.com", password: "password" }
+    });
+
+    expect(response.headers["set-cookie"]).toContain("__Host-sigmon_session=");
+    expect(response.headers["set-cookie"]).toContain("Secure");
+    expect(response.headers["set-cookie"]).toContain("HttpOnly");
+    expect(response.headers["set-cookie"]).toContain("Path=/");
+  });
+
   it("logs in with a session-capable auth dependency", async () => {
     app = await buildApp({
       readiness: async () => ({ postgres: true, redis: true }),
@@ -105,6 +159,29 @@ describe("auth routes", () => {
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toMatch(/^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?state=/);
     expect(response.headers["set-cookie"]).toContain("sigmon_oauth_state=");
+  });
+
+  it("uses secure OAuth state cookies in production", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      nodeEnv: "production",
+      googleOAuthEnabled: true,
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null,
+        googleOAuth: {
+          createAuthorizationUrl: (state) => `https://accounts.google.com/o/oauth2/v2/auth?state=${state}`,
+          complete: async () => null
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/auth/google" });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers["set-cookie"]).toContain("sigmon_oauth_state=");
+    expect(response.headers["set-cookie"]).toContain("Secure");
+    expect(response.headers["set-cookie"]).toContain("Path=/auth/google/callback");
   });
 
   it("rejects Google OAuth callbacks with invalid state", async () => {
