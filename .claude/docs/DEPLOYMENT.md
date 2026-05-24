@@ -69,7 +69,14 @@ For release-readiness checks, run `pnpm smoke:compose` from a clean checkout aft
 
 GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
 
-The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. It does not publish images, create releases, or deploy SignalMonitor.
+The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. It does not publish images or create releases.
+
+On pushes to `main`, the `Deploy EasyPanel` job runs only after the test, build, Compose config, and Compose smoke jobs pass. It calls EasyPanel deploy hooks from GitHub Actions secrets:
+
+- `EASYPANEL_API_DEPLOY_URL` triggers the `api` service deploy. The older `EASYPANEL_DEPLOY_URL` name is accepted as an API-only alias.
+- `EASYPANEL_WORKER_DEPLOY_URL` triggers the `worker` service deploy.
+
+Postgres and Redis do not use repository-triggered deploy hooks. They are stateful EasyPanel template services and should be managed directly in EasyPanel.
 
 ## Services
 

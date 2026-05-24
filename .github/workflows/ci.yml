@@ -117,3 +117,28 @@ jobs:
       - name: Cleanup smoke resources
         if: always()
         run: docker compose -p sigmon_ci_smoke down -v || true
+
+  deploy-easypanel:
+    name: Deploy EasyPanel
+    runs-on: ubuntu-latest
+    needs: [test, build, compose-config, smoke-compose]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      EASYPANEL_API_DEPLOY_URL: ${{ secrets.EASYPANEL_API_DEPLOY_URL || secrets.EASYPANEL_DEPLOY_URL }}
+      EASYPANEL_WORKER_DEPLOY_URL: ${{ secrets.EASYPANEL_WORKER_DEPLOY_URL }}
+    steps:
+      - name: Trigger EasyPanel deploy hooks
+        run: |
+          set -euo pipefail
+
+          if [ -n "${EASYPANEL_API_DEPLOY_URL}" ]; then
+            curl --fail --silent --show-error --request POST "${EASYPANEL_API_DEPLOY_URL}"
+          else
+            echo "::notice::No EasyPanel API deploy URL configured; skipping API deploy."
+          fi
+
+          if [ -n "${EASYPANEL_WORKER_DEPLOY_URL}" ]; then
+            curl --fail --silent --show-error --request POST "${EASYPANEL_WORKER_DEPLOY_URL}"
+          else
+            echo "::notice::No EasyPanel worker deploy URL configured; skipping worker deploy."
+          fi
