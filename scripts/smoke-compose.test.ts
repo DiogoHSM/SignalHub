@@ -295,6 +295,15 @@ describe("smoke compose fixtures", () => {
     expect(payloads.breadcrumb.message).toBe("Phase 6B selected shipping method");
   });
 
+  it("keeps payload timestamps inside the default entity query window", () => {
+    const createdAt = new Date("2026-05-24T21:17:00.000Z");
+    const payloads = createSmokePayloads("phase6b", createdAt);
+    const sevenDaysAgo = createdAt.getTime() - 7 * 24 * 60 * 60 * 1000;
+
+    expect(new Date(payloads.event.timestamp).getTime()).toBeGreaterThan(sevenDaysAgo);
+    expect(new Date(payloads.breadcrumb.timestamp).getTime()).toBeLessThanOrEqual(createdAt.getTime());
+  });
+
   it("creates traces accepted by the ingestion schema", () => {
     expect(() => tracePayloadSchema.parse(createSmokePayloads("phase6b").trace)).not.toThrow();
   });
