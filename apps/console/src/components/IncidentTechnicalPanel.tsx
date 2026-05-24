@@ -16,7 +16,7 @@ export function IncidentTechnicalPanel({ incident }: { incident: ErrorGroupIncid
       : "Source map: none";
 
   return (
-    <section className="incident-technical-panel" aria-label="Incident technical details">
+    <section className="incident-technical-panel" aria-label="Technical details">
       <h3>Primary occurrence</h3>
       <div className="incident-detail-grid">
         <span>ID {occurrence.id}</span>

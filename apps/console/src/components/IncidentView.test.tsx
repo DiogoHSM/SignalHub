@@ -164,6 +164,26 @@ describe("IncidentView", () => {
     expect(within(screen.getByLabelText("Nearby context timeline")).getByText("openai gpt-4.1-mini")).toBeInTheDocument();
   });
 
+  it("exposes the split investigation layout with readable technical and operational areas", async () => {
+    const api = clientWithIncident();
+    const { container } = render(
+      <IncidentView
+        client={api}
+        environmentId="env_1"
+        groupId="egrp_checkout"
+        onBack={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    expect(await screen.findByRole("heading", { name: "Checkout failed" })).toBeInTheDocument();
+
+    const split = container.querySelector(".incident-split");
+    expect(split).toBeInTheDocument();
+    expect(within(split as HTMLElement).getByRole("region", { name: "Technical details" })).toBeInTheDocument();
+    expect(within(split as HTMLElement).getByRole("region", { name: "Operational context" })).toBeInTheDocument();
+  });
+
   it("saves triage status and priority with the active scope", async () => {
     const api = clientWithIncident();
 

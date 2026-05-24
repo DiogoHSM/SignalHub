@@ -63,7 +63,7 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
           <IncidentSummary incident={readyIncident} />
           <div className="incident-split">
             <IncidentTechnicalPanel incident={readyIncident} />
-            <div className="incident-column">
+            <div className="incident-column" role="region" aria-label="Operational context">
               <IncidentTriagePanel
                 client={client}
                 environmentId={environmentId}
