@@ -78,6 +78,8 @@ export type ErrorRecord = {
 
 export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
 
+export type ErrorGroupPriority = "urgent" | "high" | "normal" | "low";
+
 export type ErrorGroupRecord = {
   id: string;
   projectId: string;
@@ -88,6 +90,7 @@ export type ErrorGroupRecord = {
   topStackFrame: string | null;
   severity: string;
   status: ErrorGroupStatus;
+  priority?: ErrorGroupPriority | null;
   firstSeenAt: string;
   lastSeenAt: string;
   lastRegressedAt: string | null;
@@ -116,10 +119,59 @@ export type ErrorGroupQuery = {
   limit?: number;
 };
 
+export type IncidentTimelineKind = "breadcrumb" | "event" | "error" | "trace" | "span" | "llm";
+
+export type IncidentTimelineConfidence = "strong" | "nearby";
+
+export type IncidentTimelineItem = {
+  id: string;
+  kind: IncidentTimelineKind;
+  confidence: IncidentTimelineConfidence;
+  timestamp: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  release: string | null;
+  title: string;
+  level: string | null;
+  data: unknown;
+};
+
+export type ErrorGroupIncident = {
+  group: ErrorGroupRecord;
+  primaryOccurrence: ErrorRecord;
+  priority: ErrorGroupPriority | null;
+  suggestedPriority: ErrorGroupPriority;
+  sourceMapResolution: { status: "cached"; frameCount: number } | { status: "none" };
+  stronglyRelated: { items: IncidentTimelineItem[]; truncated: boolean };
+  nearbyContext: { items: IncidentTimelineItem[]; truncated: boolean };
+  related: {
+    traceId: string | null;
+    sessionId: string | null;
+    userId: string | null;
+    tenantId: string | null;
+    release: string | null;
+  };
+};
+
+export type ErrorGroupIncidentQuery = {
+  projectId: string;
+  environmentId: string;
+  errorId?: string;
+};
+
 export type UpdateErrorGroupStatusInput = {
   projectId: string;
   environmentId: string;
   status: ErrorGroupStatus;
+};
+
+export type UpdateErrorGroupTriageInput = {
+  projectId: string;
+  environmentId: string;
+  status?: ErrorGroupStatus;
+  priority?: ErrorGroupPriority | null;
 };
 
 export type SourceMapArtifact = {

@@ -616,6 +616,61 @@ describe("createApiClient", () => {
     );
   });
 
+  it("builds error group incident query URLs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { group: { id: "egrp/1" } } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getErrorGroupIncident("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      errorId: "err/1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/incidents/error-groups/egrp%2F1?project_id=prj%2F1&environment_id=env+1&error_id=err%2F1",
+      expect.objectContaining({ credentials: "include" })
+    );
+  });
+
+  it("sends error group triage updates", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "egrp/1", priority: "urgent" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").updateErrorGroupTriage("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      status: "investigating",
+      priority: "urgent"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/error-groups/egrp%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "investigating", priority: "urgent" })
+      })
+    );
+  });
+
+  it("sends nullable error group priority updates", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "egrp/1", priority: null } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").updateErrorGroupTriage("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      priority: null
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/error-groups/egrp%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ priority: null })
+      })
+    );
+  });
+
   it("does not encode event name for error queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);
