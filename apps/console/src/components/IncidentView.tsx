@@ -7,9 +7,9 @@ import { IncidentTimeline } from "./IncidentTimeline";
 import { IncidentTriagePanel } from "./IncidentTriagePanel";
 
 type LoadState =
-  | { status: "loading" }
-  | { status: "ready"; incident: ErrorGroupIncident }
-  | { status: "unavailable" };
+  | { status: "loading"; key: string }
+  | { status: "ready"; key: string; incident: ErrorGroupIncident }
+  | { status: "unavailable"; key: string };
 
 type Props = {
   client: ApiClient;
@@ -21,19 +21,23 @@ type Props = {
 };
 
 export function IncidentView({ client, groupId, projectId, environmentId, errorId, onBack }: Props) {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const incidentKey = `${projectId}:${environmentId}:${groupId}:${errorId ?? ""}`;
+  const [state, setState] = useState<LoadState>({ status: "loading", key: incidentKey });
+  const isCurrentState = state.key === incidentKey;
+  const readyIncident = state.status === "ready" && isCurrentState ? state.incident : null;
 
   useEffect(() => {
     let cancelled = false;
-    setState({ status: "loading" });
+    const requestKey = `${projectId}:${environmentId}:${groupId}:${errorId ?? ""}`;
+    setState({ status: "loading", key: requestKey });
     void client
       .getErrorGroupIncident(groupId, { projectId, environmentId, errorId })
       .then(
         ({ data }) => {
-          if (!cancelled) setState({ status: "ready", incident: data });
+          if (!cancelled) setState({ status: "ready", key: requestKey, incident: data });
         },
         () => {
-          if (!cancelled) setState({ status: "unavailable" });
+          if (!cancelled) setState({ status: "unavailable", key: requestKey });
         }
       );
     return () => {
@@ -49,25 +53,25 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
         </button>
         <div>
           <p className="eyebrow">Incident</p>
-          {state.status === "ready" ? <h2>{state.incident.group.message}</h2> : null}
-          {state.status === "loading" ? <p className="muted-text">Loading incident</p> : null}
-          {state.status === "unavailable" ? <p className="muted-text">Incident unavailable</p> : null}
+          {readyIncident ? <h2>{readyIncident.group.message}</h2> : null}
+          {state.status === "loading" || !isCurrentState ? <p className="muted-text">Loading incident</p> : null}
+          {state.status === "unavailable" && isCurrentState ? <p className="muted-text">Incident unavailable</p> : null}
         </div>
       </header>
-      {state.status === "ready" ? (
+      {readyIncident ? (
         <>
-          <IncidentSummary incident={state.incident} />
+          <IncidentSummary incident={readyIncident} />
           <div className="incident-split">
-            <IncidentTechnicalPanel incident={state.incident} />
+            <IncidentTechnicalPanel incident={readyIncident} />
             <div className="incident-column">
               <IncidentTriagePanel
                 client={client}
                 environmentId={environmentId}
-                incident={state.incident}
-                onUpdated={(incident) => setState({ status: "ready", incident })}
+                incident={readyIncident}
+                onUpdated={(incident) => setState({ status: "ready", key: incidentKey, incident })}
                 projectId={projectId}
               />
-              <IncidentTimeline incident={state.incident} />
+              <IncidentTimeline incident={readyIncident} />
             </div>
           </div>
         </>

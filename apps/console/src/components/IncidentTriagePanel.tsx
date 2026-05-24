@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { ErrorGroupIncident, ErrorGroupPriority, ErrorGroupStatus } from "../api/types";
 
@@ -18,6 +18,13 @@ export function IncidentTriagePanel({ client, environmentId, incident, onUpdated
   const [priority, setPriority] = useState<ErrorGroupPriority | "">(incident.group.priority ?? "");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStatus(incident.group.status);
+    setPriority(incident.group.priority ?? "");
+    setError(null);
+    setIsSaving(false);
+  }, [incident.group.id, incident.group.priority, incident.group.status]);
 
   async function saveTriage() {
     setIsSaving(true);

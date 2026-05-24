@@ -3,10 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
 import type { ErrorGroupIncident } from "../api/types";
+import { IncidentTriagePanel } from "./IncidentTriagePanel";
 import { IncidentView } from "./IncidentView";
 
-function incidentFixture(): ErrorGroupIncident {
-  return {
+type IncidentFixtureOverrides = Partial<Omit<ErrorGroupIncident, "group" | "primaryOccurrence" | "related">> & {
+  group?: Partial<ErrorGroupIncident["group"]>;
+  primaryOccurrence?: Partial<ErrorGroupIncident["primaryOccurrence"]>;
+  related?: Partial<ErrorGroupIncident["related"]>;
+};
+
+function incidentFixture(overrides: IncidentFixtureOverrides = {}): ErrorGroupIncident {
+  const base: ErrorGroupIncident = {
     group: {
       id: "egrp_checkout",
       projectId: "prj_1",
@@ -103,6 +110,13 @@ function incidentFixture(): ErrorGroupIncident {
       release: "web@1"
     }
   };
+  return {
+    ...base,
+    ...overrides,
+    group: { ...base.group, ...overrides.group },
+    primaryOccurrence: { ...base.primaryOccurrence, ...overrides.primaryOccurrence },
+    related: { ...base.related, ...overrides.related }
+  };
 }
 
 function clientWithIncident(incident: ErrorGroupIncident = incidentFixture()): ApiClient {
@@ -167,5 +181,99 @@ describe("IncidentView", () => {
         priority: "high"
       })
     );
+  });
+
+  it("resets rendered incident and triage controls when the route changes", async () => {
+    const nextIncident = incidentFixture({
+      group: {
+        id: "egrp_billing",
+        groupingFingerprint: "fp_billing",
+        message: "Billing failed",
+        status: "investigating",
+        priority: "low"
+      },
+      primaryOccurrence: {
+        id: "err_2",
+        message: "Billing failed",
+        stack: "Error: Billing failed",
+        errorGroupId: "egrp_billing",
+        groupingFingerprint: "fp_billing"
+      },
+      suggestedPriority: "normal"
+    });
+    const api = {
+      getErrorGroupIncident: vi
+        .fn()
+        .mockResolvedValueOnce({ data: incidentFixture() })
+        .mockResolvedValueOnce({ data: nextIncident }),
+      updateErrorGroupTriage: vi.fn()
+    } as unknown as ApiClient;
+
+    const { rerender } = render(
+      <IncidentView
+        client={api}
+        environmentId="env_1"
+        groupId="egrp_checkout"
+        onBack={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    await screen.findByRole("heading", { name: "Checkout failed" });
+    await userEvent.selectOptions(screen.getByLabelText("Priority"), "high");
+
+    rerender(
+      <IncidentView
+        client={api}
+        environmentId="env_1"
+        groupId="egrp_billing"
+        onBack={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Checkout failed" })).not.toBeInTheDocument();
+    expect(screen.getByText("Loading incident")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Billing failed" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Status")).toHaveValue("investigating");
+    expect(screen.getByLabelText("Priority")).toHaveValue("low");
+  });
+
+  it("syncs triage controls when the incident changes without remounting", async () => {
+    const nextIncident = incidentFixture({
+      group: {
+        id: "egrp_billing",
+        groupingFingerprint: "fp_billing",
+        message: "Billing failed",
+        status: "investigating",
+        priority: "low"
+      }
+    });
+    const api = clientWithIncident();
+
+    const { rerender } = render(
+      <IncidentTriagePanel
+        client={api}
+        environmentId="env_1"
+        incident={incidentFixture()}
+        onUpdated={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("Priority"), "high");
+
+    rerender(
+      <IncidentTriagePanel
+        client={api}
+        environmentId="env_1"
+        incident={nextIncident}
+        onUpdated={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    expect(screen.getByLabelText("Status")).toHaveValue("investigating");
+    expect(screen.getByLabelText("Priority")).toHaveValue("low");
   });
 });
