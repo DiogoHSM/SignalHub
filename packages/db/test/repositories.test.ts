@@ -2076,38 +2076,75 @@ describe("repositories", () => {
   });
 
   it("calculates suggested incident priority from group impact", () => {
-    expect(
-      suggestErrorGroupPriority({
-        severity: "critical",
-        occurrenceCount: 1,
-        affectedUsersCount: 1,
-        affectedTenantsCount: 1,
-        lastRegressedAt: null,
-        now: new Date("2026-05-24T12:00:00.000Z")
-      })
-    ).toBe("urgent");
+    const now = new Date("2026-05-24T12:00:00.000Z");
+    type PriorityCase = {
+      input: {
+        severity: string;
+        occurrenceCount: number;
+        affectedUsersCount: number;
+        affectedTenantsCount: number;
+        lastRegressedAt?: Date | null;
+      };
+      expected: "urgent" | "high" | "normal" | "low";
+    };
+    const cases: PriorityCase[] = [
+      {
+        input: { severity: "critical", occurrenceCount: 1, affectedUsersCount: 1, affectedTenantsCount: 1 },
+        expected: "urgent"
+      },
+      {
+        input: { severity: "fatal", occurrenceCount: 1, affectedUsersCount: 1, affectedTenantsCount: 1 },
+        expected: "urgent"
+      },
+      {
+        input: { severity: "info", occurrenceCount: 1, affectedUsersCount: 1, affectedTenantsCount: 3 },
+        expected: "urgent"
+      },
+      {
+        input: { severity: "info", occurrenceCount: 1, affectedUsersCount: 25, affectedTenantsCount: 1 },
+        expected: "urgent"
+      },
+      {
+        input: { severity: "error", occurrenceCount: 1, affectedUsersCount: 1, affectedTenantsCount: 1 },
+        expected: "high"
+      },
+      {
+        input: { severity: "info", occurrenceCount: 10, affectedUsersCount: 1, affectedTenantsCount: 1 },
+        expected: "high"
+      },
+      {
+        input: {
+          severity: "info",
+          occurrenceCount: 1,
+          affectedUsersCount: 1,
+          affectedTenantsCount: 1,
+          lastRegressedAt: new Date("2026-05-24T00:00:00.000Z")
+        },
+        expected: "high"
+      },
+      {
+        input: { severity: "warning", occurrenceCount: 1, affectedUsersCount: 1, affectedTenantsCount: 1 },
+        expected: "normal"
+      },
+      {
+        input: { severity: "info", occurrenceCount: 2, affectedUsersCount: 1, affectedTenantsCount: 1 },
+        expected: "normal"
+      },
+      {
+        input: { severity: "info", occurrenceCount: 1, affectedUsersCount: 1, affectedTenantsCount: 1 },
+        expected: "low"
+      }
+    ];
 
-    expect(
-      suggestErrorGroupPriority({
-        severity: "error",
-        occurrenceCount: 10,
-        affectedUsersCount: 1,
-        affectedTenantsCount: 1,
-        lastRegressedAt: null,
-        now: new Date("2026-05-24T12:00:00.000Z")
-      })
-    ).toBe("high");
-
-    expect(
-      suggestErrorGroupPriority({
-        severity: "warning",
-        occurrenceCount: 1,
-        affectedUsersCount: 1,
-        affectedTenantsCount: 1,
-        lastRegressedAt: null,
-        now: new Date("2026-05-24T12:00:00.000Z")
-      })
-    ).toBe("normal");
+    for (const testCase of cases) {
+      expect(
+        suggestErrorGroupPriority({
+          ...testCase.input,
+          lastRegressedAt: testCase.input.lastRegressedAt ?? null,
+          now
+        })
+      ).toBe(testCase.expected);
+    }
   });
 
   it("returns an incident with a scoped primary occurrence", async () => {
@@ -2136,6 +2173,94 @@ describe("repositories", () => {
         priority: null,
         suggestedPriority: "urgent"
       });
+    });
+  });
+
+  it("uses the latest group occurrence when no primary error id is provided", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const group = await seedGroupedError(db, {
+        id: "err_incident_latest_first",
+        projectId: "prj_incident_latest",
+        environmentId: "env_incident_latest",
+        message: "Incident latest failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:00:00.000Z")
+      });
+      await insertError(db, {
+        id: "err_incident_latest_second",
+        projectId: "prj_incident_latest",
+        environmentId: "env_incident_latest",
+        message: "Incident latest failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:01.000Z")
+      });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: "prj_incident_latest",
+        environmentId: "env_incident_latest"
+      });
+
+      expect(incident?.primaryOccurrence).toMatchObject({
+        id: "err_incident_latest_second",
+        errorGroupId: group.id
+      });
+    });
+  });
+
+  it("returns null when an explicit primary occurrence belongs to a different group", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const group = await seedGroupedError(db, {
+        id: "err_incident_scope_first",
+        projectId: "prj_incident_scope",
+        environmentId: "env_incident_scope",
+        message: "Incident scoped failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:00:00.000Z")
+      });
+      await seedGroupedError(db, {
+        id: "err_incident_scope_other_group",
+        projectId: "prj_incident_scope",
+        environmentId: "env_incident_scope",
+        message: "Other incident scoped failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:01:00.000Z")
+      });
+
+      await expect(
+        getErrorGroupIncident(db, {
+          groupId: group.id,
+          projectId: "prj_incident_scope",
+          environmentId: "env_incident_scope",
+          errorId: "err_incident_scope_other_group"
+        })
+      ).resolves.toBeNull();
+    });
+  });
+
+  it("returns null when the requested incident scope does not match the group", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const group = await seedGroupedError(db, {
+        id: "err_incident_wrong_scope",
+        projectId: "prj_incident_wrong_scope",
+        environmentId: "env_incident_wrong_scope",
+        message: "Incident wrong scope failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:00:00.000Z")
+      });
+
+      await expect(
+        getErrorGroupIncident(db, {
+          groupId: group.id,
+          projectId: "prj_incident_wrong_scope",
+          environmentId: "env_incident_wrong_scope_other",
+          errorId: "err_incident_wrong_scope"
+        })
+      ).resolves.toBeNull();
     });
   });
 
@@ -2181,6 +2306,15 @@ describe("repositories", () => {
         userId: "user_1",
         tenantId: "tenant_1"
       });
+      await insertError(db, {
+        id: "err_incident_context_same_group",
+        projectId: "prj_incident_context",
+        environmentId: "env_incident_context",
+        message: "Incident context failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:01:00.000Z"),
+        receivedAt: new Date("2026-05-24T12:01:01.000Z")
+      });
 
       const incident = await getErrorGroupIncident(db, {
         groupId: group.id,
@@ -2191,8 +2325,10 @@ describe("repositories", () => {
       });
 
       expect(incident?.stronglyRelated.items.map((item) => item.id)).toContain("evt_strong_session");
+      expect(incident?.stronglyRelated.items.map((item) => item.id)).toContain("err_incident_context_same_group");
       expect(incident?.nearbyContext.items.map((item) => item.id)).toContain("evt_nearby_user");
       expect(incident?.nearbyContext.items.map((item) => item.id)).not.toContain("evt_strong_session");
+      expect(incident?.nearbyContext.items.map((item) => item.id)).not.toContain("err_incident_context_same_group");
     });
   });
 

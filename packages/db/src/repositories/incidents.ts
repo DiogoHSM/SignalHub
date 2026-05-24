@@ -47,6 +47,7 @@ export type ErrorGroupIncident = {
 type IncidentTimelineRow = {
   id: string;
   kind: IncidentTimelineKind;
+  error_group_id: string | null;
   timestamp: Date;
   tenant_id: string | null;
   user_id: string | null;
@@ -158,7 +159,8 @@ function relationPredicate(input: {
   if (input.confidence === "strong") {
     return sql`
       (
-        (${error.sessionId}::text is not null and session_id = ${error.sessionId})
+        (${error.errorGroupId}::text is not null and error_group_id = ${error.errorGroupId})
+        or (${error.sessionId}::text is not null and session_id = ${error.sessionId})
         or (${error.traceId}::text is not null and trace_id = ${error.traceId})
       )
     `;
@@ -197,6 +199,7 @@ async function getIncidentTimeline(
       select
         id,
         'breadcrumb'::text as kind,
+        null::text as error_group_id,
         timestamp,
         tenant_id,
         user_id,
@@ -211,11 +214,11 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
-        and ${relation}
       union all
       select
         id,
         'event'::text as kind,
+        null::text as error_group_id,
         timestamp,
         tenant_id,
         user_id,
@@ -230,11 +233,11 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
-        and ${relation}
       union all
       select
         id,
         'error'::text as kind,
+        error_group_id,
         timestamp,
         tenant_id,
         user_id,
@@ -256,11 +259,11 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
-        and ${relation}
       union all
       select
         id,
         'trace'::text as kind,
+        null::text as error_group_id,
         timestamp,
         tenant_id,
         user_id,
@@ -280,11 +283,11 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
-        and ${relation}
       union all
       select
         id,
         'span'::text as kind,
+        null::text as error_group_id,
         timestamp,
         tenant_id,
         user_id,
@@ -309,11 +312,11 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
-        and ${relation}
       union all
       select
         id,
         'llm'::text as kind,
+        null::text as error_group_id,
         timestamp,
         tenant_id,
         user_id,
@@ -339,11 +342,11 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
-        and ${relation}
     )
     select *
     from incident_timeline
     where true
+      and ${relation}
       ${excludedIds}
     order by timestamp asc, id asc
     limit ${rowLimit}
