@@ -28,6 +28,10 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep Events and Errors as peer tabs inside `Investigate`.
 - Errors default to raw occurrences when opened from the top-level Investigate tab, and the error workspace also exposes grouped triage as a peer `Groups` view.
 - Grouped Errors use a list/detail layout with filters above the group list, operator-editable group status, occurrence/user/tenant counts, fingerprint context, and a direct raw occurrence drilldown for the selected group.
+- Grouped and raw error rows expose `Open incident` actions that navigate to a shareable incident URL for the selected error group and, when opened from a raw occurrence, preserve the raw error id as context.
+- Incident view uses a split investigation layout: technical primary occurrence details, stack, source-map status, context, and metadata on the left; operational triage, related identifiers, strongly related activity, and nearby context on the right. It stacks before the console layout becomes cramped.
+- Priority badges show saved priority when present and suggested priority otherwise. Severity, status, and priority badges should remain compact and scannable in both the error lists and Incident view.
+- Nearby context is explicitly labeled as supporting activity around the primary occurrence, separate from strongly related signals, so operators do not read it as guaranteed causality.
 - Error group status filters should be constrained to supported workflow statuses: open, investigating, resolved, and ignored.
 - Raw Error rows should prioritize severity, status, message, error group id, and trace/session context.
 - Raw Error details should show stack, source-map resolution metadata, context JSON, metadata JSON, error group id, and immutable identifiers.

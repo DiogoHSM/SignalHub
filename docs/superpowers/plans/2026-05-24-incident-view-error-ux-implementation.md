@@ -77,7 +77,7 @@ Suggested priority rules for the first implementation:
 - Modify: `packages/db/src/repositories/error-groups.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing repository tests for priority**
+- [x] **Step 1: Write failing repository tests for priority**
 
 In `packages/db/test/repositories.test.ts`, extend the error group tests near existing `updateErrorGroupStatus` coverage.
 
@@ -204,7 +204,7 @@ async function seedGroupedError(db: Db, input: {
 }
 ```
 
-- [ ] **Step 2: Run failing priority tests**
+- [x] **Step 2: Run failing priority tests**
 
 Run:
 
@@ -214,7 +214,7 @@ pnpm test packages/db/test/repositories.test.ts -t "priority"
 
 Expected: FAIL because `updateErrorGroupTriage` and `priority` are not implemented.
 
-- [ ] **Step 3: Add migration**
+- [x] **Step 3: Add migration**
 
 Create `packages/db/migrations/0011_error_group_priority.sql`:
 
@@ -227,7 +227,7 @@ alter table error_groups
   check (priority is null or priority in ('urgent', 'high', 'normal', 'low'));
 ```
 
-- [ ] **Step 4: Update schema type**
+- [x] **Step 4: Update schema type**
 
 In `packages/db/src/schema.ts`, add:
 
@@ -241,7 +241,7 @@ In `ErrorGroupsTable`, add:
 priority: ErrorGroupPriority | null;
 ```
 
-- [ ] **Step 5: Update error group repository**
+- [x] **Step 5: Update error group repository**
 
 In `packages/db/src/repositories/error-groups.ts`, add:
 
@@ -311,7 +311,7 @@ export async function updateErrorGroupStatus(
 }
 ```
 
-- [ ] **Step 6: Run priority tests**
+- [x] **Step 6: Run priority tests**
 
 Run:
 
@@ -321,7 +321,7 @@ pnpm test packages/db/test/repositories.test.ts -t "priority"
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit priority persistence**
+- [x] **Step 7: Commit priority persistence**
 
 ```sh
 git add packages/db/migrations/0011_error_group_priority.sql packages/db/src/schema.ts packages/db/src/repositories/error-groups.ts packages/db/test/repositories.test.ts
@@ -334,7 +334,7 @@ git commit -m "feat: add error group priority"
 - Create: `packages/db/src/repositories/incidents.ts`
 - Modify: `packages/db/test/repositories.test.ts`
 
-- [ ] **Step 1: Write failing incident repository tests**
+- [x] **Step 1: Write failing incident repository tests**
 
 In `packages/db/test/repositories.test.ts`, import:
 
@@ -464,7 +464,7 @@ it("separates strongly related and nearby incident context", async () => {
 });
 ```
 
-- [ ] **Step 2: Run failing incident repository tests**
+- [x] **Step 2: Run failing incident repository tests**
 
 Run:
 
@@ -474,7 +474,7 @@ pnpm test packages/db/test/repositories.test.ts -t "incident"
 
 Expected: FAIL because `repositories/incidents.ts` has not been implemented yet.
 
-- [ ] **Step 3: Create incident repository types and priority suggestion**
+- [x] **Step 3: Create incident repository types and priority suggestion**
 
 Create `packages/db/src/repositories/incidents.ts`:
 
@@ -562,7 +562,7 @@ export function suggestErrorGroupPriority(input: {
 }
 ```
 
-- [ ] **Step 4: Add primary occurrence helper**
+- [x] **Step 4: Add primary occurrence helper**
 
 In `incidents.ts`, add:
 
@@ -611,7 +611,7 @@ async function getPrimaryOccurrence(
 }
 ```
 
-- [ ] **Step 5: Add context query helpers**
+- [x] **Step 5: Add context query helpers**
 
 In `incidents.ts`, add one SQL union helper. Keep limits small and deterministic:
 
@@ -699,7 +699,7 @@ async function listIncidentTimelineItems(
 }
 ```
 
-- [ ] **Step 6: Add incident aggregation function**
+- [x] **Step 6: Add incident aggregation function**
 
 In `incidents.ts`, add:
 
@@ -777,7 +777,7 @@ export async function getErrorGroupIncident(
 }
 ```
 
-- [ ] **Step 7: Run incident repository tests**
+- [x] **Step 7: Run incident repository tests**
 
 Run:
 
@@ -787,7 +787,7 @@ pnpm test packages/db/test/repositories.test.ts -t "incident"
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit incident repository**
+- [x] **Step 8: Commit incident repository**
 
 ```sh
 git add packages/db/src/repositories/incidents.ts packages/db/test/repositories.test.ts
@@ -801,7 +801,7 @@ git commit -m "feat: add error incident repository"
 - Modify: `apps/api/src/main.ts`
 - Modify: `apps/api/test/query.test.ts`
 
-- [ ] **Step 1: Write failing API route tests**
+- [x] **Step 1: Write failing API route tests**
 
 In `apps/api/test/query.test.ts`, add tests near error group route tests:
 
@@ -885,7 +885,7 @@ it("rejects invalid error group priority", async () => {
 });
 ```
 
-- [ ] **Step 2: Run failing API tests**
+- [x] **Step 2: Run failing API tests**
 
 Run:
 
@@ -895,7 +895,7 @@ pnpm test apps/api/test/query.test.ts -t "incident|priority"
 
 Expected: FAIL because route dependencies and parsing do not exist.
 
-- [ ] **Step 3: Extend query route types and schemas**
+- [x] **Step 3: Extend query route types and schemas**
 
 In `apps/api/src/routes/query.ts`, add:
 
@@ -947,7 +947,7 @@ function parseErrorGroupIncidentScope(query: unknown): (ErrorGroupScope & { erro
 }
 ```
 
-- [ ] **Step 4: Add incident route handler**
+- [x] **Step 4: Add incident route handler**
 
 In `apps/api/src/routes/query.ts`, add:
 
@@ -977,7 +977,7 @@ async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: Fas
 }
 ```
 
-- [ ] **Step 5: Extend triage patch handler**
+- [x] **Step 5: Extend triage patch handler**
 
 Replace the status-only body in `handleErrorGroupStatusRoute` with `errorGroupTriageBodySchema`.
 
@@ -1007,7 +1007,7 @@ const group = await update(params.data.id, {
 
 Keep the existing 404 and 503 behavior.
 
-- [ ] **Step 6: Register route**
+- [x] **Step 6: Register route**
 
 In `registerQueryRoutes`, add before `/query/error-groups/:id`:
 
@@ -1017,7 +1017,7 @@ app.get("/query/incidents/error-groups/:id", (request, reply) =>
 );
 ```
 
-- [ ] **Step 7: Wire main dependencies**
+- [x] **Step 7: Wire main dependencies**
 
 In `apps/api/src/main.ts`, import:
 
@@ -1036,7 +1036,7 @@ updateErrorGroupTriage: (id, input) => updateErrorGroupTriage(db, { id, ...input
 
 Keep `updateErrorGroupStatus` for compatibility until console is migrated.
 
-- [ ] **Step 8: Run API route tests**
+- [x] **Step 8: Run API route tests**
 
 Run:
 
@@ -1047,7 +1047,7 @@ pnpm --filter @sigmon/api build
 
 Expected: PASS.
 
-- [ ] **Step 9: Commit API route work**
+- [x] **Step 9: Commit API route work**
 
 ```sh
 git add apps/api/src/routes/query.ts apps/api/src/main.ts apps/api/test/query.test.ts
@@ -1061,7 +1061,7 @@ git commit -m "feat: add error incident query route"
 - Modify: `apps/console/src/api/client.ts`
 - Modify: `apps/console/src/api/client.test.ts`
 
-- [ ] **Step 1: Write failing client tests**
+- [x] **Step 1: Write failing client tests**
 
 In `apps/console/src/api/client.test.ts`, add:
 
@@ -1103,7 +1103,7 @@ it("sends error group triage updates", async () => {
 });
 ```
 
-- [ ] **Step 2: Run failing client tests**
+- [x] **Step 2: Run failing client tests**
 
 Run:
 
@@ -1113,7 +1113,7 @@ pnpm test apps/console/src/api/client.test.ts -t "incident|triage"
 
 Expected: FAIL because client methods do not exist.
 
-- [ ] **Step 3: Add console types**
+- [x] **Step 3: Add console types**
 
 In `apps/console/src/api/types.ts`, add:
 
@@ -1171,7 +1171,7 @@ export type UpdateErrorGroupTriageInput = {
 
 Add `priority: ErrorGroupPriority | null` to `ErrorGroupRecord`.
 
-- [ ] **Step 4: Add client route builders and methods**
+- [x] **Step 4: Add client route builders and methods**
 
 In `apps/console/src/api/client.ts`, import new types.
 
@@ -1214,7 +1214,7 @@ updateErrorGroupTriage: (id, input) =>
   }),
 ```
 
-- [ ] **Step 5: Run client tests**
+- [x] **Step 5: Run client tests**
 
 Run:
 
@@ -1225,7 +1225,7 @@ pnpm --filter @sigmon/console build
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit console client**
+- [x] **Step 6: Commit console client**
 
 ```sh
 git add apps/console/src/api/types.ts apps/console/src/api/client.ts apps/console/src/api/client.test.ts
@@ -1239,7 +1239,7 @@ git commit -m "feat: add incident console client"
 - Modify: `apps/console/src/components/ConsoleShell.tsx`
 - Modify: `apps/console/src/components/ConsoleShell.test.tsx`
 
-- [ ] **Step 1: Write failing shell route tests**
+- [x] **Step 1: Write failing shell route tests**
 
 In `apps/console/src/components/ConsoleShell.test.tsx`, add:
 
@@ -1331,7 +1331,7 @@ function incidentFixture(input: { groupId: string }) {
 }
 ```
 
-- [ ] **Step 2: Run failing shell test**
+- [x] **Step 2: Run failing shell test**
 
 Run:
 
@@ -1341,7 +1341,7 @@ pnpm test apps/console/src/components/ConsoleShell.test.tsx -t "incident route"
 
 Expected: FAIL because `IncidentView` and route handling do not exist.
 
-- [ ] **Step 3: Create the first IncidentView loading state**
+- [x] **Step 3: Create the first IncidentView loading state**
 
 Create `apps/console/src/components/IncidentView.tsx`:
 
@@ -1402,7 +1402,7 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
 }
 ```
 
-- [ ] **Step 4: Add URL parsing helpers in ConsoleShell**
+- [x] **Step 4: Add URL parsing helpers in ConsoleShell**
 
 In `ConsoleShell.tsx`, add:
 
@@ -1474,7 +1474,7 @@ function closeIncidentView() {
 }
 ```
 
-- [ ] **Step 5: Render IncidentView above mode panels**
+- [x] **Step 5: Render IncidentView above mode panels**
 
 In `ConsoleShell.tsx`, import `IncidentView`.
 
@@ -1499,7 +1499,7 @@ Before the existing mode panels, render:
 
 Move the existing mode panel markup into the fragment. Do not render setup/overview/investigate panels while incident route is active.
 
-- [ ] **Step 6: Run shell tests**
+- [x] **Step 6: Run shell tests**
 
 Run:
 
@@ -1510,7 +1510,7 @@ pnpm --filter @sigmon/console build
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit shell route**
+- [x] **Step 7: Commit shell route**
 
 ```sh
 git add apps/console/src/components/IncidentView.tsx apps/console/src/components/ConsoleShell.tsx apps/console/src/components/ConsoleShell.test.tsx
@@ -1528,7 +1528,7 @@ git commit -m "feat: add incident console route"
 - Modify: `apps/console/src/components/IncidentView.tsx`
 - Create: `apps/console/src/components/IncidentView.test.tsx`
 
-- [ ] **Step 1: Write failing IncidentView render tests**
+- [x] **Step 1: Write failing IncidentView render tests**
 
 Create `apps/console/src/components/IncidentView.test.tsx`:
 
@@ -1695,7 +1695,7 @@ describe("IncidentView", () => {
 });
 ```
 
-- [ ] **Step 2: Run failing IncidentView tests**
+- [x] **Step 2: Run failing IncidentView tests**
 
 Run:
 
@@ -1705,7 +1705,7 @@ pnpm test apps/console/src/components/IncidentView.test.tsx
 
 Expected: FAIL because components are not implemented.
 
-- [ ] **Step 3: Implement PriorityBadge**
+- [x] **Step 3: Implement PriorityBadge**
 
 Create `apps/console/src/components/PriorityBadge.tsx`:
 
@@ -1729,7 +1729,7 @@ export function PriorityBadge({ priority, suggested }: Props) {
 }
 ```
 
-- [ ] **Step 4: Implement summary component**
+- [x] **Step 4: Implement summary component**
 
 Create `apps/console/src/components/IncidentSummary.tsx`:
 
@@ -1763,7 +1763,7 @@ export function IncidentSummary({ incident }: { incident: ErrorGroupIncident }) 
 }
 ```
 
-- [ ] **Step 5: Implement triage panel**
+- [x] **Step 5: Implement triage panel**
 
 Create `apps/console/src/components/IncidentTriagePanel.tsx`:
 
@@ -1843,7 +1843,7 @@ export function IncidentTriagePanel({
 }
 ```
 
-- [ ] **Step 6: Implement technical panel**
+- [x] **Step 6: Implement technical panel**
 
 Create `apps/console/src/components/IncidentTechnicalPanel.tsx`:
 
@@ -1898,7 +1898,7 @@ export function IncidentTechnicalPanel({ incident }: { incident: ErrorGroupIncid
 }
 ```
 
-- [ ] **Step 7: Implement timeline component**
+- [x] **Step 7: Implement timeline component**
 
 Create `apps/console/src/components/IncidentTimeline.tsx`:
 
@@ -1958,7 +1958,7 @@ export function IncidentTimeline({ incident }: { incident: ErrorGroupIncident })
 }
 ```
 
-- [ ] **Step 8: Compose IncidentView**
+- [x] **Step 8: Compose IncidentView**
 
 In `IncidentView.tsx`, replace the initial ready render with:
 
@@ -1990,7 +1990,7 @@ In `IncidentView.tsx`, replace the initial ready render with:
 
 Import the new components.
 
-- [ ] **Step 9: Run IncidentView tests**
+- [x] **Step 9: Run IncidentView tests**
 
 Run:
 
@@ -2001,7 +2001,7 @@ pnpm --filter @sigmon/console build
 
 Expected: PASS.
 
-- [ ] **Step 10: Commit Incident UI**
+- [x] **Step 10: Commit Incident UI**
 
 ```sh
 git add apps/console/src/components/IncidentView.tsx apps/console/src/components/IncidentView.test.tsx apps/console/src/components/IncidentSummary.tsx apps/console/src/components/IncidentTriagePanel.tsx apps/console/src/components/IncidentTechnicalPanel.tsx apps/console/src/components/IncidentTimeline.tsx apps/console/src/components/PriorityBadge.tsx
@@ -2019,7 +2019,7 @@ git commit -m "feat: build incident investigation view"
 - Modify: `apps/console/src/components/ErrorDetailDrawer.tsx`
 - Modify: `apps/console/src/components/ErrorInvestigationPanel.test.tsx`
 
-- [ ] **Step 1: Write failing Errors entry tests**
+- [x] **Step 1: Write failing Errors entry tests**
 
 In `apps/console/src/components/ErrorInvestigationPanel.test.tsx`, add:
 
@@ -2063,7 +2063,7 @@ it("opens an incident from raw occurrences", async () => {
 
 Update local fixtures to include `priority`.
 
-- [ ] **Step 2: Run failing Errors entry tests**
+- [x] **Step 2: Run failing Errors entry tests**
 
 Run:
 
@@ -2073,7 +2073,7 @@ pnpm test apps/console/src/components/ErrorInvestigationPanel.test.tsx -t "opens
 
 Expected: FAIL because `onOpenIncident` is not wired.
 
-- [ ] **Step 3: Thread incident opener prop**
+- [x] **Step 3: Thread incident opener prop**
 
 Add prop to `ErrorInvestigationPanel`:
 
@@ -2089,7 +2089,7 @@ In `ConsoleShell`, pass:
 onOpenIncident={openErrorGroupIncident}
 ```
 
-- [ ] **Step 4: Add group list action and badges**
+- [x] **Step 4: Add group list action and badges**
 
 In `ErrorGroupList.tsx`, add props:
 
@@ -2114,7 +2114,7 @@ Render priority/status/severity:
 </button>
 ```
 
-- [ ] **Step 5: Add group detail action**
+- [x] **Step 5: Add group detail action**
 
 In `ErrorGroupDetail.tsx`, add prop:
 
@@ -2137,7 +2137,7 @@ Also display priority:
 <dd><PriorityBadge priority={group.priority} /></dd>
 ```
 
-- [ ] **Step 6: Add raw occurrence action**
+- [x] **Step 6: Add raw occurrence action**
 
 In `ErrorList.tsx`, add:
 
@@ -2158,7 +2158,7 @@ For each row with `error.errorGroupId`, render:
 
 In `ErrorDetailDrawer.tsx`, add the same action when `error.errorGroupId` exists.
 
-- [ ] **Step 7: Run Errors entry tests**
+- [x] **Step 7: Run Errors entry tests**
 
 Run:
 
@@ -2169,7 +2169,7 @@ pnpm --filter @sigmon/console build
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit Errors entry refactor**
+- [x] **Step 8: Commit Errors entry refactor**
 
 ```sh
 git add apps/console/src/components/ErrorInvestigationPanel.tsx apps/console/src/components/ErrorInvestigationPanel.test.tsx apps/console/src/components/ErrorGroupsPanel.tsx apps/console/src/components/ErrorGroupList.tsx apps/console/src/components/ErrorGroupDetail.tsx apps/console/src/components/ErrorRawOccurrencesPanel.tsx apps/console/src/components/ErrorList.tsx apps/console/src/components/ErrorDetailDrawer.tsx apps/console/src/components/ConsoleShell.tsx
@@ -2182,7 +2182,7 @@ git commit -m "feat: link errors to incident view"
 - Modify: `apps/console/src/styles.css`
 - Modify: `apps/console/src/components/IncidentView.test.tsx`
 
-- [ ] **Step 1: Add layout-oriented assertions**
+- [x] **Step 1: Add layout-oriented assertions**
 
 In `IncidentView.test.tsx`, add:
 
@@ -2204,7 +2204,7 @@ it("uses split investigation structure", async () => {
 });
 ```
 
-- [ ] **Step 2: Add CSS**
+- [x] **Step 2: Add CSS**
 
 In `apps/console/src/styles.css`, add:
 
@@ -2354,7 +2354,7 @@ In `apps/console/src/styles.css`, add:
 }
 ```
 
-- [ ] **Step 3: Run UI tests and build**
+- [x] **Step 3: Run UI tests and build**
 
 Run:
 
@@ -2365,7 +2365,7 @@ pnpm --filter @sigmon/console build
 
 Expected: PASS.
 
-- [ ] **Step 4: Run visual verification**
+- [x] **Step 4: Run visual verification**
 
 Run a visual check against the local console after creating a seeded test project and navigating to an incident route. Use the existing login flow if the dev server requires authentication.
 
@@ -2379,7 +2379,7 @@ Then use Playwright or Browser to inspect desktop `1440x1000` and mobile `390x90
 
 Expected: no horizontal overflow, split layout on desktop, stacked layout on mobile, summary cards readable, timeline rows contained inside the viewport.
 
-- [ ] **Step 5: Commit polish**
+- [x] **Step 5: Commit polish**
 
 ```sh
 git add apps/console/src/styles.css apps/console/src/components/IncidentView.test.tsx
@@ -2394,7 +2394,7 @@ git commit -m "style: polish incident investigation UI"
 - Modify: `.claude/docs/UI-UX.md`
 - Modify: `.claude/docs/PROJECT-SUMMARY.md`
 
-- [ ] **Step 1: Update docs**
+- [x] **Step 1: Update docs**
 
 In `README.md`, add a short section under investigation capabilities:
 
@@ -2419,7 +2419,7 @@ In `.claude/docs/UI-UX.md`, document:
 
 In `.claude/docs/PROJECT-SUMMARY.md`, add Incident view to implemented capabilities.
 
-- [ ] **Step 2: Run final verification**
+- [x] **Step 2: Run final verification**
 
 Run:
 
@@ -2432,18 +2432,18 @@ git diff --check
 
 Expected: all commands pass.
 
-- [ ] **Step 3: Update implementation checklist**
+- [x] **Step 3: Update implementation checklist**
 
 Mark all completed checkboxes in this plan.
 
-- [ ] **Step 4: Commit docs and checklist**
+- [x] **Step 4: Commit docs and checklist**
 
 ```sh
 git add README.md .claude/docs/ARCHITECTURE.md .claude/docs/UI-UX.md .claude/docs/PROJECT-SUMMARY.md docs/superpowers/plans/2026-05-24-incident-view-error-ux-implementation.md
 git commit -m "docs: record incident view implementation"
 ```
 
-- [ ] **Step 5: Memory update**
+- [x] **Step 5: Memory update**
 
 Update versioned memory at:
 
@@ -2464,7 +2464,7 @@ git add projects/-Users-diogo-Developer-Github-SignalHub/memory/MEMORY.md
 git commit -m "memory: record incident view error ux"
 ```
 
-- [ ] **Step 6: Handoff**
+- [x] **Step 6: Handoff**
 
 Report:
 
