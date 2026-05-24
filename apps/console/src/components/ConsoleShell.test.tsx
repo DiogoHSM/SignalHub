@@ -221,11 +221,94 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
   };
 }
 
+function incidentFixture(input: { groupId: string }) {
+  return {
+    group: {
+      id: input.groupId,
+      projectId: "prj_1",
+      environmentId: "env_1",
+      groupingFingerprint: "fp_checkout",
+      message: "Checkout failed",
+      type: "Error",
+      topStackFrame: "at checkout.js:10:2",
+      severity: "critical",
+      status: "open",
+      priority: null,
+      firstSeenAt: "2026-05-24T12:00:00.000Z",
+      lastSeenAt: "2026-05-24T12:00:00.000Z",
+      lastRegressedAt: null,
+      occurrenceCount: 1,
+      affectedUsersCount: 1,
+      affectedTenantsCount: 1,
+      latestErrorId: "err_1",
+      latestRelease: "web@1",
+      resolvedAt: null,
+      ignoredAt: null,
+      createdAt: "2026-05-24T12:00:00.000Z",
+      updatedAt: "2026-05-24T12:00:00.000Z"
+    },
+    primaryOccurrence: {
+      id: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      tenantId: "tenant_1",
+      userId: "user_1",
+      sessionId: "session_1",
+      traceId: "trace_1",
+      timestamp: "2026-05-24T12:00:00.000Z",
+      receivedAt: "2026-05-24T12:00:01.000Z",
+      source: "browser",
+      release: "web@1",
+      metadata: {},
+      message: "Checkout failed",
+      type: "Error",
+      severity: "critical",
+      stack: "Error: Checkout failed\n    at checkout.js:10:2",
+      status: "open",
+      fingerprint: "fp_checkout",
+      errorGroupId: input.groupId,
+      groupingFingerprint: "fp_checkout",
+      context: {}
+    },
+    priority: null,
+    suggestedPriority: "urgent",
+    sourceMapResolution: { status: "none" },
+    stronglyRelated: { items: [], truncated: false },
+    nearbyContext: { items: [], truncated: false },
+    related: {
+      traceId: "trace_1",
+      sessionId: "session_1",
+      userId: "user_1",
+      tenantId: "tenant_1",
+      release: "web@1"
+    }
+  };
+}
+
 afterEach(() => {
   cleanup();
+  window.history.pushState({}, "", "/");
 });
 
 describe("ConsoleShell", () => {
+  it("opens an incident route from the browser URL", async () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
+    const api = client({
+      getErrorGroupIncident: vi.fn().mockResolvedValue({
+        data: incidentFixture({ groupId: "egrp_1" })
+      })
+    });
+
+    render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />);
+
+    expect(await screen.findByText("Incident")).toBeInTheDocument();
+    expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
+    expect(api.getErrorGroupIncident).toHaveBeenCalledWith("egrp_1", {
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+  });
+
   it("loads projects and environments for the selected project", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
