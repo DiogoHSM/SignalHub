@@ -326,6 +326,74 @@ describe("ConsoleShell", () => {
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
+  it("replaces the incident history entry when using in-app back", async () => {
+    window.history.pushState({}, "", "/console");
+    const pushStateSpy = vi.spyOn(window.history, "pushState");
+    const replaceStateSpy = vi.spyOn(window.history, "replaceState");
+    const getErrorGroupIncident = vi.fn().mockResolvedValue({
+      data: incidentFixture({ groupId: "egrp_1" })
+    });
+    const api = client({
+      getErrorGroupIncident,
+      listErrors: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "err_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            tenantId: "tenant_1",
+            userId: "user_1",
+            sessionId: "session_1",
+            traceId: "trace_1",
+            timestamp: "2026-05-24T12:00:00.000Z",
+            receivedAt: "2026-05-24T12:00:01.000Z",
+            source: "browser",
+            release: "web@1",
+            metadata: {},
+            message: "Checkout failed",
+            type: "Error",
+            severity: "critical",
+            stack: "Error: Checkout failed",
+            status: "open",
+            fingerprint: "fp_checkout",
+            errorGroupId: "egrp_1",
+            groupingFingerprint: "fp_checkout",
+            context: {}
+          }
+        ]
+      }),
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await userEvent.click(screen.getByRole("button", { name: "Errors" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open incident" }));
+
+    expect(await screen.findByText("Incident")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/console/incidents/error-groups/egrp_1");
+    expect(pushStateSpy).toHaveBeenCalledWith(
+      {},
+      "",
+      "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1&error_id=err_1"
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to errors" }));
+
+    expect(window.location.pathname).toBe("/console");
+    expect(screen.queryByText("Incident")).not.toBeInTheDocument();
+    expect(replaceStateSpy).toHaveBeenCalledWith({}, "", "/console");
+    expect(pushStateSpy).not.toHaveBeenCalledWith({}, "", "/console");
+    expect(getErrorGroupIncident).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores malformed incident route group ids", () => {
     window.history.pushState({}, "", "/console/incidents/error-groups/%E0%A4%A?project_id=prj_1&environment_id=env_1");
     const api = client({

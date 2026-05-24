@@ -1202,10 +1202,12 @@ select {
 }
 
 .error-row {
+  cursor: default;
   grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr);
 }
 
 .error-group-row {
+  cursor: default;
   grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr);
 }
 

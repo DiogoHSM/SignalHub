@@ -198,7 +198,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   }
 
   function closeIncidentView() {
-    window.history.pushState({}, "", "/console");
+    window.history.replaceState({}, "", "/console");
     setIncidentRoute({ kind: "none" });
     setActiveMode("investigate");
   }
