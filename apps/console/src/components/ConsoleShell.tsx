@@ -203,6 +203,26 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     setActiveMode("investigate");
   }
 
+  function openErrorGroupIncident(groupId: string, options?: { errorId?: string }) {
+    if (!activeProject || !activeEnvironment) return;
+
+    const params = new URLSearchParams({
+      project_id: activeProject.id,
+      environment_id: activeEnvironment.id
+    });
+    if (options?.errorId) params.set("error_id", options.errorId);
+
+    const path = `/console/incidents/error-groups/${encodeURIComponent(groupId)}?${params.toString()}`;
+    window.history.pushState({}, "", path);
+    setIncidentRoute({
+      kind: "error-group",
+      groupId,
+      projectId: activeProject.id,
+      environmentId: activeEnvironment.id,
+      errorId: options?.errorId
+    });
+  }
+
   async function createProject(name: string) {
     if (isLoadingProjects) return;
 
@@ -293,6 +313,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   initialFilters={investigationDrilldown?.filters}
                   initialTab={investigationDrilldown?.tab}
                   key={investigationDrilldown?.nonce ?? "investigation"}
+                  onOpenIncident={openErrorGroupIncident}
                   projectId={activeProject?.id}
                 />
               ) : null}

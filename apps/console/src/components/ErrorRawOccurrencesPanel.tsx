@@ -10,6 +10,7 @@ type Props = {
   projectId: string;
   environmentId: string;
   initialFilters?: Partial<ErrorFilterValues>;
+  onOpenIncident?: (groupId: string, options: { errorId: string }) => void;
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
@@ -86,7 +87,7 @@ function filtersWithDefaults(initialFilters?: Partial<ErrorFilterValues>): Error
   return { ...defaultFilters, ...initialFilters };
 }
 
-export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, initialFilters }: Props) {
+export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, initialFilters, onOpenIncident }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
   const [draftFilters, setDraftFilters] = useState<ErrorFilterValues>(() => filtersWithDefaults(initialFilters));
@@ -236,6 +237,11 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
     selectedError?.sessionId && sessionTimelineState?.errorId === selectedError.id && sessionTimelineState.sessionId === selectedError.sessionId
       ? sessionTimelineState
       : undefined;
+  const selectedErrorGroupId = selectedError?.errorGroupId;
+  const openSelectedIncident =
+    onOpenIncident && selectedError && selectedErrorGroupId
+      ? () => onOpenIncident(selectedErrorGroupId, { errorId: selectedError.id })
+      : undefined;
 
   return (
     <section className="investigation-layout">
@@ -254,7 +260,9 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
           </div>
         ) : null}
         {state === "empty" ? <p className="muted-text">No errors found</p> : null}
-        {state === "ready" ? <ErrorList errors={errors} onSelect={setSelectedError} selectedErrorId={selectedError?.id} /> : null}
+        {state === "ready" ? (
+          <ErrorList errors={errors} onOpenIncident={onOpenIncident} onSelect={setSelectedError} selectedErrorId={selectedError?.id} />
+        ) : null}
       </div>
       <ErrorDetailDrawer
         error={selectedError}
@@ -263,6 +271,7 @@ export function ErrorRawOccurrencesPanel({ client, projectId, environmentId, ini
         sessionTimeline={activeSessionTimeline?.timeline}
         sessionTimelineError={activeSessionTimeline?.error}
         sourceMapResolution={sourceMapResolution}
+        onOpenIncident={openSelectedIncident}
       />
     </section>
   );

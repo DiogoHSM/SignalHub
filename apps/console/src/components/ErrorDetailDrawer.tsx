@@ -9,6 +9,7 @@ type Props = {
   sessionTimelineError?: string | null;
   sourceMapResolution?: SourceMapResolution;
   isResolvingSourceMap?: boolean;
+  onOpenIncident?: () => void;
 };
 
 function formatJson(value: unknown): string {
@@ -29,7 +30,8 @@ export function ErrorDetailDrawer({
   isLoadingSessionTimeline,
   sessionTimelineError,
   sourceMapResolution,
-  isResolvingSourceMap
+  isResolvingSourceMap,
+  onOpenIncident
 }: Props) {
   if (!error) {
     return (
@@ -44,6 +46,13 @@ export function ErrorDetailDrawer({
       <div className="panel-header">
         <h2>{error.message}</h2>
       </div>
+      {onOpenIncident ? (
+        <div className="drawer-actions">
+          <button onClick={onOpenIncident} type="button">
+            Open incident
+          </button>
+        </div>
+      ) : null}
       <dl className="detail-grid">
         <dt>ID</dt>
         <dd>

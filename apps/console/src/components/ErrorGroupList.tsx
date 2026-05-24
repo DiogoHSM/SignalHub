@@ -1,9 +1,11 @@
 import type { ErrorGroupRecord } from "../api/types";
+import { PriorityBadge } from "./PriorityBadge";
 
 type Props = {
   groups: ErrorGroupRecord[];
   selectedGroupId?: string;
   onSelect: (group: ErrorGroupRecord) => void;
+  onOpenIncident?: (groupId: string, options?: { errorId?: string }) => void;
 };
 
 function formatTimestamp(value: string): string {
@@ -14,29 +16,40 @@ function label(value: string | null | undefined): string {
   return value ?? "none";
 }
 
-export function ErrorGroupList({ groups, selectedGroupId, onSelect }: Props) {
+export function ErrorGroupList({ groups, selectedGroupId, onOpenIncident, onSelect }: Props) {
   return (
     <div className="event-list" aria-label="Error groups">
       {groups.map((group) => (
-        <button
-          aria-pressed={group.id === selectedGroupId}
+        <div
           className="event-row error-group-row"
+          data-selected={group.id === selectedGroupId ? "true" : undefined}
           key={group.id}
-          onClick={() => onSelect(group)}
-          type="button"
         >
-          <span>
+          <button
+            aria-pressed={group.id === selectedGroupId}
+            className="event-row-select"
+            onClick={() => onSelect(group)}
+            type="button"
+          >
             <strong>{group.message}</strong>
             <code>{group.id}</code>
-          </span>
-          <span>{group.severity}</span>
-          <span>{group.status}</span>
-          <span>{group.occurrenceCount} occurrences</span>
-          <span>{group.affectedUsersCount} users</span>
-          <span>{group.affectedTenantsCount} tenants</span>
-          <span>{formatTimestamp(group.lastSeenAt)}</span>
-          <span>{label(group.latestRelease)}</span>
-        </button>
+            <span className={`badge severity-${group.severity}`}>{group.severity}</span>
+            <span className={`badge status-${group.status}`}>{group.status}</span>
+            <PriorityBadge priority={group.priority} />
+            <span>{group.occurrenceCount} occurrences</span>
+            <span>{group.affectedUsersCount} users</span>
+            <span>{group.affectedTenantsCount} tenants</span>
+            <span>{formatTimestamp(group.lastSeenAt)}</span>
+            <span>{label(group.latestRelease)}</span>
+          </button>
+          {onOpenIncident ? (
+            <button className="event-row-action" onClick={() => onOpenIncident(group.id)} type="button">
+              Open incident
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
       ))}
     </div>
   );
