@@ -24,13 +24,19 @@ type IncidentRoute =
 function parseIncidentRoute(location: Location): IncidentRoute {
   const match = location.pathname.match(/\/console\/incidents\/error-groups\/([^/]+)$/);
   if (!match) return { kind: "none" };
+  let groupId: string;
+  try {
+    groupId = decodeURIComponent(match[1]);
+  } catch {
+    return { kind: "none" };
+  }
   const params = new URLSearchParams(location.search);
   const projectId = params.get("project_id");
   const environmentId = params.get("environment_id");
   if (!projectId || !environmentId) return { kind: "none" };
   return {
     kind: "error-group",
-    groupId: decodeURIComponent(match[1]),
+    groupId,
     projectId,
     environmentId,
     errorId: params.get("error_id") ?? undefined

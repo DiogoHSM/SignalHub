@@ -309,6 +309,34 @@ describe("ConsoleShell", () => {
     });
   });
 
+  it("lets users leave an unavailable incident route", async () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
+    const api = client({
+      getErrorGroupIncident: vi.fn().mockRejectedValue(new Error("unavailable"))
+    });
+
+    render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />);
+
+    expect(await screen.findByText("Incident unavailable")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to errors" }));
+
+    expect(window.location.pathname).toBe("/console");
+    expect(screen.queryByText("Incident unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText("Projects")).toBeInTheDocument();
+  });
+
+  it("ignores malformed incident route group ids", () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/%E0%A4%A?project_id=prj_1&environment_id=env_1");
+    const api = client({
+      getErrorGroupIncident: vi.fn()
+    });
+
+    expect(() => render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />)).not.toThrow();
+    expect(api.getErrorGroupIncident).not.toHaveBeenCalled();
+    expect(screen.getByText("Projects")).toBeInTheDocument();
+  });
+
   it("loads projects and environments for the selected project", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({

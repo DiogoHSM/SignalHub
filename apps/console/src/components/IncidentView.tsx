@@ -37,9 +37,6 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
     };
   }, [client, environmentId, errorId, groupId, projectId]);
 
-  if (state.status === "loading") return <p className="muted-text">Loading incident</p>;
-  if (state.status === "unavailable") return <p className="muted-text">Incident unavailable</p>;
-
   return (
     <section className="incident-view">
       <header className="incident-header">
@@ -48,7 +45,9 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
         </button>
         <div>
           <p className="eyebrow">Incident</p>
-          <h2>{state.incident.group.message}</h2>
+          {state.status === "ready" ? <h2>{state.incident.group.message}</h2> : null}
+          {state.status === "loading" ? <p className="muted-text">Loading incident</p> : null}
+          {state.status === "unavailable" ? <p className="muted-text">Incident unavailable</p> : null}
         </div>
       </header>
     </section>
