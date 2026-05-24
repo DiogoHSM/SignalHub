@@ -25,7 +25,7 @@
 **Files:**
 - Create: `apps/api/test/docs.test.ts`
 
-- [ ] **Step 1: Write failing docs tests**
+- [x] **Step 1: Write failing docs tests**
 
 Create `apps/api/test/docs.test.ts`:
 
@@ -110,7 +110,7 @@ describe("API docs", () => {
 });
 ```
 
-- [ ] **Step 2: Verify tests fail**
+- [x] **Step 2: Verify tests fail**
 
 Run:
 
@@ -128,7 +128,7 @@ Expected: FAIL with missing `/openapi.json` and `/docs` routes.
 - Modify: `apps/api/src/app.ts`
 - Modify: `apps/api/package.json`
 
-- [ ] **Step 1: Add Scalar dependency**
+- [x] **Step 1: Add Scalar dependency**
 
 Run:
 
@@ -138,7 +138,7 @@ pnpm --filter @sigmon/api add @scalar/fastify-api-reference
 
 Expected: `apps/api/package.json` and `pnpm-lock.yaml` update.
 
-- [ ] **Step 2: Create OpenAPI document**
+- [x] **Step 2: Create OpenAPI document**
 
 Create `apps/api/src/openapi.ts` with a typed OpenAPI document. Include:
 
@@ -149,7 +149,7 @@ Create `apps/api/src/openapi.ts` with a typed OpenAPI document. Include:
 - Paths for health/readiness, ingestion, source-map upload, auth/admin/query/system summaries.
 - Schemas for accepted response, error response, event/error/breadcrumb/llm/trace/span payload examples.
 
-- [ ] **Step 3: Register docs routes**
+- [x] **Step 3: Register docs routes**
 
 Create `apps/api/src/routes/docs.ts` that:
 
@@ -176,7 +176,7 @@ export async function registerDocsRoutes(app: FastifyInstance): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: Wire docs into app**
+- [x] **Step 4: Wire docs into app**
 
 In `apps/api/src/app.ts`, import and await docs registration after plugins are registered and before the console/admin routes:
 
@@ -190,7 +190,7 @@ await registerDocsRoutes(app);
 registerHealthRoutes(app, options.readiness);
 ```
 
-- [ ] **Step 5: Run docs tests**
+- [x] **Step 5: Run docs tests**
 
 Run:
 
@@ -201,7 +201,7 @@ pnpm --filter @sigmon/api lint
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add apps/api/package.json pnpm-lock.yaml apps/api/src/openapi.ts apps/api/src/routes/docs.ts apps/api/src/app.ts apps/api/test/docs.test.ts
@@ -214,7 +214,7 @@ git commit -m "feat: add scalar api docs"
 - Modify: `README.md`
 - Modify: `.claude/docs/DEPLOYMENT.md`
 
-- [ ] **Step 1: Update README docs section**
+- [x] **Step 1: Update README docs section**
 
 In `README.md`, add a short "API Documentation" section near the API examples:
 
@@ -231,11 +231,11 @@ For the EasyPanel deployment, use:
 The docs are public, but protected endpoints still require their normal ingestion API key, source-map upload token, or human session cookie.
 ```
 
-- [ ] **Step 2: Update deployment docs**
+- [x] **Step 2: Update deployment docs**
 
 In `.claude/docs/DEPLOYMENT.md`, add the same operator note under Console Deployment or Readiness.
 
-- [ ] **Step 3: Run doc grep checks**
+- [x] **Step 3: Run doc grep checks**
 
 Run:
 
@@ -246,7 +246,7 @@ git diff --check
 
 Expected: docs mention the public reference and raw OpenAPI endpoint.
 
-- [ ] **Step 4: Commit docs**
+- [x] **Step 4: Commit docs**
 
 ```sh
 git add README.md .claude/docs/DEPLOYMENT.md
@@ -258,7 +258,7 @@ git commit -m "docs: document scalar api reference"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-24-scalar-api-docs-implementation.md`
 
-- [ ] **Step 1: Run final verification**
+- [x] **Step 1: Run final verification**
 
 Run:
 
@@ -271,11 +271,11 @@ git diff --check
 
 Expected: PASS.
 
-- [ ] **Step 2: Update this checklist**
+- [x] **Step 2: Update this checklist**
 
 Mark completed steps in this plan.
 
-- [ ] **Step 3: Commit checklist**
+- [x] **Step 3: Commit checklist**
 
 ```sh
 git add docs/superpowers/plans/2026-05-24-scalar-api-docs-implementation.md
