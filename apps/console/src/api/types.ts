@@ -167,12 +167,16 @@ export type UpdateErrorGroupStatusInput = {
   status: ErrorGroupStatus;
 };
 
-export type UpdateErrorGroupTriageInput = {
+type ErrorGroupTriageScope = {
   projectId: string;
   environmentId: string;
-  status?: ErrorGroupStatus;
-  priority?: ErrorGroupPriority | null;
 };
+
+type ErrorGroupTriagePatch =
+  | { status: ErrorGroupStatus; priority?: ErrorGroupPriority | null }
+  | { status?: ErrorGroupStatus; priority: ErrorGroupPriority | null };
+
+export type UpdateErrorGroupTriageInput = ErrorGroupTriageScope & ErrorGroupTriagePatch;
 
 export type SourceMapArtifact = {
   id: string;
