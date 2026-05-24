@@ -53,6 +53,7 @@ function errorGroup(overrides: Partial<ErrorGroupRecord>): ErrorGroupRecord {
     topStackFrame: "checkout.ts:12:3",
     severity: "critical",
     status: "open",
+    priority: null,
     firstSeenAt: "2026-05-04T11:00:00.000Z",
     lastSeenAt: "2026-05-04T12:00:00.000Z",
     lastRegressedAt: null,
@@ -116,7 +117,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
     getErrorGroup: vi.fn(),
+    getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
+    updateErrorGroupTriage: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
     getErrorSourceMapResolution: vi.fn().mockResolvedValue(unavailableResolution),
     ...overrides

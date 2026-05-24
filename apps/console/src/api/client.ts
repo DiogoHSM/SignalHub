@@ -80,15 +80,13 @@ export type ErrorGroupApiClient = {
     id: string,
     query: Pick<ErrorGroupQuery, "projectId" | "environmentId">
   ) => Promise<AggregateResponse<ErrorGroupRecord>>;
-  getErrorGroupIncident?: (
+  getErrorGroupIncident: (
     id: string,
     query: ErrorGroupIncidentQuery
   ) => Promise<AggregateResponse<ErrorGroupIncident>>;
   updateErrorGroupStatus: (id: string, input: UpdateErrorGroupStatusInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
-  updateErrorGroupTriage?: (id: string, input: UpdateErrorGroupTriageInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
+  updateErrorGroupTriage: (id: string, input: UpdateErrorGroupTriageInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
 };
-
-type IncidentErrorGroupApiClient = Required<Pick<ErrorGroupApiClient, "getErrorGroupIncident" | "updateErrorGroupTriage">>;
 
 export type SourceMapUploadInput = Pick<SourceMapArtifactQuery, "projectId" | "environmentId"> & {
   release: string;
@@ -477,7 +475,7 @@ function alertEventListPath(query: AlertEventListQuery): string {
 
 export function createApiClient(
   apiBasePath = defaultApiBasePath
-): ApiClient & IncidentErrorGroupApiClient & SessionTimelineApiClient & SourceMapApiClient {
+): ApiClient & SessionTimelineApiClient & SourceMapApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),

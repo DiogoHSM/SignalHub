@@ -90,7 +90,7 @@ export type ErrorGroupRecord = {
   topStackFrame: string | null;
   severity: string;
   status: ErrorGroupStatus;
-  priority?: ErrorGroupPriority | null;
+  priority: ErrorGroupPriority | null;
   firstSeenAt: string;
   lastSeenAt: string;
   lastRegressedAt: string | null;
