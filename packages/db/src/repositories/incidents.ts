@@ -151,32 +151,42 @@ function toTimelineItem(row: IncidentTimelineRow, confidence: IncidentTimelineCo
   };
 }
 
-function relationPredicate(input: {
-  confidence: IncidentTimelineConfidence;
-  primaryOccurrence: ErrorRecord;
-}): ReturnType<typeof sql> {
-  const error = input.primaryOccurrence;
-  if (input.confidence === "strong") {
-    return sql`
-      (
-        (${error.errorGroupId}::text is not null and error_group_id = ${error.errorGroupId})
-        or (${error.sessionId}::text is not null and session_id = ${error.sessionId})
-        or (${error.traceId}::text is not null and trace_id = ${error.traceId})
-      )
-    `;
-  }
-
+function strongRelationPredicate(error: ErrorRecord, input: { includeErrorGroup: boolean }): ReturnType<typeof sql> {
+  const errorGroupRelation = input.includeErrorGroup
+    ? sql`(${error.errorGroupId}::text is not null and coalesce(error_group_id = ${error.errorGroupId}, false)) or`
+    : sql``;
   return sql`
     (
-      (${error.userId}::text is not null and user_id = ${error.userId})
-      or (${error.tenantId}::text is not null and tenant_id = ${error.tenantId})
+      ${errorGroupRelation}
+      (${error.sessionId}::text is not null and coalesce(session_id = ${error.sessionId}, false))
+      or (${error.traceId}::text is not null and coalesce(trace_id = ${error.traceId}, false))
     )
   `;
 }
 
-function excludedIdsPredicate(excludedIds: string[]): ReturnType<typeof sql> {
-  if (excludedIds.length === 0) return sql``;
-  return sql`and id not in (${sql.join(excludedIds)})`;
+function nearbyRelationPredicate(error: ErrorRecord): ReturnType<typeof sql> {
+  return sql`
+    (
+      (${error.userId}::text is not null and coalesce(user_id = ${error.userId}, false))
+      or (${error.tenantId}::text is not null and coalesce(tenant_id = ${error.tenantId}, false))
+    )
+  `;
+}
+
+function branchRelationPredicate(input: {
+  confidence: IncidentTimelineConfidence;
+  primaryOccurrence: ErrorRecord;
+  includeErrorGroup: boolean;
+}): ReturnType<typeof sql> {
+  const strongRelation = strongRelationPredicate(input.primaryOccurrence, {
+    includeErrorGroup: input.includeErrorGroup
+  });
+  if (input.confidence === "strong") return strongRelation;
+
+  return sql`
+    ${nearbyRelationPredicate(input.primaryOccurrence)}
+    and not ${strongRelation}
+  `;
 }
 
 async function getIncidentTimeline(
@@ -187,12 +197,19 @@ async function getIncidentTimeline(
     from: Date;
     to: Date;
     limit: number;
-    excludedIds?: string[];
   }
 ): Promise<IncidentContextSection> {
   const error = input.primaryOccurrence;
-  const relation = relationPredicate({ confidence: input.confidence, primaryOccurrence: error });
-  const excludedIds = excludedIdsPredicate(input.excludedIds ?? []);
+  const nonErrorRelation = branchRelationPredicate({
+    confidence: input.confidence,
+    primaryOccurrence: error,
+    includeErrorGroup: false
+  });
+  const errorRelation = branchRelationPredicate({
+    confidence: input.confidence,
+    primaryOccurrence: error,
+    includeErrorGroup: true
+  });
   const rowLimit = input.limit + 1;
   const result = await sql<IncidentTimelineRow>`
     with incident_timeline as (
@@ -214,6 +231,7 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
+        and ${nonErrorRelation}
       union all
       select
         id,
@@ -233,6 +251,7 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
+        and ${nonErrorRelation}
       union all
       select
         id,
@@ -259,6 +278,7 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
+        and ${errorRelation}
       union all
       select
         id,
@@ -283,6 +303,7 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
+        and ${nonErrorRelation}
       union all
       select
         id,
@@ -312,6 +333,7 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
+        and ${nonErrorRelation}
       union all
       select
         id,
@@ -342,12 +364,10 @@ async function getIncidentTimeline(
         and environment_id = ${error.environmentId}
         and timestamp >= ${input.from}
         and timestamp <= ${input.to}
+        and ${nonErrorRelation}
     )
     select *
     from incident_timeline
-    where true
-      and ${relation}
-      ${excludedIds}
     order by timestamp asc, id asc
     limit ${rowLimit}
   `.execute(db);
@@ -410,8 +430,7 @@ export async function getErrorGroupIncident(
     confidence: "nearby",
     from,
     to,
-    limit: 50,
-    excludedIds: stronglyRelated.items.map((item) => item.id)
+    limit: 50
   });
 
   return {

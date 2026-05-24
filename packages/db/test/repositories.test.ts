@@ -2332,6 +2332,69 @@ describe("repositories", () => {
     });
   });
 
+  it("does not leak truncated strong matches into nearby incident context", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const timestamp = new Date("2026-05-24T12:00:00.000Z");
+      const group = await seedGroupedError(db, {
+        id: "err_incident_truncated_primary",
+        projectId: "prj_incident_truncated",
+        environmentId: "env_incident_truncated",
+        message: "Incident truncated context failure",
+        severity: "error",
+        timestamp
+      });
+
+      await sql`
+        update errors
+        set user_id = 'user_truncated',
+            tenant_id = 'tenant_truncated'
+        where id = 'err_incident_truncated_primary'
+      `.execute(db);
+
+      const hiddenStrongIds: string[] = [];
+      for (let index = 0; index < 76; index += 1) {
+        const id = `err_incident_truncated_strong_${index.toString().padStart(2, "0")}`;
+        if (index >= 74) hiddenStrongIds.push(id);
+        await insertError(db, {
+          id,
+          projectId: "prj_incident_truncated",
+          environmentId: "env_incident_truncated",
+          message: "Incident truncated context failure",
+          severity: "error",
+          timestamp: new Date(timestamp.getTime() + (index + 1) * 1000),
+          receivedAt: new Date(timestamp.getTime() + (index + 1) * 1000 + 1),
+          userId: "user_truncated",
+          tenantId: "tenant_truncated"
+        });
+      }
+
+      await insertEvent(db, {
+        id: "evt_incident_truncated_nearby",
+        projectId: "prj_incident_truncated",
+        environmentId: "env_incident_truncated",
+        name: "checkout.nearby",
+        timestamp: new Date("2026-05-24T11:59:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:59:01.000Z"),
+        userId: "user_truncated",
+        tenantId: "tenant_truncated"
+      });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: "prj_incident_truncated",
+        environmentId: "env_incident_truncated",
+        errorId: "err_incident_truncated_primary"
+      });
+
+      expect(incident?.stronglyRelated.truncated).toBe(true);
+      expect(incident?.nearbyContext.items.map((item) => item.id)).toContain("evt_incident_truncated_nearby");
+      expect(incident?.nearbyContext.items.map((item) => item.id)).not.toEqual(
+        expect.arrayContaining(hiddenStrongIds)
+      );
+    });
+  });
+
   it("groups new error inserts and reopens resolved groups on recurrence", async () => {
     await withDb(async (db) => {
       await migrate(db);
