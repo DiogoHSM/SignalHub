@@ -306,6 +306,8 @@ Use `--project-name` or `SIGMON_SMOKE_PROJECT_NAME` when running multiple smoke 
 
 Pull requests to `main` and pushes to `main` run the GitHub Actions CI gate. CI installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness.
 
+The workflow uses GitHub-maintained actions on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). SignalMonitor's application runtime remains Node.js 22.
+
 The smoke job runs `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 
 On pushes to `main`, CI also triggers EasyPanel deploy hooks after all gates pass. Configure GitHub Actions secrets for the app services only:

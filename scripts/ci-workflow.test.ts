@@ -48,12 +48,13 @@ describe("GitHub Actions CI workflow", () => {
     );
   });
 
-  it("uses Node 22, Corepack, and frozen pnpm installs in every job", () => {
+  it("uses Node 24 actions, Node 22 app runtime, Corepack, and frozen pnpm installs in every build job", () => {
     const content = workflow();
 
     for (const jobName of ["test", "build", "compose-config", "smoke-compose"]) {
       expectIncludesAll(jobBlock(content, jobName), [
-        "actions/setup-node@v4",
+        "actions/checkout@v6",
+        "actions/setup-node@v6",
         "node-version: 22",
         "corepack enable",
         "corepack prepare pnpm@9.15.4 --activate",

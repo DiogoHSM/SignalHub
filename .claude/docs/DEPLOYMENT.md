@@ -69,6 +69,8 @@ For release-readiness checks, run `pnpm smoke:compose` from a clean checkout aft
 
 GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
 
+The workflow uses GitHub-maintained actions that run on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). This is separate from the application runtime, which remains Node.js 22.
+
 The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. It does not publish images or create releases.
 
 On pushes to `main`, the `Deploy EasyPanel` job runs only after the test, build, Compose config, and Compose smoke jobs pass. It calls EasyPanel deploy hooks from GitHub Actions secrets:
