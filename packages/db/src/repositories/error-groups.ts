@@ -337,15 +337,16 @@ export async function updateErrorGroupTriage(
     patch.priority = input.priority ?? null;
   }
 
-  await db
+  const row = await db
     .updateTable("error_groups")
     .set(patch)
     .where("id", "=", input.id)
     .where("project_id", "=", input.projectId)
     .where("environment_id", "=", input.environmentId)
+    .returningAll()
     .executeTakeFirst();
 
-  return getErrorGroup(db, input);
+  return row ? toGroup(row) : null;
 }
 
 export async function updateErrorGroupStatus(
