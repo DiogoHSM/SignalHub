@@ -7,6 +7,17 @@
 - Postgres: operational data and typed telemetry records.
 - Redis: queue backend with append-only persistence enabled in Compose.
 
+## EasyPanel Deployment
+
+The live VPS deployment uses EasyPanel services named `api`, `worker`, `postgres`, and `redis` in the `sigmon` project. The `api` and `worker` services are repository-built application services and may be redeployed through EasyPanel deploy hooks after GitHub Actions passes on `main`.
+
+GitHub Actions secrets:
+
+- `EASYPANEL_API_DEPLOY_URL`: deploy hook for the `api` service. `EASYPANEL_DEPLOY_URL` remains accepted as a legacy API-only alias.
+- `EASYPANEL_WORKER_DEPLOY_URL`: deploy hook for the `worker` service.
+
+Do not add deploy hooks for Postgres or Redis. They are stateful template services and should be managed directly in EasyPanel.
+
 ## Compose Defaults
 
 - Postgres image: `postgres:16-alpine`.

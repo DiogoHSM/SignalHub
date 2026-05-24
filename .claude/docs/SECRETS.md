@@ -19,6 +19,9 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets. Defaults to the browser origin when blank. |
 | `SIGMON_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
+| `EASYPANEL_API_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | EasyPanel deploy hook for the `api` service. Store only as a GitHub Actions secret. |
+| `EASYPANEL_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | Legacy alias for the API deploy hook. Prefer `EASYPANEL_API_DEPLOY_URL` for new setup. |
+| `EASYPANEL_WORKER_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | EasyPanel deploy hook for the `worker` service. Store only as a GitHub Actions secret. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/sigmon/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | `50` | Non-secret operational config. Maximum source-map upload size in MiB. |
 | `SOURCE_MAPS_RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables worker cleanup of old local source-map artifacts when telemetry retention is enabled. |
@@ -61,6 +64,7 @@ Operational rules:
 - Do not commit root-level `SECRETS.md`.
 - S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
+- EasyPanel deploy hook URLs can trigger production deploys. Store them only in GitHub Actions secrets, never in committed files or local shell history that might be shared.
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
 - Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalMonitor stores them locally and the console displays resolved frame metadata only, not source content.

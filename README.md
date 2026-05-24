@@ -308,6 +308,13 @@ Pull requests to `main` and pushes to `main` run the GitHub Actions CI gate. CI 
 
 The smoke job runs `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 
+On pushes to `main`, CI also triggers EasyPanel deploy hooks after all gates pass. Configure GitHub Actions secrets for the app services only:
+
+- `EASYPANEL_API_DEPLOY_URL` for the EasyPanel `api` service. The legacy `EASYPANEL_DEPLOY_URL` secret is also accepted as an API deploy URL.
+- `EASYPANEL_WORKER_DEPLOY_URL` for the EasyPanel `worker` service.
+
+Do not configure deploy hooks for Postgres or Redis. They are stateful EasyPanel template services and should not be redeployed from the repository build.
+
 ## Upgrade Flow
 
 Create a backup before upgrading, stop writers during migration, then verify the upgraded stack:
