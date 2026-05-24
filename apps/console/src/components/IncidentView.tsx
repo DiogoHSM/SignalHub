@@ -68,7 +68,11 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
                 client={client}
                 environmentId={environmentId}
                 incident={readyIncident}
-                onUpdated={(incident) => setState({ status: "ready", key: incidentKey, incident })}
+                onUpdated={(incident) =>
+                  setState((current) =>
+                    current.key === incidentKey ? { status: "ready", key: incidentKey, incident } : current
+                  )
+                }
                 projectId={projectId}
               />
               <IncidentTimeline incident={readyIncident} />

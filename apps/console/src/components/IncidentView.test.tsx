@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -128,6 +128,14 @@ function clientWithIncident(incident: ErrorGroupIncident = incidentFixture()): A
   } as unknown as ApiClient;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -237,6 +245,76 @@ describe("IncidentView", () => {
     expect(await screen.findByRole("heading", { name: "Billing failed" })).toBeInTheDocument();
     expect(screen.getByLabelText("Status")).toHaveValue("investigating");
     expect(screen.getByLabelText("Priority")).toHaveValue("low");
+  });
+
+  it("ignores stale triage saves that resolve after the route changes", async () => {
+    const checkoutIncident = incidentFixture();
+    const billingIncident = incidentFixture({
+      group: {
+        id: "egrp_billing",
+        groupingFingerprint: "fp_billing",
+        message: "Billing failed",
+        status: "investigating",
+        priority: "low"
+      },
+      primaryOccurrence: {
+        id: "err_2",
+        message: "Billing failed",
+        stack: "Error: Billing failed",
+        errorGroupId: "egrp_billing",
+        groupingFingerprint: "fp_billing"
+      },
+      suggestedPriority: "normal"
+    });
+    const save = deferred<{ data: ErrorGroupIncident["group"] }>();
+    const api = {
+      getErrorGroupIncident: vi
+        .fn()
+        .mockResolvedValueOnce({ data: checkoutIncident })
+        .mockResolvedValueOnce({ data: billingIncident }),
+      updateErrorGroupTriage: vi.fn().mockReturnValue(save.promise)
+    } as unknown as ApiClient;
+
+    const { rerender } = render(
+      <IncidentView
+        client={api}
+        environmentId="env_1"
+        groupId="egrp_checkout"
+        onBack={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    await screen.findByRole("heading", { name: "Checkout failed" });
+    await userEvent.selectOptions(screen.getByLabelText("Priority"), "high");
+    await userEvent.click(screen.getByRole("button", { name: "Save triage" }));
+    expect(api.updateErrorGroupTriage).toHaveBeenCalledWith("egrp_checkout", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      status: "open",
+      priority: "high"
+    });
+
+    rerender(
+      <IncidentView
+        client={api}
+        environmentId="env_1"
+        groupId="egrp_billing"
+        onBack={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    expect(await screen.findByRole("heading", { name: "Billing failed" })).toBeInTheDocument();
+
+    await act(async () => {
+      save.resolve({ data: { ...checkoutIncident.group, priority: "high" } });
+      await save.promise;
+    });
+
+    expect(screen.getByRole("heading", { name: "Billing failed" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Checkout failed" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading incident")).not.toBeInTheDocument();
   });
 
   it("syncs triage controls when the incident changes without remounting", async () => {
