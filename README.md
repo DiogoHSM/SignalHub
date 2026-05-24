@@ -388,6 +388,17 @@ curl -b cookies.txt \
 
 Copy the one-time `apiKey.secret` from the response. The stored record keeps only a prefix and hash, so the full secret is not shown again.
 
+## API Documentation
+
+Deployed SignalMonitor instances expose public API reference docs at `/docs` and the raw OpenAPI 3.1 document at `/openapi.json`.
+
+For the EasyPanel deployment, use:
+
+- `https://my.sigmon.app/docs`
+- `https://my.sigmon.app/openapi.json`
+
+The docs are public, but protected endpoints still require their normal ingestion API key, source-map upload token, or human session cookie.
+
 ## Ingestion Examples
 
 All ingestion endpoints require `Authorization: Bearer sh_YOUR_API_KEY_SECRET`. Successful requests return `202 Accepted` with `{ "accepted": true, "id": "..." }`.
