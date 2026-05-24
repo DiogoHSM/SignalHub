@@ -17,6 +17,7 @@ import {
 } from "./routes/admin.js";
 import { registerAuthRoutes, type AuthDependencies } from "./routes/auth.js";
 import { registerConsoleRoutes, type ConsoleRouteOptions } from "./routes/console.js";
+import { registerDocsRoutes } from "./routes/docs.js";
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
 import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
@@ -122,6 +123,7 @@ export async function buildApp(options: BuildAppOptions) {
   await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });
 
   registerRequestContext(app);
+  await registerDocsRoutes(app);
   registerHealthRoutes(app, options.readiness);
   registerAuthRoutes(app, {
     auth: options.auth,
