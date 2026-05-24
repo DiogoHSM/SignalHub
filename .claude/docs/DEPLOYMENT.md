@@ -173,4 +173,6 @@ Production builds include `apps/console/dist`. The API serves the console at `/c
 
 Set `SIGMON_PUBLIC_ENDPOINT` to the externally reachable API origin when SignalMonitor runs behind a domain, HTTPS reverse proxy, or non-default port. The console uses that value in SDK, HTTP, and environment snippets.
 
+Public API reference docs are served at `/docs`, with the raw OpenAPI 3.1 document at `/openapi.json`. For the EasyPanel deployment, use `https://my.sigmon.app/docs` and `https://my.sigmon.app/openapi.json`. The docs are public, but protected endpoints still require their normal ingestion API key, source-map upload token, or human session cookie.
+
 Local development can run the API with `pnpm dev:api` and the console with `pnpm dev:console`.
