@@ -93,6 +93,7 @@ export type UserDetailFilters = {
 };
 
 export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
+export type ErrorGroupPriority = "urgent" | "high" | "normal" | "low";
 
 export type ErrorGroupFilters = {
   projectId: string;
@@ -153,6 +154,14 @@ export type QueryDependencies = {
   getSessionTimeline?: (filters: SessionTimelineFilters) => Promise<unknown>;
   listErrorGroups?: (filters: ErrorGroupFilters) => Promise<QueryListResult>;
   getErrorGroup?: (id: string, filters: ErrorGroupScope) => Promise<unknown | null>;
+  getErrorGroupIncident?: (
+    id: string,
+    filters: ErrorGroupScope & { errorId?: string }
+  ) => Promise<unknown | null>;
+  updateErrorGroupTriage?: (
+    id: string,
+    input: ErrorGroupScope & { status?: ErrorGroupStatus; priority?: ErrorGroupPriority | null }
+  ) => Promise<unknown | null>;
   updateErrorGroupStatus?: (
     id: string,
     input: ErrorGroupScope & { status: ErrorGroupStatus }
@@ -176,6 +185,18 @@ const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
 const errorParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupStatusSchema = z.enum(["open", "investigating", "resolved", "ignored"]);
+const errorGroupPrioritySchema = z.enum(["urgent", "high", "normal", "low"]);
+const errorGroupIncidentScopeSchema = z.object({
+  project_id: z.string().trim().min(1),
+  environment_id: z.string().trim().min(1),
+  error_id: z.string().trim().min(1).optional()
+});
+const errorGroupTriageBodySchema = z
+  .object({
+    status: errorGroupStatusSchema.optional(),
+    priority: errorGroupPrioritySchema.nullable().optional()
+  })
+  .refine((value) => value.status !== undefined || "priority" in value);
 
 type RawQuery = Record<string, unknown>;
 
@@ -410,6 +431,19 @@ function parseErrorGroupScope(query: unknown): ErrorGroupScope | undefined {
   }
 
   return { projectId, environmentId };
+}
+
+function parseErrorGroupIncidentScope(query: unknown): (ErrorGroupScope & { errorId?: string }) | undefined {
+  const parsed = errorGroupIncidentScopeSchema.safeParse(query);
+  if (!parsed.success) {
+    return undefined;
+  }
+
+  return {
+    projectId: parsed.data.project_id,
+    environmentId: parsed.data.environment_id,
+    errorId: parsed.data.error_id
+  };
 }
 
 function parseNonnegativeSeconds(raw: RawQuery, key: string): number | undefined | null {
@@ -1096,6 +1130,30 @@ async function handleErrorGroupDetailRoute(request: FastifyRequest, reply: Fasti
   }
 }
 
+async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getErrorGroupIncident) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupIncidentScope(request.query);
+  if (!params.success || !scope) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const incident = await options.query.getErrorGroupIncident(params.data.id, scope);
+    return incident ? reply.send({ data: incident }) : reply.status(404).send({ error: "incident_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -1160,22 +1218,24 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
     return reply;
   }
 
-  if (!options.query?.updateErrorGroupStatus) {
-    return reply.status(501).send({ error: "query_method_unavailable" });
-  }
-
   const params = errorGroupParamsSchema.safeParse(request.params);
   const scope = parseErrorGroupScope(request.query);
-  const body = z.object({ status: errorGroupStatusSchema }).safeParse(request.body);
+  const body = errorGroupTriageBodySchema.safeParse(request.body);
   if (!params.success || !scope || !body.success) {
     return reply.status(400).send({ error: "invalid_query" });
   }
 
+  if (!options.query?.updateErrorGroupTriage && (!options.query?.updateErrorGroupStatus || !body.data.status)) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
   try {
-    const group = await options.query.updateErrorGroupStatus(params.data.id, {
-      ...scope,
-      status: body.data.status
-    });
+    const group = options.query.updateErrorGroupTriage
+      ? await options.query.updateErrorGroupTriage(params.data.id, { ...scope, ...body.data })
+      : await options.query.updateErrorGroupStatus!(params.data.id, {
+          ...scope,
+          status: body.data.status!
+        });
     return group ? reply.send({ data: group }) : reply.status(404).send({ error: "error_group_not_found" });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
@@ -1190,6 +1250,9 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/users", (request, reply) => handleUserListRoute(request, reply, options));
   app.get("/query/users/:userKey", (request, reply) => handleUserDetailRoute(request, reply, options));
   app.get("/query/error-groups", (request, reply) => handleErrorGroupListRoute(request, reply, options));
+  app.get("/query/incidents/error-groups/:id", (request, reply) =>
+    handleErrorGroupIncidentRoute(request, reply, options)
+  );
   app.get("/query/error-groups/:id/errors", (request, reply) =>
     handleErrorGroupOccurrencesRoute(request, reply, options)
   );

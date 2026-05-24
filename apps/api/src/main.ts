@@ -75,8 +75,10 @@ import { getSessionTimeline } from "@sigmon/db/repositories/session-timeline.js"
 import {
   getErrorGroup,
   listErrorGroups,
-  updateErrorGroupStatus
+  updateErrorGroupStatus,
+  updateErrorGroupTriage
 } from "@sigmon/db/repositories/error-groups.js";
+import { getErrorGroupIncident } from "@sigmon/db/repositories/incidents.js";
 import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositories/entities-query.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
 import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
@@ -405,6 +407,8 @@ const app = await buildApp({
     listErrors: (filters) => listErrors(db, filters),
     listErrorGroups: (filters) => listErrorGroups(db, filters),
     getErrorGroup: (id, filters) => getErrorGroup(db, { id, ...filters }),
+    getErrorGroupIncident: (id, filters) => getErrorGroupIncident(db, { groupId: id, ...filters }),
+    updateErrorGroupTriage: (id, input) => updateErrorGroupTriage(db, { id, ...input }),
     updateErrorGroupStatus: (id, input) => updateErrorGroupStatus(db, { id, ...input }),
     listLlmCalls: (filters) => listLlmCalls(db, filters),
     listTraces: (filters) => listTraces(db, filters),

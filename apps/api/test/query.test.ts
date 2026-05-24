@@ -1817,6 +1817,39 @@ describe("query routes", () => {
     ]);
   });
 
+  it("gets an error group incident by id", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getErrorGroupIncident: async (id, filters) => ({
+          group: { id, projectId: filters.projectId, environmentId: filters.environmentId },
+          primaryOccurrence: { id: filters.errorId ?? "err_latest", errorGroupId: id },
+          priority: null,
+          suggestedPriority: "urgent",
+          sourceMapResolution: { status: "none" },
+          stronglyRelated: { items: [], truncated: false },
+          nearbyContext: { items: [], truncated: false },
+          related: { traceId: null, sessionId: null, userId: null, tenantId: null, release: null }
+        })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1&error_id=err_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: {
+        group: { id: "egrp_1" },
+        primaryOccurrence: { id: "err_1" },
+        suggestedPriority: "urgent"
+      }
+    });
+  });
+
   it("lists raw occurrences for an error group", async () => {
     const receivedFilters: unknown[] = [];
 
@@ -1898,6 +1931,54 @@ describe("query routes", () => {
         }
       }
     ]);
+  });
+
+  it("updates error group status and priority", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        updateErrorGroupTriage: async (id, input) => ({
+          id,
+          projectId: input.projectId,
+          environmentId: input.environmentId,
+          status: input.status,
+          priority: input.priority
+        })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "investigating", priority: "high" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: { id: "egrp_1", status: "investigating", priority: "high" }
+    });
+  });
+
+  it("rejects invalid error group priority", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        updateErrorGroupTriage: async () => {
+          throw new Error("should not be called");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { priority: "p0" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
   it.each(["open", "investigating", "resolved", "ignored"])("accepts %s as an error group status", async (status) => {
