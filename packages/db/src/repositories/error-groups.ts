@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import type { Kysely, Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../client.js";
-import type { Database, ErrorGroupsTable } from "../schema.js";
+import type { Database, ErrorGroupPriority as SchemaErrorGroupPriority, ErrorGroupsTable } from "../schema.js";
 
 export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
+export type ErrorGroupPriority = SchemaErrorGroupPriority;
+export type ErrorGroupPriorityInput = ErrorGroupPriority | null;
 
 type ErrorGroupRow = Selectable<ErrorGroupsTable>;
 type DbExecutor = Kysely<Database> | Transaction<Database>;
@@ -32,6 +34,7 @@ export type ErrorGroupRecord = {
   topStackFrame: string | null;
   severity: string;
   status: ErrorGroupStatus;
+  priority: ErrorGroupPriority | null;
   firstSeenAt: Date;
   lastSeenAt: Date;
   lastRegressedAt: Date | null;
@@ -136,6 +139,7 @@ function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
     topStackFrame: row.top_stack_frame,
     severity: row.severity,
     status: row.status,
+    priority: row.priority,
     firstSeenAt: row.first_seen_at,
     lastSeenAt: row.last_seen_at,
     lastRegressedAt: row.last_regressed_at,
@@ -304,19 +308,38 @@ export async function getErrorGroup(
   return row ? toGroup(row) : null;
 }
 
-export async function updateErrorGroupStatus(
+export async function updateErrorGroupTriage(
   db: Db,
-  input: { id: string; projectId: string; environmentId: string; status: ErrorGroupStatus; now?: Date }
+  input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    status?: ErrorGroupStatus;
+    priority?: ErrorGroupPriorityInput;
+    now?: Date;
+  }
 ): Promise<ErrorGroupRecord | null> {
-  const now = input.now ?? new Date();
+  const patch: {
+    status?: ErrorGroupStatus;
+    priority?: ErrorGroupPriorityInput;
+    resolved_at?: Date | null;
+    ignored_at?: Date | null;
+    updated_at: Date;
+  } = { updated_at: input.now ?? new Date() };
+
+  if (input.status !== undefined) {
+    patch.status = input.status;
+    patch.resolved_at = input.status === "resolved" ? patch.updated_at : null;
+    patch.ignored_at = input.status === "ignored" ? patch.updated_at : null;
+  }
+
+  if ("priority" in input) {
+    patch.priority = input.priority ?? null;
+  }
+
   const row = await db
     .updateTable("error_groups")
-    .set({
-      status: input.status,
-      resolved_at: input.status === "resolved" ? now : null,
-      ignored_at: input.status === "ignored" ? now : null,
-      updated_at: now
-    })
+    .set(patch)
     .where("id", "=", input.id)
     .where("project_id", "=", input.projectId)
     .where("environment_id", "=", input.environmentId)
@@ -324,6 +347,13 @@ export async function updateErrorGroupStatus(
     .executeTakeFirst();
 
   return row ? toGroup(row) : null;
+}
+
+export async function updateErrorGroupStatus(
+  db: Db,
+  input: { id: string; projectId: string; environmentId: string; status: ErrorGroupStatus; now?: Date }
+): Promise<ErrorGroupRecord | null> {
+  return updateErrorGroupTriage(db, input);
 }
 
 export async function refreshErrorGroupStats(db: DbExecutor, groupId: string): Promise<void> {

@@ -17,6 +17,7 @@ type Props = {
   environmentId?: string;
   initialTab?: InvestigationTab;
   initialFilters?: InvestigationInitialFilters;
+  onOpenIncident?: (groupId: string, options?: { errorId?: string }) => void;
 };
 
 export type InvestigationTab = "events" | "errors" | "traces" | "llm" | "entities" | "users";
@@ -36,7 +37,7 @@ export type InvestigationDrilldown =
   | { tab: "traces"; filters: Partial<TraceFilterValues> }
   | { tab: "llm"; filters: Partial<LlmFilterValues> };
 
-export function InvestigationWorkspace({ client, projectId, environmentId, initialTab, initialFilters }: Props) {
+export function InvestigationWorkspace({ client, projectId, environmentId, initialTab, initialFilters, onOpenIncident }: Props) {
   const [activeTab, setActiveTab] = useState<InvestigationTab>(initialTab ?? "events");
   const [localInitialFilters, setLocalInitialFilters] = useState<InvestigationInitialFilters>({});
   const mergedInitialFilters: InvestigationInitialFilters = {
@@ -114,6 +115,7 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
           environmentId={environmentId}
           initialTab="raw"
           initialFilters={mergedInitialFilters.errors}
+          onOpenIncident={onOpenIncident}
           projectId={projectId}
         />
       ) : null}

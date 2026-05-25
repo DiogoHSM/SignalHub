@@ -11,6 +11,8 @@ import type {
   CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
   Environment,
+  ErrorGroupIncident,
+  ErrorGroupIncidentQuery,
   ErrorGroupQuery,
   ErrorGroupRecord,
   ErrorRecord,
@@ -43,6 +45,7 @@ import type {
   UserListResponse,
   UpdateAlertRuleInput,
   UpdateErrorGroupStatusInput,
+  UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput
 } from "./types";
 
@@ -77,7 +80,12 @@ export type ErrorGroupApiClient = {
     id: string,
     query: Pick<ErrorGroupQuery, "projectId" | "environmentId">
   ) => Promise<AggregateResponse<ErrorGroupRecord>>;
+  getErrorGroupIncident: (
+    id: string,
+    query: ErrorGroupIncidentQuery
+  ) => Promise<AggregateResponse<ErrorGroupIncident>>;
   updateErrorGroupStatus: (id: string, input: UpdateErrorGroupStatusInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
+  updateErrorGroupTriage: (id: string, input: UpdateErrorGroupTriageInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
 };
 
 export type SourceMapUploadInput = Pick<SourceMapArtifactQuery, "projectId" | "environmentId"> & {
@@ -313,6 +321,13 @@ function errorGroupPath(id: string, query: Pick<ErrorGroupQuery, "projectId" | "
   return `/query/error-groups/${encodePathSegment(id)}?${errorGroupScopeParams(query).toString()}`;
 }
 
+function errorGroupIncidentPath(id: string, query: ErrorGroupIncidentQuery): string {
+  const params = errorGroupScopeParams(query);
+  if (query.errorId) params.set("error_id", query.errorId);
+
+  return `/query/incidents/error-groups/${encodePathSegment(id)}?${params.toString()}`;
+}
+
 function sourceMapScopeParams(query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): URLSearchParams {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -458,7 +473,9 @@ function alertEventListPath(query: AlertEventListQuery): string {
   return `/alerts/events?${params.toString()}`;
 }
 
-export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & SessionTimelineApiClient & SourceMapApiClient {
+export function createApiClient(
+  apiBasePath = defaultApiBasePath
+): ApiClient & SessionTimelineApiClient & SourceMapApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
@@ -502,10 +519,20 @@ export function createApiClient(apiBasePath = defaultApiBasePath): ApiClient & S
     listErrorGroups: (query) => request<QueryListResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupQueryPath(query))),
     getErrorGroup: (id, query) =>
       request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupPath(id, query))),
+    getErrorGroupIncident: (id, query) =>
+      request<AggregateResponse<ErrorGroupIncident>>(path(apiBasePath, errorGroupIncidentPath(id, query))),
     updateErrorGroupStatus: (id, input) =>
       request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupPath(id, input)), {
         method: "PATCH",
         body: { status: input.status }
+      }),
+    updateErrorGroupTriage: (id, input) =>
+      request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupPath(id, input)), {
+        method: "PATCH",
+        body: {
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...("priority" in input ? { priority: input.priority ?? null } : {})
+        }
       }),
     listSourceMapArtifacts: async (query) => {
       const response = await request<{ artifacts: SourceMapArtifact[] }>(path(apiBasePath, sourceMapArtifactsPath(query)));

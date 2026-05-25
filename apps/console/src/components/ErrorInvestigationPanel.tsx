@@ -10,11 +10,12 @@ type Props = {
   environmentId: string;
   initialTab?: ErrorTab;
   initialFilters?: Partial<ErrorFilterValues>;
+  onOpenIncident?: (groupId: string, options?: { errorId?: string }) => void;
 };
 
 type ErrorTab = "groups" | "raw";
 
-export function ErrorInvestigationPanel({ client, projectId, environmentId, initialTab, initialFilters }: Props) {
+export function ErrorInvestigationPanel({ client, projectId, environmentId, initialTab, initialFilters, onOpenIncident }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const [activeTab, setActiveTab] = useState<ErrorTab>(initialTab ?? "groups");
   const [rawInitialFilters, setRawInitialFilters] = useState<Partial<ErrorFilterValues>>(initialFilters ?? {});
@@ -62,13 +63,20 @@ export function ErrorInvestigationPanel({ client, projectId, environmentId, init
             client={client}
             environmentId={environmentId}
             initialFilters={initialFilters}
+            onOpenIncident={onOpenIncident}
             onShowOccurrences={showRawOccurrences}
             projectId={projectId}
           />
         </div>
       ) : (
         <div aria-labelledby="error-raw-tab" id="error-raw-panel" role="tabpanel">
-          <ErrorRawOccurrencesPanel client={client} environmentId={environmentId} initialFilters={rawInitialFilters} projectId={projectId} />
+          <ErrorRawOccurrencesPanel
+            client={client}
+            environmentId={environmentId}
+            initialFilters={rawInitialFilters}
+            onOpenIncident={onOpenIncident}
+            projectId={projectId}
+          />
         </div>
       )}
     </div>

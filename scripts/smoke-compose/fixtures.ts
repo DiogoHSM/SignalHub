@@ -1,9 +1,13 @@
 export type SmokePayloads = ReturnType<typeof createSmokePayloads>;
 
-export function createSmokePayloads(runId: string) {
+function offsetIso(base: Date, offsetMs: number): string {
+  return new Date(base.getTime() + offsetMs).toISOString();
+}
+
+export function createSmokePayloads(runId: string, createdAt = new Date()) {
   return {
     event: {
-      timestamp: "2026-05-17T12:00:00.000Z",
+      timestamp: offsetIso(createdAt, -80_000),
       tenant_id: `tenant_${runId}`,
       user_id: `user_${runId}`,
       session_id: `sess_${runId}`,
@@ -14,7 +18,7 @@ export function createSmokePayloads(runId: string) {
       properties: { plan: "trial" }
     },
     error: {
-      timestamp: "2026-05-17T12:01:00.000Z",
+      timestamp: offsetIso(createdAt, -20_000),
       tenant_id: `tenant_${runId}`,
       user_id: `user_${runId}`,
       session_id: `sess_${runId}`,
@@ -30,7 +34,7 @@ export function createSmokePayloads(runId: string) {
       context: { route: "/checkout" }
     },
     trace: {
-      timestamp: "2026-05-17T12:00:30.000Z",
+      timestamp: offsetIso(createdAt, -50_000),
       tenant_id: `tenant_${runId}`,
       user_id: `user_${runId}`,
       session_id: `sess_${runId}`,
@@ -38,12 +42,12 @@ export function createSmokePayloads(runId: string) {
       source: "smoke-compose",
       release: `web@${runId}`,
       name: `${runId}.checkout`,
-      started_at: "2026-05-17T12:00:29.000Z",
+      started_at: offsetIso(createdAt, -51_000),
       duration_ms: 2400,
       status: "success"
     },
     span: {
-      timestamp: "2026-05-17T12:00:31.000Z",
+      timestamp: offsetIso(createdAt, -49_000),
       tenant_id: `tenant_${runId}`,
       user_id: `user_${runId}`,
       session_id: `sess_${runId}`,
@@ -52,12 +56,12 @@ export function createSmokePayloads(runId: string) {
       source: "smoke-compose",
       release: `web@${runId}`,
       name: `${runId}.db.query`,
-      started_at: "2026-05-17T12:00:31.000Z",
+      started_at: offsetIso(createdAt, -49_000),
       duration_ms: 120,
       status: "success"
     },
     llm: {
-      timestamp: "2026-05-17T12:01:10.000Z",
+      timestamp: offsetIso(createdAt, -10_000),
       tenant_id: `tenant_${runId}`,
       user_id: `user_${runId}`,
       session_id: `sess_${runId}`,
@@ -75,7 +79,7 @@ export function createSmokePayloads(runId: string) {
       latency_ms: 840
     },
     breadcrumb: {
-      timestamp: "2026-05-17T12:01:20.000Z",
+      timestamp: offsetIso(createdAt, -1_000),
       tenant_id: `tenant_${runId}`,
       user_id: `user_${runId}`,
       session_id: `sess_${runId}`,

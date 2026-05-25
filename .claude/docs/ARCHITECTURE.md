@@ -58,7 +58,7 @@ Telemetry tables:
 - `spans`
 
 All telemetry records include project, environment, optional tenant/user/session/trace identifiers, timestamps, source, release, and metadata.
-Errors are stored as immutable raw occurrences and are attached to operational `error_groups` through deterministic grouping fingerprints.
+Errors are stored as immutable raw occurrences and are attached to operational `error_groups` through deterministic grouping fingerprints. `error_groups.priority` stores an optional operator priority override (`urgent`, `high`, `normal`, or `low`) separately from derived severity and workflow status.
 
 Source-map artifacts are admin-uploaded metadata rows scoped to project, environment, release, and minified filename. The source-map files themselves live on the API filesystem under `SOURCE_MAPS_LOCAL_DIR`; Postgres stores metadata and cached resolved stack-frame locations only.
 
@@ -113,6 +113,7 @@ Query:
 - `GET /query/error-groups/:id`
 - `GET /query/error-groups/:id/errors`
 - `PATCH /query/error-groups/:id`
+- `GET /query/incidents/error-groups/:id`
 - `GET /query/errors/:id/source-map-resolution`
 - `GET /query/sessions/:sessionId/timeline`
 - `GET /query/llm-calls`
@@ -171,7 +172,9 @@ The console includes a read-only `Investigate` mode for Events. It uses the exis
 
 The Events query supports exact `event_name` filtering in addition to project, environment, tenant, user, session, trace, date range, and limit filters. The first investigation slice does not mutate telemetry data and does not add new storage tables.
 
-The console includes an Errors investigation workflow with grouped triage and raw occurrence drilldown. Grouped errors use `GET /query/error-groups`, `GET /query/error-groups/:id`, and `PATCH /query/error-groups/:id` for exact project/environment-scoped status workflows. Raw occurrences remain available through the peer Raw occurrences tab and `GET /query/errors`, including exact `error_group_id` filtering.
+The console includes an Errors investigation workflow with grouped triage and raw occurrence drilldown. Grouped errors use `GET /query/error-groups`, `GET /query/error-groups/:id`, and `PATCH /query/error-groups/:id` for exact project/environment-scoped status and priority workflows. Raw occurrences remain available through the peer Raw occurrences tab and `GET /query/errors`, including exact `error_group_id` filtering.
+
+The dedicated Incident view uses `GET /query/incidents/error-groups/:id` with project, environment, and optional raw error scope. The incident repository returns the selected group, a primary occurrence, source-map resolution status, suggested priority, saved priority override, and two context collections. Strongly related context matches the incident by strong identifiers such as trace, session, user, tenant, and release. Nearby context is lower-confidence activity around the primary occurrence timestamp and is labeled separately so operators can use it as supporting context rather than direct causality.
 
 Raw error details can resolve minified production stack frames on demand through `GET /query/errors/:id/source-map-resolution`. Resolution requires exact project, environment, release, and minified filename matches against uploaded artifacts. Resolved frames are cached in `error_stack_resolutions`; deleting a source-map artifact invalidates full cached stacks for any error that referenced the deleted artifact. The console displays file, line, column, and symbol metadata only, never original source code or `sourcesContent`.
 

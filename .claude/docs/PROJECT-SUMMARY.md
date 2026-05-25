@@ -20,6 +20,7 @@ Implemented capabilities:
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
 - Deterministic error grouping with operational group status workflow.
+- Error-first Incident view with shareable URLs, priority triage, primary occurrence details, source-map status, strongly related signals, and nearby context.
 - Local-first source-map artifact storage, admin `.map` / `.zip` uploads, and on-demand raw error stack resolution.
 - Dedicated source-map upload tokens, CI upload API, CLI uploader, and Artifacts token management.
 - Worker-owned source-map artifact retention for local files, metadata, and cached stack resolutions.

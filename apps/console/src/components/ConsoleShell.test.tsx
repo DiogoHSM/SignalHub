@@ -54,7 +54,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
     getErrorGroup: vi.fn(),
+    getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
+    updateErrorGroupTriage: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
     listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
     uploadSourceMap: vi.fn(),
@@ -219,11 +221,190 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
   };
 }
 
+function incidentFixture(input: { groupId: string }) {
+  return {
+    group: {
+      id: input.groupId,
+      projectId: "prj_1",
+      environmentId: "env_1",
+      groupingFingerprint: "fp_checkout",
+      message: "Checkout failed",
+      type: "Error",
+      topStackFrame: "at checkout.js:10:2",
+      severity: "critical",
+      status: "open",
+      priority: null,
+      firstSeenAt: "2026-05-24T12:00:00.000Z",
+      lastSeenAt: "2026-05-24T12:00:00.000Z",
+      lastRegressedAt: null,
+      occurrenceCount: 1,
+      affectedUsersCount: 1,
+      affectedTenantsCount: 1,
+      latestErrorId: "err_1",
+      latestRelease: "web@1",
+      resolvedAt: null,
+      ignoredAt: null,
+      createdAt: "2026-05-24T12:00:00.000Z",
+      updatedAt: "2026-05-24T12:00:00.000Z"
+    },
+    primaryOccurrence: {
+      id: "err_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      tenantId: "tenant_1",
+      userId: "user_1",
+      sessionId: "session_1",
+      traceId: "trace_1",
+      timestamp: "2026-05-24T12:00:00.000Z",
+      receivedAt: "2026-05-24T12:00:01.000Z",
+      source: "browser",
+      release: "web@1",
+      metadata: {},
+      message: "Checkout failed",
+      type: "Error",
+      severity: "critical",
+      stack: "Error: Checkout failed\n    at checkout.js:10:2",
+      status: "open",
+      fingerprint: "fp_checkout",
+      errorGroupId: input.groupId,
+      groupingFingerprint: "fp_checkout",
+      context: {}
+    },
+    priority: null,
+    suggestedPriority: "urgent",
+    sourceMapResolution: { status: "none" },
+    stronglyRelated: { items: [], truncated: false },
+    nearbyContext: { items: [], truncated: false },
+    related: {
+      traceId: "trace_1",
+      sessionId: "session_1",
+      userId: "user_1",
+      tenantId: "tenant_1",
+      release: "web@1"
+    }
+  };
+}
+
 afterEach(() => {
   cleanup();
+  window.history.pushState({}, "", "/");
 });
 
 describe("ConsoleShell", () => {
+  it("opens an incident route from the browser URL", async () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
+    const api = client({
+      getErrorGroupIncident: vi.fn().mockResolvedValue({
+        data: incidentFixture({ groupId: "egrp_1" })
+      })
+    });
+
+    render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />);
+
+    expect(await screen.findByText("Incident")).toBeInTheDocument();
+    expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
+    expect(api.getErrorGroupIncident).toHaveBeenCalledWith("egrp_1", {
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+  });
+
+  it("lets users leave an unavailable incident route", async () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
+    const api = client({
+      getErrorGroupIncident: vi.fn().mockRejectedValue(new Error("unavailable"))
+    });
+
+    render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />);
+
+    expect(await screen.findByText("Incident unavailable")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to errors" }));
+
+    expect(window.location.pathname).toBe("/console");
+    expect(screen.queryByText("Incident unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText("Projects")).toBeInTheDocument();
+  });
+
+  it("replaces the incident history entry when using in-app back", async () => {
+    window.history.pushState({}, "", "/console");
+    const pushStateSpy = vi.spyOn(window.history, "pushState");
+    const replaceStateSpy = vi.spyOn(window.history, "replaceState");
+    const getErrorGroupIncident = vi.fn().mockResolvedValue({
+      data: incidentFixture({ groupId: "egrp_1" })
+    });
+    const api = client({
+      getErrorGroupIncident,
+      listErrors: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "err_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            tenantId: "tenant_1",
+            userId: "user_1",
+            sessionId: "session_1",
+            traceId: "trace_1",
+            timestamp: "2026-05-24T12:00:00.000Z",
+            receivedAt: "2026-05-24T12:00:01.000Z",
+            source: "browser",
+            release: "web@1",
+            metadata: {},
+            message: "Checkout failed",
+            type: "Error",
+            severity: "critical",
+            stack: "Error: Checkout failed",
+            status: "open",
+            fingerprint: "fp_checkout",
+            errorGroupId: "egrp_1",
+            groupingFingerprint: "fp_checkout",
+            context: {}
+          }
+        ]
+      }),
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await userEvent.click(screen.getByRole("button", { name: "Errors" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open incident" }));
+
+    expect(await screen.findByText("Incident")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/console/incidents/error-groups/egrp_1");
+    expect(pushStateSpy).toHaveBeenCalledWith(
+      {},
+      "",
+      "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1&error_id=err_1"
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to errors" }));
+
+    expect(window.location.pathname).toBe("/console");
+    expect(screen.queryByText("Incident")).not.toBeInTheDocument();
+    expect(replaceStateSpy).toHaveBeenCalledWith({}, "", "/console");
+    expect(pushStateSpy).not.toHaveBeenCalledWith({}, "", "/console");
+    expect(getErrorGroupIncident).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores malformed incident route group ids", () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/%E0%A4%A?project_id=prj_1&environment_id=env_1");
+    const api = client({
+      getErrorGroupIncident: vi.fn()
+    });
+
+    expect(() => render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />)).not.toThrow();
+    expect(api.getErrorGroupIncident).not.toHaveBeenCalled();
+    expect(screen.getByText("Projects")).toBeInTheDocument();
+  });
+
   it("loads projects and environments for the selected project", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({

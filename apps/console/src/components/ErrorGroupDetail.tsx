@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { ErrorGroupRecord, ErrorGroupStatus } from "../api/types";
+import { PriorityBadge } from "./PriorityBadge";
 
 type Props = {
   client: ApiClient;
   group?: ErrorGroupRecord;
   projectId: string;
   environmentId: string;
+  onOpenIncident?: (groupId: string) => void;
   onShowOccurrences: (groupId: string) => void;
   onStatusUpdated: (group: ErrorGroupRecord) => void;
 };
@@ -23,7 +25,7 @@ function formatTimestamp(value: string | null | undefined): string {
   return value ? new Date(value).toLocaleString() : "none";
 }
 
-export function ErrorGroupDetail({ client, group, projectId, environmentId, onShowOccurrences, onStatusUpdated }: Props) {
+export function ErrorGroupDetail({ client, group, projectId, environmentId, onOpenIncident, onShowOccurrences, onStatusUpdated }: Props) {
   const saveRequestId = useRef(0);
   const [draftStatus, setDraftStatus] = useState<ErrorGroupStatus>("open");
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -89,6 +91,11 @@ export function ErrorGroupDetail({ client, group, projectId, environmentId, onSh
         <button onClick={() => onShowOccurrences(group.id)} type="button">
           Show raw occurrences
         </button>
+        {onOpenIncident ? (
+          <button onClick={() => onOpenIncident(group.id)} type="button">
+            Open incident
+          </button>
+        ) : null}
       </div>
       {saveState === "unavailable" ? <p className="muted-text">Status update failed.</p> : null}
       <dl className="detail-grid">
@@ -103,9 +110,17 @@ export function ErrorGroupDetail({ client, group, projectId, environmentId, onSh
         <dt>Type</dt>
         <dd>{detailValue(group.type)}</dd>
         <dt>Severity</dt>
-        <dd>{group.severity}</dd>
+        <dd>
+          <span className={`badge severity-${group.severity}`}>{group.severity}</span>
+        </dd>
         <dt>Status</dt>
-        <dd>{group.status}</dd>
+        <dd>
+          <span className={`badge status-${group.status}`}>{group.status}</span>
+        </dd>
+        <dt>Priority</dt>
+        <dd>
+          <PriorityBadge priority={group.priority} />
+        </dd>
         <dt>Fingerprint</dt>
         <dd>{group.groupingFingerprint}</dd>
         <dt>Top frame</dt>

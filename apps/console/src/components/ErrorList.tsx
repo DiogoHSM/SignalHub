@@ -4,6 +4,7 @@ type Props = {
   errors: ErrorRecord[];
   selectedErrorId?: string;
   onSelect: (error: ErrorRecord) => void;
+  onOpenIncident?: (groupId: string, options: { errorId: string }) => void;
 };
 
 function formatTimestamp(value: string): string {
@@ -22,31 +23,44 @@ function contextLabel(error: ErrorRecord): string {
   return error.traceId ?? error.sessionId ?? "none";
 }
 
-export function ErrorList({ errors, selectedErrorId, onSelect }: Props) {
+export function ErrorList({ errors, selectedErrorId, onOpenIncident, onSelect }: Props) {
   return (
     <div className="event-list" aria-label="Errors">
-      {errors.map((error) => (
-        <button
-          aria-pressed={error.id === selectedErrorId}
-          className="event-row error-row"
-          key={error.id}
-          onClick={() => onSelect(error)}
-          type="button"
-        >
-          <span>
-            <strong>{error.message}</strong>
-            <code>{error.id}</code>
-          </span>
-          <span>{error.severity}</span>
-          <span>{error.status}</span>
-          <span>{typeLabel(error)}</span>
-          <span>{formatTimestamp(error.timestamp)}</span>
-          <span>{label(error.errorGroupId)}</span>
-          <span>{label(error.userId)}</span>
-          <span>{label(error.tenantId)}</span>
-          <span>{contextLabel(error)}</span>
-        </button>
-      ))}
+      {errors.map((error) => {
+        const groupId = error.errorGroupId;
+        return (
+          <div
+            className="event-row error-row"
+            data-selected={error.id === selectedErrorId ? "true" : undefined}
+            key={error.id}
+          >
+            <button
+              aria-pressed={error.id === selectedErrorId}
+              className="event-row-select"
+              onClick={() => onSelect(error)}
+              type="button"
+            >
+              <strong>{error.message}</strong>
+              <code>{error.id}</code>
+              <span>{error.severity}</span>
+              <span>{error.status}</span>
+              <span>{typeLabel(error)}</span>
+              <span>{formatTimestamp(error.timestamp)}</span>
+              <span>{label(groupId)}</span>
+              <span>{label(error.userId)}</span>
+              <span>{label(error.tenantId)}</span>
+              <span>{contextLabel(error)}</span>
+            </button>
+            {onOpenIncident && groupId ? (
+              <button className="event-row-action" onClick={() => onOpenIncident(groupId, { errorId: error.id })} type="button">
+                Open incident
+              </button>
+            ) : (
+              <span />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

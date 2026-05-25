@@ -53,6 +53,7 @@ function errorGroup(overrides: Partial<ErrorGroupRecord>): ErrorGroupRecord {
     topStackFrame: "checkout.ts:12:3",
     severity: "critical",
     status: "open",
+    priority: null,
     firstSeenAt: "2026-05-04T11:00:00.000Z",
     lastSeenAt: "2026-05-04T12:00:00.000Z",
     lastRegressedAt: null,
@@ -116,7 +117,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
     getErrorGroup: vi.fn(),
+    getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
+    updateErrorGroupTriage: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
     getErrorSourceMapResolution: vi.fn().mockResolvedValue(unavailableResolution),
     ...overrides
@@ -165,6 +168,29 @@ describe("ErrorInvestigationPanel", () => {
     expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
     expect(api.listErrorGroups).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
     expect(api.listErrors).not.toHaveBeenCalled();
+  });
+
+  it("opens an incident from a grouped error", async () => {
+    const onOpenIncident = vi.fn();
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [errorGroup({ id: "egrp_checkout", message: "Checkout fetch failed" })]
+      })
+    });
+
+    render(
+      <ErrorInvestigationPanel
+        client={api}
+        environmentId="env_1"
+        initialTab="groups"
+        onOpenIncident={onOpenIncident}
+        projectId="prj_1"
+      />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open incident" }));
+
+    expect(onOpenIncident).toHaveBeenCalledWith("egrp_checkout");
   });
 
   it("makes raw occurrences available as a peer tab", async () => {
@@ -627,5 +653,28 @@ describe("ErrorInvestigationPanel", () => {
 
     expect(screen.queryByText("Old scope failed")).not.toBeInTheDocument();
     expect(screen.getByText("New scope failed")).toBeInTheDocument();
+  });
+
+  it("opens an incident from a raw error occurrence", async () => {
+    const onOpenIncident = vi.fn();
+    const api = client({
+      listErrors: vi.fn().mockResolvedValue({
+        data: [error({ id: "err_1", message: "Checkout fetch failed", errorGroupId: "egrp_checkout" })]
+      })
+    });
+
+    render(
+      <ErrorInvestigationPanel
+        client={api}
+        environmentId="env_1"
+        initialTab="raw"
+        onOpenIncident={onOpenIncident}
+        projectId="prj_1"
+      />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open incident" }));
+
+    expect(onOpenIncident).toHaveBeenCalledWith("egrp_checkout", { errorId: "err_1" });
   });
 });

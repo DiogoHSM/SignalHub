@@ -13,6 +13,7 @@ The intended public website and domain is `sigmon.app`; the future deployed app 
 - Redis-backed ingestion queue with worker processing.
 - Postgres storage for operational data and typed telemetry tables.
 - Deterministic error grouping with group status workflow and raw occurrence drilldown.
+- Error-first Incident view for grouped and raw errors with priority triage, related context, and shareable URLs.
 - Admin source-map artifact uploads and on-demand production stack resolution.
 - Lightweight breadcrumb ingestion and session context timelines for raw error debugging.
 - Human-session query endpoints for raw telemetry and basic aggregates.
@@ -196,6 +197,10 @@ client.breadcrumb({
 ```
 
 Breadcrumbs must not include secrets, raw form values, request bodies, response bodies, cookies, or headers. Browser auto-capture helpers sanitize URLs and element summaries, and network capture is disabled by default.
+
+## Incident Investigation
+
+SignalMonitor includes an error-first Incident view for grouped errors and raw occurrences. Operators can open a shareable incident URL from `Investigate > Errors`, review severity, status, suggested and saved priority, source-map status, primary occurrence details, strongly related signals, and nearby context.
 
 ## Local Development
 

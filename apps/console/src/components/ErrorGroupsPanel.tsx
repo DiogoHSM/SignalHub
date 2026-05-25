@@ -11,6 +11,7 @@ type Props = {
   projectId: string;
   environmentId: string;
   initialFilters?: Partial<ErrorFilterValues>;
+  onOpenIncident?: (groupId: string, options?: { errorId?: string }) => void;
   onShowOccurrences: (groupId: string) => void;
 };
 
@@ -97,7 +98,7 @@ function groupMatchesFilters(group: ErrorGroupRecord, filters: ErrorGroupFilterV
   return true;
 }
 
-export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilters, onShowOccurrences }: Props) {
+export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilters, onOpenIncident, onShowOccurrences }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
   const groupsRef = useRef<ErrorGroupRecord[]>([]);
@@ -193,13 +194,14 @@ export function ErrorGroupsPanel({ client, projectId, environmentId, initialFilt
         ) : null}
         {state === "empty" ? <p className="muted-text">No error groups found</p> : null}
         {state === "ready" ? (
-          <ErrorGroupList groups={groups} onSelect={setSelectedGroup} selectedGroupId={selectedGroup?.id} />
+          <ErrorGroupList groups={groups} onOpenIncident={onOpenIncident} onSelect={setSelectedGroup} selectedGroupId={selectedGroup?.id} />
         ) : null}
       </div>
       <ErrorGroupDetail
         client={client}
         environmentId={environmentId}
         group={selectedGroup}
+        onOpenIncident={onOpenIncident}
         onShowOccurrences={onShowOccurrences}
         onStatusUpdated={updateGroup}
         projectId={projectId}

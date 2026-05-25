@@ -3,6 +3,7 @@ import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
+import { IncidentView } from "./IncidentView";
 import { AlertsPanel } from "./AlertsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
@@ -16,12 +17,39 @@ type LatestSecret = {
   environmentId: string;
 };
 
+type IncidentRoute =
+  | { kind: "none" }
+  | { kind: "error-group"; groupId: string; projectId: string; environmentId: string; errorId?: string };
+
+function parseIncidentRoute(location: Location): IncidentRoute {
+  const match = location.pathname.match(/\/console\/incidents\/error-groups\/([^/]+)$/);
+  if (!match) return { kind: "none" };
+  let groupId: string;
+  try {
+    groupId = decodeURIComponent(match[1]);
+  } catch {
+    return { kind: "none" };
+  }
+  const params = new URLSearchParams(location.search);
+  const projectId = params.get("project_id");
+  const environmentId = params.get("environment_id");
+  if (!projectId || !environmentId) return { kind: "none" };
+  return {
+    kind: "error-group",
+    groupId,
+    projectId,
+    environmentId,
+    errorId: params.get("error_id") ?? undefined
+  };
+}
+
 export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEndpoint?: string }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
   const [activeMode, setActiveMode] = useState<ConsoleMode>("setup");
+  const [incidentRoute, setIncidentRoute] = useState<IncidentRoute>(() => parseIncidentRoute(window.location));
   const [investigationDrilldown, setInvestigationDrilldown] = useState<{
     nonce: number;
     tab: InvestigationTab;
@@ -38,6 +66,14 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     latestSecret && latestSecret.projectId === activeProject?.id && latestSecret.environmentId === activeEnvironment?.id
       ? latestSecret.secret
       : undefined;
+
+  useEffect(() => {
+    function handlePopState() {
+      setIncidentRoute(parseIncidentRoute(window.location));
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     activeProjectIdRef.current = activeProject?.id;
@@ -161,6 +197,32 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     setActiveMode("investigate");
   }
 
+  function closeIncidentView() {
+    window.history.replaceState({}, "", "/console");
+    setIncidentRoute({ kind: "none" });
+    setActiveMode("investigate");
+  }
+
+  function openErrorGroupIncident(groupId: string, options?: { errorId?: string }) {
+    if (!activeProject || !activeEnvironment) return;
+
+    const params = new URLSearchParams({
+      project_id: activeProject.id,
+      environment_id: activeEnvironment.id
+    });
+    if (options?.errorId) params.set("error_id", options.errorId);
+
+    const path = `/console/incidents/error-groups/${encodeURIComponent(groupId)}?${params.toString()}`;
+    window.history.pushState({}, "", path);
+    setIncidentRoute({
+      kind: "error-group",
+      groupId,
+      projectId: activeProject.id,
+      environmentId: activeEnvironment.id,
+      errorId: options?.errorId
+    });
+  }
+
   async function createProject(name: string) {
     if (isLoadingProjects) return;
 
@@ -208,58 +270,72 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
           </div>
           <ConsoleModeTabs activeMode={activeMode} onChange={setActiveMode} />
         </header>
-        <div hidden={activeMode !== "setup"}>
-          <SetupWorkspace
-            activeEnvironment={activeEnvironment}
-            activeProjectId={activeProject?.id}
-            apiEndpoint={apiEndpoint}
+        {incidentRoute.kind === "error-group" ? (
+          <IncidentView
             client={client}
-            environments={environments}
-            isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
-            latestSecret={scopedLatestSecret}
-            onCreateEnvironment={createEnvironment}
-            onSecretCreated={storeLatestSecret}
-            onSelectEnvironment={setActiveEnvironment}
+            environmentId={incidentRoute.environmentId}
+            errorId={incidentRoute.errorId}
+            groupId={incidentRoute.groupId}
+            onBack={closeIncidentView}
+            projectId={incidentRoute.projectId}
           />
-        </div>
-        <div hidden={activeMode !== "overview"}>
-          {activeMode === "overview" ? (
-            <OverviewDashboard
-              client={client}
-              environmentId={activeEnvironment?.id}
-              onDrilldown={handleOverviewDrilldown}
-              projectId={activeProject?.id}
-            />
-          ) : null}
-        </div>
-        <div hidden={activeMode !== "investigate"}>
-          {activeMode === "investigate" ? (
-            <InvestigationWorkspace
-              client={client}
-              environmentId={activeEnvironment?.id}
-              initialFilters={investigationDrilldown?.filters}
-              initialTab={investigationDrilldown?.tab}
-              key={investigationDrilldown?.nonce ?? "investigation"}
-              projectId={activeProject?.id}
-            />
-          ) : null}
-        </div>
-        <div hidden={activeMode !== "alerts"}>
-          {activeMode === "alerts" ? (
-            <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
-          ) : null}
-        </div>
-        <div hidden={activeMode !== "artifacts"}>
-          {activeMode === "artifacts" ? (
-            <ArtifactsPanel
-              client={client}
-              environmentId={activeEnvironment?.id}
-              key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}`}
-              projectId={activeProject?.id}
-            />
-          ) : null}
-        </div>
-        <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
+        ) : (
+          <>
+            <div hidden={activeMode !== "setup"}>
+              <SetupWorkspace
+                activeEnvironment={activeEnvironment}
+                activeProjectId={activeProject?.id}
+                apiEndpoint={apiEndpoint}
+                client={client}
+                environments={environments}
+                isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
+                latestSecret={scopedLatestSecret}
+                onCreateEnvironment={createEnvironment}
+                onSecretCreated={storeLatestSecret}
+                onSelectEnvironment={setActiveEnvironment}
+              />
+            </div>
+            <div hidden={activeMode !== "overview"}>
+              {activeMode === "overview" ? (
+                <OverviewDashboard
+                  client={client}
+                  environmentId={activeEnvironment?.id}
+                  onDrilldown={handleOverviewDrilldown}
+                  projectId={activeProject?.id}
+                />
+              ) : null}
+            </div>
+            <div hidden={activeMode !== "investigate"}>
+              {activeMode === "investigate" ? (
+                <InvestigationWorkspace
+                  client={client}
+                  environmentId={activeEnvironment?.id}
+                  initialFilters={investigationDrilldown?.filters}
+                  initialTab={investigationDrilldown?.tab}
+                  key={investigationDrilldown?.nonce ?? "investigation"}
+                  onOpenIncident={openErrorGroupIncident}
+                  projectId={activeProject?.id}
+                />
+              ) : null}
+            </div>
+            <div hidden={activeMode !== "alerts"}>
+              {activeMode === "alerts" ? (
+                <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+              ) : null}
+            </div>
+            <div hidden={activeMode !== "artifacts"}>
+              {activeMode === "artifacts" ? (
+                <ArtifactsPanel
+                  client={client}
+                  environmentId={activeEnvironment?.id}
+                  key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}`}
+                  projectId={activeProject?.id}
+                />
+              ) : null}
+            </div>
+            <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
+          </>
+        )}
       </section>
     </main>
   );
