@@ -117,9 +117,12 @@ describe("GitHub Actions CI workflow", () => {
       "EASYPANEL_API_DEPLOY_URL: ${{ secrets.EASYPANEL_API_DEPLOY_URL || secrets.EASYPANEL_DEPLOY_URL }}",
       "EASYPANEL_WORKER_DEPLOY_URL: ${{ secrets.EASYPANEL_WORKER_DEPLOY_URL }}",
       "EASYPANEL_SCHEDULER_DEPLOY_URL: ${{ secrets.EASYPANEL_SCHEDULER_DEPLOY_URL }}",
-      "curl --fail --silent --show-error --request POST \"${EASYPANEL_API_DEPLOY_URL}\"",
-      "curl --fail --silent --show-error --request POST \"${EASYPANEL_WORKER_DEPLOY_URL}\"",
-      "curl --fail --silent --show-error --request POST \"${EASYPANEL_SCHEDULER_DEPLOY_URL}\""
+      "trigger_deploy \"API\" \"${EASYPANEL_API_DEPLOY_URL}\"",
+      "trigger_deploy \"worker\" \"${EASYPANEL_WORKER_DEPLOY_URL}\"",
+      "trigger_deploy \"scheduler\" \"${EASYPANEL_SCHEDULER_DEPLOY_URL}\"",
+      "--retry-all-errors",
+      "grep -qi \"Deploying\"",
+      "deploy hook started but reset the connection after responding"
     ]);
     expect(deployJob).not.toContain("POSTGRES_DEPLOY_URL");
     expect(deployJob).not.toContain("REDIS_DEPLOY_URL");

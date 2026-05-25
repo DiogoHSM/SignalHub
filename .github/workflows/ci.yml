@@ -132,20 +132,52 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -n "${EASYPANEL_API_DEPLOY_URL}" ]; then
-            curl --fail --silent --show-error --request POST "${EASYPANEL_API_DEPLOY_URL}"
-          else
-            echo "::notice::No EasyPanel API deploy URL configured; skipping API deploy."
-          fi
+          trigger_deploy() {
+            local service_name="$1"
+            local deploy_url="$2"
+            local response
+            local status
 
-          if [ -n "${EASYPANEL_WORKER_DEPLOY_URL}" ]; then
-            curl --fail --silent --show-error --request POST "${EASYPANEL_WORKER_DEPLOY_URL}"
-          else
-            echo "::notice::No EasyPanel worker deploy URL configured; skipping worker deploy."
-          fi
+            if [ -z "${deploy_url}" ]; then
+              echo "::notice::No EasyPanel ${service_name} deploy URL configured; skipping ${service_name} deploy."
+              return 0
+            fi
 
-          if [ -n "${EASYPANEL_SCHEDULER_DEPLOY_URL}" ]; then
-            curl --fail --silent --show-error --request POST "${EASYPANEL_SCHEDULER_DEPLOY_URL}"
-          else
-            echo "::notice::No EasyPanel scheduler deploy URL configured; skipping scheduler deploy."
-          fi
+            echo "::group::Trigger EasyPanel ${service_name} deploy"
+            set +e
+            response="$(
+              curl \
+                --fail \
+                --silent \
+                --show-error \
+                --request POST \
+                --retry 2 \
+                --retry-all-errors \
+                --retry-delay 5 \
+                "${deploy_url}" 2>&1
+            )"
+            status=$?
+            set -e
+
+            printf '%s\n' "${response}"
+
+            if [ "${status}" -eq 0 ]; then
+              echo "::notice::EasyPanel ${service_name} deploy hook accepted."
+              echo "::endgroup::"
+              return 0
+            fi
+
+            if [ "${status}" -eq 56 ] && printf '%s\n' "${response}" | grep -qi "Deploying"; then
+              echo "::notice::EasyPanel ${service_name} deploy hook started but reset the connection after responding."
+              echo "::endgroup::"
+              return 0
+            fi
+
+            echo "::error::EasyPanel ${service_name} deploy hook failed with curl exit ${status}."
+            echo "::endgroup::"
+            return "${status}"
+          }
+
+          trigger_deploy "API" "${EASYPANEL_API_DEPLOY_URL}"
+          trigger_deploy "worker" "${EASYPANEL_WORKER_DEPLOY_URL}"
+          trigger_deploy "scheduler" "${EASYPANEL_SCHEDULER_DEPLOY_URL}"
