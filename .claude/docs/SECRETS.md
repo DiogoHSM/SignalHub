@@ -76,4 +76,5 @@ Operational rules:
 - Production doctor checks also fail when `POSTGRES_PASSWORD` is missing or still uses the local-only Compose placeholder.
 - Doctor output redacts secret values and reports only variable names, status, and actionable remediation.
 - Browser ingestion API keys are expected to be public but must remain project/environment scoped. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
+- Identify calls use the existing project/environment ingestion API keys. They do not introduce new environment variables, secrets, tokens, or key types.
 - Production session cookies use `__Host-sigmon_session` with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`.

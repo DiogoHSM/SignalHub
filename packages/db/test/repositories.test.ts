@@ -2882,6 +2882,11 @@ describe("repositories", () => {
   it("returns latest ingestion freshness timestamps or nulls", async () => {
     await withDb(async (db) => {
       await migrate(db);
+      await db.deleteFrom("spans").execute();
+      await db.deleteFrom("traces").execute();
+      await db.deleteFrom("errors").execute();
+      await db.deleteFrom("events").execute();
+      await db.deleteFrom("llm_calls").execute();
 
       await expect(getIngestionFreshness(db)).resolves.toEqual({
         lastEventAt: null,
