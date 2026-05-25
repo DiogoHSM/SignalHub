@@ -13,6 +13,10 @@ describe("SDK exports", () => {
       types: "./dist/node.d.ts",
       default: "./dist/node.js"
     });
+    expect(manifest.exports["./next"]).toEqual({
+      types: "./dist/next.d.ts",
+      default: "./dist/next.js"
+    });
   });
 
   it("keeps browser entrypoint free of node imports", async () => {
@@ -21,5 +25,13 @@ describe("SDK exports", () => {
     expect(source).not.toMatch(/node:/);
     expect(source).not.toMatch(/from ["']fs/);
     expect(source).not.toMatch(/from ["']crypto/);
+  });
+
+  it("exposes a Next.js wrapper entrypoint", async () => {
+    const next = await import("../src/next.js");
+
+    expect(next.createSignalMonitorNextClient).toBeTypeOf("function");
+    expect(next.withSignalMonitorRoute).toBeTypeOf("function");
+    expect(next.withSignalMonitorAction).toBeTypeOf("function");
   });
 });
