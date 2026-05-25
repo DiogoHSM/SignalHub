@@ -33,6 +33,14 @@ export type OverviewFilters = {
   window: OverviewWindow;
 };
 
+export type OperationsWindow = "24h" | "7d" | "30d";
+
+export type OperationsFilters = {
+  projectId: string;
+  environmentId: string;
+  window: OperationsWindow;
+};
+
 export type EntityWindow = "24h" | "7d" | "30d";
 
 export type EntitySignalType = "event" | "error" | "trace" | "llm";
@@ -147,6 +155,7 @@ export type QueryDependencies = {
   getLlmAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getTraceAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getOverview?: (filters: OverviewFilters) => Promise<unknown>;
+  getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   listEntityTenants?: (filters: EntityTenantListFilters) => Promise<unknown>;
   getEntityTenantDetail?: (tenantId: string, filters: EntityTenantDetailFilters) => Promise<unknown>;
   listUsersActivity?: (filters: UserListFilters) => Promise<unknown>;
@@ -573,6 +582,26 @@ function parseOverviewFilters(query: unknown): OverviewFilters | undefined {
   };
 }
 
+function parseOperationsFilters(query: unknown): OperationsFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "24h";
+  if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    window: rawWindow
+  };
+}
+
 function parseEntityWindow(raw: RawQuery): EntityWindow | undefined {
   const rawWindow = optionalNonEmpty(raw, "window") ?? "7d";
   if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
@@ -967,6 +996,28 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
   }
 }
 
+async function handleOperationsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getOperations) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseOperationsFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getOperations(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleSessionTimelineRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -1244,6 +1295,7 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
 
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
+  app.get("/query/operations", (request, reply) => handleOperationsRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));
