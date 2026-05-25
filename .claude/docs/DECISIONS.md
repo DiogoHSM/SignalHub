@@ -6,6 +6,8 @@ Decision: The JavaScript/TypeScript SDK is prepared for public npm publication a
 
 Rationale: Public npm gives programmers and code agents the lowest-friction install path with normal `pnpm add @sigmon/sdk` behavior. GitHub Packages would require extra registry and token configuration in every consuming project, which would slow adoption.
 
+Publishing uses npm Trusted Publishing through GitHub Actions OIDC instead of a long-lived `NPM_TOKEN`. This keeps release automation tied to repository workflow identity and avoids storing a broad npm publish secret in GitHub.
+
 ## 2026-05-24: Deploy only application services from GitHub Actions
 
 Decision: GitHub Actions may trigger EasyPanel deploy hooks for the repository-built `api`, `worker`, and optional split `scheduler` services after the `main` CI gates pass. Postgres and Redis are excluded from repository-triggered deploy hooks.

@@ -20,7 +20,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Enable Corepack
@@ -36,6 +36,5 @@ jobs:
         run: pnpm --filter @sigmon/sdk build
 
       - name: Publish SDK to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm --filter @sigmon/sdk publish --access public --provenance --no-git-checks
+        working-directory: packages/sdk
+        run: npm publish --access public

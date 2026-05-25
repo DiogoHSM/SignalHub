@@ -49,7 +49,7 @@ Implemented capabilities:
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 - Next.js apps can use App Router route/action wrappers and opt-in browser global error capture through the JavaScript SDK.
 - Public Scalar/OpenAPI API docs include integration rollout guidance, SDK-vs-REST positioning, server/browser key guidance, and richer ingestion/identify schema descriptions.
-- Public npm package metadata, package README, and release workflow for publishing `@sigmon/sdk`.
+- Public npm package metadata, package README, and Trusted Publishing release workflow for publishing `@sigmon/sdk`.
 
 ## Out of Scope for Current Phase
 

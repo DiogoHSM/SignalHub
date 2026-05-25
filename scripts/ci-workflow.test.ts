@@ -133,7 +133,7 @@ describe("GitHub Actions CI workflow", () => {
     expect(deployJob).not.toContain("REDIS_DEPLOY_URL");
   });
 
-  it("publishes the SDK package to public npm releases with provenance", () => {
+  it("publishes the SDK package to public npm releases with Trusted Publishing", () => {
     const content = publishSdkWorkflow();
 
     expectIncludesAll(content, [
@@ -142,11 +142,13 @@ describe("GitHub Actions CI workflow", () => {
       "types: [published]",
       "workflow_dispatch:",
       "id-token: write",
-      "NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}",
+      "node-version: 24",
       "registry-url: https://registry.npmjs.org",
       "pnpm --filter @sigmon/sdk build",
-      "pnpm --filter @sigmon/sdk publish --access public --provenance --no-git-checks"
+      "working-directory: packages/sdk",
+      "npm publish --access public"
     ]);
     expect(content).not.toContain("EASYPANEL");
+    expect(content).not.toContain("NPM_TOKEN");
   });
 });
