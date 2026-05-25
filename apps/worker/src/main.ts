@@ -187,16 +187,12 @@ const stopMonitors = runsScheduler && config.monitors.enabled
       runOnce: () =>
         runMonitorEvaluationOnce({
           now: () => new Date(),
-          withLock: (run) =>
-            withMonitorEvaluationLock(db, (lockedDb) =>
-              run({
-                listDueHttpMonitors: () =>
-                  listDueHttpMonitors(lockedDb, { now: new Date(), limit: config.monitors.maxConcurrency }),
-                listStaleHeartbeatMonitors: () =>
-                  listStaleHeartbeatMonitors(lockedDb, { now: new Date(), limit: config.monitors.maxConcurrency })
-              })
-            ),
+          withLock: (run) => withMonitorEvaluationLock(db, run),
           maxConcurrency: config.monitors.maxConcurrency,
+          listDueHttpMonitors: () =>
+            listDueHttpMonitors(db, { now: new Date(), limit: config.monitors.maxConcurrency }),
+          listStaleHeartbeatMonitors: () =>
+            listStaleHeartbeatMonitors(db, { now: new Date(), limit: config.monitors.maxConcurrency }),
           checkHttpMonitor: (monitor): Promise<MonitorCheckResult> =>
             checkHttpMonitor({ monitor, timeoutMs: config.monitors.httpTimeoutMs }),
           recordMonitorCheck: (input) => recordMonitorCheck(db, input),

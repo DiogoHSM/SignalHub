@@ -37,10 +37,10 @@ type PendingDelivery = {
 
 export type MonitorEvaluationRuntime = {
   now: () => Date;
-  withLock: <T>(run: (lockedRuntime: MonitorLockedRuntime) => Promise<T>) => Promise<
-    { locked: false } | { locked: true; result: T }
-  >;
+  withLock: <T>(run: () => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
   maxConcurrency: number;
+  listDueHttpMonitors: () => Promise<MonitorRecord[]>;
+  listStaleHeartbeatMonitors: () => Promise<MonitorRecord[]>;
   checkHttpMonitor: (monitor: MonitorRecord) => Promise<MonitorCheckResult>;
   recordMonitorCheck: (input: {
     monitorId: string;
@@ -73,11 +73,6 @@ export type MonitorEvaluationRuntime = {
   }) => Promise<unknown>;
 };
 
-export type MonitorLockedRuntime = {
-  listDueHttpMonitors: () => Promise<MonitorRecord[]>;
-  listStaleHeartbeatMonitors: () => Promise<MonitorRecord[]>;
-};
-
 export async function runMonitorEvaluationOnce(runtime: MonitorEvaluationRuntime): Promise<{
   ran: boolean;
   skipped: boolean;
@@ -85,106 +80,101 @@ export async function runMonitorEvaluationOnce(runtime: MonitorEvaluationRuntime
   staleHeartbeats: number;
   triggered: number;
 }> {
-  const now = runtime.now();
-  const lockResult = await runtime.withLock(async (lockedRuntime) => ({
-    httpMonitors: await lockedRuntime.listDueHttpMonitors(),
-    staleHeartbeats: await lockedRuntime.listStaleHeartbeatMonitors()
-  }));
+  const lockResult = await runtime.withLock(async () => {
+    const now = runtime.now();
+    const httpMonitors = await runtime.listDueHttpMonitors();
+    const staleHeartbeats = await runtime.listStaleHeartbeatMonitors();
+    const pendingDeliveries: PendingDelivery[] = [];
+    let checked = 0;
+    let triggered = 0;
 
-  if (!lockResult.locked) return { ran: false, skipped: true, checked: 0, staleHeartbeats: 0, triggered: 0 };
+    await runWithConcurrency(httpMonitors, runtime.maxConcurrency, async (monitor) => {
+      try {
+        const check = await runtime.checkHttpMonitor(monitor);
+        const updated = await runtime.recordMonitorCheck({ monitorId: monitor.id, checkedAt: now, ...check });
+        checked += 1;
 
-  const pendingDeliveries: PendingDelivery[] = [];
-  let checked = 0;
-  let triggered = 0;
+        if (check.status === "failed" && updated.status === "down" && monitor.status !== "down") {
+          const event = await recordMonitorTriggeredEvent({
+            runtime,
+            monitor,
+            now,
+            windowStart: now,
+            observedValue: "1",
+            threshold: String(monitor.failureThreshold),
+            severity: "critical",
+            message: `${monitor.name} uptime monitor is down: ${check.errorMessage ?? "HTTP check failed"}`,
+            metadata: { monitorType: "http", responseStatus: check.responseStatus }
+          });
+          triggered += 1;
+          await enqueueMonitorDelivery({ runtime, monitor, eventId: event.id, now, pendingDeliveries, message: event.message });
+        }
+      } catch (error) {
+        console.error(`Monitor ${monitor.id} HTTP evaluation failed`, error);
+      }
+    });
 
-  await runWithConcurrency(lockResult.result.httpMonitors, runtime.maxConcurrency, async (monitor) => {
-    try {
-      const check = await runtime.checkHttpMonitor(monitor);
-      const updated = await runtime.recordMonitorCheck({ monitorId: monitor.id, checkedAt: now, ...check });
-      checked += 1;
+    for (const monitor of staleHeartbeats) {
+      try {
+        const staleMinutes = calculateStaleMinutes(monitor, now);
+        const updated = await runtime.recordMonitorCheck({
+          monitorId: monitor.id,
+          checkedAt: now,
+          status: "failed",
+          latencyMs: null,
+          responseStatus: null,
+          errorMessage: "Heartbeat is stale"
+        });
+        if (updated.status !== "down" || monitor.status === "down") {
+          continue;
+        }
 
-      if (check.status === "failed" && updated.status === "down" && monitor.status !== "down") {
+        const threshold = String((monitor.expectedIntervalMinutes ?? 0) + (monitor.graceMinutes ?? 0));
         const event = await recordMonitorTriggeredEvent({
           runtime,
           monitor,
           now,
-          windowStart: now,
-          observedValue: "1",
-          threshold: String(monitor.failureThreshold),
+          windowStart: monitor.lastHeartbeatAt ?? monitor.createdAt,
+          observedValue: String(staleMinutes),
+          threshold,
           severity: "critical",
-          message: `${monitor.name} uptime monitor is down: ${check.errorMessage ?? "HTTP check failed"}`,
-          metadata: { monitorType: "http", responseStatus: check.responseStatus }
+          message: `${monitor.name} heartbeat is stale for ${staleMinutes} minutes`,
+          metadata: { monitorType: "heartbeat", lastHeartbeatAt: monitor.lastHeartbeatAt?.toISOString() ?? null }
         });
         triggered += 1;
         await enqueueMonitorDelivery({ runtime, monitor, eventId: event.id, now, pendingDeliveries, message: event.message });
+      } catch (error) {
+        console.error(`Monitor ${monitor.id} heartbeat evaluation failed`, error);
       }
-    } catch (error) {
-      console.error(`Monitor ${monitor.id} HTTP evaluation failed`, error);
     }
-  });
 
-  for (const monitor of lockResult.result.staleHeartbeats) {
-    try {
-      const staleMinutes = calculateStaleMinutes(monitor, now);
-      const updated = await runtime.recordMonitorCheck({
-        monitorId: monitor.id,
-        checkedAt: now,
-        status: "failed",
-        latencyMs: null,
-        responseStatus: null,
-        errorMessage: "Heartbeat is stale"
-      });
-      if (updated.status !== "down" || monitor.status === "down") {
+    for (const pending of pendingDeliveries) {
+      let delivery: DeliveryResult;
+      try {
+        delivery = await runtime.deliver(pending.channel, pending.payload);
+      } catch (error) {
+        console.error(`Monitor notification delivery ${pending.eventId} failed`, error);
         continue;
       }
 
-      const threshold = String((monitor.expectedIntervalMinutes ?? 0) + (monitor.graceMinutes ?? 0));
-      const event = await recordMonitorTriggeredEvent({
-        runtime,
-        monitor,
-        now,
-        windowStart: monitor.lastHeartbeatAt ?? monitor.createdAt,
-        observedValue: String(staleMinutes),
-        threshold,
-        severity: "critical",
-        message: `${monitor.name} heartbeat is stale for ${staleMinutes} minutes`,
-        metadata: { monitorType: "heartbeat", lastHeartbeatAt: monitor.lastHeartbeatAt?.toISOString() ?? null }
-      });
-      triggered += 1;
-      await enqueueMonitorDelivery({ runtime, monitor, eventId: event.id, now, pendingDeliveries, message: event.message });
-    } catch (error) {
-      console.error(`Monitor ${monitor.id} heartbeat evaluation failed`, error);
-    }
-  }
-
-  for (const pending of pendingDeliveries) {
-    let delivery: DeliveryResult;
-    try {
-      delivery = await runtime.deliver(pending.channel, pending.payload);
-    } catch (error) {
-      console.error(`Monitor notification delivery ${pending.eventId} failed`, error);
-      continue;
+      try {
+        await runtime.recordDelivery({
+          alertEventId: pending.eventId,
+          notificationChannelId: pending.channel.id,
+          attemptedAt: runtime.now(),
+          ...delivery
+        });
+      } catch (error) {
+        console.error(`Monitor notification delivery ${pending.eventId} recording failed`, error);
+      }
     }
 
-    try {
-      await runtime.recordDelivery({
-        alertEventId: pending.eventId,
-        notificationChannelId: pending.channel.id,
-        attemptedAt: runtime.now(),
-        ...delivery
-      });
-    } catch (error) {
-      console.error(`Monitor notification delivery ${pending.eventId} recording failed`, error);
-    }
-  }
+    return { checked, staleHeartbeats: staleHeartbeats.length, triggered };
+  });
 
-  return {
-    ran: true,
-    skipped: false,
-    checked,
-    staleHeartbeats: lockResult.result.staleHeartbeats.length,
-    triggered
-  };
+  if (!lockResult.locked) return { ran: false, skipped: true, checked: 0, staleHeartbeats: 0, triggered: 0 };
+
+  return { ran: true, skipped: false, ...lockResult.result };
 }
 
 async function runWithConcurrency<T>(

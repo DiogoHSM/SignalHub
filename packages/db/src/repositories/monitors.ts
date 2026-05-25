@@ -1,14 +1,13 @@
-import type { Selectable, Transaction } from "kysely";
+import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
-import type { AlertEventsTable, Database, MonitorChecksTable, MonitorsTable } from "../schema.js";
+import type { AlertEventsTable, MonitorChecksTable, MonitorsTable } from "../schema.js";
 
 type MonitorRow = Selectable<MonitorsTable>;
 type MonitorCheckRow = Selectable<MonitorChecksTable>;
 type AlertEventRow = Selectable<AlertEventsTable>;
-type MonitorDb = Db | Transaction<Database>;
-const MONITOR_EVALUATION_LOCK_ID = 927380402916;
+const MONITOR_EVALUATION_LOCK_ID = 927380402917;
 
 export type MonitorKind = "http" | "heartbeat";
 export type MonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
@@ -408,7 +407,7 @@ export async function archiveMonitor(db: Db, id: string): Promise<void> {
 }
 
 export async function listDueHttpMonitors(
-  db: MonitorDb,
+  db: Db,
   input: { now: Date; limit: number }
 ): Promise<MonitorRecord[]> {
   const limit = clampLimit(input.limit, 50);
@@ -531,7 +530,7 @@ export async function recordHeartbeatCheckIn(
 }
 
 export async function listStaleHeartbeatMonitors(
-  db: MonitorDb,
+  db: Db,
   input: { now: Date; limit?: number }
 ): Promise<MonitorRecord[]> {
   const limit = clampLimit(input.limit, 50);
@@ -606,17 +605,18 @@ export async function recordMonitorAlertEvent(
 
 export async function withMonitorEvaluationLock<T>(
   db: Db,
-  run: (lockedDb: Transaction<Database>) => Promise<T>
+  run: () => Promise<T>
 ): Promise<{ locked: false } | { locked: true; result: T }> {
-  return db.transaction().execute(async (trx) => {
+  return db.connection().execute(async (connectionDb) => {
     const lock = await sql<{ locked: boolean }>`
-      select pg_try_advisory_xact_lock(${MONITOR_EVALUATION_LOCK_ID}) as locked
-    `.execute(trx);
+      select pg_try_advisory_lock(${MONITOR_EVALUATION_LOCK_ID}) as locked
+    `.execute(connectionDb);
+    if (lock.rows[0]?.locked !== true) return { locked: false };
 
-    if (!lock.rows[0]?.locked) {
-      return { locked: false };
+    try {
+      return { locked: true, result: await run() };
+    } finally {
+      await sql`select pg_advisory_unlock(${MONITOR_EVALUATION_LOCK_ID})`.execute(connectionDb);
     }
-
-    return { locked: true, result: await run(trx) };
   });
 }
