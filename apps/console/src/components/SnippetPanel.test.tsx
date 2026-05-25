@@ -19,10 +19,13 @@ describe("SnippetPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Snippets" })).toBeInTheDocument();
     expect(screen.getByText("SDK")).toBeInTheDocument();
+    expect(screen.getByText("Next.js App Router")).toBeInTheDocument();
     expect(screen.getByText("HTTP")).toBeInTheDocument();
     expect(screen.getByText("Environment")).toBeInTheDocument();
     expect(screen.getByText(/createSignalMonitorClient/)).toBeInTheDocument();
-    expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(3);
+    expect(screen.getByText(/@sigmon\/sdk\/next/)).toBeInTheDocument();
+    expect(screen.getByText(/withSignalMonitorRoute/)).toBeInTheDocument();
+    expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(4);
     expect(screen.getByText(/SIGMON_ENDPOINT=https:\/\/sigmon.example.com/)).toBeInTheDocument();
     expect(screen.getByText(/SIGMON_PROJECT_ID=prj_1/)).toBeInTheDocument();
     expect(screen.getByText(/SIGMON_ENVIRONMENT_ID=env_1/)).toBeInTheDocument();
@@ -34,7 +37,7 @@ describe("SnippetPanel", () => {
   it("uses the SIGMON_API_KEY placeholder without a fresh one-time secret", () => {
     render(<SnippetPanel environmentId="env_1" projectId="prj_1" />);
 
-    expect(screen.getAllByText(/SIGMON_API_KEY/)).toHaveLength(3);
+    expect(screen.getAllByText(/SIGMON_API_KEY/)).toHaveLength(4);
     expect(screen.queryByText(/sh_secret_value/)).not.toBeInTheDocument();
   });
 });

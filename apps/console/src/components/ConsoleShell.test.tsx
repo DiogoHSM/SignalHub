@@ -629,7 +629,7 @@ describe("ConsoleShell", () => {
       });
 
       expect(screen.queryByText(/sh_secret_value/)).not.toBeInTheDocument();
-      expect(screen.getAllByText(/SIGMON_API_KEY/)).toHaveLength(3);
+      expect(screen.getAllByText(/SIGMON_API_KEY/)).toHaveLength(4);
     } finally {
       root.unmount();
       container.remove();

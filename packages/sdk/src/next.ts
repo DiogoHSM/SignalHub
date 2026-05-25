@@ -1,0 +1,397 @@
+import { createSignalMonitorClient } from "./client.js";
+import type {
+  ErrorInput,
+  ErrorSeverity,
+  EventInput,
+  FlushResult,
+  SignalContext,
+  SignalMetadata,
+  SignalMonitorClient,
+  SignalMonitorClientOptions
+} from "./types.js";
+
+export type NextRequestLike = {
+  method?: string;
+  url?: string;
+  headers?: Headers | Record<string, string | string[] | undefined>;
+};
+
+export type NextContextInput = SignalContext & {
+  request?: NextRequestLike;
+  routeName?: string;
+  module?: string;
+  correlationHeader?: string;
+};
+
+export type SignalMonitorNextClient = SignalMonitorClient & {
+  captureRequestError: (error: unknown, input?: NextRequestErrorInput) => void;
+};
+
+export type NextRequestErrorInput = NextContextInput &
+  EventInput & {
+    severity?: ErrorSeverity;
+    fingerprint?: string;
+    context?: SignalMetadata;
+  };
+
+type MaybePromise<T> = T | Promise<T>;
+
+export type SignalMonitorRouteOptions<
+  TRequest extends NextRequestLike = NextRequestLike,
+  TArgs extends unknown[] = unknown[]
+> = NextContextInput & {
+  client: SignalMonitorNextClient;
+  flushOnError?: boolean;
+  getContext?: (request: TRequest, ...args: TArgs) => MaybePromise<SignalContext | undefined>;
+};
+
+export type SignalMonitorActionOptions<TArgs extends unknown[] = unknown[]> = NextContextInput & {
+  client: SignalMonitorNextClient;
+  flushOnError?: boolean;
+  name?: string;
+  getContext?: (...args: TArgs) => MaybePromise<SignalContext | undefined>;
+};
+
+export type BrowserErrorCaptureOptions = {
+  captureErrors?: boolean;
+  captureUnhandledRejections?: boolean;
+  flush?: boolean;
+  context?: NextRequestErrorInput;
+};
+
+type ErrorEventLike = {
+  error?: unknown;
+  message?: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
+};
+
+type PromiseRejectionEventLike = {
+  reason?: unknown;
+};
+
+const DEFAULT_CORRELATION_HEADER = "x-request-id";
+const FALLBACK_CORRELATION_HEADER = "x-correlation-id";
+
+export function buildNextContext(input?: NextContextInput): SignalContext {
+  const {
+    request: _request,
+    routeName,
+    module: _module,
+    correlationHeader: _correlationHeader,
+    ...signalContext
+  } = input ?? {};
+  const requestMetadata = buildRequestMetadata(input);
+  const traceId =
+    input?.traceId ??
+    getHeader(input?.request?.headers, input?.correlationHeader ?? DEFAULT_CORRELATION_HEADER) ??
+    getHeader(input?.request?.headers, FALLBACK_CORRELATION_HEADER);
+  const metadata = {
+    ...(input?.metadata ?? {}),
+    ...requestMetadata
+  };
+
+  return {
+    ...signalContext,
+    traceId,
+    source: input?.source ?? routeName,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined
+  };
+}
+
+export function createSignalMonitorNextClient(options: SignalMonitorClientOptions): SignalMonitorNextClient {
+  const client = createSignalMonitorClient(options);
+
+  return {
+    ...client,
+    captureRequestError(error: unknown, input?: NextRequestErrorInput): void {
+      captureRequestError(client, error, input);
+    }
+  };
+}
+
+export function withSignalMonitorRoute<
+  TRequest extends NextRequestLike,
+  TArgs extends unknown[],
+  TResult
+>(
+  handler: (request: TRequest, ...args: TArgs) => TResult | Promise<TResult>,
+  options: SignalMonitorRouteOptions<TRequest, TArgs>
+): (request: TRequest, ...args: TArgs) => Promise<Awaited<TResult>> {
+  return async (request: TRequest, ...args: TArgs): Promise<Awaited<TResult>> => {
+    try {
+      return await handler(request, ...args);
+    } catch (error) {
+      const { client, flushOnError, getContext, ...nextContext } = options;
+
+      await handleWrapperError(error, {
+        baseContext: { ...nextContext, request },
+        client,
+        flushOnError,
+        getContext: () => getContext?.(request, ...args)
+      });
+      throw error;
+    }
+  };
+}
+
+export function withSignalMonitorAction<TArgs extends unknown[], TResult>(
+  action: (...args: TArgs) => TResult | Promise<TResult>,
+  options: SignalMonitorActionOptions<TArgs>
+): (...args: TArgs) => Promise<Awaited<TResult>> {
+  return async (...args: TArgs): Promise<Awaited<TResult>> => {
+    try {
+      return await action(...args);
+    } catch (error) {
+      const { client, flushOnError, getContext, name, ...nextContext } = options;
+
+      await handleWrapperError(error, {
+        baseContext: {
+          ...nextContext,
+          routeName: options.routeName ?? name
+        },
+        client,
+        flushOnError,
+        getContext: () => getContext?.(...args)
+      });
+      throw error;
+    }
+  };
+}
+
+export function installBrowserErrorCapture(
+  client: SignalMonitorClient,
+  options: BrowserErrorCaptureOptions = {}
+): () => void {
+  const captureErrors = options.captureErrors ?? true;
+  const captureUnhandledRejections = options.captureUnhandledRejections ?? true;
+  let stopped = false;
+
+  const capture = (error: unknown, eventContext?: SignalMetadata): void => {
+    captureRequestError(client, error, mergeErrorInputContext(options.context, eventContext));
+
+    if (options.flush === true) {
+      void client.flush().catch(() => undefined);
+    }
+  };
+
+  const onError = (event: ErrorEventLike): void => {
+    capture(event.error ?? event.message ?? "Unknown browser error", browserErrorEventContext(event));
+  };
+  const onUnhandledRejection = (event: PromiseRejectionEventLike): void => {
+    capture(event.reason ?? "Unhandled promise rejection", { type: "unhandledrejection" });
+  };
+
+  if (captureErrors) {
+    globalThis.addEventListener?.("error", onError);
+  }
+
+  if (captureUnhandledRejections) {
+    globalThis.addEventListener?.("unhandledrejection", onUnhandledRejection);
+  }
+
+  return () => {
+    if (stopped) {
+      return;
+    }
+
+    stopped = true;
+
+    if (captureErrors) {
+      globalThis.removeEventListener?.("error", onError);
+    }
+
+    if (captureUnhandledRejections) {
+      globalThis.removeEventListener?.("unhandledrejection", onUnhandledRejection);
+    }
+  };
+}
+
+async function handleWrapperError(
+  error: unknown,
+  input: {
+    baseContext: NextContextInput;
+    client: SignalMonitorNextClient;
+    flushOnError?: boolean;
+    getContext: () => MaybePromise<SignalContext | undefined>;
+  }
+): Promise<void> {
+  let providedContext: SignalContext | undefined;
+
+  try {
+    providedContext = await input.getContext();
+  } catch {
+    providedContext = undefined;
+  }
+
+  try {
+    await captureAndFlush(error, {
+      baseContext: input.baseContext,
+      client: input.client,
+      flushOnError: input.flushOnError,
+      providedContext
+    });
+  } catch {
+    // Capture/flush is best effort from wrappers; callers must receive the original error.
+  }
+}
+
+async function captureAndFlush(
+  error: unknown,
+  input: {
+    baseContext: NextContextInput;
+    client: SignalMonitorNextClient;
+    flushOnError?: boolean;
+    providedContext?: SignalContext;
+  }
+): Promise<FlushResult | undefined> {
+  input.client.captureRequestError(error, mergeNextContext(input.baseContext, input.providedContext));
+
+  if (input.flushOnError === false) {
+    return undefined;
+  }
+
+  return input.client.flush();
+}
+
+function captureRequestError(
+  client: SignalMonitorClient,
+  error: unknown,
+  input?: NextRequestErrorInput
+): void {
+  const context = buildNextContext(input);
+
+  client.captureError(error, {
+    ...input,
+    ...context,
+    context: {
+      ...(context.metadata ?? {}),
+      ...(input?.context ?? {})
+    }
+  } satisfies ErrorInput);
+}
+
+function mergeNextContext(base: NextContextInput, context?: SignalContext): NextContextInput {
+  return {
+    ...base,
+    ...context,
+    request: base.request,
+    routeName: base.routeName,
+    module: base.module,
+    correlationHeader: base.correlationHeader,
+    metadata: {
+      ...(base.metadata ?? {}),
+      ...(context?.metadata ?? {})
+    }
+  };
+}
+
+function mergeErrorInputContext(
+  base: NextRequestErrorInput | undefined,
+  context: SignalMetadata | undefined
+): NextRequestErrorInput | undefined {
+  if (base === undefined && context === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(base ?? {}),
+    context: {
+      ...(base?.context ?? {}),
+      ...(context ?? {})
+    }
+  };
+}
+
+function browserErrorEventContext(event: ErrorEventLike): SignalMetadata {
+  const context: SignalMetadata = {};
+
+  assignEventContext(context, "message", event.message);
+  assignEventContext(context, "filename", event.filename);
+  assignEventContext(context, "lineno", event.lineno);
+  assignEventContext(context, "colno", event.colno);
+
+  return context;
+}
+
+function buildRequestMetadata(input?: NextContextInput): SignalMetadata {
+  const metadata: SignalMetadata = {};
+  const correlationId =
+    input?.traceId ??
+    getHeader(input?.request?.headers, input?.correlationHeader ?? DEFAULT_CORRELATION_HEADER) ??
+    getHeader(input?.request?.headers, FALLBACK_CORRELATION_HEADER);
+  const requestPath = getRequestPath(input?.request?.url);
+
+  assignMetadata(metadata, "correlation_id", correlationId);
+  assignMetadata(metadata, "module", input?.module);
+  assignMetadata(metadata, "request_method", input?.request?.method);
+  assignMetadata(metadata, "request_path", requestPath);
+  assignMetadata(metadata, "route_name", input?.routeName);
+
+  return metadata;
+}
+
+function assignEventContext(
+  context: SignalMetadata,
+  key: string,
+  value: string | number | undefined
+): void {
+  if (value !== undefined) {
+    context[key] = value;
+  }
+}
+
+function assignMetadata(metadata: SignalMetadata, key: string, value: string | undefined): void {
+  if (value !== undefined && value.length > 0) {
+    metadata[key] = value;
+  }
+}
+
+function getRequestPath(url: string | undefined): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+
+  try {
+    return new URL(url).pathname;
+  } catch {
+    const [path] = url.split("?");
+    return path || undefined;
+  }
+}
+
+function getHeader(
+  headers: NextRequestLike["headers"] | undefined,
+  name: string
+): string | undefined {
+  if (!headers) {
+    return undefined;
+  }
+
+  if (isHeaders(headers)) {
+    return normalizeHeaderValue(headers.get(name) ?? undefined);
+  }
+
+  const normalizedName = name.toLowerCase();
+
+  for (const [headerName, headerValue] of Object.entries(headers)) {
+    if (headerName.toLowerCase() === normalizedName) {
+      return normalizeHeaderValue(headerValue);
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeHeaderValue(value: string | string[] | undefined | null): string | undefined {
+  if (Array.isArray(value)) {
+    return value.find((item) => item.length > 0);
+  }
+
+  return value ?? undefined;
+}
+
+function isHeaders(value: NextRequestLike["headers"]): value is Headers {
+  return typeof Headers !== "undefined" && value instanceof Headers;
+}

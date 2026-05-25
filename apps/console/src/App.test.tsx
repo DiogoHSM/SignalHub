@@ -142,6 +142,6 @@ describe("App", () => {
     expect(createApiClient).toHaveBeenNthCalledWith(1);
     expect(createApiClient).toHaveBeenNthCalledWith(2, "/api");
     expect(operationalClient.getMe).toHaveBeenCalled();
-    expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(3);
+    expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(4);
   });
 });
