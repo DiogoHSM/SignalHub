@@ -2,6 +2,8 @@ import type {
   BreadcrumbInput,
   ErrorInput,
   EventInput,
+  IdentifyTenantInput,
+  IdentifyUserInput,
   LlmInput,
   QueuedSignal,
   SignalContext,
@@ -90,6 +92,47 @@ export function createErrorSignal(
   return {
     kind: "error",
     endpointPath: "/v1/errors",
+    payload
+  };
+}
+
+export function createIdentifyUserSignal(
+  userId: string,
+  traits: SignalMetadata = {},
+  context?: IdentifyUserInput
+): QueuedSignal {
+  const payload = {
+    metadata: {},
+    user_id: userId,
+    traits
+  };
+
+  assignDefined(payload, "timestamp", serializeDate(context?.timestamp));
+  assignDefined(payload, "tenant_id", context?.tenantId);
+
+  return {
+    kind: "identify_user",
+    endpointPath: "/v1/identify/user",
+    payload
+  };
+}
+
+export function createIdentifyTenantSignal(
+  tenantId: string,
+  traits: SignalMetadata = {},
+  context?: IdentifyTenantInput
+): QueuedSignal {
+  const payload = {
+    metadata: {},
+    tenant_id: tenantId,
+    traits
+  };
+
+  assignDefined(payload, "timestamp", serializeDate(context?.timestamp));
+
+  return {
+    kind: "identify_tenant",
+    endpointPath: "/v1/identify/tenant",
     payload
   };
 }

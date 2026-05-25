@@ -3,6 +3,8 @@ import {
   createBreadcrumbSignal,
   createErrorSignal,
   createEventSignal,
+  createIdentifyTenantSignal,
+  createIdentifyUserSignal,
   createLlmSignal,
   createSpanSignal,
   createTraceSignal,
@@ -78,6 +80,45 @@ describe("payload mapping", () => {
         user_id: "user_1",
         session_id: "session_1",
         trace_id: "trace_1",
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps user identify signals without default context identity", () => {
+    expect(
+      createIdentifyUserSignal(
+        "user_1",
+        { name: "Ana", role: "admin" },
+        { tenantId: "tenant_1", timestamp: new Date("2026-05-02T12:00:00.000Z") }
+      )
+    ).toEqual({
+      kind: "identify_user",
+      endpointPath: "/v1/identify/user",
+      payload: {
+        timestamp: "2026-05-02T12:00:00.000Z",
+        user_id: "user_1",
+        tenant_id: "tenant_1",
+        traits: { name: "Ana", role: "admin" },
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps tenant identify signals", () => {
+    expect(
+      createIdentifyTenantSignal(
+        "tenant_1",
+        { name: "MicroERP", plan: "pro" },
+        { timestamp: "2026-05-02T12:00:00.000Z" }
+      )
+    ).toEqual({
+      kind: "identify_tenant",
+      endpointPath: "/v1/identify/tenant",
+      payload: {
+        timestamp: "2026-05-02T12:00:00.000Z",
+        tenant_id: "tenant_1",
+        traits: { name: "MicroERP", plan: "pro" },
         metadata: {}
       }
     });

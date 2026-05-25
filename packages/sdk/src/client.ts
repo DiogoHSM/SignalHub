@@ -3,6 +3,8 @@ import {
   createBreadcrumbSignal,
   createErrorSignal,
   createEventSignal,
+  createIdentifyTenantSignal,
+  createIdentifyUserSignal,
   createLlmSignal,
   createSpanSignal,
   createTraceSignal
@@ -17,6 +19,8 @@ import type {
   ErrorInput,
   FlushOptions,
   FlushResult,
+  IdentifyTenantInput,
+  IdentifyUserInput,
   LlmInput,
   QueuedSignal,
   SignalContext,
@@ -300,6 +304,14 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
           ...(context.metadata ?? {})
         }
       };
+    },
+
+    identifyUser(userId: string, traits?: SignalMetadata, context?: IdentifyUserInput): void {
+      enqueue(createIdentifyUserSignal(userId, traits, context));
+    },
+
+    identifyTenant(tenantId: string, traits?: SignalMetadata, context?: IdentifyTenantInput): void {
+      enqueue(createIdentifyTenantSignal(tenantId, traits, context));
     },
 
     flush,
