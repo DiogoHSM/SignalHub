@@ -32,6 +32,23 @@ signalMonitor.track("checkout.started", {
 });
 
 await signalMonitor.flush();`;
+  const nextSnippet = `import { createSignalMonitorNextClient, withSignalMonitorRoute } from "@sigmon/sdk/next";
+
+const sigmon = createSignalMonitorNextClient({
+  endpoint: "${endpoint}",
+  apiKey: process.env.SIGMON_API_KEY!,
+  defaultContext: {
+    release: process.env.NEXT_PUBLIC_APP_VERSION,
+    metadata: { service: "web" }
+  }
+});
+
+export const GET = withSignalMonitorRoute(async () => {
+  return Response.json({ ok: true });
+}, {
+  client: sigmon,
+  routeName: "GET /api/health"
+});`;
   const httpSnippet = `curl -X POST "${endpoint}/v1/events" \\
   -H "Authorization: Bearer ${apiKey}" \\
   -H "Content-Type: application/json" \\
@@ -60,6 +77,12 @@ SIGMON_ENVIRONMENT_ID=${safeEnvironmentId}`;
           <h3>SDK</h3>
           <pre>
             <code>{sdkSnippet}</code>
+          </pre>
+        </article>
+        <article className="snippet-card">
+          <h3>Next.js App Router</h3>
+          <pre>
+            <code>{nextSnippet}</code>
           </pre>
         </article>
         <article className="snippet-card">

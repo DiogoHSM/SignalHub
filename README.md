@@ -446,6 +446,63 @@ const signalMonitor = createSignalMonitorClient({
 });
 ```
 
+#### Next.js App Router
+
+Next.js App Router projects can wrap server route handlers with `@sigmon/sdk/next`. Keep the API key in server-only environment variables.
+
+```ts
+// app/api/health/route.ts
+import { createSignalMonitorNextClient, withSignalMonitorRoute } from "@sigmon/sdk/next";
+
+const sigmon = createSignalMonitorNextClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://sigmon.example.com",
+  apiKey: process.env.SIGMON_API_KEY!,
+  defaultContext: {
+    release: process.env.NEXT_PUBLIC_APP_VERSION,
+    metadata: { service: "web" }
+  }
+});
+
+export const GET = withSignalMonitorRoute(async () => {
+  return Response.json({ ok: true });
+}, {
+  client: sigmon,
+  routeName: "GET /api/health",
+  getContext: async () => ({ tenantId: "tenant_123", userId: "user_123" })
+});
+```
+
+Browser global error capture is explicit and opt-in. Install it from a Client Component with a scoped public browser ingestion key, and clean it up on unmount.
+
+```tsx
+"use client";
+
+import { useEffect } from "react";
+import { createSignalMonitorClient } from "@sigmon/sdk/browser";
+import { installBrowserErrorCapture } from "@sigmon/sdk/next";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://sigmon.example.com",
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY ?? "",
+  defaultContext: {
+    release: process.env.NEXT_PUBLIC_APP_VERSION,
+    metadata: { service: "web" }
+  }
+});
+
+export function SignalMonitorBrowserCapture() {
+  useEffect(() => {
+    return installBrowserErrorCapture(sigmonBrowser, {
+      captureErrors: true,
+      captureUnhandledRejections: true,
+      flush: true
+    });
+  }, []);
+
+  return null;
+}
+```
+
 ### Event
 
 ```sh

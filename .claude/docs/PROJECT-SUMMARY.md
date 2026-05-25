@@ -46,6 +46,7 @@ Implemented capabilities:
 - Read-only operator doctor command for local and Docker Compose validation.
 - Docker Compose install hardening for the supported production-oriented self-hosted path.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
+- Next.js apps can use App Router route/action wrappers and opt-in browser global error capture through the JavaScript SDK.
 
 ## Out of Scope for Current Phase
 
