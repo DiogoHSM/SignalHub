@@ -29,6 +29,20 @@ const acceptedResponse = {
   }
 };
 
+const identifyAcceptedResponse = {
+  description: "Identify payload accepted for persistence",
+  content: {
+    "application/json": {
+      schema: { $ref: "#/components/schemas/IdentifyAcceptedResponse" },
+      examples: {
+        accepted: {
+          value: { accepted: true }
+        }
+      }
+    }
+  }
+};
+
 const jsonBody = (schema: string, example: Record<string, unknown>) => ({
   required: true,
   content: {
@@ -54,6 +68,25 @@ const ingestionOperation = (
   requestBody: jsonBody(schema, example),
   responses: {
     "202": acceptedResponse,
+    "400": { $ref: "#/components/responses/BadRequest" },
+    "401": { $ref: "#/components/responses/Unauthorized" },
+    "503": { $ref: "#/components/responses/Unavailable" }
+  }
+});
+
+const identifyOperation = (
+  summary: string,
+  description: string,
+  schema: string,
+  example: Record<string, unknown>
+) => ({
+  tags: ["Ingestion"],
+  summary,
+  description,
+  security: [{ ingestionApiKey: [] }],
+  requestBody: jsonBody(schema, example),
+  responses: {
+    "202": identifyAcceptedResponse,
     "400": { $ref: "#/components/responses/BadRequest" },
     "401": { $ref: "#/components/responses/Unauthorized" },
     "503": { $ref: "#/components/responses/Unavailable" }
@@ -122,6 +155,13 @@ export const openApiDocument = {
         properties: {
           accepted: { type: "boolean", const: true },
           id: { type: "string", description: "Generated telemetry signal id." }
+        }
+      },
+      IdentifyAcceptedResponse: {
+        type: "object",
+        required: ["accepted"],
+        properties: {
+          accepted: { type: "boolean", const: true }
         }
       },
       ErrorResponse: {
@@ -237,6 +277,27 @@ export const openApiDocument = {
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           metadata: { type: "object", additionalProperties: true }
+        }
+      },
+      UserIdentifyPayload: {
+        type: "object",
+        required: ["user_id", "traits"],
+        properties: {
+          user_id: { type: "string" },
+          tenant_id: { type: "string" },
+          traits: { type: "object", additionalProperties: true },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      TenantIdentifyPayload: {
+        type: "object",
+        required: ["tenant_id", "traits"],
+        properties: {
+          tenant_id: { type: "string" },
+          traits: { type: "object", additionalProperties: true },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
         }
       },
       LoginPayload: {
@@ -383,6 +444,19 @@ export const openApiDocument = {
         trace_id: "trace_dashboard_001",
         name: "llm_generate_sql",
         status: "success"
+      })
+    },
+    "/v1/identify/user": {
+      post: identifyOperation("Identify a user", "Upsert user profile traits scoped to the ingestion API key.", "UserIdentifyPayload", {
+        user_id: "usr_ana",
+        tenant_id: "tenant_acme",
+        traits: { name: "Ana", plan: "pro" }
+      })
+    },
+    "/v1/identify/tenant": {
+      post: identifyOperation("Identify a tenant", "Upsert tenant profile traits scoped to the ingestion API key.", "TenantIdentifyPayload", {
+        tenant_id: "tenant_acme",
+        traits: { plan: "enterprise" }
       })
     },
     "/v1/source-maps": {

@@ -93,9 +93,23 @@ export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
   data: jsonObjectSchema
 });
 
+export const userIdentifyPayloadSchema = sharedEnvelopeSchema
+  .pick({ timestamp: true, tenant_id: true, metadata: true })
+  .extend({
+    user_id: shortTextSchema,
+    traits: jsonObjectSchema
+  });
+
+export const tenantIdentifyPayloadSchema = sharedEnvelopeSchema.pick({ timestamp: true, metadata: true }).extend({
+  tenant_id: shortTextSchema,
+  traits: jsonObjectSchema
+});
+
 export type EventPayload = z.infer<typeof eventPayloadSchema>;
 export type ErrorPayload = z.infer<typeof errorPayloadSchema>;
 export type LlmCallPayload = z.infer<typeof llmCallPayloadSchema>;
 export type TracePayload = z.infer<typeof tracePayloadSchema>;
 export type SpanPayload = z.infer<typeof spanPayloadSchema>;
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
+export type UserIdentifyPayload = z.infer<typeof userIdentifyPayloadSchema>;
+export type TenantIdentifyPayload = z.infer<typeof tenantIdentifyPayloadSchema>;

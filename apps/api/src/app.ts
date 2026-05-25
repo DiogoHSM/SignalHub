@@ -20,6 +20,7 @@ import { registerAuthRoutes, type AuthDependencies } from "./routes/auth.js";
 import { registerConsoleRoutes, type ConsoleRouteOptions } from "./routes/console.js";
 import { registerDocsRoutes } from "./routes/docs.js";
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
+import { registerIdentifyRoutes, type IdentifyRouteDependencies } from "./routes/identify.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
 import { registerMonitorRoutes, type MonitorRouteDependencies } from "./routes/monitors.js";
 import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
@@ -39,6 +40,7 @@ export type BuildAppOptions = {
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
   createHeartbeatSecret?: () => string;
   ingestion?: IngestionDependencies;
+  identify?: IdentifyRouteDependencies;
   query?: QueryDependencies;
   system?: SystemHealthDependencies;
   apiKeyPepper?: string;
@@ -164,6 +166,7 @@ export async function buildApp(options: BuildAppOptions) {
   registerSourceMapUploadRoutes(app, options.sourceMapUploads);
   registerMonitorRoutes(app, options.monitors);
   registerIngestionRoutes(app, options.ingestion);
+  registerIdentifyRoutes(app, options.identify);
   registerQueryRoutes(app, {
     auth: options.auth,
     query: options.query

@@ -5,7 +5,9 @@ import {
   eventPayloadSchema,
   llmCallPayloadSchema,
   spanPayloadSchema,
-  tracePayloadSchema
+  tenantIdentifyPayloadSchema,
+  tracePayloadSchema,
+  userIdentifyPayloadSchema
 } from "../src/ingestion-schemas.js";
 
 describe("ingestion schemas", () => {
@@ -238,5 +240,38 @@ describe("ingestion schemas", () => {
   it("rejects unsupported breadcrumb types and oversized messages", () => {
     expect(() => breadcrumbPayloadSchema.parse({ type: "dom", message: "bad" })).toThrow();
     expect(() => breadcrumbPayloadSchema.parse({ type: "custom", message: "x".repeat(2001) })).toThrow();
+  });
+
+  it("accepts a user identify payload with traits and envelope fields", () => {
+    const parsed = userIdentifyPayloadSchema.parse({
+      user_id: "usr_ana",
+      tenant_id: "tenant_acme",
+      traits: { name: "Ana", plan: "pro" },
+      timestamp: "2026-05-25T10:00:00.000Z",
+      metadata: { source: "sdk" }
+    });
+
+    expect(parsed).toEqual({
+      user_id: "usr_ana",
+      tenant_id: "tenant_acme",
+      traits: { name: "Ana", plan: "pro" },
+      timestamp: "2026-05-25T10:00:00.000Z",
+      metadata: { source: "sdk" }
+    });
+  });
+
+  it("accepts a tenant identify payload with traits and timestamp", () => {
+    const parsed = tenantIdentifyPayloadSchema.parse({
+      tenant_id: "tenant_acme",
+      traits: { plan: "enterprise" },
+      timestamp: "2026-05-25T10:01:00.000Z"
+    });
+
+    expect(parsed).toEqual({
+      tenant_id: "tenant_acme",
+      traits: { plan: "enterprise" },
+      timestamp: "2026-05-25T10:01:00.000Z",
+      metadata: {}
+    });
   });
 });

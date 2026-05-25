@@ -47,6 +47,8 @@ describe("API docs", () => {
         "/v1/llm",
         "/v1/traces",
         "/v1/spans",
+        "/v1/identify/user",
+        "/v1/identify/tenant",
         "/v1/source-maps",
         "/v1/heartbeats/{id}",
         "/auth/login",
@@ -63,6 +65,10 @@ describe("API docs", () => {
       sessionCookie: { type: "apiKey", in: "cookie", name: "__Host-sigmon_session" }
     });
     expect(spec.paths["/v1/events"].post.security).toEqual([{ ingestionApiKey: [] }]);
+    expect(spec.paths["/v1/identify/user"].post.security).toEqual([{ ingestionApiKey: [] }]);
+    expect(spec.paths["/v1/identify/tenant"].post.security).toEqual([{ ingestionApiKey: [] }]);
+    expect(Object.keys(spec.paths["/v1/identify/user"].post.responses)).toEqual(["202", "400", "401", "503"]);
+    expect(Object.keys(spec.paths["/v1/identify/tenant"].post.responses)).toEqual(["202", "400", "401", "503"]);
     expect(spec.paths["/v1/heartbeats/{id}"].post.security).toEqual([{ heartbeatSecret: [] }]);
     expect(spec.paths["/v1/source-maps"].post.security).toEqual([{ sourceMapUploadToken: [] }]);
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);

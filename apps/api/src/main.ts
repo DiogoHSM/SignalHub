@@ -91,6 +91,7 @@ import {
 } from "@sigmon/db/repositories/error-groups.js";
 import { getErrorGroupIncident } from "@sigmon/db/repositories/incidents.js";
 import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositories/entities-query.js";
+import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositories/identity-profiles.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
 import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
 import { hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
@@ -297,6 +298,21 @@ async function completeGoogleOAuth(code: string, _state: string, { reply }: Auth
   return toAuthUser(linkedUser);
 }
 
+async function verifyIngestionApiKey(secret: string): Promise<{ projectId: string; environmentId: string } | null> {
+  const apiKey = await findApiKeyByPrefix(db, secret.slice(0, 12));
+  if (!apiKey) {
+    return null;
+  }
+
+  const valid = await verifyApiKey(apiKey.hash, secret, config.apiKeyPepper);
+  return valid
+    ? {
+        projectId: apiKey.projectId,
+        environmentId: apiKey.environmentId
+      }
+    : null;
+}
+
 const auth: AuthDependencies = {
   login: async (email, password, { reply }) => {
     const user = await findUserByEmail(db, email);
@@ -395,23 +411,15 @@ const app = await buildApp({
     }
   },
   ingestion: {
-    verifyApiKey: async (secret) => {
-      const apiKey = await findApiKeyByPrefix(db, secret.slice(0, 12));
-      if (!apiKey) {
-        return null;
-      }
-
-      const valid = await verifyApiKey(apiKey.hash, secret, config.apiKeyPepper);
-      return valid
-        ? {
-            projectId: apiKey.projectId,
-            environmentId: apiKey.environmentId
-          }
-        : null;
-    },
+    verifyApiKey: verifyIngestionApiKey,
     enqueue: async (job) => {
       await enqueueTelemetryJob(telemetryQueue, job);
     }
+  },
+  identify: {
+    verifyApiKey: verifyIngestionApiKey,
+    identifyUser: (input) => identifyUserProfile(db, input),
+    identifyTenant: (input) => identifyTenantProfile(db, input)
   },
   query: {
     listEvents: (filters) => listEvents(db, filters),
