@@ -33,9 +33,22 @@ import {
   updateAlertRuleEvaluation,
   withAlertEvaluationLock
 } from "@sigmon/db/repositories/alerts.js";
+import {
+  listDueHttpMonitors,
+  listStaleHeartbeatMonitors,
+  recordMonitorAlertEvent,
+  recordMonitorCheck,
+  withMonitorEvaluationLock
+} from "@sigmon/db/repositories/monitors.js";
 import { deliverNotification, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";
+import {
+  checkHttpMonitor,
+  runMonitorEvaluationOnce,
+  startMonitorScheduler,
+  type MonitorCheckResult
+} from "./monitors.js";
 import {
   backfillErrorGroupsUntilDrained,
   buildDeadLetterJobInput,
@@ -49,9 +62,13 @@ import { runShutdownSteps, runSignalShutdown } from "./runtime.js";
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
-const connection = new Redis(config.redisUrl, {
-  maxRetriesPerRequest: null
-});
+const runsQueue = config.worker.role === "all" || config.worker.role === "queue";
+const runsScheduler = config.worker.role === "all" || config.worker.role === "scheduler";
+const connection = runsQueue
+  ? new Redis(config.redisUrl, {
+      maxRetriesPerRequest: null
+    })
+  : null;
 
 const writer: TelemetryWriter = {
   insertEvent: (input) => insertEvent(db, input),
@@ -62,20 +79,28 @@ const writer: TelemetryWriter = {
   insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 };
 
-const worker = new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]>(
-  "telemetry",
-  async (job) => {
-    await processTelemetryJob(job.data, writer);
-  },
-  { connection }
-);
+const worker = connection
+  ? new Worker<TelemetryJobPayload, void, TelemetryJobPayload["kind"]>(
+      "telemetry",
+      async (job) => {
+        await processTelemetryJob(job.data, writer);
+      },
+      { connection }
+    )
+  : null;
 
-void backfillErrorGroupsUntilDrained((input) => backfillErrorGroups(db, input), 500).catch((error) => {
-  logger.error({ error }, "Error group backfill failed");
-});
+if (runsQueue) {
+  void backfillErrorGroupsUntilDrained((input) => backfillErrorGroups(db, input), 500).catch((error) => {
+    logger.error({ error }, "Error group backfill failed");
+  });
+}
 
 const stopHeartbeat = startHeartbeat({
-  beat: () => upsertHeartbeat(db, { component: "worker", heartbeatAt: new Date() })
+  beat: () =>
+    upsertHeartbeat(db, {
+      component: runsQueue ? "worker" : "scheduler",
+      heartbeatAt: new Date()
+    })
 });
 
 const retentionPolicy = {
@@ -90,7 +115,7 @@ const retentionPolicy = {
   sourceMapsBatchSize: config.sourceMaps.retention.batchSize
 };
 
-const stopRetention = config.retention.enabled
+const stopRetention = runsScheduler && config.retention.enabled
   ? startRetentionScheduler({
       intervalMinutes: config.retention.intervalMinutes,
       runOnce: () =>
@@ -122,7 +147,7 @@ const stopRetention = config.retention.enabled
     })
   : async () => {};
 
-const stopAlerts = config.alerts.enabled
+const stopAlerts = runsScheduler && config.alerts.enabled
   ? startAlertScheduler({
       intervalMinutes: config.alerts.intervalMinutes,
       runOnce: () =>
@@ -156,6 +181,35 @@ const stopAlerts = config.alerts.enabled
     })
   : async () => {};
 
+const stopMonitors = runsScheduler && config.monitors.enabled
+  ? startMonitorScheduler({
+      intervalMinutes: config.monitors.intervalMinutes,
+      runOnce: () =>
+        runMonitorEvaluationOnce({
+          now: () => new Date(),
+          withLock: (run) => withMonitorEvaluationLock(db, run),
+          listDueHttpMonitors: () =>
+            listDueHttpMonitors(db, { now: new Date(), limit: config.monitors.maxConcurrency }),
+          listStaleHeartbeatMonitors: () =>
+            listStaleHeartbeatMonitors(db, { now: new Date(), limit: config.monitors.maxConcurrency }),
+          checkHttpMonitor: (monitor): Promise<MonitorCheckResult> =>
+            checkHttpMonitor({ monitor, timeoutMs: config.monitors.httpTimeoutMs }),
+          recordMonitorCheck: (input) => recordMonitorCheck(db, input),
+          recordAlertEvent: (input) => recordMonitorAlertEvent(db, input),
+          getNotificationChannel: (id) => getNotificationChannel(db, id),
+          deliver: (channel, payload) =>
+            deliverNotification({
+              channel,
+              payload,
+              smtp: config.smtp,
+              timeoutMs: config.alerts.webhookTimeoutMs,
+              nodeEnv: config.nodeEnv
+            }),
+          recordDelivery: (input) => recordNotificationDelivery(db, input)
+        })
+    })
+  : async () => {};
+
 const backupConfig = {
   enabled: config.backups.enabled,
   intervalHours: config.backups.intervalHours,
@@ -165,7 +219,7 @@ const backupConfig = {
   s3: config.backups.s3
 };
 
-const stopBackups = config.backups.enabled
+const stopBackups = runsScheduler && config.backups.enabled
   ? startBackupScheduler({
       intervalHours: config.backups.intervalHours,
       runOnce: () =>
@@ -179,13 +233,13 @@ const stopBackups = config.backups.enabled
     })
   : async () => {};
 
-logger.info({ queueName: "telemetry" }, "Telemetry worker started");
+logger.info({ role: config.worker.role, queueName: runsQueue ? "telemetry" : null }, "Telemetry worker started");
 
-worker.on("completed", (job) => {
+worker?.on("completed", (job) => {
   logger.info({ jobId: job.id ?? "unknown", jobName: job.name }, "Processed telemetry job");
 });
 
-worker.on("failed", (job, error) => {
+worker?.on("failed", (job, error) => {
   logger.error({ jobId: job?.id ?? "unknown", jobName: job?.name, error }, "Telemetry job failed");
   if (!job) {
     return;
@@ -212,7 +266,7 @@ worker.on("failed", (job, error) => {
   });
 });
 
-worker.on("error", (error) => {
+worker?.on("error", (error) => {
   logger.error({ error }, "Telemetry worker error");
 });
 
@@ -227,11 +281,12 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   await runShutdownSteps(
     [
       { name: "stopBackups", run: () => stopBackups() },
+      { name: "stopMonitors", run: () => stopMonitors() },
       { name: "stopAlerts", run: () => stopAlerts() },
       { name: "stopRetention", run: () => stopRetention() },
       { name: "stopHeartbeat", run: () => stopHeartbeat() },
-      { name: "worker.close", run: () => worker.close() },
-      { name: "connection.quit", run: () => connection.quit() },
+      { name: "worker.close", run: () => worker?.close() ?? Promise.resolve() },
+      { name: "connection.quit", run: () => connection?.quit() ?? Promise.resolve() },
       { name: "db.destroy", run: () => db.destroy() }
     ],
     10_000,

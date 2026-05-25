@@ -14,8 +14,10 @@ import {
 import { runBackupOnce } from "../src/backups.js";
 import { deliverEmail } from "../src/email.js";
 import { startHeartbeat } from "../src/heartbeat.js";
+import { checkHttpMonitor, runMonitorEvaluationOnce, startMonitorScheduler } from "../src/monitors.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { deleteExpiredSourceMapArtifacts, SourceMapRetentionError } from "../src/source-map-retention.js";
+import type { MonitorRecord } from "@sigmon/db/repositories/monitors.js";
 import {
   backfillErrorGroupsUntilDrained,
   buildDeadLetterJobInput,
@@ -1611,6 +1613,267 @@ describe("runAlertEvaluationOnce", () => {
 
     expect(result).toEqual({ ran: true, skipped: false, evaluated: 1, triggered: 1 });
     expect(calls).toEqual(["lock:start", "lock:released", "deliver", "recordDelivery"]);
+  });
+});
+
+describe("monitor evaluation", () => {
+  const now = new Date("2026-05-24T12:00:00.000Z");
+
+  function httpMonitor(overrides: Partial<MonitorRecord> = {}): MonitorRecord {
+    return {
+      id: "mon_http",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      notificationChannelId: "chn_email",
+      kind: "http",
+      name: "MicroERP app",
+      enabled: true,
+      status: "unknown",
+      url: "https://microerp.example.com/health",
+      method: "GET",
+      expectedStatus: "2xx",
+      bodyContains: "ok",
+      timeoutMs: 3000,
+      intervalMinutes: 5,
+      failureThreshold: 2,
+      recoveryThreshold: 1,
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 0,
+      expectedIntervalMinutes: null,
+      graceMinutes: null,
+      secretHash: null,
+      lastCheckedAt: null,
+      lastCheckStatus: null,
+      lastCheckLatencyMs: null,
+      lastCheckResponseStatus: null,
+      lastCheckErrorMessage: null,
+      lastHeartbeatAt: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      ...overrides
+    };
+  }
+
+  function heartbeatMonitor(overrides: Partial<MonitorRecord> = {}): MonitorRecord {
+    return {
+      id: "mon_queue",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      notificationChannelId: "chn_email",
+      kind: "heartbeat",
+      name: "MicroERP queue",
+      enabled: true,
+      status: "up",
+      url: null,
+      method: null,
+      expectedStatus: null,
+      bodyContains: null,
+      timeoutMs: null,
+      intervalMinutes: null,
+      failureThreshold: 1,
+      recoveryThreshold: 1,
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 1,
+      expectedIntervalMinutes: 5,
+      graceMinutes: 1,
+      secretHash: "hash_1",
+      lastCheckedAt: new Date("2026-05-24T11:55:00.000Z"),
+      lastCheckStatus: "success",
+      lastCheckLatencyMs: null,
+      lastCheckResponseStatus: null,
+      lastCheckErrorMessage: null,
+      lastHeartbeatAt: new Date("2026-05-24T11:55:00.000Z"),
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      ...overrides
+    };
+  }
+
+  function emailChannel() {
+    return {
+      id: "chn_email",
+      name: "Ops email",
+      type: "email" as const,
+      url: null,
+      emailRecipients: ["ops@example.com"],
+      secretHeaderName: null,
+      secretHeaderValue: null,
+      hasSecret: false as const,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null
+    };
+  }
+
+  it("runs due HTTP monitors and records successful checks", async () => {
+    const monitor = httpMonitor({ id: "mon_1" });
+    const recordMonitorCheck = vi.fn().mockResolvedValue({ ...monitor, status: "up" });
+
+    const result = await runMonitorEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listDueHttpMonitors: async () => [monitor],
+      listStaleHeartbeatMonitors: async () => [],
+      checkHttpMonitor: async () => ({ status: "success", latencyMs: 42, responseStatus: 200, errorMessage: null }),
+      recordMonitorCheck,
+      recordAlertEvent: vi.fn(),
+      getNotificationChannel: vi.fn(),
+      deliver: vi.fn(),
+      recordDelivery: vi.fn()
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, checked: 1, staleHeartbeats: 0, triggered: 0 });
+    expect(recordMonitorCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ monitorId: "mon_1", status: "success", latencyMs: 42 })
+    );
+  });
+
+  it("creates and delivers alert events when heartbeat monitors become stale", async () => {
+    const heartbeat = heartbeatMonitor({ id: "mon_queue" });
+    const recordAlertEvent = vi.fn().mockResolvedValue({ id: "evt_heartbeat" });
+    const recordMonitorCheck = vi.fn().mockResolvedValue({ ...heartbeat, status: "down" });
+    const deliver = vi.fn().mockResolvedValue({ status: "success", responseStatus: null, errorMessage: null });
+    const recordDelivery = vi.fn();
+
+    const result = await runMonitorEvaluationOnce({
+      now: () => new Date("2026-05-24T12:07:00.000Z"),
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listDueHttpMonitors: async () => [],
+      listStaleHeartbeatMonitors: async () => [heartbeat],
+      checkHttpMonitor: vi.fn(),
+      recordMonitorCheck,
+      recordAlertEvent,
+      getNotificationChannel: vi.fn().mockResolvedValue(emailChannel()),
+      deliver,
+      recordDelivery
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, checked: 0, staleHeartbeats: 1, triggered: 1 });
+    expect(recordMonitorCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ monitorId: "mon_queue", status: "failed" })
+    );
+    expect(recordAlertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        monitor: heartbeat,
+        observedValue: "12",
+        threshold: "6",
+        message: expect.stringContaining("stale")
+      })
+    );
+    expect(deliver).toHaveBeenCalledWith(
+      emailChannel(),
+      expect.objectContaining({ alertEventId: "evt_heartbeat", ruleType: "heartbeat_monitor" })
+    );
+    expect(recordDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ alertEventId: "evt_heartbeat", notificationChannelId: "chn_email", status: "success" })
+    );
+  });
+
+  it("does not create repeated heartbeat stale alerts while already down", async () => {
+    const heartbeat = heartbeatMonitor({ id: "mon_queue", status: "down" });
+    const recordAlertEvent = vi.fn();
+
+    const result = await runMonitorEvaluationOnce({
+      now: () => new Date("2026-05-24T12:07:00.000Z"),
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listDueHttpMonitors: async () => [],
+      listStaleHeartbeatMonitors: async () => [heartbeat],
+      checkHttpMonitor: vi.fn(),
+      recordMonitorCheck: vi.fn().mockResolvedValue(heartbeat),
+      recordAlertEvent,
+      getNotificationChannel: vi.fn(),
+      deliver: vi.fn(),
+      recordDelivery: vi.fn()
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, checked: 0, staleHeartbeats: 1, triggered: 0 });
+    expect(recordAlertEvent).not.toHaveBeenCalled();
+  });
+
+  it("returns skipped result when monitor evaluation lock is held", async () => {
+    const result = await runMonitorEvaluationOnce({
+      now: () => now,
+      withLock: async () => ({ locked: false }),
+      listDueHttpMonitors: async () => {
+        throw new Error("should_not_list_monitors");
+      },
+      listStaleHeartbeatMonitors: async () => [],
+      checkHttpMonitor: vi.fn(),
+      recordMonitorCheck: vi.fn(),
+      recordAlertEvent: vi.fn(),
+      getNotificationChannel: vi.fn(),
+      deliver: vi.fn(),
+      recordDelivery: vi.fn()
+    });
+
+    expect(result).toEqual({ ran: false, skipped: true, checked: 0, staleHeartbeats: 0, triggered: 0 });
+  });
+
+  it("checks HTTP monitor status and body content", async () => {
+    const result = await checkHttpMonitor({
+      monitor: httpMonitor(),
+      timeoutMs: 5000,
+      resolveHostname: async () => [{ address: "93.184.216.34", family: 4 }],
+      requestImpl: async () => ({ status: 200, body: "ok", latencyMs: 31 })
+    });
+
+    expect(result).toEqual({ status: "success", latencyMs: 31, responseStatus: 200, errorMessage: null });
+  });
+
+  it("fails HTTP monitor checks for unsafe targets", async () => {
+    const result = await checkHttpMonitor({
+      monitor: httpMonitor({ url: "http://127.0.0.1/health" }),
+      timeoutMs: 5000,
+      requestImpl: async () => ({ status: 200, body: "ok", latencyMs: 31 })
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      latencyMs: null,
+      responseStatus: null,
+      errorMessage: "unsafe monitor target"
+    });
+  });
+
+  it("does not overlap monitor scheduler runs and drains active work on stop", async () => {
+    const running = createDeferred();
+    const calls: string[] = [];
+    const intervalHandle = { id: "monitor-interval" } as unknown as ReturnType<typeof setInterval>;
+    const timeoutHandle = { id: "monitor-startup" } as unknown as ReturnType<typeof setTimeout>;
+    const scheduledIntervals: Array<() => void> = [];
+    const scheduledTimeouts: Array<() => void> = [];
+
+    const stop = startMonitorScheduler({
+      intervalMinutes: 1,
+      runOnce: async () => {
+        calls.push("run");
+        await running.promise;
+        calls.push("done");
+      },
+      setTimeoutFn: ((callback: () => void) => {
+        scheduledTimeouts.push(callback);
+        return timeoutHandle;
+      }) as unknown as typeof setTimeout,
+      clearTimeoutFn: vi.fn(),
+      setIntervalFn: ((callback: () => void) => {
+        scheduledIntervals.push(callback);
+        return intervalHandle;
+      }) as unknown as typeof setInterval,
+      clearIntervalFn: vi.fn()
+    });
+
+    scheduledTimeouts[0]?.();
+    scheduledIntervals[0]?.();
+    expect(calls).toEqual(["run"]);
+
+    const stopped = stop();
+    running.resolve();
+    await stopped;
+
+    expect(calls).toEqual(["run", "done"]);
   });
 });
 

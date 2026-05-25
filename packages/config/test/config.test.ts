@@ -37,6 +37,16 @@ describe("loadConfig", () => {
 
     expect(config.port).toBe(4000);
     expect(config.googleOAuth.enabled).toBe(false);
+    expect(config.worker.role).toBe("all");
+  });
+
+  it.each(["all", "queue", "scheduler"] as const)("loads worker role %s", (role) => {
+    const config = loadConfig({
+      ...baseEnv(),
+      WORKER_ROLE: role
+    });
+
+    expect(config.worker.role).toBe(role);
   });
 
   it("enables console serving explicitly outside production", () => {
@@ -159,6 +169,46 @@ describe("loadConfig", () => {
   });
 
   it.each(["ALERTS_INTERVAL_MINUTES", "ALERTS_WEBHOOK_TIMEOUT_MS"] as const)(
+    "rejects non-positive %s",
+    (fieldName) => {
+      expect(() =>
+        loadConfig({
+          ...validEnv,
+          [fieldName]: "0"
+        })
+      ).toThrow();
+    }
+  );
+
+  it("loads monitor scheduler defaults", () => {
+    const config = loadConfig(baseEnv());
+
+    expect(config.monitors).toEqual({
+      enabled: true,
+      intervalMinutes: 1,
+      httpTimeoutMs: 5000,
+      maxConcurrency: 5
+    });
+  });
+
+  it("loads explicit monitor scheduler settings", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      MONITORS_ENABLED: "false",
+      MONITORS_INTERVAL_MINUTES: "2",
+      MONITORS_HTTP_TIMEOUT_MS: "2500",
+      MONITORS_MAX_CONCURRENCY: "3"
+    });
+
+    expect(config.monitors).toEqual({
+      enabled: false,
+      intervalMinutes: 2,
+      httpTimeoutMs: 2500,
+      maxConcurrency: 3
+    });
+  });
+
+  it.each(["MONITORS_INTERVAL_MINUTES", "MONITORS_HTTP_TIMEOUT_MS", "MONITORS_MAX_CONCURRENCY"] as const)(
     "rejects non-positive %s",
     (fieldName) => {
       expect(() =>

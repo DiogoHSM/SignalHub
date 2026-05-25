@@ -70,6 +70,7 @@ function alertEvent(overrides: Partial<AlertEventRecord> = {}): AlertEventRecord
   return {
     id: "evt_1",
     ruleId: "rule_1",
+    monitorId: null,
     projectId: "prj_1",
     environmentId: "env_1",
     status: "triggered",

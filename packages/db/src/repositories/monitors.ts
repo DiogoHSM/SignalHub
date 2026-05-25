@@ -2,10 +2,12 @@ import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
-import type { MonitorChecksTable, MonitorsTable } from "../schema.js";
+import type { AlertEventsTable, MonitorChecksTable, MonitorsTable } from "../schema.js";
 
 type MonitorRow = Selectable<MonitorsTable>;
 type MonitorCheckRow = Selectable<MonitorChecksTable>;
+type AlertEventRow = Selectable<AlertEventsTable>;
+const MONITOR_EVALUATION_LOCK_ID = 927380402916;
 
 export type MonitorKind = "http" | "heartbeat";
 export type MonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
@@ -15,6 +17,7 @@ export type MonitorRecord = {
   id: string;
   projectId: string;
   environmentId: string;
+  notificationChannelId: string | null;
   kind: MonitorKind;
   name: string;
   enabled: boolean;
@@ -54,9 +57,26 @@ export type MonitorCheckRecord = {
   createdAt: Date;
 };
 
+export type MonitorAlertEventRecord = {
+  id: string;
+  monitorId: string;
+  projectId: string;
+  environmentId: string;
+  severity: "warning" | "critical";
+  triggeredAt: Date;
+  windowStart: Date;
+  windowEnd: Date;
+  observedValue: string;
+  threshold: string;
+  message: string;
+  metadata: unknown;
+  createdAt: Date;
+};
+
 type MonitorScope = {
   projectId: string;
   environmentId: string;
+  notificationChannelId?: string | null;
 };
 
 export type CreateHttpMonitorInput = MonitorScope & {
@@ -117,6 +137,7 @@ function toMonitor(row: MonitorRow): MonitorRecord {
     id: row.id,
     projectId: row.project_id,
     environmentId: row.environment_id,
+    notificationChannelId: row.notification_channel_id,
     kind: row.kind,
     name: row.name,
     enabled: row.enabled,
@@ -155,6 +176,28 @@ function toMonitorCheck(row: MonitorCheckRow): MonitorCheckRecord {
     latencyMs: row.latency_ms,
     responseStatus: row.response_status,
     errorMessage: row.error_message,
+    createdAt: row.created_at
+  };
+}
+
+function toMonitorAlertEvent(row: AlertEventRow): MonitorAlertEventRecord {
+  if (!row.monitor_id) {
+    throw new Error("monitor_alert_event_missing_monitor_id");
+  }
+
+  return {
+    id: row.id,
+    monitorId: row.monitor_id,
+    projectId: row.project_id,
+    environmentId: row.environment_id,
+    severity: row.severity === "critical" ? "critical" : "warning",
+    triggeredAt: row.triggered_at,
+    windowStart: row.window_start,
+    windowEnd: row.window_end,
+    observedValue: String(row.observed_value),
+    threshold: String(row.threshold),
+    message: row.message,
+    metadata: row.metadata,
     createdAt: row.created_at
   };
 }
@@ -207,6 +250,7 @@ export async function createHttpMonitor(db: Db, input: CreateHttpMonitorInput): 
       id: createId("mon"),
       project_id: input.projectId,
       environment_id: input.environmentId,
+      notification_channel_id: input.notificationChannelId ?? null,
       kind: "http",
       name: input.name,
       enabled: input.enabled,
@@ -243,6 +287,7 @@ export async function createHeartbeatMonitor(
       id: createId("mon"),
       project_id: input.projectId,
       environment_id: input.environmentId,
+      notification_channel_id: input.notificationChannelId ?? null,
       kind: "heartbeat",
       name: input.name,
       enabled: input.enabled,
@@ -253,7 +298,7 @@ export async function createHeartbeatMonitor(
       body_contains: null,
       timeout_ms: null,
       interval_minutes: null,
-      failure_threshold: 2,
+      failure_threshold: 1,
       recovery_threshold: 1,
       consecutive_failures: 0,
       consecutive_successes: 0,
@@ -324,6 +369,7 @@ export async function updateMonitor(
     .set({
       ...(input.projectId !== undefined ? { project_id: input.projectId } : {}),
       ...(input.environmentId !== undefined ? { environment_id: input.environmentId } : {}),
+      ...(input.notificationChannelId !== undefined ? { notification_channel_id: input.notificationChannelId } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
@@ -521,4 +567,58 @@ export async function listMonitorChecks(
     .execute();
 
   return rows.map(toMonitorCheck);
+}
+
+export async function recordMonitorAlertEvent(
+  db: Db,
+  input: {
+    monitor: MonitorRecord;
+    triggeredAt: Date;
+    windowStart: Date;
+    windowEnd: Date;
+    observedValue: string;
+    threshold: string;
+    severity: "warning" | "critical";
+    message: string;
+    metadata: unknown;
+  }
+): Promise<MonitorAlertEventRecord> {
+  const row = await db
+    .insertInto("alert_events")
+    .values({
+      rule_id: null,
+      monitor_id: input.monitor.id,
+      project_id: input.monitor.projectId,
+      environment_id: input.monitor.environmentId,
+      status: "triggered",
+      severity: input.severity,
+      triggered_at: input.triggeredAt,
+      window_start: input.windowStart,
+      window_end: input.windowEnd,
+      observed_value: input.observedValue,
+      threshold: input.threshold,
+      message: input.message,
+      metadata: input.metadata
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  return toMonitorAlertEvent(row);
+}
+
+export async function withMonitorEvaluationLock<T>(
+  db: Db,
+  run: () => Promise<T>
+): Promise<{ locked: false } | { locked: true; result: T }> {
+  return db.transaction().execute(async (trx) => {
+    const lock = await sql<{ locked: boolean }>`
+      select pg_try_advisory_xact_lock(${MONITOR_EVALUATION_LOCK_ID}) as locked
+    `.execute(trx);
+
+    if (!lock.rows[0]?.locked) {
+      return { locked: false };
+    }
+
+    return { locked: true, result: await run() };
+  });
 }

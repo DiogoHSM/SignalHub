@@ -18,7 +18,7 @@ export type AlertWebhookPayload = {
   alertEventId: string;
   ruleId: string;
   ruleName: string;
-  ruleType: AlertRuleRecord["type"];
+  ruleType: AlertRuleRecord["type"] | "http_monitor" | "heartbeat_monitor";
   severity: AlertRuleRecord["severity"];
   projectId: string;
   environmentId: string;

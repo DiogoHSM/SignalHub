@@ -102,7 +102,8 @@ export type AlertRuleRecord = {
 
 export type AlertEventRecord = {
   id: string;
-  ruleId: string;
+  ruleId: string | null;
+  monitorId: string | null;
   projectId: string;
   environmentId: string;
   status: "triggered";
@@ -236,6 +237,7 @@ export function toAlertEvent(row: AlertEventWithDeliveryRow): AlertEventRecord {
   return {
     id: row.id,
     ruleId: row.rule_id,
+    monitorId: row.monitor_id,
     projectId: row.project_id,
     environmentId: row.environment_id,
     status: row.status,
@@ -720,6 +722,7 @@ export async function recordAlertEvent(
     .insertInto("alert_events")
     .values({
       rule_id: input.rule.id,
+      monitor_id: null,
       project_id: input.rule.projectId,
       environment_id: input.rule.environmentId,
       status: "triggered",

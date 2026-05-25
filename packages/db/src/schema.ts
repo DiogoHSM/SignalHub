@@ -319,7 +319,8 @@ export interface AlertRulesTable {
 
 export interface AlertEventsTable {
   id: ColumnType<string, string | undefined, string>;
-  rule_id: string;
+  rule_id: string | null;
+  monitor_id: string | null;
   project_id: string;
   environment_id: string;
   status: "triggered";
@@ -349,6 +350,7 @@ export interface MonitorsTable {
   id: ColumnType<string, string | undefined, string>;
   project_id: string;
   environment_id: string;
+  notification_channel_id: string | null;
   kind: "http" | "heartbeat";
   name: string;
   enabled: DefaultedBoolean;

@@ -53,6 +53,7 @@ function requireProductionDatabasePasswordIsNotPlaceholder(databaseUrl: string, 
 
 const rawConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  WORKER_ROLE: z.enum(["all", "queue", "scheduler"]).default("all"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
@@ -90,6 +91,13 @@ const rawConfigSchema = z.object({
     .transform((value) => value === "true"),
   ALERTS_INTERVAL_MINUTES: optionalPositiveInteger(1),
   ALERTS_WEBHOOK_TIMEOUT_MS: optionalPositiveInteger(5000),
+  MONITORS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  MONITORS_INTERVAL_MINUTES: optionalPositiveInteger(1),
+  MONITORS_HTTP_TIMEOUT_MS: optionalPositiveInteger(5000),
+  MONITORS_MAX_CONCURRENCY: optionalPositiveInteger(5),
   SMTP_HOST: optionalTrimmedEnvString,
   SMTP_PORT: optionalPositiveInteger(587),
   SMTP_USERNAME: optionalTrimmedEnvString,
@@ -182,6 +190,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
 
   return {
     nodeEnv: parsed.NODE_ENV,
+    worker: {
+      role: parsed.WORKER_ROLE
+    },
     port: parsed.PORT,
     databaseUrl: parsed.DATABASE_URL,
     redisUrl: parsed.REDIS_URL,
@@ -216,6 +227,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       enabled: parsed.ALERTS_ENABLED,
       intervalMinutes: parsed.ALERTS_INTERVAL_MINUTES,
       webhookTimeoutMs: parsed.ALERTS_WEBHOOK_TIMEOUT_MS
+    },
+    monitors: {
+      enabled: parsed.MONITORS_ENABLED,
+      intervalMinutes: parsed.MONITORS_INTERVAL_MINUTES,
+      httpTimeoutMs: parsed.MONITORS_HTTP_TIMEOUT_MS,
+      maxConcurrency: parsed.MONITORS_MAX_CONCURRENCY
     },
     smtp: {
       enabled: smtpConfigured,

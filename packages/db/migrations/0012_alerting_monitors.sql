@@ -23,6 +23,7 @@ CREATE TABLE monitors (
   id text PRIMARY KEY DEFAULT gen_random_uuid()::text,
   project_id text NOT NULL REFERENCES projects(id),
   environment_id text NOT NULL,
+  notification_channel_id text REFERENCES notification_channels(id),
   kind text NOT NULL CHECK (kind IN ('http', 'heartbeat')),
   name text NOT NULL,
   enabled boolean NOT NULL DEFAULT true,
@@ -62,6 +63,7 @@ CREATE TABLE monitors (
 );
 
 CREATE INDEX monitors_scope_idx ON monitors(project_id, environment_id, kind, enabled, archived_at);
+CREATE INDEX monitors_channel_idx ON monitors(notification_channel_id);
 CREATE INDEX monitors_due_http_idx ON monitors(last_checked_at, interval_minutes)
   WHERE kind = 'http' AND enabled = true AND archived_at IS NULL;
 CREATE INDEX monitors_stale_heartbeat_idx ON monitors(last_heartbeat_at, expected_interval_minutes, grace_minutes)
@@ -79,3 +81,17 @@ CREATE TABLE monitor_checks (
 );
 
 CREATE INDEX monitor_checks_monitor_time_idx ON monitor_checks(monitor_id, checked_at DESC);
+
+ALTER TABLE alert_events DROP CONSTRAINT alert_events_rule_id_project_id_environment_id_fkey;
+ALTER TABLE alert_events ALTER COLUMN rule_id DROP NOT NULL;
+ALTER TABLE alert_events ADD COLUMN monitor_id text REFERENCES monitors(id);
+ALTER TABLE alert_events
+  ADD CONSTRAINT alert_events_origin_check CHECK (
+    (rule_id IS NOT NULL AND monitor_id IS NULL)
+    OR
+    (rule_id IS NULL AND monitor_id IS NOT NULL)
+  );
+ALTER TABLE alert_events
+  ADD CONSTRAINT alert_events_rule_id_project_id_environment_id_fkey
+  FOREIGN KEY (rule_id, project_id, environment_id) REFERENCES alert_rules(id, project_id, environment_id);
+CREATE INDEX alert_events_monitor_time_idx ON alert_events(monitor_id, triggered_at DESC);
