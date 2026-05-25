@@ -368,9 +368,14 @@ export async function updateNotificationChannel(
   }
   if (
     targetType === "email" &&
-    (input.url !== undefined || input.secretHeaderName !== undefined || input.secretHeaderValue !== undefined)
+    ((input.url !== undefined && input.url !== null) ||
+      (input.secretHeaderName !== undefined && input.secretHeaderName !== null) ||
+      (input.secretHeaderValue !== undefined && input.secretHeaderValue !== null))
   ) {
     throw new Error("invalid_email_notification_channel");
+  }
+  if (targetType === "webhook" && input.url === null) {
+    throw new Error("webhook_url_required");
   }
   if (targetType === "webhook" && input.emailRecipients !== undefined) {
     throw new Error("invalid_webhook_notification_channel");

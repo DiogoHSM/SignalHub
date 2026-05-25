@@ -1571,6 +1571,24 @@ describe("repositories", () => {
           secretHeaderValue: "secret"
         })
       ).rejects.toThrow("invalid_email_notification_channel");
+
+      await expect(
+        updateNotificationChannel(db, channel.id, {
+          url: null,
+          secretHeaderName: null,
+          secretHeaderValue: null
+        })
+      ).resolves.toMatchObject({ id: channel.id, type: "email", url: null, hasSecret: false });
+
+      const webhook = await createNotificationChannel(db, {
+        name: "Ops webhook url",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        enabled: true
+      });
+      await expect(updateNotificationChannel(db, webhook.id, { url: null })).rejects.toThrow(
+        "webhook_url_required"
+      );
     });
   });
 

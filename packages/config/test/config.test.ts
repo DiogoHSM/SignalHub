@@ -196,6 +196,14 @@ describe("loadConfig", () => {
     expect(loadConfig(baseEnv()).smtp.enabled).toBe(false);
   });
 
+  it("requires full SMTP settings when any SMTP option is present", () => {
+    expect(() => loadConfig({ ...baseEnv(), SMTP_SECURE: "true" })).toThrow(
+      "SMTP_HOST is required when SMTP email is enabled"
+    );
+    expect(() => loadConfig({ ...baseEnv(), SMTP_HOST: "   " })).not.toThrow();
+    expect(loadConfig({ ...baseEnv(), SMTP_HOST: "   " }).smtp.enabled).toBe(false);
+  });
+
   it("loads backup defaults", () => {
     const config = loadConfig({
       NODE_ENV: "test",

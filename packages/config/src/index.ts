@@ -5,6 +5,10 @@ export * from "./network-security.js";
 
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
 const optionalEnvString = z.preprocess(emptyStringToUndefined, z.string().optional());
+const optionalTrimmedEnvString = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().trim().min(1).optional()
+);
 const optionalEnvUrl = z.preprocess(emptyStringToUndefined, z.string().url().optional());
 const optionalPositiveInteger = (defaultValue: number) =>
   z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).default(defaultValue));
@@ -86,11 +90,11 @@ const rawConfigSchema = z.object({
     .transform((value) => value === "true"),
   ALERTS_INTERVAL_MINUTES: optionalPositiveInteger(1),
   ALERTS_WEBHOOK_TIMEOUT_MS: optionalPositiveInteger(5000),
-  SMTP_HOST: optionalEnvString,
+  SMTP_HOST: optionalTrimmedEnvString,
   SMTP_PORT: optionalPositiveInteger(587),
-  SMTP_USERNAME: optionalEnvString,
-  SMTP_PASSWORD: optionalEnvString,
-  SMTP_FROM: optionalEnvString,
+  SMTP_USERNAME: optionalTrimmedEnvString,
+  SMTP_PASSWORD: optionalTrimmedEnvString,
+  SMTP_FROM: optionalTrimmedEnvString,
   SMTP_SECURE: z
     .enum(["true", "false"])
     .default("false")
@@ -161,7 +165,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     }
   }
 
-  const smtpConfigured = Boolean(parsed.SMTP_HOST || parsed.SMTP_USERNAME || parsed.SMTP_PASSWORD || parsed.SMTP_FROM);
+  const smtpConfigured = Boolean(
+    parsed.SMTP_HOST ||
+      parsed.SMTP_USERNAME ||
+      parsed.SMTP_PASSWORD ||
+      parsed.SMTP_FROM ||
+      env.SMTP_PORT ||
+      env.SMTP_SECURE
+  );
   if (smtpConfigured) {
     if (!parsed.SMTP_HOST) throw new Error("SMTP_HOST is required when SMTP email is enabled");
     if (!parsed.SMTP_USERNAME) throw new Error("SMTP_USERNAME is required when SMTP email is enabled");
