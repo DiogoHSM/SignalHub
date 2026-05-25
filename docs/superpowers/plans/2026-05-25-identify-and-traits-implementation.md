@@ -1066,4 +1066,3 @@ git diff --check
 - [ ] Confirm OpenAPI exposes both identify endpoints.
 
 - [ ] Confirm the console shows persisted labels and key traits for one user and one tenant seeded through identify calls.
-
