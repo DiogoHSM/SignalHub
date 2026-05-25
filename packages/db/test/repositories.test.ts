@@ -3376,6 +3376,85 @@ describe("repositories", () => {
     });
   });
 
+  it("does not overcount route-scoped error rate with duplicate or null trace ids", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_rate_edges", "env_rate_edges");
+
+      await insertTrace(db, {
+        id: "trace_rate_edges_1",
+        traceId: "trace_rate_edges_shared",
+        projectId: "prj_rate_edges",
+        environmentId: "env_rate_edges",
+        timestamp: new Date("2026-05-24T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:00.000Z"),
+        name: "GET /checkout",
+        status: "success",
+        startedAt: new Date("2026-05-24T12:04:59.000Z"),
+        endedAt: new Date("2026-05-24T12:05:00.000Z"),
+        durationMs: 100
+      });
+      await insertTrace(db, {
+        id: "trace_rate_edges_2",
+        traceId: "trace_rate_edges_shared",
+        projectId: "prj_rate_edges",
+        environmentId: "env_rate_edges",
+        timestamp: new Date("2026-05-24T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:00.000Z"),
+        name: "GET /checkout",
+        status: "success",
+        startedAt: new Date("2026-05-24T12:04:59.000Z"),
+        endedAt: new Date("2026-05-24T12:05:00.000Z"),
+        durationMs: 100
+      });
+      await insertTrace(db, {
+        id: "trace_rate_edges_null",
+        projectId: "prj_rate_edges",
+        environmentId: "env_rate_edges",
+        timestamp: new Date("2026-05-24T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:00.000Z"),
+        name: "GET /checkout",
+        status: "success",
+        startedAt: new Date("2026-05-24T12:04:59.000Z"),
+        endedAt: new Date("2026-05-24T12:05:00.000Z"),
+        durationMs: 100
+      });
+      await insertError(db, {
+        id: "err_rate_edges_matched",
+        traceId: "trace_rate_edges_shared",
+        projectId: "prj_rate_edges",
+        environmentId: "env_rate_edges",
+        timestamp: new Date("2026-05-24T12:05:30.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:30.000Z"),
+        message: "Checkout failed",
+        severity: "error",
+        fingerprint: "checkout"
+      });
+      await insertError(db, {
+        id: "err_rate_edges_null",
+        projectId: "prj_rate_edges",
+        environmentId: "env_rate_edges",
+        timestamp: new Date("2026-05-24T12:05:30.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:30.000Z"),
+        message: "Null trace failed",
+        severity: "error",
+        fingerprint: "checkout-null"
+      });
+
+      const result = await evaluateAlertRule(db, {
+        projectId: "prj_rate_edges",
+        environmentId: "env_rate_edges",
+        type: "error_rate",
+        windowStart: new Date("2026-05-24T12:00:00.000Z"),
+        windowEnd: new Date("2026-05-24T12:10:00.000Z"),
+        routePattern: "GET /checkout",
+        minimumSampleSize: 1
+      });
+
+      expect(result).toEqual({ observedValue: "33.333333" });
+    });
+  });
+
   it("evaluates trace p95 latency scoped by route pattern", async () => {
     await withDb(async (db) => {
       await migrate(db);

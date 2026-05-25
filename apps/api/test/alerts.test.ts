@@ -575,7 +575,7 @@ describe("admin alert routes", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json().rule).toMatchObject({ id: "rule_1", threshold: "1.5" });
-    expect(createdRules).toEqual([payload]);
+    expect(createdRules).toEqual([{ ...payload, minimumSampleSize: 1 }]);
   });
 
   it("creates error rate alert rules with route pattern and minimum sample size", async () => {
