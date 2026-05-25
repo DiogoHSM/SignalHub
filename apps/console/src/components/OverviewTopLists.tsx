@@ -23,6 +23,12 @@ function count(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function currency(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(parsed);
+}
+
 function renderList(list: List, onDrilldown: Props["onDrilldown"]) {
   return (
     <article className="overview-list" key={list.title}>
@@ -72,7 +78,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       emptyText: "No LLM calls in this window.",
       rows: top.llmProviders.map((row) => ({
         label: row.provider,
-        value: `${count(row.total)} / ${row.totalCostUsd}`,
+        value: `${count(row.total)} / ${currency(row.totalCostUsd)}`,
         drilldown: { tab: "llm", filters: { provider: row.provider } }
       }))
     },
@@ -81,7 +87,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       emptyText: "No LLM models in this window.",
       rows: top.llmModels.map((row) => ({
         label: row.model,
-        value: `${count(row.total)} / ${row.totalCostUsd}`,
+        value: `${count(row.total)} / ${currency(row.totalCostUsd)}`,
         drilldown: { tab: "llm", filters: { model: row.model } }
       }))
     },
@@ -90,7 +96,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       emptyText: "No LLM prompts in this window.",
       rows: top.llmPrompts.map((row) => ({
         label: row.promptName,
-        value: `${count(row.total)} / ${row.totalCostUsd}`,
+        value: `${count(row.total)} / ${currency(row.totalCostUsd)}`,
         drilldown: { tab: "llm", filters: { promptName: row.promptName } },
         disabled: row.promptName === "Unspecified"
       }))
@@ -127,7 +133,7 @@ export function OverviewTopLists({ onDrilldown, top }: Props) {
       emptyText: "No tenant LLM cost in this window.",
       rows: top.tenantsByLlmCost.map((row) => ({
         label: row.tenantId,
-        value: row.totalCostUsd,
+        value: currency(row.totalCostUsd),
         drilldown: { tab: "entities", filters: { tenantId: row.tenantId } }
       }))
     }

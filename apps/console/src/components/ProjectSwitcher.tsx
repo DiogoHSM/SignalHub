@@ -22,7 +22,7 @@ export function ProjectSwitcher({ projects, activeProjectId, disabled, onSelect,
   }
 
   return (
-    <aside className="project-sidebar">
+    <section className="project-sidebar" aria-label="Projects">
       <div className="section-label">Projects</div>
       <div className="project-list">
         {projects.map((project) => (
@@ -46,6 +46,6 @@ export function ProjectSwitcher({ projects, activeProjectId, disabled, onSelect,
           Create project
         </button>
       </form>
-    </aside>
+    </section>
   );
 }

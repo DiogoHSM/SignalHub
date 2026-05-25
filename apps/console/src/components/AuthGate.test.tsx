@@ -85,6 +85,7 @@ describe("AuthGate", () => {
       </AuthGate>
     );
 
+    expect(await screen.findByRole("img", { name: "sigmon heartbeat logo" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();
     expect(screen.queryByText("Console loaded")).not.toBeInTheDocument();
   });

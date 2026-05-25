@@ -192,6 +192,10 @@ describe("OverviewDashboard", () => {
     expect(screen.getByText("Loading overview")).toBeInTheDocument();
     expect(await screen.findByText("18")).toBeInTheDocument();
     const kpis = screen.getByLabelText("Overview KPIs");
+    expect(within(kpis).getByText("Signal intake")).toBeInTheDocument();
+    expect(within(kpis).getByText("Reliability")).toBeInTheDocument();
+    expect(within(kpis).getByText("Latency")).toBeInTheDocument();
+    expect(within(kpis).getByText("AI spend")).toBeInTheDocument();
     expect(within(kpis).getByText("Events")).toBeInTheDocument();
     expect(screen.getByText("Active users")).toBeInTheDocument();
     expect(screen.getByText("Active tenants")).toBeInTheDocument();
@@ -200,6 +204,8 @@ describe("OverviewDashboard", () => {
     expect(screen.getByText("Error trend")).toBeInTheDocument();
     expect(screen.getByText("Latency trend")).toBeInTheDocument();
     expect(screen.getByText("AI cost trend")).toBeInTheDocument();
+    expect(screen.getByText("$1.75")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /openai 5 \/ \$1.25/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /dashboard_created/ })).toBeInTheDocument();
     expect(screen.getByText("Checkout fetch failed")).toBeInTheDocument();
     expect(screen.getByText("checkout")).toBeInTheDocument();

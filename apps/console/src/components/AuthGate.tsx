@@ -18,6 +18,16 @@ function isAuthStatus(error: unknown): boolean {
   return error instanceof ApiError && [400, 401, 403].includes(error.status);
 }
 
+function HeartbeatLogo() {
+  return (
+    <div className="auth-logo" role="img" aria-label="sigmon heartbeat logo">
+      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+        <path d="M3 12h4l2.4-6 5.2 12 2.4-6h4" />
+      </svg>
+    </div>
+  );
+}
+
 export function AuthGate({ client, children }: AuthGateProps) {
   const [authState, setAuthState] = useState<AuthState>({ status: "loading" });
   const [email, setEmail] = useState("");
@@ -109,6 +119,14 @@ export function AuthGate({ client, children }: AuthGateProps) {
 
   return (
     <main className="auth-page">
+      <section className="auth-brand" aria-label="SignalMonitor console">
+        <HeartbeatLogo />
+        <div>
+          <p className="section-label">SignalMonitor</p>
+          <h1>sigmon console</h1>
+          <p>Operational signals, incidents, traces, and LLM cost controls in one dark command surface.</p>
+        </div>
+      </section>
       <form className="auth-form" onSubmit={handleSubmit}>
         <h1>Sign in</h1>
         <label>

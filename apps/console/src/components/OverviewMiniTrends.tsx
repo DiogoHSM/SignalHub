@@ -15,6 +15,10 @@ function toNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function currency(value: number): string {
+  return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(value);
+}
+
 function points(values: number[], max: number): string {
   if (values.length === 0) return "0,36 100,36";
 
@@ -66,7 +70,7 @@ export function OverviewMiniTrends({ trends }: Props) {
     },
     {
       title: "AI cost trend",
-      valueLabel: `${total(trends.aiCost.map((bucket) => toNumber(bucket.llmCostUsd))).toFixed(6)} USD`,
+      valueLabel: currency(total(trends.aiCost.map((bucket) => toNumber(bucket.llmCostUsd)))),
       series: [
         { label: "Cost", values: trends.aiCost.map((bucket) => toNumber(bucket.llmCostUsd)) },
         { label: "Calls", values: trends.aiCost.map((bucket) => bucket.llmCalls) }
@@ -81,8 +85,8 @@ export function OverviewMiniTrends({ trends }: Props) {
         return (
           <article className="overview-trend" key={trend.title}>
             <div>
-            <h3>{trend.title}</h3>
-            <p>{trend.valueLabel}</p>
+              <h3>{trend.title}</h3>
+              <p>{trend.valueLabel}</p>
             </div>
             <svg aria-hidden="true" focusable="false" viewBox="0 0 100 40" preserveAspectRatio="none">
               {trend.series.map((series, index) => (

@@ -8,6 +8,12 @@ function formatMeta(parts: Array<string | number | null | undefined>): string {
   return parts.filter((part) => part !== null && part !== undefined && part !== "").join(" / ");
 }
 
+function currency(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(parsed);
+}
+
 export function OverviewRecentSignals({ recent }: Props) {
   return (
     <section className="overview-recent" aria-label="Overview recent signals">
@@ -37,7 +43,7 @@ export function OverviewRecentSignals({ recent }: Props) {
         {recent.failedLlmCalls.map((call) => (
           <div className="overview-recent-row" key={call.id}>
             <strong>{formatMeta([call.provider, call.model])}</strong>
-            <span>{formatMeta([call.promptName, call.status, call.costUsd, call.tenantId])}</span>
+            <span>{formatMeta([call.promptName, call.status, currency(call.costUsd), call.tenantId])}</span>
           </div>
         ))}
       </article>
