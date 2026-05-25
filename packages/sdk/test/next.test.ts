@@ -67,6 +67,47 @@ describe("Next.js SDK wrapper", () => {
     });
   });
 
+  it("passes route handler arguments to getContext", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      return new Response("{}", { status: 202 });
+    });
+    const client = createSignalMonitorNextClient({
+      endpoint: "https://sigmon.example.com",
+      apiKey: "sh_test",
+      fetch: fetchImpl
+    });
+    const getContext = vi.fn((_request: Request, context: { params: { tenantId: string } }) => ({
+      tenantId: context.params.tenantId,
+      metadata: { tenant_source: "route_params" }
+    }));
+    const handler = withSignalMonitorRoute(
+      async (_request: Request, _context: { params: { tenantId: string } }) => {
+        throw new Error("route exploded");
+      },
+      {
+        client,
+        routeName: "GET /api/[tenantId]/orders",
+        getContext
+      }
+    );
+    const request = new Request("https://app.example.com/api/tenant_1/orders");
+    const routeContext = { params: { tenantId: "tenant_1" } };
+
+    await expect(handler(request, routeContext)).rejects.toThrow("route exploded");
+
+    expect(getContext).toHaveBeenCalledWith(request, routeContext);
+    expect(calls[0].body).toMatchObject({
+      message: "route exploded",
+      tenant_id: "tenant_1",
+      context: {
+        route_name: "GET /api/[tenantId]/orders",
+        tenant_source: "route_params"
+      }
+    });
+  });
+
   it("wraps server actions without changing successful return values", async () => {
     const client = createSignalMonitorNextClient({
       endpoint: "https://sigmon.example.com",
@@ -256,6 +297,80 @@ describe("Next.js SDK wrapper", () => {
       await vi.waitFor(() => {
         expect(fetchImpl).toHaveBeenCalledTimes(1);
       });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("captures browser event diagnostics while preserving configured context", async () => {
+    const listeners: Record<string, EventListenerOrEventListenerObject> = {};
+    const addEventListenerMock = vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+      listeners[type] = listener;
+    });
+    const calls: Array<{ body: unknown }> = [];
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ body: JSON.parse(String(init?.body)) });
+      return new Response("{}", { status: 202 });
+    });
+
+    vi.stubGlobal("addEventListener", addEventListenerMock);
+    vi.stubGlobal("removeEventListener", vi.fn());
+
+    try {
+      const client = createSignalMonitorClient({
+        endpoint: "https://sigmon.example.com",
+        apiKey: "sh_test",
+        fetch: fetchImpl
+      });
+      const stop = installBrowserErrorCapture(client, {
+        flush: true,
+        context: {
+          metadata: { component: "browser" },
+          context: { session_id: "session_1" }
+        }
+      });
+
+      (listeners.error as EventListener)({
+        error: new Error("browser exploded"),
+        message: "Script failed",
+        filename: "https://app.example.com/app.js",
+        lineno: 12,
+        colno: 34
+      } as unknown as Event);
+
+      await vi.waitFor(() => {
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+      });
+
+      (listeners.unhandledrejection as EventListener)({
+        reason: new Error("promise exploded")
+      } as unknown as Event);
+
+      await vi.waitFor(() => {
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+      });
+
+      expect(calls[0].body).toMatchObject({
+        message: "browser exploded",
+        context: {
+          component: "browser",
+          session_id: "session_1",
+          message: "Script failed",
+          filename: "https://app.example.com/app.js",
+          lineno: 12,
+          colno: 34
+        }
+      });
+      expect(calls[1].body).toMatchObject({
+        message: "promise exploded",
+        context: {
+          component: "browser",
+          session_id: "session_1",
+          type: "unhandledrejection"
+        }
+      });
+
+      stop();
     } finally {
       vi.unstubAllGlobals();
     }

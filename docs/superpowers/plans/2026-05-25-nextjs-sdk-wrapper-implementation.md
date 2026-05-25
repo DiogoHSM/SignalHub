@@ -94,7 +94,7 @@ export function installBrowserErrorCapture(
 
 Context mapping:
 
-- `request.url` becomes `metadata.request_url` after stripping query values with `URL.pathname`.
+- `request.url` becomes `metadata.request_path` after stripping query values with `URL.pathname`.
 - `request.method` becomes `metadata.request_method`.
 - `routeName` becomes trace/error `source` when no explicit `source` is supplied, and also `metadata.route_name`.
 - `module` becomes `metadata.module`.
@@ -653,4 +653,3 @@ git diff --check
 - [ ] Confirm package output includes `dist/next.js` and `dist/next.d.ts` after SDK build.
 
 - [ ] Record completion in `.claude/docs/PROJECT-SUMMARY.md` and versioned memory if implementation is completed in this session.
-

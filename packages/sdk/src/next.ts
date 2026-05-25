@@ -36,10 +36,13 @@ export type NextRequestErrorInput = NextContextInput &
 
 type MaybePromise<T> = T | Promise<T>;
 
-export type SignalMonitorRouteOptions<TRequest extends NextRequestLike = NextRequestLike> = NextContextInput & {
+export type SignalMonitorRouteOptions<
+  TRequest extends NextRequestLike = NextRequestLike,
+  TArgs extends unknown[] = unknown[]
+> = NextContextInput & {
   client: SignalMonitorNextClient;
   flushOnError?: boolean;
-  getContext?: (request: TRequest) => MaybePromise<SignalContext | undefined>;
+  getContext?: (request: TRequest, ...args: TArgs) => MaybePromise<SignalContext | undefined>;
 };
 
 export type SignalMonitorActionOptions<TArgs extends unknown[] = unknown[]> = NextContextInput & {
@@ -59,6 +62,9 @@ export type BrowserErrorCaptureOptions = {
 type ErrorEventLike = {
   error?: unknown;
   message?: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
 };
 
 type PromiseRejectionEventLike = {
@@ -111,7 +117,7 @@ export function withSignalMonitorRoute<
   TResult
 >(
   handler: (request: TRequest, ...args: TArgs) => TResult | Promise<TResult>,
-  options: SignalMonitorRouteOptions<TRequest>
+  options: SignalMonitorRouteOptions<TRequest, TArgs>
 ): (request: TRequest, ...args: TArgs) => Promise<Awaited<TResult>> {
   return async (request: TRequest, ...args: TArgs): Promise<Awaited<TResult>> => {
     try {
@@ -123,7 +129,7 @@ export function withSignalMonitorRoute<
         baseContext: { ...nextContext, request },
         client,
         flushOnError,
-        getContext: () => getContext?.(request)
+        getContext: () => getContext?.(request, ...args)
       });
       throw error;
     }
@@ -162,8 +168,8 @@ export function installBrowserErrorCapture(
   const captureUnhandledRejections = options.captureUnhandledRejections ?? true;
   let stopped = false;
 
-  const capture = (error: unknown): void => {
-    captureRequestError(client, error, options.context);
+  const capture = (error: unknown, eventContext?: SignalMetadata): void => {
+    captureRequestError(client, error, mergeErrorInputContext(options.context, eventContext));
 
     if (options.flush === true) {
       void client.flush().catch(() => undefined);
@@ -171,10 +177,10 @@ export function installBrowserErrorCapture(
   };
 
   const onError = (event: ErrorEventLike): void => {
-    capture(event.error ?? event.message ?? "Unknown browser error");
+    capture(event.error ?? event.message ?? "Unknown browser error", browserErrorEventContext(event));
   };
   const onUnhandledRejection = (event: PromiseRejectionEventLike): void => {
-    capture(event.reason ?? "Unhandled promise rejection");
+    capture(event.reason ?? "Unhandled promise rejection", { type: "unhandledrejection" });
   };
 
   if (captureErrors) {
@@ -281,6 +287,34 @@ function mergeNextContext(base: NextContextInput, context?: SignalContext): Next
   };
 }
 
+function mergeErrorInputContext(
+  base: NextRequestErrorInput | undefined,
+  context: SignalMetadata | undefined
+): NextRequestErrorInput | undefined {
+  if (base === undefined && context === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...(base ?? {}),
+    context: {
+      ...(base?.context ?? {}),
+      ...(context ?? {})
+    }
+  };
+}
+
+function browserErrorEventContext(event: ErrorEventLike): SignalMetadata {
+  const context: SignalMetadata = {};
+
+  assignEventContext(context, "message", event.message);
+  assignEventContext(context, "filename", event.filename);
+  assignEventContext(context, "lineno", event.lineno);
+  assignEventContext(context, "colno", event.colno);
+
+  return context;
+}
+
 function buildRequestMetadata(input?: NextContextInput): SignalMetadata {
   const metadata: SignalMetadata = {};
   const correlationId =
@@ -296,6 +330,16 @@ function buildRequestMetadata(input?: NextContextInput): SignalMetadata {
   assignMetadata(metadata, "route_name", input?.routeName);
 
   return metadata;
+}
+
+function assignEventContext(
+  context: SignalMetadata,
+  key: string,
+  value: string | number | undefined
+): void {
+  if (value !== undefined) {
+    context[key] = value;
+  }
 }
 
 function assignMetadata(metadata: SignalMetadata, key: string, value: string | undefined): void {
