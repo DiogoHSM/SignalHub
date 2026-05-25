@@ -2,9 +2,9 @@
 
 ## 2026-05-24: Deploy only application services from GitHub Actions
 
-Decision: GitHub Actions may trigger EasyPanel deploy hooks for the repository-built `api` and `worker` services after the `main` CI gates pass. Postgres and Redis are excluded from repository-triggered deploy hooks.
+Decision: GitHub Actions may trigger EasyPanel deploy hooks for the repository-built `api`, `worker`, and optional split `scheduler` services after the `main` CI gates pass. Postgres and Redis are excluded from repository-triggered deploy hooks.
 
-Rationale: API and worker are stateless application services that should roll forward with repository builds. Postgres and Redis are stateful template services; redeploying them from GitHub would add unnecessary operational risk and does not correspond to a code build.
+Rationale: API, worker, and scheduler are stateless application services that should roll forward with repository builds. Postgres and Redis are stateful template services; redeploying them from GitHub would add unnecessary operational risk and does not correspond to a code build.
 
 ## 2026-05-19: Use SignalMonitor as the product identity
 
