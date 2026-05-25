@@ -1546,6 +1546,26 @@ describe("repositories", () => {
     });
   });
 
+  it("creates email notification channels with redacted recipients", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const channel = await createNotificationChannel(db, {
+        name: "Ops email",
+        type: "email",
+        emailRecipients: ["diogo@example.com"],
+        enabled: true
+      });
+
+      expect(channel).toMatchObject({
+        type: "email",
+        url: null,
+        emailRecipients: ["diogo@example.com"],
+        hasSecret: false
+      });
+    });
+  });
+
   it("creates channels rules alert events and deliveries", async () => {
     await withDb(async (db) => {
       await migrate(db);

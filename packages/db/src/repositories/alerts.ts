@@ -20,20 +20,63 @@ type NotificationDeliveryRow = Selectable<NotificationDeliveriesTable>;
 type AlertEventWithDeliveryRow = AlertEventRow & { latest_delivery_status: "success" | "failed" | null };
 
 const ALERT_EVALUATION_LOCK_ID = 927380402915;
+const MAX_EMAIL_RECIPIENTS = 10;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export type NotificationChannelRecord = {
-  id: string;
-  name: string;
-  type: "webhook" | "email";
-  url: string | null;
-  emailRecipients: unknown;
-  secretHeaderName: string | null;
-  secretHeaderValue: string | null;
-  hasSecret: boolean;
-  enabled: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  archivedAt: Date | null;
+export type NotificationChannelRecord =
+  | {
+      id: string;
+      name: string;
+      type: "webhook";
+      url: string;
+      emailRecipients: [];
+      secretHeaderName: string | null;
+      secretHeaderValue: string | null;
+      hasSecret: boolean;
+      enabled: boolean;
+      createdAt: Date;
+      updatedAt: Date;
+      archivedAt: Date | null;
+    }
+  | {
+      id: string;
+      name: string;
+      type: "email";
+      url: null;
+      emailRecipients: string[];
+      secretHeaderName: null;
+      secretHeaderValue: null;
+      hasSecret: false;
+      enabled: boolean;
+      createdAt: Date;
+      updatedAt: Date;
+      archivedAt: Date | null;
+    };
+
+export type CreateNotificationChannelInput =
+  | {
+      name: string;
+      type: "webhook";
+      url: string;
+      secretHeaderName?: string | null;
+      secretHeaderValue?: string | null;
+      enabled: boolean;
+    }
+  | {
+      name: string;
+      type: "email";
+      emailRecipients: string[];
+      enabled: boolean;
+    };
+
+export type UpdateNotificationChannelInput = {
+  name?: string;
+  type?: "webhook" | "email";
+  url?: string | null;
+  emailRecipients?: string[];
+  secretHeaderName?: string | null;
+  secretHeaderValue?: string | null;
+  enabled?: boolean;
 };
 
 export type AlertRuleRecord = {
@@ -90,13 +133,72 @@ function normalizeNumeric(value: string | number): string {
   return String(value).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 }
 
+function normalizeEmailRecipients(recipients: string[]): string[] {
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    throw new Error("email_recipients_required");
+  }
+  if (recipients.length > MAX_EMAIL_RECIPIENTS) {
+    throw new Error("too_many_email_recipients");
+  }
+
+  const normalized = recipients.map((recipient) => recipient.trim().toLowerCase());
+  const uniqueRecipients = new Set(normalized);
+
+  if (
+    normalized.some((recipient) => !EMAIL_PATTERN.test(recipient)) ||
+    uniqueRecipients.size !== normalized.length
+  ) {
+    throw new Error("invalid_email_recipients");
+  }
+
+  return normalized;
+}
+
+function parseEmailRecipients(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((recipient) => typeof recipient !== "string")) {
+    return [];
+  }
+
+  return value;
+}
+
+function jsonb(value: unknown) {
+  return sql`${JSON.stringify(value)}::jsonb`;
+}
+
 export function toNotificationChannel(row: NotificationChannelRow): NotificationChannelRecord {
+  if (row.type === "email") {
+    const emailRecipients = parseEmailRecipients(row.email_recipients);
+    if (emailRecipients.length === 0) {
+      throw new Error("invalid_email_notification_channel");
+    }
+
+    return {
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      url: null,
+      emailRecipients,
+      secretHeaderName: null,
+      secretHeaderValue: null,
+      hasSecret: false,
+      enabled: row.enabled,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      archivedAt: row.archived_at
+    };
+  }
+
+  if (row.url === null) {
+    throw new Error("invalid_webhook_notification_channel");
+  }
+
   return {
     id: row.id,
     name: row.name,
     type: row.type,
     url: row.url,
-    emailRecipients: row.email_recipients,
+    emailRecipients: [],
     secretHeaderName: row.secret_header_name,
     secretHeaderValue: row.secret_header_value,
     hasSecret: row.secret_header_value !== null,
@@ -184,25 +286,31 @@ async function assertActiveAlertRuleScope(
 
 export async function createNotificationChannel(
   db: AlertDb,
-  input: {
-    name: string;
-    type: "webhook";
-    url: string;
-    secretHeaderName?: string | null;
-    secretHeaderValue?: string | null;
-    enabled: boolean;
-  }
+  input: CreateNotificationChannelInput
 ): Promise<NotificationChannelRecord> {
   const row = await db
     .insertInto("notification_channels")
-    .values({
-      name: input.name,
-      type: input.type,
-      url: input.url,
-      secret_header_name: input.secretHeaderName ?? null,
-      secret_header_value: input.secretHeaderValue ?? null,
-      enabled: input.enabled
-    })
+    .values(
+      input.type === "email"
+        ? {
+            name: input.name,
+            type: input.type,
+            url: null,
+            email_recipients: jsonb(normalizeEmailRecipients(input.emailRecipients)),
+            secret_header_name: null,
+            secret_header_value: null,
+            enabled: input.enabled
+          }
+        : {
+            name: input.name,
+            type: input.type,
+            url: input.url,
+            email_recipients: jsonb([]),
+            secret_header_name: input.secretHeaderName ?? null,
+            secret_header_value: input.secretHeaderValue ?? null,
+            enabled: input.enabled
+          }
+    )
     .returningAll()
     .executeTakeFirstOrThrow();
 
@@ -237,21 +345,34 @@ export async function getNotificationChannel(
 export async function updateNotificationChannel(
   db: AlertDb,
   id: string,
-  input: {
-    name?: string;
-    url?: string;
-    secretHeaderName?: string | null;
-    secretHeaderValue?: string | null;
-    enabled?: boolean;
-  }
+  input: UpdateNotificationChannelInput
 ): Promise<NotificationChannelRecord | undefined> {
+  const emailRecipients =
+    input.emailRecipients !== undefined ? normalizeEmailRecipients(input.emailRecipients) : undefined;
+  if (input.type === "email" && emailRecipients === undefined) {
+    throw new Error("email_recipients_required");
+  }
+  if (input.type === "webhook" && !input.url) {
+    throw new Error("webhook_url_required");
+  }
+
   const row = await db
     .updateTable("notification_channels")
     .set({
       ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.type !== undefined ? { type: input.type } : {}),
       ...(input.url !== undefined ? { url: input.url } : {}),
+      ...(emailRecipients !== undefined ? { email_recipients: jsonb(emailRecipients) } : {}),
       ...(input.secretHeaderName !== undefined ? { secret_header_name: input.secretHeaderName } : {}),
       ...(input.secretHeaderValue !== undefined ? { secret_header_value: input.secretHeaderValue } : {}),
+      ...(input.type === "webhook" ? { email_recipients: jsonb([]) } : {}),
+      ...(input.type === "email"
+        ? {
+            url: null,
+            secret_header_name: null,
+            secret_header_value: null
+          }
+        : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       updated_at: new Date()
     })

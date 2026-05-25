@@ -170,6 +170,32 @@ describe("loadConfig", () => {
     }
   );
 
+  it("loads SMTP config for email alert delivery", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      SMTP_HOST: "smtp.resend.com",
+      SMTP_PORT: "587",
+      SMTP_USERNAME: "resend",
+      SMTP_PASSWORD: "secret-password",
+      SMTP_FROM: "Sigmon <alerts@sigmon.app>",
+      SMTP_SECURE: "false"
+    });
+
+    expect(config.smtp).toEqual({
+      enabled: true,
+      host: "smtp.resend.com",
+      port: 587,
+      username: "resend",
+      password: "secret-password",
+      from: "Sigmon <alerts@sigmon.app>",
+      secure: false
+    });
+  });
+
+  it("keeps SMTP disabled when host and from are absent", () => {
+    expect(loadConfig(baseEnv()).smtp.enabled).toBe(false);
+  });
+
   it("loads backup defaults", () => {
     const config = loadConfig({
       NODE_ENV: "test",

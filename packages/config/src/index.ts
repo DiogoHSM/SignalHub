@@ -86,6 +86,15 @@ const rawConfigSchema = z.object({
     .transform((value) => value === "true"),
   ALERTS_INTERVAL_MINUTES: optionalPositiveInteger(1),
   ALERTS_WEBHOOK_TIMEOUT_MS: optionalPositiveInteger(5000),
+  SMTP_HOST: optionalEnvString,
+  SMTP_PORT: optionalPositiveInteger(587),
+  SMTP_USERNAME: optionalEnvString,
+  SMTP_PASSWORD: optionalEnvString,
+  SMTP_FROM: optionalEnvString,
+  SMTP_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   BACKUPS_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -152,6 +161,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     }
   }
 
+  const smtpConfigured = Boolean(parsed.SMTP_HOST || parsed.SMTP_USERNAME || parsed.SMTP_PASSWORD || parsed.SMTP_FROM);
+  if (smtpConfigured) {
+    if (!parsed.SMTP_HOST) throw new Error("SMTP_HOST is required when SMTP email is enabled");
+    if (!parsed.SMTP_USERNAME) throw new Error("SMTP_USERNAME is required when SMTP email is enabled");
+    if (!parsed.SMTP_PASSWORD) throw new Error("SMTP_PASSWORD is required when SMTP email is enabled");
+    if (!parsed.SMTP_FROM) throw new Error("SMTP_FROM is required when SMTP email is enabled");
+  }
+
   return {
     nodeEnv: parsed.NODE_ENV,
     port: parsed.PORT,
@@ -188,6 +205,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       enabled: parsed.ALERTS_ENABLED,
       intervalMinutes: parsed.ALERTS_INTERVAL_MINUTES,
       webhookTimeoutMs: parsed.ALERTS_WEBHOOK_TIMEOUT_MS
+    },
+    smtp: {
+      enabled: smtpConfigured,
+      host: parsed.SMTP_HOST ?? "",
+      port: parsed.SMTP_PORT,
+      username: parsed.SMTP_USERNAME ?? "",
+      password: parsed.SMTP_PASSWORD ?? "",
+      from: parsed.SMTP_FROM ?? "",
+      secure: parsed.SMTP_SECURE
     },
     backups: {
       enabled: parsed.BACKUPS_ENABLED,

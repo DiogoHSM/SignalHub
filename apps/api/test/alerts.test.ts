@@ -24,20 +24,22 @@ const unauthenticatedAuth = {
 };
 
 function notificationChannel(overrides: Partial<NotificationChannelRecord> = {}): NotificationChannelRecord {
-  return {
+  const channel: NotificationChannelRecord = {
     id: "chn_1",
     name: "Ops",
     type: "webhook",
     url: "https://hooks.example.com/sigmon",
+    emailRecipients: [],
     secretHeaderName: "X-SignalMonitor-Secret",
     secretHeaderValue: "secret",
     hasSecret: true,
     enabled: true,
     createdAt,
     updatedAt: createdAt,
-    archivedAt: null,
-    ...overrides
+    archivedAt: null
   };
+
+  return { ...channel, ...overrides } as NotificationChannelRecord;
 }
 
 function alertRule(overrides: Partial<AlertRuleRecord> = {}): AlertRuleRecord {
@@ -52,6 +54,8 @@ function alertRule(overrides: Partial<AlertRuleRecord> = {}): AlertRuleRecord {
     windowMinutes: 5,
     threshold: "1",
     cooldownMinutes: 10,
+    routePattern: null,
+    minimumSampleSize: 1,
     enabled: true,
     lastEvaluatedAt: null,
     lastTriggeredAt: null,

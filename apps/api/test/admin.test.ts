@@ -139,8 +139,9 @@ describe("admin routes", () => {
       createNotificationChannel: vi.fn(async (input) => ({
         id: "chn_1",
         name: input.name,
-        type: input.type,
+        type: "webhook" as const,
         url: input.url,
+        emailRecipients: [] as [],
         secretHeaderName: input.secretHeaderName ?? null,
         secretHeaderValue: input.secretHeaderValue ?? null,
         hasSecret: Boolean(input.secretHeaderValue),
