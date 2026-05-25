@@ -763,6 +763,292 @@ describe("repositories", () => {
     });
   });
 
+  it("touches identity profile last seen from telemetry events without overwriting traits", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_identity_event_touch", "env_identity_event_touch");
+
+      await insertEvent(db, {
+        id: "evt_identity_touch_create",
+        projectId: "prj_identity_event_touch",
+        environmentId: "env_identity_event_touch",
+        userId: "usr_event_touch",
+        tenantId: "tenant_event_touch",
+        timestamp: new Date("2026-05-25T11:00:00.000Z"),
+        receivedAt: new Date("2026-05-25T11:00:01.000Z"),
+        name: "identity.touch.created"
+      });
+
+      const createdUser = await db
+        .selectFrom("user_profiles")
+        .select(["tenant_id", "traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_event_touch")
+        .where("environment_id", "=", "env_identity_event_touch")
+        .where("user_id", "=", "usr_event_touch")
+        .executeTakeFirstOrThrow();
+      expect(createdUser.tenant_id).toBe("tenant_event_touch");
+      expect(createdUser.traits).toEqual({});
+      expect(createdUser.first_seen_at).toEqual(new Date("2026-05-25T11:00:00.000Z"));
+      expect(createdUser.last_seen_at).toEqual(new Date("2026-05-25T11:00:00.000Z"));
+      expect(createdUser.updated_at).toEqual(new Date("2026-05-25T11:00:00.000Z"));
+
+      const createdTenant = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_event_touch")
+        .where("environment_id", "=", "env_identity_event_touch")
+        .where("tenant_id", "=", "tenant_event_touch")
+        .executeTakeFirstOrThrow();
+      expect(createdTenant.traits).toEqual({});
+      expect(createdTenant.first_seen_at).toEqual(new Date("2026-05-25T11:00:00.000Z"));
+      expect(createdTenant.last_seen_at).toEqual(new Date("2026-05-25T11:00:00.000Z"));
+      expect(createdTenant.updated_at).toEqual(new Date("2026-05-25T11:00:00.000Z"));
+
+      await identifyUserProfile(db, {
+        projectId: "prj_identity_event_touch",
+        environmentId: "env_identity_event_touch",
+        userId: "usr_event_traited",
+        tenantId: "tenant_event_traited",
+        traits: { name: "Telemetry User", plan: "pro" },
+        timestamp: new Date("2026-05-25T10:55:00.000Z")
+      });
+      await identifyTenantProfile(db, {
+        projectId: "prj_identity_event_touch",
+        environmentId: "env_identity_event_touch",
+        tenantId: "tenant_event_traited",
+        traits: { name: "Telemetry Tenant", tier: "enterprise" },
+        timestamp: new Date("2026-05-25T10:56:00.000Z")
+      });
+
+      await insertEvent(db, {
+        id: "evt_identity_touch_update",
+        projectId: "prj_identity_event_touch",
+        environmentId: "env_identity_event_touch",
+        userId: "usr_event_traited",
+        tenantId: "tenant_event_traited",
+        timestamp: new Date("2026-05-25T11:05:00.000Z"),
+        receivedAt: new Date("2026-05-25T11:05:01.000Z"),
+        name: "identity.touch.updated"
+      });
+      await insertEvent(db, {
+        id: "evt_identity_touch_update",
+        projectId: "prj_identity_event_touch",
+        environmentId: "env_identity_event_touch",
+        userId: "usr_event_traited",
+        tenantId: "tenant_event_traited",
+        timestamp: new Date("2026-05-25T11:10:00.000Z"),
+        receivedAt: new Date("2026-05-25T11:10:01.000Z"),
+        name: "identity.touch.updated.duplicate"
+      });
+
+      const updatedUser = await db
+        .selectFrom("user_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_event_touch")
+        .where("environment_id", "=", "env_identity_event_touch")
+        .where("user_id", "=", "usr_event_traited")
+        .executeTakeFirstOrThrow();
+      expect(updatedUser.traits).toEqual({ name: "Telemetry User", plan: "pro" });
+      expect(updatedUser.first_seen_at).toEqual(new Date("2026-05-25T10:55:00.000Z"));
+      expect(updatedUser.last_seen_at).toEqual(new Date("2026-05-25T11:05:00.000Z"));
+      expect(updatedUser.updated_at).toEqual(new Date("2026-05-25T11:05:00.000Z"));
+
+      const updatedTenant = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_event_touch")
+        .where("environment_id", "=", "env_identity_event_touch")
+        .where("tenant_id", "=", "tenant_event_traited")
+        .executeTakeFirstOrThrow();
+      expect(updatedTenant.traits).toEqual({ name: "Telemetry Tenant", tier: "enterprise" });
+      expect(updatedTenant.first_seen_at).toEqual(new Date("2026-05-25T10:56:00.000Z"));
+      expect(updatedTenant.last_seen_at).toEqual(new Date("2026-05-25T11:05:00.000Z"));
+      expect(updatedTenant.updated_at).toEqual(new Date("2026-05-25T11:05:00.000Z"));
+    });
+  });
+
+  it("touches identity profile last seen from telemetry errors inside the write transaction", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_identity_error_touch", "env_identity_error_touch");
+
+      await insertError(db, {
+        id: "err_identity_touch",
+        projectId: "prj_identity_error_touch",
+        environmentId: "env_identity_error_touch",
+        userId: "usr_error_touch",
+        tenantId: "tenant_error_touch",
+        timestamp: new Date("2026-05-25T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-25T12:00:01.000Z"),
+        message: "Identity touch failed",
+        severity: "error"
+      });
+
+      const user = await db
+        .selectFrom("user_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_error_touch")
+        .where("environment_id", "=", "env_identity_error_touch")
+        .where("user_id", "=", "usr_error_touch")
+        .executeTakeFirstOrThrow();
+      expect(user.traits).toEqual({});
+      expect(user.first_seen_at).toEqual(new Date("2026-05-25T12:00:00.000Z"));
+      expect(user.last_seen_at).toEqual(new Date("2026-05-25T12:00:00.000Z"));
+      expect(user.updated_at).toEqual(new Date("2026-05-25T12:00:00.000Z"));
+
+      const tenant = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_error_touch")
+        .where("environment_id", "=", "env_identity_error_touch")
+        .where("tenant_id", "=", "tenant_error_touch")
+        .executeTakeFirstOrThrow();
+      expect(tenant.traits).toEqual({});
+      expect(tenant.first_seen_at).toEqual(new Date("2026-05-25T12:00:00.000Z"));
+      expect(tenant.last_seen_at).toEqual(new Date("2026-05-25T12:00:00.000Z"));
+      expect(tenant.updated_at).toEqual(new Date("2026-05-25T12:00:00.000Z"));
+    });
+  });
+
+  it("rolls back non-error telemetry inserts when profile touch fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_identity_atomic_touch", "env_identity_atomic_touch");
+
+      await sql`drop trigger if exists test_user_profile_touch_fail_trigger on user_profiles`.execute(db);
+      await sql`drop function if exists test_user_profile_touch_fail()`.execute(db);
+      await sql`
+        create function test_user_profile_touch_fail()
+        returns trigger as $$
+        begin
+          if new.user_id = 'usr_atomic_llm' then
+            raise exception 'profile touch failed';
+          end if;
+          return new;
+        end;
+        $$ language plpgsql
+      `.execute(db);
+      await sql`
+        create trigger test_user_profile_touch_fail_trigger
+        before insert or update on user_profiles
+        for each row execute function test_user_profile_touch_fail()
+      `.execute(db);
+
+      try {
+        await expect(
+          insertLlmCall(db, {
+            id: "llm_identity_atomic_touch",
+            projectId: "prj_identity_atomic_touch",
+            environmentId: "env_identity_atomic_touch",
+            userId: "usr_atomic_llm",
+            tenantId: "tenant_atomic_llm",
+            timestamp: new Date("2026-05-25T12:20:00.000Z"),
+            receivedAt: new Date("2026-05-25T12:20:01.000Z"),
+            provider: "openai",
+            model: "gpt-test",
+            status: "success"
+          })
+        ).rejects.toThrow("profile touch failed");
+
+        const rows = await db
+          .selectFrom("llm_calls")
+          .select("id")
+          .where("id", "=", "llm_identity_atomic_touch")
+          .execute();
+        expect(rows).toHaveLength(0);
+      } finally {
+        await sql`drop trigger if exists test_user_profile_touch_fail_trigger on user_profiles`.execute(db);
+        await sql`drop function if exists test_user_profile_touch_fail()`.execute(db);
+      }
+    });
+  });
+
+  it("touches identity profile last seen from llm trace span and breadcrumb telemetry", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_identity_signal_touch", "env_identity_signal_touch");
+
+      await insertLlmCall(db, {
+        id: "llm_identity_touch",
+        projectId: "prj_identity_signal_touch",
+        environmentId: "env_identity_signal_touch",
+        userId: "usr_llm_touch",
+        tenantId: "tenant_llm_touch",
+        timestamp: new Date("2026-05-25T12:30:00.000Z"),
+        receivedAt: new Date("2026-05-25T12:30:01.000Z"),
+        provider: "openai",
+        model: "gpt-test",
+        status: "success"
+      });
+      await insertTrace(db, {
+        id: "trc_identity_touch",
+        traceId: "trace_identity_touch",
+        projectId: "prj_identity_signal_touch",
+        environmentId: "env_identity_signal_touch",
+        userId: "usr_trace_touch",
+        tenantId: "tenant_trace_touch",
+        timestamp: new Date("2026-05-25T12:31:00.000Z"),
+        receivedAt: new Date("2026-05-25T12:31:01.000Z"),
+        name: "identity.trace",
+        status: "success",
+        startedAt: new Date("2026-05-25T12:30:59.000Z")
+      });
+      await insertSpan(db, {
+        id: "spn_identity_touch",
+        traceId: "trace_identity_touch",
+        projectId: "prj_identity_signal_touch",
+        environmentId: "env_identity_signal_touch",
+        userId: "usr_span_touch",
+        tenantId: "tenant_span_touch",
+        timestamp: new Date("2026-05-25T12:32:00.000Z"),
+        receivedAt: new Date("2026-05-25T12:32:01.000Z"),
+        name: "identity.span",
+        status: "success",
+        startedAt: new Date("2026-05-25T12:31:59.000Z")
+      });
+      await insertBreadcrumb(db, {
+        id: "brd_identity_touch",
+        projectId: "prj_identity_signal_touch",
+        environmentId: "env_identity_signal_touch",
+        userId: "usr_breadcrumb_touch",
+        tenantId: "tenant_breadcrumb_touch",
+        timestamp: new Date("2026-05-25T12:33:00.000Z"),
+        receivedAt: new Date("2026-05-25T12:33:01.000Z"),
+        type: "custom",
+        message: "identity breadcrumb",
+        level: "info"
+      });
+
+      const users = await db
+        .selectFrom("user_profiles")
+        .select(["user_id", "traits", "last_seen_at"])
+        .where("project_id", "=", "prj_identity_signal_touch")
+        .where("environment_id", "=", "env_identity_signal_touch")
+        .orderBy("user_id")
+        .execute();
+      expect(users).toEqual([
+        { user_id: "usr_breadcrumb_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:33:00.000Z") },
+        { user_id: "usr_llm_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:30:00.000Z") },
+        { user_id: "usr_span_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:32:00.000Z") },
+        { user_id: "usr_trace_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:31:00.000Z") }
+      ]);
+
+      const tenants = await db
+        .selectFrom("tenant_profiles")
+        .select(["tenant_id", "traits", "last_seen_at"])
+        .where("project_id", "=", "prj_identity_signal_touch")
+        .where("environment_id", "=", "env_identity_signal_touch")
+        .orderBy("tenant_id")
+        .execute();
+      expect(tenants).toEqual([
+        { tenant_id: "tenant_breadcrumb_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:33:00.000Z") },
+        { tenant_id: "tenant_llm_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:30:00.000Z") },
+        { tenant_id: "tenant_span_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:32:00.000Z") },
+        { tenant_id: "tenant_trace_touch", traits: {}, last_seen_at: new Date("2026-05-25T12:31:00.000Z") }
+      ]);
+    });
+  });
+
   it("rejects source map upload tokens for inactive missing or mismatched scopes", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -1052,6 +1338,113 @@ describe("repositories", () => {
       } finally {
         await db.deleteFrom("errors").where("id", "=", input.id).execute();
         await db.deleteFrom("error_groups").where("project_id", "=", project.id).execute();
+      }
+    });
+  });
+
+  it("does not touch identity profiles when an error insert is skipped by on conflict", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Error Profile Touches" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await sql`drop trigger if exists test_error_conflict_skip_trigger on errors`.execute(db);
+      await sql`drop function if exists test_error_conflict_skip()`.execute(db);
+      await sql`
+        create function test_error_conflict_skip()
+        returns trigger as $$
+        begin
+          if new.id = 'err_identity_conflict_skip' and pg_trigger_depth() = 1 then
+            insert into errors (
+              id,
+              project_id,
+              environment_id,
+              tenant_id,
+              user_id,
+              session_id,
+              trace_id,
+              timestamp,
+              received_at,
+              source,
+              release,
+              metadata,
+              message,
+              type,
+              severity,
+              stack,
+              status,
+              fingerprint,
+              context,
+              error_group_id,
+              grouping_fingerprint
+            )
+            values (
+              new.id,
+              new.project_id,
+              new.environment_id,
+              new.tenant_id,
+              new.user_id,
+              new.session_id,
+              new.trace_id,
+              new.timestamp,
+              new.received_at,
+              new.source,
+              new.release,
+              new.metadata,
+              new.message,
+              new.type,
+              new.severity,
+              new.stack,
+              new.status,
+              new.fingerprint,
+              new.context,
+              new.error_group_id,
+              new.grouping_fingerprint
+            );
+          end if;
+          return new;
+        end;
+        $$ language plpgsql
+      `.execute(db);
+      await sql`
+        create trigger test_error_conflict_skip_trigger
+        before insert on errors
+        for each row execute function test_error_conflict_skip()
+      `.execute(db);
+
+      try {
+        await insertError(db, {
+          id: "err_identity_conflict_skip",
+          projectId: project.id,
+          environmentId: environment.id,
+          userId: "usr_error_conflict_skip",
+          tenantId: "tenant_error_conflict_skip",
+          timestamp: new Date("2026-05-25T12:10:00.000Z"),
+          receivedAt: new Date("2026-05-25T12:10:01.000Z"),
+          message: "Conflict skipped",
+          severity: "error"
+        });
+
+        const userProfiles = await db
+          .selectFrom("user_profiles")
+          .select("user_id")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .where("user_id", "=", "usr_error_conflict_skip")
+          .execute();
+        expect(userProfiles).toHaveLength(0);
+
+        const tenantProfiles = await db
+          .selectFrom("tenant_profiles")
+          .select("tenant_id")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .where("tenant_id", "=", "tenant_error_conflict_skip")
+          .execute();
+        expect(tenantProfiles).toHaveLength(0);
+      } finally {
+        await sql`drop trigger if exists test_error_conflict_skip_trigger on errors`.execute(db);
+        await sql`drop function if exists test_error_conflict_skip()`.execute(db);
       }
     });
   });
