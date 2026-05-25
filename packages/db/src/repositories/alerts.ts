@@ -479,16 +479,20 @@ export async function evaluateAlertRule(
     return { observedValue: result.rows[0]?.value ?? "0" };
   }
 
-  const result = await sql<{ value: string }>`
-    select trim_scale(coalesce(sum(cost_usd), 0)::numeric(18, 6))::text as value
-    from llm_calls
-    where project_id = ${input.projectId}
-      and environment_id = ${input.environmentId}
-      and timestamp >= ${input.windowStart}
-      and timestamp < ${input.windowEnd}
-  `.execute(db);
+  if (input.type === "llm_cost") {
+    const result = await sql<{ value: string }>`
+      select trim_scale(coalesce(sum(cost_usd), 0)::numeric(18, 6))::text as value
+      from llm_calls
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.windowStart}
+        and timestamp < ${input.windowEnd}
+    `.execute(db);
 
-  return { observedValue: result.rows[0]?.value ?? "0" };
+    return { observedValue: result.rows[0]?.value ?? "0" };
+  }
+
+  throw new Error(`unsupported_alert_rule_type:${input.type}`);
 }
 
 export async function recordAlertEvent(

@@ -54,7 +54,7 @@ CREATE TABLE monitors (
       AND timeout_ms IS NOT NULL AND interval_minutes IS NOT NULL
       AND expected_interval_minutes IS NULL AND grace_minutes IS NULL AND secret_hash IS NULL)
     OR
-    (kind = 'heartbeat' AND url IS NULL AND method IS NULL AND expected_status IS NULL
+    (kind = 'heartbeat' AND url IS NULL AND method IS NULL AND expected_status IS NULL AND body_contains IS NULL
       AND timeout_ms IS NULL AND interval_minutes IS NULL
       AND expected_interval_minutes IS NOT NULL AND grace_minutes IS NOT NULL AND secret_hash IS NOT NULL)
   )

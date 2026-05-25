@@ -39,7 +39,8 @@ import {
   listMonitors,
   listStaleHeartbeatMonitors,
   recordHeartbeatCheckIn,
-  recordMonitorCheck
+  recordMonitorCheck,
+  updateMonitor
 } from "../src/repositories/monitors.js";
 import {
   archiveUser,
@@ -1684,6 +1685,24 @@ describe("repositories", () => {
     });
   });
 
+  it("rejects HTTP-only fields on heartbeat monitors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_heartbeat_shape", "env_heartbeat_shape");
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId: "prj_heartbeat_shape",
+        environmentId: "env_heartbeat_shape",
+        name: "MicroERP queue shape",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_shape",
+        enabled: true
+      });
+
+      await expect(updateMonitor(db, monitor.id, { bodyContains: "ok" })).rejects.toThrow();
+    });
+  });
+
   it("uses an advisory lock for alert evaluation", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -3150,6 +3169,16 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(llmCostResult.observedValue).toBe("1.25");
+
+      await expect(
+        evaluateAlertRule(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          type: "error_rate",
+          windowStart: new Date("2026-05-06T11:50:00.000Z"),
+          windowEnd: new Date("2026-05-06T12:00:00.000Z")
+        })
+      ).rejects.toThrow("unsupported_alert_rule_type:error_rate");
     });
   });
 
