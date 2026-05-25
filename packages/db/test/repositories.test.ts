@@ -34,6 +34,14 @@ import {
   withAlertEvaluationLock
 } from "../src/repositories/alerts.js";
 import {
+  createHeartbeatMonitor,
+  createHttpMonitor,
+  listMonitors,
+  listStaleHeartbeatMonitors,
+  recordHeartbeatCheckIn,
+  recordMonitorCheck
+} from "../src/repositories/monitors.js";
+import {
   archiveUser,
   createUser,
   findUserByEmail,
@@ -226,6 +234,14 @@ describe("repositories", () => {
     return group;
   }
 
+  async function insertProjectAndEnvironment(db: Db, projectId: string, environmentId: string): Promise<void> {
+    await sql`insert into projects (id, name) values (${projectId}, ${projectId})`.execute(db);
+    await sql`
+      insert into environments (id, project_id, name)
+      values (${environmentId}, ${projectId}, 'production')
+    `.execute(db);
+  }
+
   it("runs migrations idempotently", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -250,6 +266,17 @@ describe("repositories", () => {
       await sql`select id, type, threshold from alert_rules limit 0`.execute(db);
       await sql`select id, observed_value from alert_events limit 0`.execute(db);
       await sql`select id, status from notification_deliveries limit 0`.execute(db);
+    });
+  });
+
+  it("has monitor and expanded alerting tables available", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select type, email_recipients from notification_channels limit 0`.execute(db);
+      await sql`select route_pattern, minimum_sample_size from alert_rules limit 0`.execute(db);
+      await sql`select id, kind, status from monitors limit 0`.execute(db);
+      await sql`select monitor_id, status, latency_ms from monitor_checks limit 0`.execute(db);
     });
   });
 
@@ -1584,6 +1611,76 @@ describe("repositories", () => {
 
       const events = await listAlertEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
       expect(events[0]).toMatchObject({ id: event.id, latestDeliveryStatus: "success" });
+    });
+  });
+
+  it("creates and lists HTTP uptime monitors by project environment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_monitor", "env_monitor");
+
+      const monitor = await createHttpMonitor(db, {
+        projectId: "prj_monitor",
+        environmentId: "env_monitor",
+        name: "MicroERP app",
+        url: "https://microerp.example.com/health",
+        method: "GET",
+        intervalMinutes: 5,
+        timeoutMs: 3000,
+        expectedStatus: "2xx",
+        bodyContains: "ok",
+        failureThreshold: 2,
+        recoveryThreshold: 1,
+        enabled: true
+      });
+
+      expect(monitor).toMatchObject({
+        projectId: "prj_monitor",
+        environmentId: "env_monitor",
+        kind: "http",
+        name: "MicroERP app",
+        status: "unknown",
+        url: "https://microerp.example.com/health"
+      });
+
+      await recordMonitorCheck(db, {
+        monitorId: monitor.id,
+        checkedAt: new Date("2026-05-24T12:00:00.000Z"),
+        status: "success",
+        latencyMs: 42,
+        responseStatus: 200,
+        errorMessage: null
+      });
+
+      const monitors = await listMonitors(db, { projectId: "prj_monitor", environmentId: "env_monitor" });
+      expect(monitors).toHaveLength(1);
+      expect(monitors[0]).toMatchObject({ id: monitor.id, status: "up", lastCheckStatus: "success" });
+    });
+  });
+
+  it("records heartbeat check-ins and finds stale heartbeat monitors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_heartbeat", "env_heartbeat");
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId: "prj_heartbeat",
+        environmentId: "env_heartbeat",
+        name: "MicroERP queue",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_1",
+        enabled: true
+      });
+
+      await recordHeartbeatCheckIn(db, {
+        monitorId: monitor.id,
+        checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+      });
+
+      const stale = await listStaleHeartbeatMonitors(db, {
+        now: new Date("2026-05-24T12:07:00.000Z")
+      });
+      expect(stale.map((item) => item.id)).toContain(monitor.id);
     });
   });
 

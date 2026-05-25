@@ -24,8 +24,9 @@ const ALERT_EVALUATION_LOCK_ID = 927380402915;
 export type NotificationChannelRecord = {
   id: string;
   name: string;
-  type: "webhook";
-  url: string;
+  type: "webhook" | "email";
+  url: string | null;
+  emailRecipients: unknown;
   secretHeaderName: string | null;
   secretHeaderValue: string | null;
   hasSecret: boolean;
@@ -46,6 +47,8 @@ export type AlertRuleRecord = {
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  routePattern: string | null;
+  minimumSampleSize: number;
   enabled: boolean;
   lastEvaluatedAt: Date | null;
   lastTriggeredAt: Date | null;
@@ -93,6 +96,7 @@ export function toNotificationChannel(row: NotificationChannelRow): Notification
     name: row.name,
     type: row.type,
     url: row.url,
+    emailRecipients: row.email_recipients,
     secretHeaderName: row.secret_header_name,
     secretHeaderValue: row.secret_header_value,
     hasSecret: row.secret_header_value !== null,
@@ -115,6 +119,8 @@ export function toAlertRule(row: AlertRuleRow): AlertRuleRecord {
     windowMinutes: row.window_minutes,
     threshold: normalizeNumeric(row.threshold),
     cooldownMinutes: row.cooldown_minutes,
+    routePattern: row.route_pattern,
+    minimumSampleSize: row.minimum_sample_size,
     enabled: row.enabled,
     lastEvaluatedAt: row.last_evaluated_at,
     lastTriggeredAt: row.last_triggered_at,
@@ -296,6 +302,8 @@ export async function createAlertRule(
       window_minutes: input.windowMinutes,
       threshold: input.threshold,
       cooldown_minutes: input.cooldownMinutes,
+      route_pattern: null,
+      minimum_sample_size: 1,
       enabled: input.enabled
     })
     .returningAll()

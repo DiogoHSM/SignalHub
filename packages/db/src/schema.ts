@@ -279,14 +279,15 @@ export interface SystemHeartbeatsTable {
   updated_at: Timestamp;
 }
 
-export type AlertRuleType = "critical_errors" | "error_count" | "trace_p95_latency" | "llm_cost";
+export type AlertRuleType = "critical_errors" | "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost";
 export type AlertSeverity = "info" | "warning" | "critical";
 
 export interface NotificationChannelsTable {
   id: ColumnType<string, string | undefined, string>;
   name: string;
-  type: "webhook";
-  url: string;
+  type: "webhook" | "email";
+  url: string | null;
+  email_recipients: JsonColumn;
   secret_header_name: string | null;
   secret_header_value: string | null;
   enabled: DefaultedBoolean;
@@ -306,6 +307,8 @@ export interface AlertRulesTable {
   window_minutes: number;
   threshold: RequiredNumericString;
   cooldown_minutes: number;
+  route_pattern: string | null;
+  minimum_sample_size: number;
   enabled: DefaultedBoolean;
   last_evaluated_at: NullableTimestamp;
   last_triggered_at: NullableTimestamp;
@@ -337,6 +340,49 @@ export interface NotificationDeliveriesTable {
   notification_channel_id: string;
   status: "success" | "failed";
   attempted_at: Timestamp;
+  response_status: number | null;
+  error_message: string | null;
+  created_at: Timestamp;
+}
+
+export interface MonitorsTable {
+  id: ColumnType<string, string | undefined, string>;
+  project_id: string;
+  environment_id: string;
+  kind: "http" | "heartbeat";
+  name: string;
+  enabled: DefaultedBoolean;
+  status: "unknown" | "up" | "down" | "degraded" | "paused";
+  url: string | null;
+  method: "GET" | "HEAD" | null;
+  expected_status: string | null;
+  body_contains: string | null;
+  timeout_ms: number | null;
+  interval_minutes: number | null;
+  failure_threshold: number;
+  recovery_threshold: number;
+  consecutive_failures: number;
+  consecutive_successes: number;
+  expected_interval_minutes: number | null;
+  grace_minutes: number | null;
+  secret_hash: string | null;
+  last_checked_at: NullableTimestamp;
+  last_check_status: "success" | "failed" | null;
+  last_check_latency_ms: number | null;
+  last_check_response_status: number | null;
+  last_check_error_message: string | null;
+  last_heartbeat_at: NullableTimestamp;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface MonitorChecksTable {
+  id: ColumnType<string, string | undefined, string>;
+  monitor_id: string;
+  checked_at: Timestamp;
+  status: "success" | "failed";
+  latency_ms: number | null;
   response_status: number | null;
   error_message: string | null;
   created_at: Timestamp;
@@ -404,6 +450,8 @@ export interface Database {
   alert_rules: AlertRulesTable;
   alert_events: AlertEventsTable;
   notification_deliveries: NotificationDeliveriesTable;
+  monitors: MonitorsTable;
+  monitor_checks: MonitorChecksTable;
   source_map_artifacts: SourceMapArtifactsTable;
   error_stack_resolutions: ErrorStackResolutionsTable;
   _migrations: MigrationsTable;
