@@ -141,13 +141,22 @@ const stopAlerts = config.alerts.enabled
             }),
           recordAlertEvent: (input) => recordAlertEvent(db, input),
           updateRuleEvaluation: (input) => updateAlertRuleEvaluation(db, input),
-          deliver: (channel, payload) =>
-            deliverWebhook({
+          deliver: (channel, payload) => {
+            if (channel.type !== "webhook") {
+              return Promise.resolve({
+                status: "failed",
+                responseStatus: null,
+                errorMessage: "Email delivery is not configured"
+              });
+            }
+
+            return deliverWebhook({
               channel,
               payload,
               timeoutMs: config.alerts.webhookTimeoutMs,
               nodeEnv: config.nodeEnv
-            }),
+            });
+          },
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })
     })

@@ -75,6 +75,21 @@ type PendingDelivery = {
   payload: AlertWebhookPayload;
 };
 
+type WebhookDeliveryChannel = Pick<
+  Extract<NotificationChannelRecord, { type: "webhook" }>,
+  | "id"
+  | "name"
+  | "type"
+  | "url"
+  | "secretHeaderName"
+  | "secretHeaderValue"
+  | "hasSecret"
+  | "enabled"
+  | "createdAt"
+  | "updatedAt"
+  | "archivedAt"
+>;
+
 type ResolveHostname = (hostname: string) => Promise<Array<{ address: string; family?: number }>>;
 type WebhookRequest = (input: {
   url: URL;
@@ -184,7 +199,7 @@ export function validateWebhookTarget(rawUrl: string, _nodeEnv: string): URL {
 }
 
 export async function deliverWebhook(input: {
-  channel: NotificationChannelRecord;
+  channel: WebhookDeliveryChannel;
   payload: AlertWebhookPayload;
   fetchImpl?: typeof fetch;
   resolveHostname?: ResolveHostname;
