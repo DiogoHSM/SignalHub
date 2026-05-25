@@ -102,6 +102,12 @@ export const openApiDocument = {
         bearerFormat: "SignalMonitor source-map upload token",
         description: "CI-only source-map upload token created from the Artifacts console."
       },
+      heartbeatSecret: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "SignalMonitor heartbeat monitor secret",
+        description: "One-time heartbeat monitor secret returned when creating a heartbeat monitor."
+      },
       sessionCookie: {
         type: "apiKey",
         in: "cookie",
@@ -240,6 +246,53 @@ export const openApiDocument = {
           email: { type: "string", format: "email" },
           password: { type: "string", format: "password" }
         }
+      },
+      HttpMonitorPayload: {
+        type: "object",
+        required: ["projectId", "environmentId", "name", "url"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          notificationChannelId: { type: ["string", "null"] },
+          name: { type: "string" },
+          url: { type: "string", format: "uri" },
+          method: { type: "string", enum: ["GET", "HEAD"], default: "GET" },
+          intervalMinutes: { type: "integer", minimum: 1, default: 5 },
+          timeoutMs: { type: "integer", minimum: 100, maximum: 60000, default: 5000 },
+          expectedStatus: { type: "string", examples: ["2xx", "200", "200-299"] },
+          bodyContains: { type: ["string", "null"] },
+          failureThreshold: { type: "integer", minimum: 1, default: 2 },
+          recoveryThreshold: { type: "integer", minimum: 1, default: 2 },
+          enabled: { type: "boolean", default: true }
+        }
+      },
+      HeartbeatMonitorPayload: {
+        type: "object",
+        required: ["projectId", "environmentId", "name", "expectedIntervalMinutes"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          notificationChannelId: { type: ["string", "null"] },
+          name: { type: "string" },
+          expectedIntervalMinutes: { type: "integer", minimum: 1 },
+          graceMinutes: { type: "integer", minimum: 0, default: 0 },
+          enabled: { type: "boolean", default: true }
+        }
+      },
+      MonitorResponse: {
+        type: "object",
+        required: ["monitor"],
+        properties: {
+          monitor: {
+            type: "object",
+            additionalProperties: true,
+            description: "Monitor record with secretHash redacted."
+          },
+          secret: {
+            type: "string",
+            description: "Heartbeat secret returned only when creating a heartbeat monitor."
+          }
+        }
       }
     },
     responses: {
@@ -363,6 +416,32 @@ export const openApiDocument = {
         }
       }
     },
+    "/v1/heartbeats/{id}": {
+      post: {
+        tags: ["Ingestion"],
+        summary: "Check in a heartbeat monitor",
+        description: "Records a successful heartbeat check-in for scheduler, queue, cron, or background services.",
+        security: [{ heartbeatSecret: [] }],
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "202": {
+            description: "Heartbeat accepted",
+            content: { "application/json": { example: { accepted: true } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Heartbeat monitor not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/auth/login": {
       post: {
         tags: ["Auth"],
@@ -393,6 +472,53 @@ export const openApiDocument = {
     "/admin/source-map-upload-tokens": {
       get: sessionRoute("List source-map upload tokens", "Admin route for CI source-map upload tokens."),
       post: sessionRoute("Create a source-map upload token", "Admin route that returns a CI source-map upload token one time.")
+    },
+    "/admin/monitors": {
+      get: sessionRoute("List monitors", "Admin route for listing HTTP and heartbeat monitors.")
+    },
+    "/admin/monitors/http": {
+      post: {
+        ...sessionRoute("Create an HTTP monitor", "Admin route for creating an uptime monitor."),
+        requestBody: jsonBody("HttpMonitorPayload", {
+          projectId: "prj_example",
+          environmentId: "env_example",
+          name: "API health",
+          url: "https://api.example.com/health"
+        }),
+        responses: {
+          "201": { description: "HTTP monitor created", content: { "application/json": { schema: { $ref: "#/components/schemas/MonitorResponse" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/monitors/heartbeat": {
+      post: {
+        ...sessionRoute("Create a heartbeat monitor", "Admin route that returns the heartbeat secret one time."),
+        requestBody: jsonBody("HeartbeatMonitorPayload", {
+          projectId: "prj_example",
+          environmentId: "env_example",
+          name: "Queue worker heartbeat",
+          expectedIntervalMinutes: 5,
+          graceMinutes: 2
+        }),
+        responses: {
+          "201": { description: "Heartbeat monitor created", content: { "application/json": { schema: { $ref: "#/components/schemas/MonitorResponse" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/monitors/{id}": {
+      patch: sessionRoute("Update a monitor", "Admin route for changing monitor configuration."),
+      delete: sessionRoute("Archive a monitor", "Admin route for archiving a monitor.")
+    },
+    "/admin/monitors/{id}/checks": {
+      get: sessionRoute("List monitor checks", "Admin route for recent HTTP or heartbeat monitor check history.")
     },
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")

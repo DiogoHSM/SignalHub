@@ -48,18 +48,22 @@ describe("API docs", () => {
         "/v1/traces",
         "/v1/spans",
         "/v1/source-maps",
+        "/v1/heartbeats/{id}",
         "/auth/login",
         "/admin/projects",
+        "/admin/monitors",
         "/query/events",
         "/system/health"
       ])
     );
     expect(spec.components.securitySchemes).toMatchObject({
       ingestionApiKey: { type: "http", scheme: "bearer" },
+      heartbeatSecret: { type: "http", scheme: "bearer" },
       sourceMapUploadToken: { type: "http", scheme: "bearer" },
       sessionCookie: { type: "apiKey", in: "cookie", name: "__Host-sigmon_session" }
     });
     expect(spec.paths["/v1/events"].post.security).toEqual([{ ingestionApiKey: [] }]);
+    expect(spec.paths["/v1/heartbeats/{id}"].post.security).toEqual([{ heartbeatSecret: [] }]);
     expect(spec.paths["/v1/source-maps"].post.security).toEqual([{ sourceMapUploadToken: [] }]);
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
   });

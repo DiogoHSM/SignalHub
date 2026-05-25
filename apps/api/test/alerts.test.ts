@@ -42,6 +42,24 @@ function notificationChannel(overrides: Partial<NotificationChannelRecord> = {})
   return { ...channel, ...overrides } as NotificationChannelRecord;
 }
 
+function emailNotificationChannel(overrides: Partial<NotificationChannelRecord> = {}): NotificationChannelRecord {
+  return {
+    id: "chn_email",
+    name: "Ops email",
+    type: "email",
+    url: null,
+    emailRecipients: ["diogo@example.com"],
+    secretHeaderName: null,
+    secretHeaderValue: null,
+    hasSecret: false,
+    enabled: true,
+    createdAt,
+    updatedAt: createdAt,
+    archivedAt: null,
+    ...overrides
+  } as NotificationChannelRecord;
+}
+
 function alertRule(overrides: Partial<AlertRuleRecord> = {}): AlertRuleRecord {
   return {
     id: "rule_1",
@@ -288,6 +306,42 @@ describe("admin alert routes", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json().channel.hasSecret).toBe(true);
     expect(response.json().channel.secretHeaderValue).toBeUndefined();
+  });
+
+  it("creates email notification channels", async () => {
+    const receivedInputs: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        createNotificationChannel: async (input) => {
+          receivedInputs.push(input);
+          return emailNotificationChannel(input);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/notification-channels",
+      payload: {
+        name: "Ops email",
+        type: "email",
+        emailRecipients: ["diogo@example.com"],
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().channel).toMatchObject({
+      type: "email",
+      emailRecipients: ["diogo@example.com"],
+      hasSecret: false
+    });
+    expect(response.json().channel.secretHeaderValue).toBeUndefined();
+    expect(receivedInputs).toEqual([
+      { name: "Ops email", type: "email", emailRecipients: ["diogo@example.com"], enabled: true }
+    ]);
   });
 
   it("returns 503 without leaking repository errors when creating notification channels fails", async () => {

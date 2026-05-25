@@ -77,6 +77,7 @@ On pushes to `main`, the `Deploy EasyPanel` job runs only after the test, build,
 
 - `EASYPANEL_API_DEPLOY_URL` triggers the `api` service deploy. The older `EASYPANEL_DEPLOY_URL` name is accepted as an API-only alias.
 - `EASYPANEL_WORKER_DEPLOY_URL` triggers the `worker` service deploy.
+- `EASYPANEL_SCHEDULER_DEPLOY_URL` triggers the scheduler service deploy when the scheduler is split into its own EasyPanel app service.
 
 Postgres and Redis do not use repository-triggered deploy hooks. They are stateful EasyPanel template services and should be managed directly in EasyPanel.
 
@@ -85,21 +86,35 @@ Postgres and Redis do not use repository-triggered deploy hooks. They are statef
 - `postgres`: Postgres 16, bound to `127.0.0.1:${POSTGRES_PORT:-5432}`.
 - `redis`: Redis 7 with append-only persistence, bound to `127.0.0.1:${REDIS_PORT:-6379}`.
 - `api`: Fastify API on host port `3000`.
-- `worker`: BullMQ telemetry worker.
+- `worker`: BullMQ telemetry worker with `WORKER_ROLE=queue`.
+- `scheduler`: scheduled retention, backup, alert, and monitor evaluation worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
 
 The API and worker containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. Compose defines healthchecks for all four services.
 
 ## Retention
 
-Telemetry retention is built into the worker. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. No extra cron job or external scheduler is needed.
+Telemetry retention is built into the scheduler role. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. No external cron job is needed.
 
-Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the worker available for ingestion jobs.
+Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the queue worker available for ingestion jobs.
 
 ## Simple Alerts
 
-Simple alert evaluation is built into the worker. Set `ALERTS_ENABLED`, `ALERTS_INTERVAL_MINUTES`, and `ALERTS_WEBHOOK_TIMEOUT_MS` in `.env` to control worker-owned alert scheduling and webhook delivery timeout. No extra cron job or external scheduler is needed.
+Simple alert evaluation is built into the scheduler role. Set `ALERTS_ENABLED`, `ALERTS_INTERVAL_MINUTES`, `ALERTS_WEBHOOK_TIMEOUT_MS`, and SMTP variables in `.env` to control scheduled alert evaluation and webhook/email delivery. No external cron job is needed.
 
 Set `ALERTS_ENABLED=false` to stop scheduled alert evaluation while keeping the worker available for ingestion and retention.
+
+## Monitors
+
+HTTP uptime and heartbeat monitors are evaluated by the scheduler role. Set `MONITORS_ENABLED`, `MONITORS_INTERVAL_SECONDS`, `MONITORS_MAX_PER_TICK`, `MONITORS_HTTP_TIMEOUT_MS`, and `MONITORS_MAX_CONCURRENCY` to control polling cadence and concurrency. The scheduler records monitor checks and emits monitor-backed alert events when a monitor transitions down or recovers.
+
+Heartbeat monitors are created through the admin monitor API. The create response returns a one-time `shhb_...` secret; callers check in with:
+
+```sh
+curl -X POST https://my.sigmon.app/v1/heartbeats/<monitor-id> \
+  -H "Authorization: Bearer <heartbeat-secret>"
+```
+
+Set `MONITORS_ENABLED=false` to stop monitor evaluation while leaving queue ingestion and other scheduler responsibilities available according to `WORKER_ROLE`.
 
 ## Source Maps
 
@@ -111,7 +126,7 @@ Source-map artifact retention is local-first and worker-owned. Set `SOURCE_MAPS_
 
 ## Backups and Restore
 
-Postgres logical backups are built into the worker. Set `BACKUPS_ENABLED=true`, `BACKUPS_INTERVAL_HOURS`, `BACKUPS_LOCAL_DIR`, and `BACKUPS_RETENTION_DAYS` in `.env` to control scheduled backups and local pruning. The Compose worker mounts `backup_data` at `/var/lib/sigmon/backups`, which matches the default `BACKUPS_LOCAL_DIR`. Each backup writes a SHA-256 sidecar, and restore verifies the sidecar when present.
+Postgres logical backups are built into the scheduler role. Set `BACKUPS_ENABLED=true`, `BACKUPS_INTERVAL_HOURS`, `BACKUPS_LOCAL_DIR`, and `BACKUPS_RETENTION_DAYS` in `.env` to control scheduled backups and local pruning. The Compose worker mounts `backup_data` at `/var/lib/sigmon/backups`, which matches the default `BACKUPS_LOCAL_DIR`. Each backup writes a SHA-256 sidecar, and restore verifies the sidecar when present.
 
 The image includes `postgresql16-client` so `pg_dump` and `pg_restore` are available for backup scripts. Manual backups can be run with:
 

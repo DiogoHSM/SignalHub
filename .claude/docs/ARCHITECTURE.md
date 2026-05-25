@@ -1,9 +1,10 @@
 # Architecture
 
-SignalMonitor is a self-hosted operational core with four runtime components:
+SignalMonitor is a self-hosted operational core with five runtime components:
 
 - Fastify API service.
-- Worker service.
+- Queue worker service.
+- Scheduler worker service.
 - Postgres.
 - Redis with BullMQ.
 
@@ -43,6 +44,8 @@ Operational tables:
 - `alert_rules`
 - `alert_events`
 - `notification_deliveries`
+- `monitors`
+- `monitor_checks`
 - `source_map_artifacts`
 - `source_map_upload_tokens`
 - `error_stack_resolutions`
@@ -92,6 +95,11 @@ Admin:
 - `/admin/api-keys/:id`
 - `/admin/notification-channels`
 - `/admin/alert-rules`
+- `/admin/monitors`
+- `/admin/monitors/http`
+- `/admin/monitors/heartbeat`
+- `/admin/monitors/:id`
+- `/admin/monitors/:id/checks`
 - `/admin/source-maps`
 - `/admin/source-map-upload-tokens`
 
@@ -101,6 +109,7 @@ Ingestion:
 - `POST /v1/errors`
 - `POST /v1/breadcrumbs`
 - `POST /v1/llm`
+- `POST /v1/heartbeats/:id`
 - `POST /v1/source-maps`
 - `POST /v1/traces`
 - `POST /v1/spans`
@@ -152,7 +161,9 @@ The worker also prunes local source-map artifacts when source-map retention is e
 
 The worker owns the backup scheduler. When `BACKUPS_ENABLED=true`, it creates scheduled Postgres logical backups with `pg_dump` custom format and writes them to `BACKUPS_LOCAL_DIR`. The `backup_runs` table stores backup metadata only: run status, trigger, filename, byte size, optional S3 bucket/key, timestamps, and sanitized error text. Backup dump contents are stored on the configured filesystem path and optional S3-compatible bucket, not in Postgres metadata tables.
 
-The worker also owns simple alert scheduling. When `ALERTS_ENABLED=true`, it evaluates enabled project/environment-scoped `alert_rules` under an advisory lock, records triggered `alert_events`, and sends optional generic webhook notifications through `notification_channels`. Webhook delivery outcomes are stored in `notification_deliveries`.
+The scheduler role owns simple alert scheduling and monitor evaluation. When `ALERTS_ENABLED=true`, it evaluates enabled project/environment-scoped `alert_rules` under an advisory lock, records triggered `alert_events`, and sends optional webhook or email notifications through `notification_channels`. Webhook and email delivery outcomes are stored in `notification_deliveries`.
+
+HTTP and heartbeat monitors live in `monitors`; individual probe and check-in history lives in `monitor_checks`. Admin monitor routes create and manage monitor definitions. Heartbeat monitors return a one-time `shhb_...` secret on creation; only the hash is stored, and `POST /v1/heartbeats/:id` verifies the bearer secret before recording a successful check-in. Monitor down/recovery events are represented as `alert_events` with `monitor_id` set.
 
 Generic webhook notification URLs are validated through the shared network-safety boundary in `packages/config`. Targets resolving to local, private, link-local, multicast, loopback, or cloud metadata networks are rejected in every environment. Production webhook delivery fetches the validated resolved address to avoid DNS rebinding after preflight.
 

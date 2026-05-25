@@ -5,7 +5,16 @@ import {
   hashApiKey as hashTelemetryApiKey
 } from "@sigmon/telemetry/api-keys";
 import { validateWebhookTargetUrl } from "@sigmon/config";
+import type {
+  CreateHeartbeatMonitorInput,
+  CreateHttpMonitorInput,
+  MonitorCheckRecord,
+  MonitorKind,
+  MonitorRecord,
+  UpdateMonitorInput
+} from "@sigmon/db/repositories/monitors.js";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 import type { AuthDependencies } from "./auth.js";
 import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
@@ -87,6 +96,16 @@ export type AlertAdministrationDependencies = {
   archiveAlertRule?: (id: string) => Promise<void>;
 };
 
+export type MonitorAdministrationDependencies = {
+  listMonitors?: (filters: MonitorListFilters) => Promise<MonitorRecord[]>;
+  getMonitor?: (id: string) => Promise<MonitorRecord | null | undefined>;
+  createHttpMonitor?: (input: CreateHttpMonitorInput) => Promise<MonitorRecord>;
+  createHeartbeatMonitor?: (input: CreateHeartbeatMonitorInput) => Promise<MonitorRecord>;
+  updateMonitor?: (id: string, input: UpdateMonitorInput) => Promise<MonitorRecord | null | undefined>;
+  archiveMonitor?: (id: string) => Promise<void>;
+  listMonitorChecks?: (input: { monitorId: string; limit?: number }) => Promise<MonitorCheckRecord[]>;
+};
+
 export type SourceMapUploadAttribution =
   | { uploadedByUserId: string; uploadedByTokenId?: never }
   | { uploadedByUserId?: never; uploadedByTokenId: string };
@@ -163,11 +182,14 @@ export type AdminRouteOptions = {
   users?: UserAdministrationDependencies;
   adminResources?: AdminResourceDependencies;
   alerts?: AlertAdministrationDependencies;
+  monitors?: MonitorAdministrationDependencies;
   sourceMaps?: SourceMapAdministrationDependencies;
   sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
+  createHeartbeatSecret?: () => string;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
+  hashHeartbeatSecret?: (secret: string) => Promise<string>;
   nodeEnv?: string;
 };
 
@@ -219,23 +241,41 @@ const createApiKeySchema = z.object({
   name: z.string().trim().min(1).max(256)
 });
 
-const notificationChannelBaseSchema = z.object({
-  name: z.string().trim().min(1).max(256),
+const notificationChannelNameSchema = z.string().trim().min(1).max(256);
+const notificationChannelEmailRecipientsSchema = z.array(z.string().trim().email()).min(1).max(10);
+
+const webhookNotificationChannelSchema = z.object({
+  name: notificationChannelNameSchema,
   type: z.literal("webhook"),
   url: z.string().url(),
   secretHeaderName: z.string().trim().min(1).max(128).nullable().optional(),
   secretHeaderValue: z.string().trim().min(1).max(4096).nullable().optional(),
-  enabled: z.boolean()
+  enabled: z.boolean().default(true)
 });
 
-const notificationChannelSchema = notificationChannelBaseSchema
-  .extend({ enabled: z.boolean().default(true) })
-  .refine((input) => !input.secretHeaderValue || Boolean(input.secretHeaderName), {
+const emailNotificationChannelSchema = z.object({
+  name: notificationChannelNameSchema,
+  type: z.literal("email"),
+  emailRecipients: notificationChannelEmailRecipientsSchema,
+  enabled: z.boolean().default(true)
+});
+
+const notificationChannelSchema = z
+  .discriminatedUnion("type", [webhookNotificationChannelSchema, emailNotificationChannelSchema])
+  .refine((input) => input.type !== "webhook" || !input.secretHeaderValue || Boolean(input.secretHeaderName), {
     message: "secret_header_name_required"
   });
 
-const updateNotificationChannelSchema = notificationChannelBaseSchema
-  .partial()
+const updateNotificationChannelSchema = z
+  .object({
+    name: notificationChannelNameSchema.optional(),
+    type: z.enum(["webhook", "email"]).optional(),
+    url: z.string().url().nullable().optional(),
+    emailRecipients: notificationChannelEmailRecipientsSchema.optional(),
+    secretHeaderName: z.string().trim().min(1).max(128).nullable().optional(),
+    secretHeaderValue: z.string().trim().min(1).max(4096).nullable().optional(),
+    enabled: z.boolean().optional()
+  })
   .refine((input) => input.secretHeaderValue == null || typeof input.secretHeaderName === "string", {
     message: "secret_header_name_required"
   })
@@ -276,6 +316,67 @@ const alertRuleListQuerySchema = z.object({
   environment_id: z.string().trim().min(1).optional()
 });
 
+const monitorKindSchema = z.enum(["http", "heartbeat"]);
+const monitorStatusSchema = z.enum(["unknown", "up", "down", "degraded", "paused"]);
+const expectedStatusSchema = z.string().trim().regex(/^(\d{3}|\d{3}-\d{3}|[1-5]xx)$/);
+
+const httpMonitorSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  notificationChannelId: z.string().trim().min(1).nullable().optional(),
+  name: z.string().trim().min(1).max(256),
+  url: z.string().url(),
+  method: z.enum(["GET", "HEAD"]).default("GET"),
+  intervalMinutes: z.number().int().min(1).default(5),
+  timeoutMs: z.number().int().min(100).max(60_000).default(5000),
+  expectedStatus: expectedStatusSchema.default("2xx"),
+  bodyContains: z.string().trim().min(1).max(2048).nullable().optional(),
+  failureThreshold: z.number().int().min(1).default(2),
+  recoveryThreshold: z.number().int().min(1).default(2),
+  enabled: z.boolean().default(true)
+});
+
+const heartbeatMonitorSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  notificationChannelId: z.string().trim().min(1).nullable().optional(),
+  name: z.string().trim().min(1).max(256),
+  expectedIntervalMinutes: z.number().int().min(1),
+  graceMinutes: z.number().int().min(0).default(0),
+  enabled: z.boolean().default(true)
+});
+
+const updateMonitorSchema = z
+  .object({
+    projectId: z.string().trim().min(1).optional(),
+    environmentId: z.string().trim().min(1).optional(),
+    notificationChannelId: z.string().trim().min(1).nullable().optional(),
+    name: z.string().trim().min(1).max(256).optional(),
+    enabled: z.boolean().optional(),
+    status: monitorStatusSchema.optional(),
+    url: z.string().url().nullable().optional(),
+    method: z.enum(["GET", "HEAD"]).nullable().optional(),
+    expectedStatus: expectedStatusSchema.nullable().optional(),
+    bodyContains: z.string().trim().min(1).max(2048).nullable().optional(),
+    timeoutMs: z.number().int().min(100).max(60_000).nullable().optional(),
+    intervalMinutes: z.number().int().min(1).nullable().optional(),
+    failureThreshold: z.number().int().min(1).optional(),
+    recoveryThreshold: z.number().int().min(1).optional(),
+    expectedIntervalMinutes: z.number().int().min(1).nullable().optional(),
+    graceMinutes: z.number().int().min(0).nullable().optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
+const monitorListQuerySchema = z.object({
+  project_id: z.string().trim().min(1),
+  environment_id: z.string().trim().min(1),
+  kind: monitorKindSchema.optional()
+});
+
+const monitorChecksQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(250).optional()
+});
+
 const sourceMapScopeQuerySchema = z.object({
   project_id: z.string().trim().min(1),
   environment_id: z.string().trim().min(1),
@@ -307,6 +408,11 @@ type UpdateAlertRuleInput = z.infer<typeof updateAlertRuleSchema>;
 type AlertRuleListFilters = {
   projectId?: string;
   environmentId?: string;
+};
+type MonitorListFilters = {
+  projectId: string;
+  environmentId: string;
+  kind?: MonitorKind;
 };
 type CreateEnvironmentInput = CreateEnvironmentBody & { projectId: string };
 type CreateApiKeyRecordInput = CreateApiKeyBody & { projectId: string; prefix: string; hash: string };
@@ -362,9 +468,30 @@ function redactNotificationChannel(
   return safeChannel;
 }
 
+function redactMonitor(monitor: MonitorRecord): Omit<MonitorRecord, "secretHash"> {
+  const { secretHash: _secretHash, ...safeMonitor } = monitor;
+  return safeMonitor;
+}
+
 async function hashAdminApiKeySecret(secret: string, options: AdminRouteOptions): Promise<string | undefined> {
   if (options.hashApiKeySecret) {
     return options.hashApiKeySecret(secret);
+  }
+
+  if (options.apiKeyPepper) {
+    return hashTelemetryApiKey(secret, options.apiKeyPepper);
+  }
+
+  return undefined;
+}
+
+function createDefaultHeartbeatSecret(): string {
+  return `shhb_${randomBytes(32).toString("base64url")}`;
+}
+
+async function hashAdminHeartbeatSecret(secret: string, options: AdminRouteOptions): Promise<string | undefined> {
+  if (options.hashHeartbeatSecret) {
+    return options.hashHeartbeatSecret(secret);
   }
 
   if (options.apiKeyPepper) {
@@ -432,10 +559,44 @@ async function validateAlertRuleNotificationChannel(
   return true;
 }
 
+async function validateMonitorNotificationChannel(
+  notificationChannelId: string | null | undefined,
+  options: AdminRouteOptions,
+  reply: FastifyReply
+): Promise<boolean> {
+  if (typeof notificationChannelId !== "string") {
+    return true;
+  }
+
+  if (!options.alerts?.getNotificationChannel) {
+    reply.status(501).send({ error: "monitors_repository_unavailable" });
+    return false;
+  }
+
+  let channel: NotificationChannelRecord | null | undefined;
+  try {
+    channel = await options.alerts.getNotificationChannel(notificationChannelId);
+  } catch {
+    reply.status(503).send({ error: "monitors_unavailable" });
+    return false;
+  }
+
+  if (!channel || channel.enabled !== true || channel.archivedAt !== null) {
+    reply.status(404).send({ error: "notification_channel_not_found" });
+    return false;
+  }
+
+  return true;
+}
+
 function isValidNotificationChannelInput(
-  input: Pick<CreateNotificationChannelInput, "url" | "secretHeaderName">,
+  input: CreateNotificationChannelInput,
   options: AdminRouteOptions
 ): boolean {
+  if (input.type === "email") {
+    return true;
+  }
+
   return validateWebhookUrl(input.url, options.nodeEnv) && isValidSecretHeaderName(input.secretHeaderName);
 }
 
@@ -1239,7 +1400,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const parsed = updateNotificationChannelSchema.safeParse(request.body);
     if (
       !parsed.success ||
-      (parsed.data.url !== undefined && !validateWebhookUrl(parsed.data.url, options.nodeEnv)) ||
+      (typeof parsed.data.url === "string" && !validateWebhookUrl(parsed.data.url, options.nodeEnv)) ||
       (parsed.data.secretHeaderName !== undefined && !isValidSecretHeaderName(parsed.data.secretHeaderName))
     ) {
       return reply.status(400).send({ error: "invalid_notification_channel_request" });
@@ -1406,5 +1567,203 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     return reply.status(204).send();
+  });
+
+  app.get("/admin/monitors", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.monitors?.listMonitors) {
+      return reply.status(501).send({ error: "monitors_repository_unavailable" });
+    }
+
+    const parsed = monitorListQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_monitor_request" });
+    }
+
+    let monitors: MonitorRecord[];
+    try {
+      monitors = await options.monitors.listMonitors({
+        projectId: parsed.data.project_id,
+        environmentId: parsed.data.environment_id,
+        kind: parsed.data.kind
+      });
+    } catch {
+      return reply.status(503).send({ error: "monitors_unavailable" });
+    }
+
+    return reply.send({ monitors: monitors.map(redactMonitor) });
+  });
+
+  app.post("/admin/monitors/http", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.monitors?.createHttpMonitor) {
+      return reply.status(501).send({ error: "monitors_repository_unavailable" });
+    }
+
+    const parsed = httpMonitorSchema.safeParse(request.body);
+    if (!parsed.success || !validateWebhookUrl(parsed.data.url, options.nodeEnv)) {
+      return reply.status(400).send({ error: "invalid_monitor_request" });
+    }
+    if (!(await validateMonitorNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
+      return reply;
+    }
+
+    let monitor: MonitorRecord;
+    try {
+      monitor = await options.monitors.createHttpMonitor({
+        ...parsed.data,
+        notificationChannelId: parsed.data.notificationChannelId ?? null,
+        bodyContains: parsed.data.bodyContains ?? null
+      });
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_monitor_scope_not_found")) {
+        return reply.status(404).send({ error: "monitor_scope_not_found" });
+      }
+      return reply.status(503).send({ error: "monitors_unavailable" });
+    }
+
+    return reply.status(201).send({ monitor: redactMonitor(monitor) });
+  });
+
+  app.post("/admin/monitors/heartbeat", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.monitors?.createHeartbeatMonitor) {
+      return reply.status(501).send({ error: "monitors_repository_unavailable" });
+    }
+
+    const parsed = heartbeatMonitorSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_monitor_request" });
+    }
+    if (!(await validateMonitorNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
+      return reply;
+    }
+
+    const secret = (options.createHeartbeatSecret ?? createDefaultHeartbeatSecret)();
+    const secretHash = await hashAdminHeartbeatSecret(secret, options);
+    if (!secretHash) {
+      return reply.status(501).send({ error: "heartbeat_secret_hashing_unavailable" });
+    }
+
+    let monitor: MonitorRecord;
+    try {
+      monitor = await options.monitors.createHeartbeatMonitor({
+        ...parsed.data,
+        notificationChannelId: parsed.data.notificationChannelId ?? null,
+        secretHash
+      });
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_monitor_scope_not_found")) {
+        return reply.status(404).send({ error: "monitor_scope_not_found" });
+      }
+      return reply.status(503).send({ error: "monitors_unavailable" });
+    }
+
+    return reply.status(201).send({ monitor: redactMonitor(monitor), secret });
+  });
+
+  app.patch("/admin/monitors/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.monitors?.updateMonitor) {
+      return reply.status(501).send({ error: "monitors_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const parsed = updateMonitorSchema.safeParse(request.body);
+    if (
+      !params.success ||
+      !parsed.success ||
+      (typeof parsed.data.url === "string" && !validateWebhookUrl(parsed.data.url, options.nodeEnv))
+    ) {
+      return reply.status(400).send({ error: "invalid_monitor_request" });
+    }
+    if (!(await validateMonitorNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
+      return reply;
+    }
+
+    let monitor: MonitorRecord | null | undefined;
+    try {
+      monitor = await options.monitors.updateMonitor(params.data.id, parsed.data);
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_monitor_scope_not_found")) {
+        return reply.status(404).send({ error: "monitor_scope_not_found" });
+      }
+      return reply.status(503).send({ error: "monitors_unavailable" });
+    }
+
+    if (!monitor) {
+      return reply.status(404).send({ error: "monitor_not_found" });
+    }
+
+    return reply.send({ monitor: redactMonitor(monitor) });
+  });
+
+  app.delete("/admin/monitors/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.monitors?.archiveMonitor) {
+      return reply.status(501).send({ error: "monitors_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_monitor_request" });
+    }
+
+    try {
+      await options.monitors.archiveMonitor(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "monitors_unavailable" });
+    }
+
+    return reply.status(204).send();
+  });
+
+  app.get("/admin/monitors/:id/checks", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.monitors?.listMonitorChecks) {
+      return reply.status(501).send({ error: "monitors_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = monitorChecksQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_monitor_request" });
+    }
+
+    let checks: MonitorCheckRecord[];
+    try {
+      checks = await options.monitors.listMonitorChecks({
+        monitorId: params.data.id,
+        limit: query.data.limit
+      });
+    } catch {
+      return reply.status(503).send({ error: "monitors_unavailable" });
+    }
+
+    return reply.send({ checks });
   });
 }

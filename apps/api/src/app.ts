@@ -11,6 +11,7 @@ import {
   registerAdminRoutes,
   type AlertAdministrationDependencies,
   type AdminResourceDependencies,
+  type MonitorAdministrationDependencies,
   type SourceMapUploadTokenAdministrationDependencies,
   type SourceMapAdministrationDependencies,
   type UserAdministrationDependencies
@@ -20,6 +21,7 @@ import { registerConsoleRoutes, type ConsoleRouteOptions } from "./routes/consol
 import { registerDocsRoutes } from "./routes/docs.js";
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
+import { registerMonitorRoutes, type MonitorRouteDependencies } from "./routes/monitors.js";
 import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
 import { registerSourceMapUploadRoutes, type SourceMapUploadRouteDependencies } from "./routes/source-map-uploads.js";
 import { registerSystemRoutes, type SystemHealthDependencies } from "./routes/system.js";
@@ -30,15 +32,18 @@ export type BuildAppOptions = {
   users?: UserAdministrationDependencies;
   adminResources?: AdminResourceDependencies;
   alerts?: AlertRouteDependencies & AlertAdministrationDependencies;
+  monitors?: MonitorRouteDependencies & MonitorAdministrationDependencies;
   sourceMaps?: SourceMapAdministrationDependencies & { maxUploadBytes?: number };
   sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
   sourceMapUploads?: SourceMapUploadRouteDependencies;
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
+  createHeartbeatSecret?: () => string;
   ingestion?: IngestionDependencies;
   query?: QueryDependencies;
   system?: SystemHealthDependencies;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
+  hashHeartbeatSecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
   nodeEnv?: string;
   console?: Omit<ConsoleRouteOptions, "googleOAuthEnabled">;
@@ -142,11 +147,14 @@ export async function buildApp(options: BuildAppOptions) {
     users: options.users,
     adminResources: options.adminResources,
     alerts: options.alerts,
+    monitors: options.monitors,
     sourceMaps: options.sourceMaps,
     sourceMapUploadTokens: options.sourceMapUploadTokens,
     createSourceMapUploadToken: options.createSourceMapUploadToken,
+    createHeartbeatSecret: options.createHeartbeatSecret,
     apiKeyPepper: options.apiKeyPepper,
     hashApiKeySecret: options.hashApiKeySecret,
+    hashHeartbeatSecret: options.hashHeartbeatSecret,
     nodeEnv: options.nodeEnv
   });
   registerAlertRoutes(app, {
@@ -154,6 +162,7 @@ export async function buildApp(options: BuildAppOptions) {
     alerts: options.alerts
   });
   registerSourceMapUploadRoutes(app, options.sourceMapUploads);
+  registerMonitorRoutes(app, options.monitors);
   registerIngestionRoutes(app, options.ingestion);
   registerQueryRoutes(app, {
     auth: options.auth,

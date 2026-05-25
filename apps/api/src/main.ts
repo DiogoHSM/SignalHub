@@ -30,6 +30,16 @@ import {
   updateNotificationChannel
 } from "@sigmon/db/repositories/alerts.js";
 import {
+  archiveMonitor,
+  createHeartbeatMonitor,
+  createHttpMonitor,
+  getMonitor,
+  listMonitorChecks,
+  listMonitors,
+  recordHeartbeatCheckIn,
+  updateMonitor
+} from "@sigmon/db/repositories/monitors.js";
+import {
   archiveUser,
   createUser,
   findUserByEmail,
@@ -473,6 +483,17 @@ const app = await buildApp({
     archiveAlertRule: (id) => archiveAlertRule(db, id),
     listAlertEvents: (filters) => listAlertEvents(db, filters),
     getAlertEvent: (id) => getAlertEvent(db, id)
+  },
+  monitors: {
+    listMonitors: (filters) => listMonitors(db, filters),
+    getMonitor: (id) => getMonitor(db, id),
+    createHttpMonitor: (input) => createHttpMonitor(db, input),
+    createHeartbeatMonitor: (input) => createHeartbeatMonitor(db, input),
+    updateMonitor: (id, input) => updateMonitor(db, id, input),
+    archiveMonitor: (id) => archiveMonitor(db, id),
+    listMonitorChecks: (input) => listMonitorChecks(db, input),
+    verifyHeartbeatSecret: (hash, secret) => verifyApiKey(hash, secret, config.apiKeyPepper),
+    recordHeartbeatCheckIn: (input) => recordHeartbeatCheckIn(db, input)
   },
   sourceMaps: {
     list: (filters) => listSourceMapArtifacts(db, filters),
