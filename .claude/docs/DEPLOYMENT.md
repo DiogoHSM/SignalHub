@@ -89,7 +89,11 @@ Postgres and Redis do not use repository-triggered deploy hooks. They are statef
 - `worker`: BullMQ telemetry worker with `WORKER_ROLE=queue`.
 - `scheduler`: scheduled retention, backup, alert, and monitor evaluation worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
 
+`WORKER_ROLE` is only operationally meaningful for processes started with `pnpm start:worker`. In split EasyPanel deployments, set `WORKER_ROLE=queue` on the queue worker service and `WORKER_ROLE=scheduler` on the scheduler service. The scheduler service also needs the same shared runtime env vars as the worker (`DATABASE_URL`, `REDIS_URL`, secrets, SMTP, retention, monitor, alert, and backup settings) because it evaluates background jobs directly.
+
 The API, worker, and scheduler containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. The Dockerfile copies application files with `sigmon` ownership and runs install/build as `sigmon`, avoiding a final recursive ownership rewrite over `/app` during EasyPanel image export. Compose defines healthchecks for all four services.
+
+The console `System` mode reads separate `worker` and `scheduler` heartbeats and shows a non-secret deploy config summary. Use it after deploy to confirm both background services are alive and that API-visible config such as SMTP, alerts, monitors, retention, backups, and public endpoint settings loaded as expected.
 
 ## Retention
 
@@ -105,7 +109,7 @@ Set `ALERTS_ENABLED=false` to stop scheduled alert evaluation while keeping the 
 
 ## Monitors
 
-HTTP uptime and heartbeat monitors are evaluated by the scheduler role. Set `MONITORS_ENABLED`, `MONITORS_INTERVAL_SECONDS`, `MONITORS_MAX_PER_TICK`, `MONITORS_HTTP_TIMEOUT_MS`, and `MONITORS_MAX_CONCURRENCY` to control polling cadence and concurrency. The scheduler records monitor checks and emits monitor-backed alert events when a monitor transitions down or recovers.
+HTTP uptime and heartbeat monitors are evaluated by the scheduler role. Set `MONITORS_ENABLED`, `MONITORS_INTERVAL_MINUTES`, `MONITORS_HTTP_TIMEOUT_MS`, and `MONITORS_MAX_CONCURRENCY` to control polling cadence and concurrency. The scheduler records monitor checks and emits monitor-backed alert events when a monitor transitions down or recovers.
 
 Heartbeat monitors are created through the admin monitor API. The create response returns a one-time `shhb_...` secret; callers check in with:
 

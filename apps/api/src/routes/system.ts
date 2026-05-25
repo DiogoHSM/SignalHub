@@ -12,6 +12,13 @@ export type SystemQueueCounts = {
   delayed: number;
 };
 
+export type BackgroundComponentHealth = {
+  status: SystemStatus;
+  expected: boolean;
+  role: "all" | "queue" | "scheduler" | null;
+  lastHeartbeatAt: string | null;
+};
+
 export type SystemBackupHealthRun = {
   id: string;
   status: "success" | "failed";
@@ -32,7 +39,33 @@ export type SystemHealthSnapshot = {
     api: { status: SystemStatus; uptimeSeconds: number };
     postgres: { status: SystemStatus; latencyMs: number | null };
     redis: { status: SystemStatus; latencyMs: number | null };
-    worker: { status: SystemStatus; lastHeartbeatAt: string | null };
+    worker: BackgroundComponentHealth;
+    scheduler: BackgroundComponentHealth;
+  };
+  deployment: {
+    api: {
+      nodeEnv: string;
+      consoleEnabled: boolean;
+      publicEndpointConfigured: boolean;
+      googleOAuthEnabled: boolean;
+      smtpConfigured: boolean;
+    };
+    background: {
+      queueExpected: boolean;
+      schedulerExpected: boolean;
+      alertsEnabled: boolean;
+      alertsIntervalMinutes: number;
+      monitorsEnabled: boolean;
+      monitorsIntervalMinutes: number;
+      retentionEnabled: boolean;
+      retentionIntervalMinutes: number;
+      backupsEnabled: boolean;
+      backupsIntervalHours: number;
+    };
+    storage: {
+      backupS3Enabled: boolean;
+      sourceMapRetentionEnabled: boolean;
+    };
   };
   queues: {
     telemetry: SystemQueueCounts & { status: SystemStatus; errorMessage: string | null };

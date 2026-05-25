@@ -95,13 +95,35 @@ if (runsQueue) {
   });
 }
 
-const stopHeartbeat = startHeartbeat({
-  beat: () =>
-    upsertHeartbeat(db, {
-      component: runsQueue ? "worker" : "scheduler",
-      heartbeatAt: new Date()
+const heartbeatMetadata = {
+  role: config.worker.role,
+  queue: runsQueue,
+  scheduler: runsScheduler,
+  alerts: runsScheduler && config.alerts.enabled,
+  monitors: runsScheduler && config.monitors.enabled,
+  retention: runsScheduler && config.retention.enabled,
+  backups: runsScheduler && config.backups.enabled
+};
+const stopWorkerHeartbeat = runsQueue
+  ? startHeartbeat({
+      beat: () =>
+        upsertHeartbeat(db, {
+          component: "worker",
+          heartbeatAt: new Date(),
+          metadata: heartbeatMetadata
+        })
     })
-});
+  : async () => {};
+const stopSchedulerHeartbeat = runsScheduler
+  ? startHeartbeat({
+      beat: () =>
+        upsertHeartbeat(db, {
+          component: "scheduler",
+          heartbeatAt: new Date(),
+          metadata: heartbeatMetadata
+        })
+    })
+  : async () => {};
 
 const retentionPolicy = {
   eventsDays: config.retention.eventsDays,
@@ -285,7 +307,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "stopMonitors", run: () => stopMonitors() },
       { name: "stopAlerts", run: () => stopAlerts() },
       { name: "stopRetention", run: () => stopRetention() },
-      { name: "stopHeartbeat", run: () => stopHeartbeat() },
+      { name: "stopSchedulerHeartbeat", run: () => stopSchedulerHeartbeat() },
+      { name: "stopWorkerHeartbeat", run: () => stopWorkerHeartbeat() },
       { name: "worker.close", run: () => worker?.close() ?? Promise.resolve() },
       { name: "connection.quit", run: () => connection?.quit() ?? Promise.resolve() },
       { name: "db.destroy", run: () => db.destroy() }

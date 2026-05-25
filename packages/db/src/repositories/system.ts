@@ -141,14 +141,14 @@ export async function upsertHeartbeat(
 export async function getHeartbeat(
   db: SystemDb,
   component: string
-): Promise<{ component: string; lastHeartbeatAt: Date } | null> {
+): Promise<{ component: string; lastHeartbeatAt: Date; metadata: unknown } | null> {
   const row = await db
     .selectFrom("system_heartbeats")
-    .select(["component", "last_heartbeat_at"])
+    .select(["component", "last_heartbeat_at", "metadata"])
     .where("component", "=", component)
     .executeTakeFirst();
 
-  return row ? { component: row.component, lastHeartbeatAt: row.last_heartbeat_at } : null;
+  return row ? { component: row.component, lastHeartbeatAt: row.last_heartbeat_at, metadata: row.metadata } : null;
 }
 
 async function deleteExpiredFromTable(db: SystemDb, tableName: string, cutoff: Date, batchSize: number): Promise<number> {

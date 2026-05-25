@@ -1,5 +1,11 @@
 import { dirname } from "node:path";
-import type { SystemBackupHealthRun, SystemHealthSnapshot, SystemQueueCounts, SystemStatus } from "./routes/system.js";
+import type {
+  BackgroundComponentHealth,
+  SystemBackupHealthRun,
+  SystemHealthSnapshot,
+  SystemQueueCounts,
+  SystemStatus
+} from "./routes/system.js";
 
 type RetentionPolicy = SystemHealthSnapshot["retention"]["policy"];
 type IngestionFreshness = {
@@ -26,6 +32,23 @@ type RetentionRun = {
   finishedAt: Date | null;
   deleted: RetentionDeletedCounts;
   errorMessage: string | null;
+};
+type HeartbeatRecord = {
+  lastHeartbeatAt: Date;
+  metadata?: unknown;
+};
+
+type RuntimeConfigSummary = {
+  nodeEnv: string;
+  consoleEnabled: boolean;
+  publicEndpointConfigured: boolean;
+  googleOAuthEnabled: boolean;
+  smtpConfigured: boolean;
+  alertsEnabled: boolean;
+  alertsIntervalMinutes: number;
+  monitorsEnabled: boolean;
+  monitorsIntervalMinutes: number;
+  sourceMapRetentionEnabled: boolean;
 };
 export type BackupRun = {
   id: string;
@@ -54,12 +77,17 @@ export type SystemHealthProbeDependencies = {
     retentionDays: number;
     s3Enabled: boolean;
   };
+  runtime?: RuntimeConfigSummary;
   uptimeSeconds?: () => number;
   now?: () => Date;
   postgresPing: () => Promise<unknown>;
   redisPing: () => Promise<string>;
   getQueueCounts: () => Promise<Partial<SystemQueueCounts>>;
-  getHeartbeat: () => Promise<{ lastHeartbeatAt: Date } | null>;
+  getHeartbeat?: () => Promise<HeartbeatRecord | null>;
+  getHeartbeats?: () => Promise<{
+    worker: HeartbeatRecord | null;
+    scheduler: HeartbeatRecord | null;
+  }>;
   getIngestionFreshness: () => Promise<IngestionFreshness>;
   getLastRetentionRun: () => Promise<RetentionRun | null>;
   getBackupStatus: () => Promise<{ latestSuccess: BackupRun | null; latestFailure: BackupRun | null }>;
@@ -104,6 +132,29 @@ async function probe<T>(fn: () => Promise<T>): Promise<Probe<T>> {
 
 function isoOrNull(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
+}
+
+function metadataRole(metadata: unknown): BackgroundComponentHealth["role"] {
+  if (!metadata || typeof metadata !== "object" || !("role" in metadata)) return null;
+  const role = (metadata as { role?: unknown }).role;
+  return role === "all" || role === "queue" || role === "scheduler" ? role : null;
+}
+
+function componentHealth(input: {
+  heartbeat: HeartbeatRecord | null;
+  expected: boolean;
+  now: Date;
+}): BackgroundComponentHealth {
+  const stale =
+    input.expected &&
+    (!input.heartbeat?.lastHeartbeatAt || input.now.getTime() - input.heartbeat.lastHeartbeatAt.getTime() > 150_000);
+
+  return {
+    status: stale ? "degraded" : "healthy",
+    expected: input.expected,
+    role: metadataRole(input.heartbeat?.metadata),
+    lastHeartbeatAt: isoOrNull(input.heartbeat?.lastHeartbeatAt)
+  };
 }
 
 function queueCountsOrFallback(
@@ -209,27 +260,43 @@ export async function createSystemHealthSnapshot(
   dependencies: SystemHealthProbeDependencies
 ): Promise<SystemHealthSnapshot> {
   const generatedAt = dependencies.now?.() ?? new Date();
-  const [postgres, redisReady, queueCounts, heartbeat, freshness, retentionRun, backupStatus] = await Promise.all([
+  const schedulerExpected = dependencies.runtime
+    ? dependencies.runtime.alertsEnabled ||
+      dependencies.runtime.monitorsEnabled ||
+      dependencies.retention.enabled ||
+      dependencies.backups.enabled
+    : false;
+  const getHeartbeats =
+    dependencies.getHeartbeats ??
+    (async () => ({
+      worker: (await dependencies.getHeartbeat?.()) ?? null,
+      scheduler: null
+    }));
+
+  const [postgres, redisReady, queueCounts, heartbeats, freshness, retentionRun, backupStatus] = await Promise.all([
     measure(dependencies.postgresPing),
     measure(dependencies.redisPing),
     probe(dependencies.getQueueCounts),
-    probe(dependencies.getHeartbeat),
+    probe(getHeartbeats),
     probe(dependencies.getIngestionFreshness),
     probe(dependencies.getLastRetentionRun),
     probe(dependencies.getBackupStatus)
   ]);
 
-  const dbProbeFailed = !heartbeat.ok || !freshness.ok || !retentionRun.ok || !backupStatus.ok;
-  const heartbeatValue = heartbeat.ok ? heartbeat.value : null;
+  const dbProbeFailed = !heartbeats.ok || !freshness.ok || !retentionRun.ok || !backupStatus.ok;
+  const heartbeatsValue = heartbeats.ok ? heartbeats.value : { worker: null, scheduler: null };
   const freshnessValue = freshness.ok ? freshness.value : emptyIngestionFreshness;
   const retentionRunValue = retentionRun.ok ? retentionRun.value : null;
   const backupStatusValue = backupStatus.ok ? backupStatus.value : { latestSuccess: null, latestFailure: null };
-  const workerStale =
-    !heartbeatValue?.lastHeartbeatAt || generatedAt.getTime() - heartbeatValue.lastHeartbeatAt.getTime() > 150_000;
+  const workerHealth = componentHealth({ heartbeat: heartbeatsValue.worker, expected: true, now: generatedAt });
+  const schedulerHealth = componentHealth({
+    heartbeat: heartbeatsValue.scheduler,
+    expected: schedulerExpected,
+    now: generatedAt
+  });
   const queueUnavailable = !queueCounts.ok;
   const postgresStatus: SystemStatus = !postgres.ok ? "unhealthy" : dbProbeFailed ? "degraded" : "healthy";
   const redisStatus: SystemStatus = redisReady.ok && redisReady.value === "PONG" ? "healthy" : "unhealthy";
-  const workerStatus: SystemStatus = workerStale ? "degraded" : "healthy";
   const retentionFailed = retentionRunValue?.status === "failed";
   const backupStale = backupStatus.ok
     ? isBackupStale({
@@ -247,9 +314,26 @@ export async function createSystemHealthSnapshot(
   const status: SystemStatus =
     postgresStatus === "unhealthy" || redisStatus === "unhealthy" || queueUnavailable
       ? "unhealthy"
-      : postgresStatus === "degraded" || workerStatus === "degraded" || retentionFailed || backupStale || backupFailureNewer
+      : postgresStatus === "degraded" ||
+          workerHealth.status === "degraded" ||
+          schedulerHealth.status === "degraded" ||
+          retentionFailed ||
+          backupStale ||
+          backupFailureNewer
         ? "degraded"
         : "healthy";
+  const runtime = dependencies.runtime ?? {
+    nodeEnv: "unknown",
+    consoleEnabled: false,
+    publicEndpointConfigured: false,
+    googleOAuthEnabled: false,
+    smtpConfigured: false,
+    alertsEnabled: false,
+    alertsIntervalMinutes: 0,
+    monitorsEnabled: false,
+    monitorsIntervalMinutes: 0,
+    sourceMapRetentionEnabled: dependencies.retention.policy.sourceMapsEnabled
+  };
 
   return {
     generatedAt: generatedAt.toISOString(),
@@ -258,7 +342,33 @@ export async function createSystemHealthSnapshot(
       api: { status: "healthy", uptimeSeconds: dependencies.uptimeSeconds?.() ?? Math.floor(process.uptime()) },
       postgres: { status: postgresStatus, latencyMs: postgres.latencyMs },
       redis: { status: redisStatus, latencyMs: redisReady.latencyMs },
-      worker: { status: workerStatus, lastHeartbeatAt: isoOrNull(heartbeatValue?.lastHeartbeatAt) }
+      worker: workerHealth,
+      scheduler: schedulerHealth
+    },
+    deployment: {
+      api: {
+        nodeEnv: runtime.nodeEnv,
+        consoleEnabled: runtime.consoleEnabled,
+        publicEndpointConfigured: runtime.publicEndpointConfigured,
+        googleOAuthEnabled: runtime.googleOAuthEnabled,
+        smtpConfigured: runtime.smtpConfigured
+      },
+      background: {
+        queueExpected: true,
+        schedulerExpected,
+        alertsEnabled: runtime.alertsEnabled,
+        alertsIntervalMinutes: runtime.alertsIntervalMinutes,
+        monitorsEnabled: runtime.monitorsEnabled,
+        monitorsIntervalMinutes: runtime.monitorsIntervalMinutes,
+        retentionEnabled: dependencies.retention.enabled,
+        retentionIntervalMinutes: dependencies.retention.intervalMinutes,
+        backupsEnabled: dependencies.backups.enabled,
+        backupsIntervalHours: dependencies.backups.intervalHours
+      },
+      storage: {
+        backupS3Enabled: dependencies.backups.s3Enabled,
+        sourceMapRetentionEnabled: runtime.sourceMapRetentionEnabled
+      }
     },
     queues: {
       telemetry: queueCountsOrFallback(queueCounts)

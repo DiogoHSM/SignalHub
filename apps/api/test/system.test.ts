@@ -36,7 +36,33 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
     api: { status: "healthy", uptimeSeconds: 10 },
     postgres: { status: "healthy", latencyMs: 2 },
     redis: { status: "healthy", latencyMs: 3 },
-    worker: { status: "degraded", lastHeartbeatAt: null }
+    worker: { status: "degraded", expected: true, role: null, lastHeartbeatAt: null },
+    scheduler: { status: "healthy", expected: false, role: null, lastHeartbeatAt: null }
+  },
+  deployment: {
+    api: {
+      nodeEnv: "unknown",
+      consoleEnabled: false,
+      publicEndpointConfigured: false,
+      googleOAuthEnabled: false,
+      smtpConfigured: false
+    },
+    background: {
+      queueExpected: true,
+      schedulerExpected: false,
+      alertsEnabled: false,
+      alertsIntervalMinutes: 0,
+      monitorsEnabled: false,
+      monitorsIntervalMinutes: 0,
+      retentionEnabled: true,
+      retentionIntervalMinutes: 60,
+      backupsEnabled: true,
+      backupsIntervalHours: 24
+    },
+    storage: {
+      backupS3Enabled: true,
+      sourceMapRetentionEnabled: true
+    }
   },
   queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 } },
   ingestion: {
@@ -191,7 +217,13 @@ describe("system health routes", () => {
     expect(snapshot.status).toBe("unhealthy");
     expect(snapshot.services.postgres).toEqual({ status: "unhealthy", latencyMs: null });
     expect(snapshot.services.redis.status).toBe("healthy");
-    expect(snapshot.services.worker).toEqual({ status: "degraded", lastHeartbeatAt: null });
+    expect(snapshot.services.worker).toEqual({ status: "degraded", expected: true, role: null, lastHeartbeatAt: null });
+    expect(snapshot.services.scheduler).toEqual({
+      status: "healthy",
+      expected: false,
+      role: null,
+      lastHeartbeatAt: null
+    });
     expect(snapshot.queues.telemetry).toEqual({
       status: "unhealthy",
       errorMessage: "Queue counts unavailable",
@@ -209,6 +241,112 @@ describe("system health routes", () => {
       lastLlmCallAt: null
     });
     expect(snapshot.retention.lastRun).toBeNull();
+  });
+
+  it("reports queue worker and scheduler health separately with deploy readiness config", async () => {
+    const snapshot = await createSystemHealthSnapshot({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      uptimeSeconds: () => 12,
+      retention: {
+        enabled: true,
+        intervalMinutes: 60,
+        policy: retentionPolicy
+      },
+      backups: {
+        enabled: true,
+        intervalHours: 24,
+        retentionDays: 14,
+        s3Enabled: false
+      },
+      runtime: {
+        nodeEnv: "production",
+        consoleEnabled: true,
+        publicEndpointConfigured: true,
+        googleOAuthEnabled: true,
+        smtpConfigured: true,
+        alertsEnabled: true,
+        alertsIntervalMinutes: 1,
+        monitorsEnabled: true,
+        monitorsIntervalMinutes: 1,
+        sourceMapRetentionEnabled: true
+      },
+      postgresPing: async () => undefined,
+      redisPing: async () => "PONG",
+      getQueueCounts: async () => ({}),
+      getHeartbeats: async () => ({
+        worker: {
+          lastHeartbeatAt: new Date("2026-05-06T11:59:30.000Z"),
+          metadata: { role: "queue", queue: true, scheduler: false, alerts: false, monitors: false }
+        },
+        scheduler: {
+          lastHeartbeatAt: new Date("2026-05-06T11:59:40.000Z"),
+          metadata: { role: "scheduler", queue: false, scheduler: true, alerts: true, monitors: true }
+        }
+      }),
+      getIngestionFreshness: async () => ({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      }),
+      getLastRetentionRun: async () => null,
+      getBackupStatus: async () => ({
+        latestSuccess: {
+          id: "bkp_1",
+          status: "success",
+          trigger: "scheduled",
+          startedAt: new Date("2026-05-06T11:00:00.000Z"),
+          finishedAt: new Date("2026-05-06T11:00:05.000Z"),
+          filename: "sigmon-20260506T110000Z.dump",
+          localPath: "/var/lib/sigmon/backups/sigmon-20260506T110000Z.dump",
+          sizeBytes: 1234,
+          s3Bucket: null,
+          s3Key: null,
+          errorMessage: null
+        },
+        latestFailure: null
+      })
+    });
+
+    expect(snapshot.status).toBe("healthy");
+    expect(snapshot.services.worker).toEqual({
+      status: "healthy",
+      expected: true,
+      lastHeartbeatAt: "2026-05-06T11:59:30.000Z",
+      role: "queue"
+    });
+    expect(snapshot.services.scheduler).toEqual({
+      status: "healthy",
+      expected: true,
+      lastHeartbeatAt: "2026-05-06T11:59:40.000Z",
+      role: "scheduler"
+    });
+    expect(snapshot.deployment).toEqual({
+      api: {
+        nodeEnv: "production",
+        consoleEnabled: true,
+        publicEndpointConfigured: true,
+        googleOAuthEnabled: true,
+        smtpConfigured: true
+      },
+      background: {
+        queueExpected: true,
+        schedulerExpected: true,
+        alertsEnabled: true,
+        alertsIntervalMinutes: 1,
+        monitorsEnabled: true,
+        monitorsIntervalMinutes: 1,
+        retentionEnabled: true,
+        retentionIntervalMinutes: 60,
+        backupsEnabled: true,
+        backupsIntervalHours: 24
+      },
+      storage: {
+        backupS3Enabled: false,
+        sourceMapRetentionEnabled: true
+      }
+    });
   });
 
   it("includes source-map retention policy and deleted counts in snapshots", async () => {

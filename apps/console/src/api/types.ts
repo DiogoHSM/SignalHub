@@ -675,7 +675,43 @@ export type SystemHealthResponse = {
     api: { status: "healthy"; uptimeSeconds: number };
     postgres: { status: "healthy" | "degraded" | "unhealthy"; latencyMs: number | null };
     redis: { status: "healthy" | "unhealthy"; latencyMs: number | null };
-    worker: { status: SystemStatus; lastHeartbeatAt: string | null };
+    worker: {
+      status: SystemStatus;
+      expected: boolean;
+      role: "all" | "queue" | "scheduler" | null;
+      lastHeartbeatAt: string | null;
+    };
+    scheduler: {
+      status: SystemStatus;
+      expected: boolean;
+      role: "all" | "queue" | "scheduler" | null;
+      lastHeartbeatAt: string | null;
+    };
+  };
+  deployment: {
+    api: {
+      nodeEnv: string;
+      consoleEnabled: boolean;
+      publicEndpointConfigured: boolean;
+      googleOAuthEnabled: boolean;
+      smtpConfigured: boolean;
+    };
+    background: {
+      queueExpected: boolean;
+      schedulerExpected: boolean;
+      alertsEnabled: boolean;
+      alertsIntervalMinutes: number;
+      monitorsEnabled: boolean;
+      monitorsIntervalMinutes: number;
+      retentionEnabled: boolean;
+      retentionIntervalMinutes: number;
+      backupsEnabled: boolean;
+      backupsIntervalHours: number;
+    };
+    storage: {
+      backupS3Enabled: boolean;
+      sourceMapRetentionEnabled: boolean;
+    };
   };
   queues: {
     telemetry: {

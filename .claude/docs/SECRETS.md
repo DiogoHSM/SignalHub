@@ -7,6 +7,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | Variable | Required | Safe example | Description |
 | --- | --- | --- | --- |
 | `NODE_ENV` | No | `development` | Runtime mode. Valid values are `development`, `test`, and `production`. |
+| `WORKER_ROLE` | No | `all` | Non-secret operational config for `pnpm start:worker`. Use `queue` for the queue worker service, `scheduler` for the scheduler service, or `all` for a combined worker. |
 | `PORT` | No | `3000` | API listen port. |
 | `DATABASE_URL` | Yes | `Postgres URL with local host, database, and encoded password` | Postgres URL for local Node commands. Use the same password as `POSTGRES_PASSWORD`; URL-encode reserved characters. Do not commit the full URL. |
 | `REDIS_URL` | Yes | `redis://localhost:6379` | Redis URL for local Node commands. |
@@ -22,6 +23,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `EASYPANEL_API_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | EasyPanel deploy hook for the `api` service. Store only as a GitHub Actions secret. |
 | `EASYPANEL_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | Legacy alias for the API deploy hook. Prefer `EASYPANEL_API_DEPLOY_URL` for new setup. |
 | `EASYPANEL_WORKER_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | EasyPanel deploy hook for the `worker` service. Store only as a GitHub Actions secret. |
+| `EASYPANEL_SCHEDULER_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | EasyPanel deploy hook for the `scheduler` service. Store only as a GitHub Actions secret. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/sigmon/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | `50` | Non-secret operational config. Maximum source-map upload size in MiB. |
 | `SOURCE_MAPS_RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables worker cleanup of old local source-map artifacts when telemetry retention is enabled. |

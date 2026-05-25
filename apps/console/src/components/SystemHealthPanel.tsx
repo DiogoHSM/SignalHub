@@ -62,6 +62,18 @@ function formatBytes(value: number | null): string {
   return value === null ? "No data" : `${value} bytes`;
 }
 
+function formatRole(role: "all" | "queue" | "scheduler" | null): string {
+  return role ? `WORKER_ROLE=${role}` : "No role metadata";
+}
+
+function enabledLabel(enabled: boolean): string {
+  return enabled ? "Enabled" : "Disabled";
+}
+
+function configuredLabel(configured: boolean): string {
+  return configured ? "Configured" : "Missing";
+}
+
 function backupStatusLabel(backups: SystemHealthResponse["backups"]): string {
   if (!backups.enabled) return "Disabled";
   if (backups.stale === null) return "Unknown";
@@ -89,17 +101,21 @@ function formatDuration(seconds: number): string {
 function ServiceCard({
   name,
   status,
+  statusLabel,
   children
 }: {
   name: string;
   status: ServiceStatus;
+  statusLabel?: string;
   children: React.ReactNode;
 }) {
   return (
     <article className="system-card">
       <div className="system-card__header">
         <h3>{name}</h3>
-        <span className={statusClass(status)}>{status}</span>
+        <span className={statusLabel ? "status-pill status-pill--neutral" : statusClass(status)}>
+          {statusLabel ?? status}
+        </span>
       </div>
       <dl>{children}</dl>
     </article>
@@ -177,13 +193,90 @@ export function SystemHealthPanel({ client }: Props) {
               <dt>Latency</dt>
               <dd>{formatLatency(health.services.redis.latencyMs)}</dd>
             </ServiceCard>
-            <ServiceCard name="Worker" status={health.services.worker.status}>
+            <ServiceCard
+              name="Queue worker"
+              status={health.services.worker.status}
+              statusLabel={health.services.worker.expected ? undefined : "Not expected"}
+            >
+              <dt>Role</dt>
+              <dd>{formatRole(health.services.worker.role)}</dd>
               <dt>Last heartbeat</dt>
               <dd>{formatTimestamp(health.services.worker.lastHeartbeatAt)}</dd>
+            </ServiceCard>
+            <ServiceCard
+              name="Scheduler"
+              status={health.services.scheduler.status}
+              statusLabel={health.services.scheduler.expected ? undefined : "Not expected"}
+            >
+              <dt>Role</dt>
+              <dd>{formatRole(health.services.scheduler.role)}</dd>
+              <dt>Last heartbeat</dt>
+              <dd>{formatTimestamp(health.services.scheduler.lastHeartbeatAt)}</dd>
             </ServiceCard>
           </section>
 
           <section className="system-grid" aria-label="System operations">
+            <article className="system-card">
+              <div className="system-card__header">
+                <h3>Deploy config</h3>
+                <span className="status-pill status-pill--neutral">{health.deployment.api.nodeEnv}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>API console</dt>
+                  <dd>{enabledLabel(health.deployment.api.consoleEnabled)}</dd>
+                </div>
+                <div>
+                  <dt>Public endpoint</dt>
+                  <dd>{configuredLabel(health.deployment.api.publicEndpointConfigured)}</dd>
+                </div>
+                <div>
+                  <dt>Google OAuth</dt>
+                  <dd>{enabledLabel(health.deployment.api.googleOAuthEnabled)}</dd>
+                </div>
+                <div>
+                  <dt>SMTP</dt>
+                  <dd>{health.deployment.api.smtpConfigured ? "SMTP configured" : "SMTP missing"}</dd>
+                </div>
+                <div>
+                  <dt>Alerts</dt>
+                  <dd>
+                    {enabledLabel(health.deployment.background.alertsEnabled)}, every{" "}
+                    {health.deployment.background.alertsIntervalMinutes} minutes
+                  </dd>
+                </div>
+                <div>
+                  <dt>Monitors</dt>
+                  <dd>
+                    {enabledLabel(health.deployment.background.monitorsEnabled)}, every{" "}
+                    {health.deployment.background.monitorsIntervalMinutes} minutes
+                  </dd>
+                </div>
+                <div>
+                  <dt>Retention</dt>
+                  <dd>
+                    {enabledLabel(health.deployment.background.retentionEnabled)}, every{" "}
+                    {health.deployment.background.retentionIntervalMinutes} minutes
+                  </dd>
+                </div>
+                <div>
+                  <dt>Backups</dt>
+                  <dd>
+                    {enabledLabel(health.deployment.background.backupsEnabled)}, every{" "}
+                    {health.deployment.background.backupsIntervalHours} hours
+                  </dd>
+                </div>
+                <div>
+                  <dt>Backup S3</dt>
+                  <dd>{enabledLabel(health.deployment.storage.backupS3Enabled)}</dd>
+                </div>
+                <div>
+                  <dt>Source map retention</dt>
+                  <dd>{enabledLabel(health.deployment.storage.sourceMapRetentionEnabled)}</dd>
+                </div>
+              </dl>
+            </article>
+
             <article className="system-card">
               <div className="system-card__header">
                 <h3>Queues</h3>

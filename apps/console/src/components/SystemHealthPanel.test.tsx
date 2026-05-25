@@ -67,7 +67,8 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
       api: { status: "healthy", uptimeSeconds: 120 },
       postgres: { status: "healthy", latencyMs: 4 },
       redis: { status: "healthy", latencyMs: 2 },
-      worker: { status: "healthy", lastHeartbeatAt: "2026-05-06T11:59:55.000Z" }
+      worker: { status: "healthy", expected: true, role: "queue", lastHeartbeatAt: "2026-05-06T11:59:55.000Z" },
+      scheduler: { status: "healthy", expected: true, role: "scheduler", lastHeartbeatAt: "2026-05-06T11:59:50.000Z" }
     },
     queues: {
       telemetry: { status: "healthy", errorMessage: null, waiting: 1, active: 2, completed: 30, failed: 0, delayed: 3 }
@@ -131,6 +132,31 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
       },
       latestFailure: null
     },
+    deployment: {
+      api: {
+        nodeEnv: "production",
+        consoleEnabled: true,
+        publicEndpointConfigured: true,
+        googleOAuthEnabled: true,
+        smtpConfigured: true
+      },
+      background: {
+        queueExpected: true,
+        schedulerExpected: true,
+        alertsEnabled: true,
+        alertsIntervalMinutes: 1,
+        monitorsEnabled: true,
+        monitorsIntervalMinutes: 1,
+        retentionEnabled: true,
+        retentionIntervalMinutes: 60,
+        backupsEnabled: true,
+        backupsIntervalHours: 24
+      },
+      storage: {
+        backupS3Enabled: true,
+        sourceMapRetentionEnabled: true
+      }
+    },
     ...overrides
   };
 }
@@ -150,7 +176,13 @@ describe("SystemHealthPanel", () => {
     expect(within(screen.getByRole("group", { name: "System health summary" })).getByText("healthy")).toBeInTheDocument();
     expect(screen.getByText("Postgres")).toBeInTheDocument();
     expect(screen.getByText("Redis")).toBeInTheDocument();
-    expect(screen.getByText("Retention")).toBeInTheDocument();
+    expect(screen.getByText("Queue worker")).toBeInTheDocument();
+    expect(screen.getByText("Scheduler")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Deploy config" })).toBeInTheDocument();
+    expect(screen.getByText("WORKER_ROLE=queue")).toBeInTheDocument();
+    expect(screen.getByText("WORKER_ROLE=scheduler")).toBeInTheDocument();
+    expect(screen.getByText("SMTP configured")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Retention" })).toBeInTheDocument();
     expect(screen.getByText(/^Generated /)).toBeInTheDocument();
     expect(screen.getByText("Waiting")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
@@ -289,7 +321,8 @@ describe("SystemHealthPanel", () => {
             api: { status: "healthy", uptimeSeconds: 120 },
             postgres: { status: "healthy", latencyMs: 4 },
             redis: { status: "healthy", latencyMs: 2 },
-            worker: { status: "healthy", lastHeartbeatAt: "not-a-date" }
+            worker: { status: "healthy", expected: true, role: "queue", lastHeartbeatAt: "not-a-date" },
+            scheduler: { status: "healthy", expected: true, role: "scheduler", lastHeartbeatAt: "not-a-date" }
           },
           ingestion: {
             lastEventAt: "not-a-date",

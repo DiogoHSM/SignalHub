@@ -462,10 +462,25 @@ const app = await buildApp({
           retentionDays: config.backups.retentionDays,
           s3Enabled: config.backups.s3.enabled
         },
+        runtime: {
+          nodeEnv: config.nodeEnv,
+          consoleEnabled: config.console.enabled,
+          publicEndpointConfigured: Boolean(config.console.publicEndpoint),
+          googleOAuthEnabled: config.googleOAuth.enabled,
+          smtpConfigured: config.smtp.enabled,
+          alertsEnabled: config.alerts.enabled,
+          alertsIntervalMinutes: config.alerts.intervalMinutes,
+          monitorsEnabled: config.monitors.enabled,
+          monitorsIntervalMinutes: config.monitors.intervalMinutes,
+          sourceMapRetentionEnabled: config.sourceMaps.retention.enabled
+        },
         postgresPing: () => sql`select 1`.execute(db),
         redisPing: () => redis.ping(),
         getQueueCounts: () => telemetryQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
-        getHeartbeat: () => getHeartbeat(db, "worker"),
+        getHeartbeats: async () => {
+          const [worker, scheduler] = await Promise.all([getHeartbeat(db, "worker"), getHeartbeat(db, "scheduler")]);
+          return { worker, scheduler };
+        },
         getIngestionFreshness: () => getIngestionFreshness(db),
         getLastRetentionRun: () => getLastRetentionRun(db),
         getBackupStatus: () => getBackupStatus(db)

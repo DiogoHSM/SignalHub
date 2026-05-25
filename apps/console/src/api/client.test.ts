@@ -327,7 +327,38 @@ describe("createApiClient", () => {
               api: { status: "healthy", uptimeSeconds: 10 },
               postgres: { status: "healthy", latencyMs: 1 },
               redis: { status: "healthy", latencyMs: 1 },
-              worker: { status: "healthy", lastHeartbeatAt: "2026-05-06T11:59:30.000Z" }
+              worker: { status: "healthy", expected: true, role: "queue", lastHeartbeatAt: "2026-05-06T11:59:30.000Z" },
+              scheduler: {
+                status: "healthy",
+                expected: true,
+                role: "scheduler",
+                lastHeartbeatAt: "2026-05-06T11:59:30.000Z"
+              }
+            },
+            deployment: {
+              api: {
+                nodeEnv: "production",
+                consoleEnabled: true,
+                publicEndpointConfigured: true,
+                googleOAuthEnabled: false,
+                smtpConfigured: true
+              },
+              background: {
+                queueExpected: true,
+                schedulerExpected: true,
+                alertsEnabled: true,
+                alertsIntervalMinutes: 1,
+                monitorsEnabled: true,
+                monitorsIntervalMinutes: 1,
+                retentionEnabled: true,
+                retentionIntervalMinutes: 60,
+                backupsEnabled: true,
+                backupsIntervalHours: 24
+              },
+              storage: {
+                backupS3Enabled: true,
+                sourceMapRetentionEnabled: true
+              }
             },
             queues: {
               telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 }
