@@ -3,6 +3,7 @@ import { lookup as resolveDns } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
+import type { AppConfig } from "@sigmon/config";
 import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
 import {
   assertSafeResolvedAddresses,
@@ -11,6 +12,7 @@ import {
   type ResolvedAddress
 } from "@sigmon/config";
 import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
+import { deliverEmail } from "./email.js";
 
 export type AlertWebhookPayload = {
   alertEventId: string;
@@ -196,6 +198,29 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
 
 export function validateWebhookTarget(rawUrl: string, _nodeEnv: string): URL {
   return validateWebhookTargetUrl(rawUrl);
+}
+
+export async function deliverNotification(input: {
+  channel: NotificationChannelRecord;
+  payload: AlertWebhookPayload;
+  smtp: AppConfig["smtp"];
+  timeoutMs: number;
+  nodeEnv: string;
+}): Promise<DeliveryResult> {
+  if (input.channel.type === "webhook") {
+    return deliverWebhook({
+      channel: input.channel,
+      payload: input.payload,
+      timeoutMs: input.timeoutMs,
+      nodeEnv: input.nodeEnv
+    });
+  }
+
+  return deliverEmail({
+    channel: input.channel,
+    smtp: input.smtp,
+    payload: input.payload
+  });
 }
 
 export async function deliverWebhook(input: {

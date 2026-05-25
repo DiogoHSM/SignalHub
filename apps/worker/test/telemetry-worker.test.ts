@@ -11,6 +11,7 @@ import {
   validateWebhookTarget
 } from "../src/alerts.js";
 import { runBackupOnce } from "../src/backups.js";
+import { deliverEmail } from "../src/email.js";
 import { startHeartbeat } from "../src/heartbeat.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { deleteExpiredSourceMapArtifacts, SourceMapRetentionError } from "../src/source-map-retention.js";
@@ -2091,6 +2092,106 @@ describe("deliverWebhook", () => {
       });
       expect(requestImpl, secretHeaderName).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("deliverEmail", () => {
+  const now = new Date("2026-05-06T12:00:00.000Z");
+
+  function alertPayload() {
+    return {
+      alertEventId: "evt_1",
+      ruleId: "rule_1",
+      ruleName: "Errors",
+      ruleType: "error_count" as const,
+      severity: "warning" as const,
+      projectId: "prj_1",
+      environmentId: "env_1",
+      triggeredAt: now.toISOString(),
+      window: { from: "2026-05-06T11:50:00.000Z", to: now.toISOString(), minutes: 10 },
+      observedValue: "2",
+      threshold: "1",
+      message: "Errors threshold reached: 2 >= 1",
+      sigmon: { source: "sigmon" as const }
+    };
+  }
+
+  function emailChannel() {
+    return {
+      id: "chn_email",
+      name: "Ops email",
+      type: "email" as const,
+      url: null,
+      emailRecipients: ["diogo@example.com"],
+      secretHeaderName: null,
+      secretHeaderValue: null,
+      hasSecret: false as const,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null
+    };
+  }
+
+  it("delivers email notification channels through SMTP", async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "msg_1" });
+    const result = await deliverEmail({
+      channel: emailChannel(),
+      smtp: {
+        enabled: true,
+        host: "smtp.example.com",
+        port: 587,
+        username: "user",
+        password: "password",
+        from: "Sigmon <alerts@example.com>",
+        secure: false
+      },
+      payload: alertPayload(),
+      transportFactory: () => ({ sendMail }) as never
+    });
+
+    expect(result).toEqual({ status: "success", responseStatus: null, errorMessage: null });
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: "Sigmon <alerts@example.com>",
+        to: ["diogo@example.com"],
+        subject: expect.stringContaining("Sigmon")
+      })
+    );
+  });
+
+  it("records failed email delivery when SMTP is not configured", async () => {
+    const result = await deliverEmail({
+      channel: emailChannel(),
+      smtp: { enabled: false, host: "", port: 587, username: "", password: "", from: "", secure: false },
+      payload: alertPayload()
+    });
+
+    expect(result).toEqual({ status: "failed", responseStatus: null, errorMessage: "SMTP is not configured" });
+  });
+
+  it("redacts the SMTP password from email delivery errors", async () => {
+    const sendMail = vi.fn().mockRejectedValue(new Error("SMTP auth failed for password"));
+    const result = await deliverEmail({
+      channel: emailChannel(),
+      smtp: {
+        enabled: true,
+        host: "smtp.example.com",
+        port: 587,
+        username: "user",
+        password: "password",
+        from: "Sigmon <alerts@example.com>",
+        secure: false
+      },
+      payload: alertPayload(),
+      transportFactory: () => ({ sendMail }) as never
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "SMTP auth failed for [REDACTED]"
+    });
   });
 });
 

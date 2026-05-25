@@ -33,7 +33,7 @@ import {
   updateAlertRuleEvaluation,
   withAlertEvaluationLock
 } from "@sigmon/db/repositories/alerts.js";
-import { deliverWebhook, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
+import { deliverNotification, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";
 import {
@@ -143,22 +143,14 @@ const stopAlerts = config.alerts.enabled
             }),
           recordAlertEvent: (input) => recordAlertEvent(db, input),
           updateRuleEvaluation: (input) => updateAlertRuleEvaluation(db, input),
-          deliver: (channel, payload) => {
-            if (channel.type !== "webhook") {
-              return Promise.resolve({
-                status: "failed",
-                responseStatus: null,
-                errorMessage: "Email delivery is not configured"
-              });
-            }
-
-            return deliverWebhook({
+          deliver: (channel, payload) =>
+            deliverNotification({
               channel,
               payload,
+              smtp: config.smtp,
               timeoutMs: config.alerts.webhookTimeoutMs,
               nodeEnv: config.nodeEnv
-            });
-          },
+            }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })
     })
