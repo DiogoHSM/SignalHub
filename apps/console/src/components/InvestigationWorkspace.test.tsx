@@ -64,6 +64,8 @@ function tenant(overrides: Partial<TenantSummary> = {}): TenantSummary {
   return {
     tenantId: "tenant_alpha",
     label: "Tenant Alpha",
+    traits: {},
+    keyTraits: {},
     isUnassigned: false,
     impactScore: 10,
     lastSeenAt: "2026-05-05T10:00:00.000Z",
@@ -115,6 +117,8 @@ function user(overrides: Partial<UserSummary> = {}): UserSummary {
   return {
     userId: "user_alpha",
     label: "user_alpha",
+    traits: {},
+    keyTraits: {},
     isAnonymous: false,
     impactScore: 10,
     lastSeenAt: "2026-05-05T10:00:00.000Z",

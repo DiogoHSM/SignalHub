@@ -20,6 +20,15 @@ Ingestion:
 
 Telemetry queue jobs use deterministic IDs derived from the payload IDs. The worker writes telemetry through idempotent repository paths so duplicate queue delivery or retry attempts do not create duplicate telemetry rows.
 
+Identify:
+
+1. SDKs or raw clients call `POST /v1/identify/user` or `POST /v1/identify/tenant`.
+2. API authenticates the same project/environment ingestion API key used for telemetry.
+3. API validates the identify payload, sanitizes traits, and upserts the scoped profile row directly.
+4. Identify request `metadata` is accepted for envelope compatibility, but this MVP does not persist it in profile rows. Persisted profile data is `traits` plus project, environment, user/tenant IDs, timestamps, and optional user tenant linkage.
+
+Telemetry rows that contain `user_id` or `tenant_id` update profile `last_seen_at` timestamps for the same project/environment scope. They do not overwrite profile traits; only explicit identify calls update traits.
+
 Human operations:
 
 1. Admin seed creates the first admin user.
@@ -60,8 +69,15 @@ Telemetry tables:
 - `traces`
 - `spans`
 
+Profile tables:
+
+- `user_profiles`
+- `tenant_profiles`
+
 All telemetry records include project, environment, optional tenant/user/session/trace identifiers, timestamps, source, release, and metadata.
 Errors are stored as immutable raw occurrences and are attached to operational `error_groups` through deterministic grouping fingerprints. `error_groups.priority` stores an optional operator priority override (`urgent`, `high`, `normal`, or `low`) separately from derived severity and workflow status.
+
+`user_profiles` and `tenant_profiles` are scoped by project and environment so the same end-user or tenant identifier can have different traits in different monitored products or deployment environments. Traits are recursively sanitized before storage. The profile rows store sanitized traits, first/last seen timestamps, update timestamps, and identifiers; identify envelope metadata is intentionally not stored in this MVP.
 
 Source-map artifacts are admin-uploaded metadata rows scoped to project, environment, release, and minified filename. The source-map files themselves live on the API filesystem under `SOURCE_MAPS_LOCAL_DIR`; Postgres stores metadata and cached resolved stack-frame locations only.
 
@@ -108,6 +124,8 @@ Ingestion:
 - `POST /v1/events`
 - `POST /v1/errors`
 - `POST /v1/breadcrumbs`
+- `POST /v1/identify/user`
+- `POST /v1/identify/tenant`
 - `POST /v1/llm`
 - `POST /v1/heartbeats/:id`
 - `POST /v1/source-maps`
@@ -198,9 +216,9 @@ The console also includes a read-only Traces view for raw traces and ordered spa
 
 The console also includes a read-only LLM view for raw AI calls and compact aggregate totals. It uses `GET /query/llm-calls` for call rows and `GET /query/aggregates/llm` for total calls, input tokens, output tokens, and total cost. This slice supports exact `provider`, `model`, `prompt_name`, and `status` filters and does not add charts, grouping, mutation, cross-signal timelines, storage tables, or ingestion routes.
 
-The console also includes a read-only Entities view for tenant-first investigation. It uses `GET /query/entities/tenants` for impact-ranked tenant summaries and `GET /query/entities/tenants/:tenantKey` for selected tenant details. Entity queries are implemented behind the repository boundary in `packages/db/src/repositories/entities-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records only. Spans are intentionally excluded from entity timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
+The console also includes a read-only Entities view for tenant-first investigation. It uses `GET /query/entities/tenants` for impact-ranked tenant summaries and `GET /query/entities/tenants/:tenantKey` for selected tenant details. Entity queries are implemented behind the repository boundary in `packages/db/src/repositories/entities-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records only. When a tenant profile exists, the view shows trait-derived labels and key trait chips from `tenant_profiles.traits`. Spans are intentionally excluded from entity timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
 
-The console also includes a read-only Users view for user-first investigation. It uses `GET /query/users` for impact-ranked user summaries and `GET /query/users/:userKey` for selected user details. User queries are implemented behind the repository boundary in `packages/db/src/repositories/users-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records only. Spans are intentionally excluded from user timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
+The console also includes a read-only Users view for user-first investigation. It uses `GET /query/users` for impact-ranked user summaries and `GET /query/users/:userKey` for selected user details. User queries are implemented behind the repository boundary in `packages/db/src/repositories/users-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records only. When a user profile exists, the view shows trait-derived labels and key trait chips from `user_profiles.traits`. Spans are intentionally excluded from user timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
 
 ## Overview Console
 

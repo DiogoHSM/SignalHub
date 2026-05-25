@@ -261,6 +261,47 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("identifyUser and identifyTenant enqueue dedicated identify endpoints", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://sigmon.example.com",
+      apiKey: "sh_test",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        tenantId: "tenant_default",
+        userId: "user_default",
+        metadata: { source: "default" }
+      }
+    });
+
+    client.identifyUser("user_1", { name: "Ana", role: "admin" }, { tenantId: "tenant_1" });
+    client.identifyTenant("tenant_1", { name: "MicroERP", plan: "pro" });
+
+    await expect(client.flush()).resolves.toEqual({
+      sent: 2,
+      failed: 0,
+      retained: 0,
+      dropped: 0
+    });
+
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      "https://sigmon.example.com/v1/identify/user",
+      "https://sigmon.example.com/v1/identify/tenant"
+    ]);
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      user_id: "user_1",
+      tenant_id: "tenant_1",
+      traits: { name: "Ana", role: "admin" },
+      metadata: {}
+    });
+    expect(decodeBody(fetchImpl.mock.calls[1])).toEqual({
+      tenant_id: "tenant_1",
+      traits: { name: "MicroERP", plan: "pro" },
+      metadata: {}
+    });
+  });
+
   it("startTrace returns a helper that enqueues a successful trace on end", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-02T12:00:00.000Z"));

@@ -1,5 +1,6 @@
 import type { Db } from "../client.js";
 import { refreshErrorGroupStats, upsertErrorGroupForOccurrence } from "./error-groups.js";
+import { touchTenantProfileLastSeen, touchUserProfileLastSeen } from "./identity-profiles.js";
 
 interface TelemetryBaseInput {
   id: string;
@@ -96,16 +97,47 @@ function baseColumns(input: TelemetryBaseInput) {
   };
 }
 
+function inserted(result: { id: string }[]): boolean {
+  return result.length > 0;
+}
+
+async function touchProfiles(db: Db, input: TelemetryBaseInput): Promise<void> {
+  if (input.userId) {
+    await touchUserProfileLastSeen(db, {
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      userId: input.userId,
+      tenantId: input.tenantId,
+      timestamp: input.timestamp
+    });
+  }
+  if (input.tenantId) {
+    await touchTenantProfileLastSeen(db, {
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      tenantId: input.tenantId,
+      timestamp: input.timestamp
+    });
+  }
+}
+
 export async function insertEvent(db: Db, input: InsertEventInput): Promise<void> {
-  await db
-    .insertInto("events")
-    .values({
-      ...baseColumns(input),
-      name: input.name,
-      properties: input.properties ?? {}
-    })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    const result = await trx
+      .insertInto("events")
+      .values({
+        ...baseColumns(input),
+        name: input.name,
+        properties: input.properties ?? {}
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
 }
 
 export async function insertError(db: Db, input: InsertErrorInput): Promise<void> {
@@ -128,7 +160,7 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
       errorId: input.id
     });
 
-    await trx
+    const result = await trx
       .insertInto("errors")
       .values({
         ...baseColumns(input),
@@ -143,80 +175,112 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
         grouping_fingerprint: grouping.fingerprint
       })
       .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
       .execute();
 
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
     await refreshErrorGroupStats(trx, grouping.groupId);
   });
 }
 
 export async function insertLlmCall(db: Db, input: InsertLlmCallInput): Promise<void> {
-  await db
-    .insertInto("llm_calls")
-    .values({
-      ...baseColumns(input),
-      provider: input.provider,
-      model: input.model,
-      prompt_name: nullable(input.promptName),
-      input_tokens: input.inputTokens ?? 0,
-      output_tokens: input.outputTokens ?? 0,
-      cost_usd: input.costUsd ?? "0",
-      latency_ms: nullable(input.latencyMs),
-      status: input.status,
-      error: nullable(input.error),
-      input_preview: nullable(input.inputPreview),
-      output_preview: nullable(input.outputPreview)
-    })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    const result = await trx
+      .insertInto("llm_calls")
+      .values({
+        ...baseColumns(input),
+        provider: input.provider,
+        model: input.model,
+        prompt_name: nullable(input.promptName),
+        input_tokens: input.inputTokens ?? 0,
+        output_tokens: input.outputTokens ?? 0,
+        cost_usd: input.costUsd ?? "0",
+        latency_ms: nullable(input.latencyMs),
+        status: input.status,
+        error: nullable(input.error),
+        input_preview: nullable(input.inputPreview),
+        output_preview: nullable(input.outputPreview)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
 }
 
 export async function insertTrace(db: Db, input: InsertTraceInput): Promise<void> {
-  await db
-    .insertInto("traces")
-    .values({
-      ...baseColumns(input),
-      name: input.name,
-      status: input.status,
-      started_at: input.startedAt,
-      ended_at: nullable(input.endedAt),
-      duration_ms: nullable(input.durationMs)
-    })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    const result = await trx
+      .insertInto("traces")
+      .values({
+        ...baseColumns(input),
+        name: input.name,
+        status: input.status,
+        started_at: input.startedAt,
+        ended_at: nullable(input.endedAt),
+        duration_ms: nullable(input.durationMs)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
 }
 
 export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> {
-  await db
-    .insertInto("spans")
-    .values({
-      ...baseColumns(input),
-      trace_id: input.traceId,
-      parent_span_id: nullable(input.parentSpanId),
-      name: input.name,
-      status: input.status,
-      started_at: input.startedAt,
-      ended_at: nullable(input.endedAt),
-      duration_ms: nullable(input.durationMs),
-      input: nullable(input.input),
-      output: nullable(input.output),
-      error: nullable(input.error),
-      cost_usd: nullable(input.costUsd)
-    })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    const result = await trx
+      .insertInto("spans")
+      .values({
+        ...baseColumns(input),
+        trace_id: input.traceId,
+        parent_span_id: nullable(input.parentSpanId),
+        name: input.name,
+        status: input.status,
+        started_at: input.startedAt,
+        ended_at: nullable(input.endedAt),
+        duration_ms: nullable(input.durationMs),
+        input: nullable(input.input),
+        output: nullable(input.output),
+        error: nullable(input.error),
+        cost_usd: nullable(input.costUsd)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
 }
 
 export async function insertBreadcrumb(db: Db, input: InsertBreadcrumbInput): Promise<void> {
-  await db
-    .insertInto("breadcrumbs")
-    .values({
-      ...baseColumns(input),
-      type: input.type,
-      category: nullable(input.category),
-      message: input.message,
-      level: input.level,
-      data: input.data ?? {}
-    })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
+  await db.transaction().execute(async (trx) => {
+    const result = await trx
+      .insertInto("breadcrumbs")
+      .values({
+        ...baseColumns(input),
+        type: input.type,
+        category: nullable(input.category),
+        message: input.message,
+        level: input.level,
+        data: input.data ?? {}
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
 }

@@ -39,6 +39,8 @@ export type UserDetailFilters = {
 export type UserSummary = {
   userId: string | null;
   label: string;
+  traits: Record<string, unknown>;
+  keyTraits: Record<string, string>;
   isAnonymous: boolean;
   impactScore: number;
   lastSeenAt: string | null;
@@ -173,6 +175,29 @@ function userLabel(userId: string | null): string {
   return userId ?? "Anonymous / Unassigned";
 }
 
+function objectTraits(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function profileLabel(rawId: string | null, traits: Record<string, unknown>, fallback: string): string {
+  for (const key of ["name", "display_name", "email"]) {
+    const value = traits[key];
+    if (typeof value === "string" && value.trim() !== "") return value;
+  }
+  return rawId ?? fallback;
+}
+
+function keyTraits(traits: Record<string, unknown>, keys: string[]): Record<string, string> {
+  const entries = keys.flatMap((key) => {
+    const value = traits[key];
+    if (typeof value === "string" && value.trim() !== "") return [[key, value] as const];
+    if (typeof value === "number" || typeof value === "boolean") return [[key, String(value)] as const];
+    return [];
+  });
+  return Object.fromEntries(entries);
+}
+
 function computeImpactScore(input: {
   severeErrors: number;
   openErrors: number;
@@ -218,8 +243,25 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
     llm_cost_usd: string;
     active_tenants: unknown;
     active_sessions: unknown;
+    profile_traits: unknown;
   }>`
-    with scoped_events as (
+    with profile_matches as (
+      select user_id
+      from user_profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and ${pattern ?? null}::text is not null
+        and (
+          traits ->> 'name' ilike ${pattern ?? ""}
+          or traits ->> 'display_name' ilike ${pattern ?? ""}
+          or traits ->> 'email' ilike ${pattern ?? ""}
+          or traits ->> 'plan' ilike ${pattern ?? ""}
+          or traits ->> 'role' ilike ${pattern ?? ""}
+          or traits ->> 'operation_mode' ilike ${pattern ?? ""}
+          or traits ->> 'status' ilike ${pattern ?? ""}
+        )
+    ),
+    scoped_events as (
       select user_id, tenant_id, session_id, timestamp, 1::bigint as events, 0::bigint as errors,
         0::bigint as open_errors, 0::bigint as severe_errors, 0::bigint as traces, 0::bigint as failed_traces,
         0::bigint as llm_calls, 0::bigint as failed_llm_calls, 0::numeric as llm_cost_usd
@@ -234,6 +276,7 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
           or user_id ilike ${pattern ?? ""}
           or tenant_id ilike ${pattern ?? ""}
           or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
         )
     ),
     scoped_errors as (
@@ -257,6 +300,7 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
           or user_id ilike ${pattern ?? ""}
           or tenant_id ilike ${pattern ?? ""}
           or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
         )
     ),
     scoped_traces as (
@@ -275,6 +319,7 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
           or user_id ilike ${pattern ?? ""}
           or tenant_id ilike ${pattern ?? ""}
           or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
         )
     ),
     scoped_llm_calls as (
@@ -293,6 +338,7 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
           or user_id ilike ${pattern ?? ""}
           or tenant_id ilike ${pattern ?? ""}
           or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
         )
     ),
     all_rows as (
@@ -300,18 +346,30 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
       union all select * from scoped_errors
       union all select * from scoped_traces
       union all select * from scoped_llm_calls
+    ),
+    aggregated as (
+      select user_id, max(timestamp) as last_seen_at, sum(events) as events, sum(errors) as errors,
+        sum(open_errors) as open_errors, sum(severe_errors) as severe_errors, sum(traces) as traces,
+        sum(failed_traces) as failed_traces, sum(llm_calls) as llm_calls, sum(failed_llm_calls) as failed_llm_calls,
+        coalesce(sum(llm_cost_usd), 0)::text as llm_cost_usd,
+        count(distinct tenant_id) filter (where tenant_id is not null) as active_tenants,
+        count(distinct session_id) filter (where session_id is not null) as active_sessions
+      from all_rows
+      group by user_id
     )
-    select user_id, max(timestamp) as last_seen_at, sum(events) as events, sum(errors) as errors,
-      sum(open_errors) as open_errors, sum(severe_errors) as severe_errors, sum(traces) as traces,
-      sum(failed_traces) as failed_traces, sum(llm_calls) as llm_calls, sum(failed_llm_calls) as failed_llm_calls,
-      coalesce(sum(llm_cost_usd), 0)::text as llm_cost_usd,
-      count(distinct tenant_id) filter (where tenant_id is not null) as active_tenants,
-      count(distinct session_id) filter (where session_id is not null) as active_sessions
-    from all_rows
-    group by user_id
+    select aggregated.user_id, aggregated.last_seen_at, aggregated.events, aggregated.errors,
+      aggregated.open_errors, aggregated.severe_errors, aggregated.traces, aggregated.failed_traces,
+      aggregated.llm_calls, aggregated.failed_llm_calls, aggregated.llm_cost_usd, aggregated.active_tenants,
+      aggregated.active_sessions, coalesce(user_profiles.traits, '{}'::jsonb) as profile_traits
+    from aggregated
+    left join user_profiles
+      on user_profiles.project_id = ${filters.projectId}
+      and user_profiles.environment_id = ${filters.environmentId}
+      and user_profiles.user_id = aggregated.user_id
   `.execute(db);
 
   const users = rows.rows.map((row): UserSummary => {
+    const traits = objectTraits(row.profile_traits);
     const errors = toNumber(row.errors);
     const openErrors = toNumber(row.open_errors);
     const severeErrors = toNumber(row.severe_errors);
@@ -320,7 +378,9 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
     const llmCostUsd = row.llm_cost_usd;
     return {
       userId: row.user_id,
-      label: userLabel(row.user_id),
+      label: profileLabel(row.user_id, traits, userLabel(row.user_id)),
+      traits,
+      keyTraits: keyTraits(traits, ["plan", "role", "operation_mode", "status"]),
       isAnonymous: row.user_id === null,
       impactScore: computeImpactScore({
         severeErrors,
@@ -403,6 +463,7 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
     active_tenants: unknown;
     active_sessions: unknown;
     total_signals: unknown;
+    profile_traits: unknown;
   }>`
     with scoped_events as (
       select tenant_id, session_id, timestamp, 1::bigint as events, 0::bigint as errors,
@@ -473,10 +534,18 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
       coalesce(sum(llm_cost_usd), 0)::text as llm_cost_usd,
       count(distinct tenant_id) filter (where tenant_id is not null) as active_tenants,
       count(distinct session_id) filter (where session_id is not null) as active_sessions,
-      count(*) as total_signals
+      count(*) as total_signals,
+      coalesce((
+        select traits
+        from user_profiles
+        where project_id = ${filters.projectId}
+          and environment_id = ${filters.environmentId}
+          and user_id = ${userId}
+      ), '{}'::jsonb) as profile_traits
     from all_rows
   `.execute(db);
   const row = rows.rows[0];
+  const traits = objectTraits(row?.profile_traits);
   const errors = toNumber(row?.errors);
   const openErrors = toNumber(row?.open_errors);
   const severeErrors = toNumber(row?.severe_errors);
@@ -486,7 +555,9 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
 
   return {
     userId,
-    label: userId,
+    label: profileLabel(userId, traits, userId),
+    traits,
+    keyTraits: keyTraits(traits, ["plan", "role", "operation_mode", "status"]),
     isAnonymous: false,
     impactScore:
       toNumber(row?.total_signals) === 0

@@ -16,6 +16,7 @@ Implemented capabilities:
 - Admin APIs for users, projects, environments, and ingestion API keys.
 - Admin Integration Console for setup and API key generation.
 - API-key authenticated ingestion for events, errors, LLM calls, traces, and spans.
+- API-key authenticated identify endpoints and SDK helpers for project/environment-scoped user and tenant profile traits.
 - Redis/BullMQ queueing between API acceptance and worker persistence.
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
@@ -31,8 +32,8 @@ Implemented capabilities:
 - Errors investigation workspace with grouped triage, status updates, and raw occurrence drilldown/filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
-- Read-only Entities investigation workspace with impact-ranked tenant summaries, selected tenant top users, and cross-signal timeline drilldowns.
-- Read-only Users investigation workspace with impact-ranked user summaries, selected user recent sessions, and cross-signal timeline drilldowns.
+- Read-only Entities investigation workspace with impact-ranked tenant summaries, trait-derived labels and chips, selected tenant top users, and cross-signal timeline drilldowns.
+- Read-only Users investigation workspace with impact-ranked user summaries, trait-derived labels and chips, selected user recent sessions, and cross-signal timeline drilldowns.
 - Worker-owned telemetry retention with per-table windows, bounded batches, and recorded retention runs.
 - Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.

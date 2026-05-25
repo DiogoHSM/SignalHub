@@ -52,15 +52,26 @@ export function EntitiesTenantDetail({
   onTimelineDrilldown
 }: Props) {
   const summary = detail?.tenant ?? tenant;
+  const keyTraits = summary?.keyTraits ?? {};
 
   return (
     <div className="panel entity-detail">
       <div className="panel-header">
         <h2>{summary ? summary.label : "Tenant detail"}</h2>
+        {summary?.tenantId ? <code>{summary.tenantId}</code> : null}
       </div>
       {!summary ? <p className="muted-text">Select a tenant to inspect recent activity.</p> : null}
       {summary ? (
         <>
+          {Object.keys(keyTraits).length > 0 ? (
+            <div className="trait-chips">
+              {Object.entries(keyTraits).map(([key, value]) => (
+                <span className="trait-chip" key={key}>
+                  {key}: {value}
+                </span>
+              ))}
+            </div>
+          ) : null}
           <div className="entity-detail-filters">
             <label>
               User

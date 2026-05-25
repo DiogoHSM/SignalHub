@@ -3,12 +3,16 @@ import {
   eventPayloadSchema,
   llmCallPayloadSchema,
   spanPayloadSchema,
-  tracePayloadSchema
+  tenantIdentifyPayloadSchema,
+  tracePayloadSchema,
+  userIdentifyPayloadSchema
 } from "@sigmon/telemetry/ingestion-schemas";
 import { describe, expect, it } from "vitest";
 import {
   createErrorSignal,
   createEventSignal,
+  createIdentifyTenantSignal,
+  createIdentifyUserSignal,
   createLlmSignal,
   createSpanSignal,
   createTraceSignal
@@ -26,6 +30,35 @@ describe("SDK ingestion schema contracts", () => {
             tenantId: "tenant_1",
             userId: "user_1",
             metadata: { plan: "pro" }
+          }
+        ).payload
+      )
+    ).not.toThrow();
+  });
+
+  it("creates user identify payloads accepted by the ingestion schema", () => {
+    expect(() =>
+      userIdentifyPayloadSchema.parse(
+        createIdentifyUserSignal(
+          "user_1",
+          { name: "Ana", role: "admin" },
+          {
+            timestamp: "2026-05-02T12:00:00.000Z",
+            tenantId: "tenant_1"
+          }
+        ).payload
+      )
+    ).not.toThrow();
+  });
+
+  it("creates tenant identify payloads accepted by the ingestion schema", () => {
+    expect(() =>
+      tenantIdentifyPayloadSchema.parse(
+        createIdentifyTenantSignal(
+          "tenant_1",
+          { name: "MicroERP", plan: "pro" },
+          {
+            timestamp: "2026-05-02T12:00:00.000Z"
           }
         ).payload
       )

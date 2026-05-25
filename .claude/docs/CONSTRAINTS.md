@@ -3,10 +3,14 @@
 - Phase 1 is self-hosted and single-installation oriented.
 - Projects and environments are the telemetry boundaries.
 - Ingestion API keys are scoped to exactly one project and one environment.
+- User and tenant profile traits are scoped to the same project/environment boundary as the ingestion API key.
 - Human sessions are required for query routes.
 - Admin routes require an admin human session.
 - API keys are only shown once at creation time; persisted records keep a prefix and hash.
 - Worker sanitization runs before telemetry persistence.
+- Identify traits must be sanitized before profile persistence.
+- Telemetry writes may update profile `last_seen_at` timestamps from `user_id` or `tenant_id`, but must not overwrite profile traits.
+- Identify request `metadata` is accepted for envelope compatibility only and is not persisted in profile rows in the MVP.
 - The API must not return ingestion success unless the queue accepts the job.
 - Telemetry retries must remain idempotent across queue delivery and database persistence.
 - Webhook notification targets must reject local, private, link-local, multicast, loopback, and metadata networks in every environment.

@@ -57,10 +57,20 @@ export function UsersUserDetail({
     <div className="panel user-detail">
       <div className="panel-header">
         <h2>{summary ? summary.label : "User detail"}</h2>
+        {summary?.userId ? <code>{summary.userId}</code> : null}
       </div>
       {!summary ? <p className="muted-text">Select a user to inspect recent activity.</p> : null}
       {summary ? (
         <>
+          {Object.keys(summary.keyTraits).length > 0 ? (
+            <div className="trait-chips">
+              {Object.entries(summary.keyTraits).map(([key, value]) => (
+                <span className="trait-chip" key={key}>
+                  {key}: {value}
+                </span>
+              ))}
+            </div>
+          ) : null}
           <div className="entity-detail-filters">
             <label>
               Tenant

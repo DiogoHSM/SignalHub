@@ -41,6 +41,12 @@ export type EventInput = {
   timestamp?: Date | string;
 };
 
+export type IdentifyUserInput = EventInput & {
+  tenantId?: string;
+};
+
+export type IdentifyTenantInput = EventInput;
+
 export type ErrorInput = SignalContext &
   EventInput & {
   severity?: ErrorSeverity;
@@ -142,11 +148,21 @@ export type SignalMonitorClient = {
   startTrace: (name: string, input?: StartTraceInput & SignalContext) => ActiveTrace;
   span: (input: SpanInput, context?: SignalContext) => void;
   identify: (context: SignalContext) => void;
+  identifyUser: (userId: string, traits?: SignalMetadata, context?: IdentifyUserInput) => void;
+  identifyTenant: (tenantId: string, traits?: SignalMetadata, context?: IdentifyTenantInput) => void;
   flush: (options?: FlushOptions) => Promise<FlushResult>;
   shutdown: (options?: FlushOptions) => Promise<FlushResult>;
 };
 
-export type SignalKind = "event" | "error" | "llm" | "trace" | "span" | "breadcrumb";
+export type SignalKind =
+  | "event"
+  | "error"
+  | "llm"
+  | "trace"
+  | "span"
+  | "breadcrumb"
+  | "identify_user"
+  | "identify_tenant";
 
 export type QueuedSignal = {
   kind: SignalKind;
