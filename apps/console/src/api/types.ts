@@ -410,6 +410,101 @@ export type OverviewResponse = {
   };
 };
 
+export type OperationsWindow = "24h" | "7d" | "30d";
+
+export type OperationsStatus = "healthy" | "degraded" | "unhealthy" | "not_configured";
+
+export type OperationsQuery = {
+  projectId: string;
+  environmentId: string;
+  window: OperationsWindow;
+};
+
+export type OperationsMonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
+
+export type OperationsStatusCounts = {
+  total: number;
+  up: number;
+  degraded: number;
+  down: number;
+  paused: number;
+  unknown: number;
+};
+
+export type OperationsSetupGap = {
+  key: "http_monitor" | "heartbeat_monitor" | "alert_rule" | "notification_channel" | "recent_telemetry";
+  label: string;
+  severity: "info" | "warning";
+  action: "monitors" | "alerts" | "setup" | "overview";
+};
+
+export type OperationsResponse = {
+  window: OperationsWindow;
+  generatedAt: string;
+  scope: { projectId: string; environmentId: string };
+  range: { from: string; to: string };
+  status: OperationsStatus;
+  summary: {
+    monitors: {
+      total: number;
+      http: OperationsStatusCounts;
+      heartbeat: OperationsStatusCounts;
+    };
+    alerts: {
+      rules: { total: number; enabled: number };
+      events: { total: number; critical: number; warning: number; deliveryFailed: number; deliveryPending: number };
+    };
+    telemetry: {
+      events: number;
+      errors: number;
+      traces: number;
+      failedTraces: number;
+      errorRatePercent: number | null;
+      p95TraceDurationMs: number | null;
+      lastEventAt: string | null;
+      lastErrorAt: string | null;
+      lastTraceAt: string | null;
+    };
+    incidents: {
+      open: number;
+      investigating: number;
+      urgent: number;
+      high: number;
+      regressed: number;
+    };
+  };
+  recent: {
+    monitors: Array<{
+      id: string;
+      kind: "http" | "heartbeat";
+      name: string;
+      status: OperationsMonitorStatus;
+      lastCheckedAt: string | null;
+      lastHeartbeatAt: string | null;
+      lastCheckLatencyMs: number | null;
+      lastCheckErrorMessage: string | null;
+    }>;
+    alerts: Array<{
+      id: string;
+      severity: "info" | "warning" | "critical";
+      triggeredAt: string;
+      message: string;
+      latestDeliveryStatus: "success" | "failed" | null;
+    }>;
+    incidents: Array<{
+      id: string;
+      message: string;
+      severity: string;
+      status: ErrorGroupStatus;
+      priority: ErrorGroupPriority | null;
+      lastSeenAt: string;
+      latestErrorId: string | null;
+    }>;
+  };
+  topLatency: Array<{ name: string; p95TraceDurationMs: number; traces: number; failedTraces: number }>;
+  setupGaps: OperationsSetupGap[];
+};
+
 export type EntityWindow = "24h" | "7d" | "30d";
 
 export type EntitySignalType = "event" | "error" | "trace" | "llm";

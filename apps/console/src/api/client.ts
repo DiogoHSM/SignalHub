@@ -27,6 +27,8 @@ import type {
   NotificationChannelResponse,
   OverviewQuery,
   OverviewResponse,
+  OperationsQuery,
+  OperationsResponse,
   Project,
   QueryFilters,
   QueryListResponse,
@@ -165,6 +167,7 @@ export type ApiClient = {
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
+  getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getSystemHealth: () => Promise<AggregateResponse<SystemHealthResponse>>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
@@ -404,6 +407,15 @@ function overviewPath(query: OverviewQuery): string {
   return `/query/overview?${params.toString()}`;
 }
 
+function operationsPath(query: OperationsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+
+  return `/query/operations?${params.toString()}`;
+}
+
 function entityTenantListPath(query: TenantListQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -621,6 +633,7 @@ export function createApiClient(
     getSessionTimeline: (sessionId, query) =>
       request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
+    getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getSystemHealth: () => request<AggregateResponse<SystemHealthResponse>>(path(apiBasePath, "/system/health")),
     listEntityTenants: (query) =>
       request<AggregateResponse<TenantListResponse>>(path(apiBasePath, entityTenantListPath(query))),
