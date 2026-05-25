@@ -2,9 +2,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflowPath = ".github/workflows/ci.yml";
+const publishSdkWorkflowPath = ".github/workflows/publish-sdk.yml";
 
 function workflow(): string {
   return readFileSync(workflowPath, "utf8");
+}
+
+function publishSdkWorkflow(): string {
+  return readFileSync(publishSdkWorkflowPath, "utf8");
 }
 
 function expectIncludesAll(value: string, snippets: string[]) {
@@ -126,5 +131,22 @@ describe("GitHub Actions CI workflow", () => {
     ]);
     expect(deployJob).not.toContain("POSTGRES_DEPLOY_URL");
     expect(deployJob).not.toContain("REDIS_DEPLOY_URL");
+  });
+
+  it("publishes the SDK package to public npm releases with provenance", () => {
+    const content = publishSdkWorkflow();
+
+    expectIncludesAll(content, [
+      "name: Publish SDK",
+      "release:",
+      "types: [published]",
+      "workflow_dispatch:",
+      "id-token: write",
+      "NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}",
+      "registry-url: https://registry.npmjs.org",
+      "pnpm --filter @sigmon/sdk build",
+      "pnpm --filter @sigmon/sdk publish --access public --provenance --no-git-checks"
+    ]);
+    expect(content).not.toContain("EASYPANEL");
   });
 });

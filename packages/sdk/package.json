@@ -1,12 +1,40 @@
 {
   "name": "@sigmon/sdk",
   "version": "0.1.0",
+  "description": "SignalMonitor JavaScript and TypeScript SDK for events, errors, breadcrumbs, traces, LLM calls, identify, and Next.js instrumentation.",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://sigmon.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DiogoHSM/sigmon.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/DiogoHSM/sigmon/issues"
+  },
+  "keywords": [
+    "sigmon",
+    "signalmonitor",
+    "telemetry",
+    "observability",
+    "analytics",
+    "errors",
+    "nextjs",
+    "sentry",
+    "posthog"
+  ],
+  "sideEffects": false,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -27,7 +55,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm build"
   },
   "dependencies": {
     "nanoid": "^5.1.11"
