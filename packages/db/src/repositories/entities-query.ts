@@ -242,7 +242,23 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
     active_sessions: unknown;
     profile_traits: unknown;
   }>`
-    with scoped_events as (
+    with profile_matches as (
+      select tenant_id
+      from tenant_profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and ${pattern ?? null}::text is not null
+        and (
+          traits ->> 'name' ilike ${pattern ?? ""}
+          or traits ->> 'display_name' ilike ${pattern ?? ""}
+          or traits ->> 'email' ilike ${pattern ?? ""}
+          or traits ->> 'plan' ilike ${pattern ?? ""}
+          or traits ->> 'role' ilike ${pattern ?? ""}
+          or traits ->> 'operation_mode' ilike ${pattern ?? ""}
+          or traits ->> 'status' ilike ${pattern ?? ""}
+        )
+    ),
+    scoped_events as (
       select tenant_id, user_id, session_id, timestamp, 1::bigint as events, 0::bigint as errors,
         0::bigint as open_errors, 0::bigint as severe_errors, 0::bigint as traces, 0::bigint as failed_traces,
         0::bigint as llm_calls, 0::bigint as failed_llm_calls, 0::numeric as llm_cost_usd
@@ -251,6 +267,13 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (
+          ${pattern ?? null}::text is null
+          or tenant_id ilike ${pattern ?? ""}
+          or user_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or tenant_id in (select tenant_id from profile_matches)
+        )
     ),
     scoped_errors as (
       select tenant_id, user_id, session_id, timestamp, 0::bigint as events, 1::bigint as errors,
@@ -267,6 +290,13 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (
+          ${pattern ?? null}::text is null
+          or tenant_id ilike ${pattern ?? ""}
+          or user_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or tenant_id in (select tenant_id from profile_matches)
+        )
     ),
     scoped_traces as (
       select tenant_id, user_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
@@ -278,6 +308,13 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (
+          ${pattern ?? null}::text is null
+          or tenant_id ilike ${pattern ?? ""}
+          or user_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or tenant_id in (select tenant_id from profile_matches)
+        )
     ),
     scoped_llm_calls as (
       select tenant_id, user_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
@@ -289,6 +326,13 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (
+          ${pattern ?? null}::text is null
+          or tenant_id ilike ${pattern ?? ""}
+          or user_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or tenant_id in (select tenant_id from profile_matches)
+        )
     ),
     all_rows as (
       select * from scoped_events
@@ -315,22 +359,6 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
       on tenant_profiles.project_id = ${filters.projectId}
       and tenant_profiles.environment_id = ${filters.environmentId}
       and tenant_profiles.tenant_id = aggregated.tenant_id
-    where (
-      ${pattern ?? null}::text is null
-      or aggregated.tenant_id ilike ${pattern ?? ""}
-      or tenant_profiles.traits ->> 'name' ilike ${pattern ?? ""}
-      or tenant_profiles.traits ->> 'display_name' ilike ${pattern ?? ""}
-      or tenant_profiles.traits ->> 'email' ilike ${pattern ?? ""}
-      or exists (
-        select 1
-        from all_rows search_rows
-        where search_rows.tenant_id is not distinct from aggregated.tenant_id
-          and (
-            search_rows.user_id ilike ${pattern ?? ""}
-            or search_rows.session_id ilike ${pattern ?? ""}
-          )
-      )
-    )
   `.execute(db);
 
   const tenants = rows.rows.map((row): TenantSummary => {

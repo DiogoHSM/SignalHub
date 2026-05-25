@@ -45,7 +45,7 @@ export async function identifyUserProfile(db: Db, input: IdentifyUserProfileInpu
     })
     .onConflict((oc) =>
       oc.columns(["project_id", "environment_id", "user_id"]).doUpdateSet({
-        tenant_id: input.tenantId ?? null,
+        tenant_id: sql<string | null>`coalesce(excluded.tenant_id, user_profiles.tenant_id)`,
         traits: sql<unknown>`excluded.traits`,
         last_seen_at: sql<Date>`greatest(user_profiles.last_seen_at, excluded.last_seen_at)`,
         updated_at: input.timestamp

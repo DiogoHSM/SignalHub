@@ -569,7 +569,6 @@ describe("repositories", () => {
         projectId: "prj_identity",
         environmentId: "env_identity",
         userId: "usr_ana",
-        tenantId: "tenant_acme",
         traits: { name: "Ana Maria", role: "admin", token: "new-secret-value" },
         timestamp: new Date("2026-05-25T10:10:00.000Z")
       });
@@ -5691,6 +5690,15 @@ describe("repositories", () => {
         userId: "user_search",
         sessionId: "session_b"
       });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_entity_search_same_tenant_other_user",
+        timestamp: new Date("2026-05-05T10:02:00.000Z"),
+        name: "same.tenant.other.user",
+        tenantId: "tenant_beta",
+        userId: "user_other",
+        sessionId: "session_c"
+      });
 
       const byTenant = await listEntityTenants(db, {
         projectId: project.id,
@@ -5711,6 +5719,7 @@ describe("repositories", () => {
         now
       });
       expect(byUser.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_beta"]);
+      expect(byUser.tenants[0]).toMatchObject({ events: 0, errors: 1, activeUsers: 1 });
     });
   });
 
@@ -5842,6 +5851,36 @@ describe("repositories", () => {
         label: "Display ERP",
         keyTraits: { operation_mode: "2", status: "true" }
       });
+
+      const byPlan = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "pro",
+        limit: 50,
+        now
+      });
+      expect(byPlan.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_1"]);
+
+      const byOperationMode = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "2",
+        limit: 50,
+        now
+      });
+      expect(byOperationMode.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_display"]);
+
+      const byStatus = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "true",
+        limit: 50,
+        now
+      });
+      expect(byStatus.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_display"]);
 
       const allTenants = await listEntityTenants(db, {
         projectId: project.id,
@@ -6000,6 +6039,15 @@ describe("repositories", () => {
       });
       await insertEvent(db, {
         ...base,
+        id: "evt_user_search_one_other_session",
+        timestamp: new Date("2026-05-05T10:00:30.000Z"),
+        name: "user.other.session",
+        tenantId: "tenant_match",
+        userId: "user_match",
+        sessionId: "session_other_match_user"
+      });
+      await insertEvent(db, {
+        ...base,
         id: "evt_user_search_other",
         timestamp: new Date("2026-05-05T10:01:00.000Z"),
         name: "other.user",
@@ -6017,6 +6065,7 @@ describe("repositories", () => {
         now
       });
       expect(bySession.users.map((user) => user.userId)).toEqual(["user_match"]);
+      expect(bySession.users[0]).toMatchObject({ events: 1, activeSessions: 1 });
 
       const byTenant = await listUsersActivity(db, {
         projectId: project.id,
@@ -6044,7 +6093,7 @@ describe("repositories", () => {
         environmentId: environment.id,
         userId: "user_1",
         tenantId: "tenant_1",
-        traits: { name: "Ana Souza", role: "admin" },
+        traits: { name: "Ana Souza", plan: "enterprise", role: "admin" },
         timestamp: new Date("2026-05-05T11:00:00.000Z")
       });
       await identifyUserProfile(db, {
@@ -6060,7 +6109,7 @@ describe("repositories", () => {
         environmentId: environment.id,
         userId: "user_display",
         tenantId: "tenant_1",
-        traits: { display_name: "Ana Display", operation_mode: 7, status: false },
+        traits: { display_name: "Ana Display", operation_mode: 7, status: "suspended" },
         timestamp: new Date("2026-05-05T11:00:00.000Z")
       });
       await insertEvent(db, {
@@ -6120,8 +6169,8 @@ describe("repositories", () => {
       expect(result.users[0]).toMatchObject({
         userId: "user_1",
         label: "Ana Souza",
-        traits: { name: "Ana Souza", role: "admin" },
-        keyTraits: { role: "admin" }
+        traits: { name: "Ana Souza", plan: "enterprise", role: "admin" },
+        keyTraits: { plan: "enterprise", role: "admin" }
       });
 
       const detail = await getUserDetail(db, "user_1", {
@@ -6134,8 +6183,8 @@ describe("repositories", () => {
       expect(detail.user).toMatchObject({
         userId: "user_1",
         label: "Ana Souza",
-        traits: { name: "Ana Souza", role: "admin" },
-        keyTraits: { role: "admin" }
+        traits: { name: "Ana Souza", plan: "enterprise", role: "admin" },
+        keyTraits: { plan: "enterprise", role: "admin" }
       });
 
       const byEmail = await listUsersActivity(db, {
@@ -6159,8 +6208,38 @@ describe("repositories", () => {
       expect(byDisplayName.users[0]).toMatchObject({
         userId: "user_display",
         label: "Ana Display",
-        keyTraits: { operation_mode: "7", status: "false" }
+        keyTraits: { operation_mode: "7", status: "suspended" }
       });
+
+      const byRole = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "admin",
+        limit: 50,
+        now
+      });
+      expect(byRole.users.map((user) => user.userId)).toEqual(["user_1"]);
+
+      const byPlan = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "enterprise",
+        limit: 50,
+        now
+      });
+      expect(byPlan.users.map((user) => user.userId)).toEqual(["user_1"]);
+
+      const byStatus = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "suspended",
+        limit: 50,
+        now
+      });
+      expect(byStatus.users.map((user) => user.userId)).toEqual(["user_display"]);
 
       const allUsers = await listUsersActivity(db, {
         projectId: project.id,

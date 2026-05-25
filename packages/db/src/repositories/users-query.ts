@@ -245,7 +245,23 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
     active_sessions: unknown;
     profile_traits: unknown;
   }>`
-    with scoped_events as (
+    with profile_matches as (
+      select user_id
+      from user_profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and ${pattern ?? null}::text is not null
+        and (
+          traits ->> 'name' ilike ${pattern ?? ""}
+          or traits ->> 'display_name' ilike ${pattern ?? ""}
+          or traits ->> 'email' ilike ${pattern ?? ""}
+          or traits ->> 'plan' ilike ${pattern ?? ""}
+          or traits ->> 'role' ilike ${pattern ?? ""}
+          or traits ->> 'operation_mode' ilike ${pattern ?? ""}
+          or traits ->> 'status' ilike ${pattern ?? ""}
+        )
+    ),
+    scoped_events as (
       select user_id, tenant_id, session_id, timestamp, 1::bigint as events, 0::bigint as errors,
         0::bigint as open_errors, 0::bigint as severe_errors, 0::bigint as traces, 0::bigint as failed_traces,
         0::bigint as llm_calls, 0::bigint as failed_llm_calls, 0::numeric as llm_cost_usd
@@ -255,6 +271,13 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
         and timestamp >= ${from}
         and timestamp <= ${to}
         and (${filters.tenantId ?? null}::text is null or tenant_id = ${filters.tenantId ?? ""})
+        and (
+          ${pattern ?? null}::text is null
+          or user_id ilike ${pattern ?? ""}
+          or tenant_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
+        )
     ),
     scoped_errors as (
       select user_id, tenant_id, session_id, timestamp, 0::bigint as events, 1::bigint as errors,
@@ -272,6 +295,13 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
         and timestamp >= ${from}
         and timestamp <= ${to}
         and (${filters.tenantId ?? null}::text is null or tenant_id = ${filters.tenantId ?? ""})
+        and (
+          ${pattern ?? null}::text is null
+          or user_id ilike ${pattern ?? ""}
+          or tenant_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
+        )
     ),
     scoped_traces as (
       select user_id, tenant_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
@@ -284,6 +314,13 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
         and timestamp >= ${from}
         and timestamp <= ${to}
         and (${filters.tenantId ?? null}::text is null or tenant_id = ${filters.tenantId ?? ""})
+        and (
+          ${pattern ?? null}::text is null
+          or user_id ilike ${pattern ?? ""}
+          or tenant_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
+        )
     ),
     scoped_llm_calls as (
       select user_id, tenant_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
@@ -296,6 +333,13 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
         and timestamp >= ${from}
         and timestamp <= ${to}
         and (${filters.tenantId ?? null}::text is null or tenant_id = ${filters.tenantId ?? ""})
+        and (
+          ${pattern ?? null}::text is null
+          or user_id ilike ${pattern ?? ""}
+          or tenant_id ilike ${pattern ?? ""}
+          or session_id ilike ${pattern ?? ""}
+          or user_id in (select user_id from profile_matches)
+        )
     ),
     all_rows as (
       select * from scoped_events
@@ -322,22 +366,6 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
       on user_profiles.project_id = ${filters.projectId}
       and user_profiles.environment_id = ${filters.environmentId}
       and user_profiles.user_id = aggregated.user_id
-    where (
-      ${pattern ?? null}::text is null
-      or aggregated.user_id ilike ${pattern ?? ""}
-      or user_profiles.traits ->> 'name' ilike ${pattern ?? ""}
-      or user_profiles.traits ->> 'display_name' ilike ${pattern ?? ""}
-      or user_profiles.traits ->> 'email' ilike ${pattern ?? ""}
-      or exists (
-        select 1
-        from all_rows search_rows
-        where search_rows.user_id is not distinct from aggregated.user_id
-          and (
-            search_rows.tenant_id ilike ${pattern ?? ""}
-            or search_rows.session_id ilike ${pattern ?? ""}
-          )
-      )
-    )
   `.execute(db);
 
   const users = rows.rows.map((row): UserSummary => {
