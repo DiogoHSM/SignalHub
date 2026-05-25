@@ -38,6 +38,27 @@ export interface EnvironmentsTable {
   archived_at: NullableTimestamp;
 }
 
+export interface UserProfilesTable {
+  project_id: string;
+  environment_id: string;
+  user_id: string;
+  tenant_id: string | null;
+  traits: JsonColumn;
+  first_seen_at: Timestamp;
+  last_seen_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface TenantProfilesTable {
+  project_id: string;
+  environment_id: string;
+  tenant_id: string;
+  traits: JsonColumn;
+  first_seen_at: Timestamp;
+  last_seen_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 export interface ApiKeysTable {
   id: string;
   project_id: string;
@@ -435,6 +456,8 @@ export interface Database {
   users: UsersTable;
   projects: ProjectsTable;
   environments: EnvironmentsTable;
+  user_profiles: UserProfilesTable;
+  tenant_profiles: TenantProfilesTable;
   api_keys: ApiKeysTable;
   source_map_upload_tokens: SourceMapUploadTokensTable;
   events: EventsTable;

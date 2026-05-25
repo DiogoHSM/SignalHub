@@ -218,6 +218,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@sigmon/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
       kysely:
         specifier: ^0.28.16
         version: 0.28.16

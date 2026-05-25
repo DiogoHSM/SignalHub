@@ -115,6 +115,12 @@ import {
   revokeSourceMapUploadToken,
   updateSourceMapUploadTokenLastUsed
 } from "../src/repositories/source-map-upload-tokens.js";
+import {
+  identifyTenantProfile,
+  identifyUserProfile,
+  touchTenantProfileLastSeen,
+  touchUserProfileLastSeen
+} from "../src/repositories/identity-profiles.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
@@ -337,6 +343,15 @@ describe("repositories", () => {
     });
   });
 
+  it("identity profile tables exist", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      await sql`select project_id, environment_id, user_id, traits from user_profiles limit 0`.execute(db);
+      await sql`select project_id, environment_id, tenant_id, traits from tenant_profiles limit 0`.execute(db);
+    });
+  });
+
   it("runs backup metadata migrations", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -513,6 +528,238 @@ describe("repositories", () => {
         environmentId: environment.id
       });
       expect(revoked.lastUsedAt).toEqual(usedAtBeforeRevoke);
+    });
+  });
+
+  it("identity profiles upsert sanitized traits", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_identity", "env_identity");
+
+      await identifyUserProfile(db, {
+        projectId: "prj_identity",
+        environmentId: "env_identity",
+        userId: "usr_ana",
+        tenantId: "tenant_acme",
+        traits: { name: "Ana", token: "secret-value" },
+        timestamp: new Date("2026-05-25T10:00:00.000Z")
+      });
+      await identifyTenantProfile(db, {
+        projectId: "prj_identity",
+        environmentId: "env_identity",
+        tenantId: "tenant_acme",
+        traits: { plan: "pro" },
+        timestamp: new Date("2026-05-25T10:01:00.000Z")
+      });
+
+      const user = await db
+        .selectFrom("user_profiles")
+        .select(["tenant_id", "traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity")
+        .where("environment_id", "=", "env_identity")
+        .where("user_id", "=", "usr_ana")
+        .executeTakeFirstOrThrow();
+      expect(user.tenant_id).toBe("tenant_acme");
+      expect(user.traits).toEqual({ name: "Ana", token: "[REDACTED]" });
+      expect(user.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
+      expect(user.last_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
+      expect(user.updated_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
+
+      await identifyUserProfile(db, {
+        projectId: "prj_identity",
+        environmentId: "env_identity",
+        userId: "usr_ana",
+        tenantId: "tenant_acme",
+        traits: { name: "Ana Maria", role: "admin", token: "new-secret-value" },
+        timestamp: new Date("2026-05-25T10:10:00.000Z")
+      });
+
+      const updatedUser = await db
+        .selectFrom("user_profiles")
+        .select(["tenant_id", "traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity")
+        .where("environment_id", "=", "env_identity")
+        .where("user_id", "=", "usr_ana")
+        .executeTakeFirstOrThrow();
+      expect(updatedUser.tenant_id).toBe("tenant_acme");
+      expect(updatedUser.traits).toEqual({ name: "Ana Maria", role: "admin", token: "[REDACTED]" });
+      expect(updatedUser.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
+      expect(updatedUser.last_seen_at).toEqual(new Date("2026-05-25T10:10:00.000Z"));
+      expect(updatedUser.updated_at).toEqual(new Date("2026-05-25T10:10:00.000Z"));
+
+      await identifyUserProfile(db, {
+        projectId: "prj_identity",
+        environmentId: "env_identity",
+        userId: "usr_ana",
+        tenantId: "tenant_acme",
+        traits: { name: "Ana Historical", token: "older-secret-value" },
+        timestamp: new Date("2026-05-25T09:55:00.000Z")
+      });
+
+      const outOfOrderUser = await db
+        .selectFrom("user_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity")
+        .where("environment_id", "=", "env_identity")
+        .where("user_id", "=", "usr_ana")
+        .executeTakeFirstOrThrow();
+      expect(outOfOrderUser.traits).toEqual({ name: "Ana Historical", token: "[REDACTED]" });
+      expect(outOfOrderUser.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
+      expect(outOfOrderUser.last_seen_at).toEqual(new Date("2026-05-25T10:10:00.000Z"));
+      expect(outOfOrderUser.updated_at).toEqual(new Date("2026-05-25T09:55:00.000Z"));
+
+      const tenant = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity")
+        .where("environment_id", "=", "env_identity")
+        .where("tenant_id", "=", "tenant_acme")
+        .executeTakeFirstOrThrow();
+      expect(tenant.traits).toEqual({ plan: "pro" });
+      expect(tenant.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
+      expect(tenant.last_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
+      expect(tenant.updated_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
+
+      await identifyTenantProfile(db, {
+        projectId: "prj_identity",
+        environmentId: "env_identity",
+        tenantId: "tenant_acme",
+        traits: { plan: "enterprise", region: "br" },
+        timestamp: new Date("2026-05-25T10:11:00.000Z")
+      });
+
+      const updatedTenant = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity")
+        .where("environment_id", "=", "env_identity")
+        .where("tenant_id", "=", "tenant_acme")
+        .executeTakeFirstOrThrow();
+      expect(updatedTenant.traits).toEqual({ plan: "enterprise", region: "br" });
+      expect(updatedTenant.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
+      expect(updatedTenant.last_seen_at).toEqual(new Date("2026-05-25T10:11:00.000Z"));
+      expect(updatedTenant.updated_at).toEqual(new Date("2026-05-25T10:11:00.000Z"));
+
+      await identifyTenantProfile(db, {
+        projectId: "prj_identity",
+        environmentId: "env_identity",
+        tenantId: "tenant_acme",
+        traits: { plan: "legacy" },
+        timestamp: new Date("2026-05-25T09:56:00.000Z")
+      });
+
+      const outOfOrderTenant = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity")
+        .where("environment_id", "=", "env_identity")
+        .where("tenant_id", "=", "tenant_acme")
+        .executeTakeFirstOrThrow();
+      expect(outOfOrderTenant.traits).toEqual({ plan: "legacy" });
+      expect(outOfOrderTenant.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
+      expect(outOfOrderTenant.last_seen_at).toEqual(new Date("2026-05-25T10:11:00.000Z"));
+      expect(outOfOrderTenant.updated_at).toEqual(new Date("2026-05-25T09:56:00.000Z"));
+    });
+  });
+
+  it("touches last seen without overwriting identity profile traits", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_identity_touch", "env_identity_touch");
+
+      await identifyUserProfile(db, {
+        projectId: "prj_identity_touch",
+        environmentId: "env_identity_touch",
+        userId: "usr_ana",
+        tenantId: "tenant_acme",
+        traits: { name: "Ana", token: "secret-value" },
+        timestamp: new Date("2026-05-25T10:00:00.000Z")
+      });
+      await touchUserProfileLastSeen(db, {
+        projectId: "prj_identity_touch",
+        environmentId: "env_identity_touch",
+        userId: "usr_ana",
+        tenantId: "tenant_updated",
+        timestamp: new Date("2026-05-25T10:05:00.000Z")
+      });
+
+      const user = await db
+        .selectFrom("user_profiles")
+        .select(["tenant_id", "traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_touch")
+        .where("environment_id", "=", "env_identity_touch")
+        .where("user_id", "=", "usr_ana")
+        .executeTakeFirstOrThrow();
+      expect(user.tenant_id).toBe("tenant_updated");
+      expect(user.traits).toEqual({ name: "Ana", token: "[REDACTED]" });
+      expect(user.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
+      expect(user.last_seen_at).toEqual(new Date("2026-05-25T10:05:00.000Z"));
+      expect(user.updated_at).toEqual(new Date("2026-05-25T10:05:00.000Z"));
+
+      await touchUserProfileLastSeen(db, {
+        projectId: "prj_identity_touch",
+        environmentId: "env_identity_touch",
+        userId: "usr_ana",
+        timestamp: new Date("2026-05-25T10:03:00.000Z")
+      });
+
+      const userTouchedWithoutTenant = await db
+        .selectFrom("user_profiles")
+        .select(["tenant_id", "traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_touch")
+        .where("environment_id", "=", "env_identity_touch")
+        .where("user_id", "=", "usr_ana")
+        .executeTakeFirstOrThrow();
+      expect(userTouchedWithoutTenant.tenant_id).toBe("tenant_updated");
+      expect(userTouchedWithoutTenant.traits).toEqual({ name: "Ana", token: "[REDACTED]" });
+      expect(userTouchedWithoutTenant.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
+      expect(userTouchedWithoutTenant.last_seen_at).toEqual(new Date("2026-05-25T10:05:00.000Z"));
+      expect(userTouchedWithoutTenant.updated_at).toEqual(new Date("2026-05-25T10:03:00.000Z"));
+
+      await identifyTenantProfile(db, {
+        projectId: "prj_identity_touch",
+        environmentId: "env_identity_touch",
+        tenantId: "tenant_acme",
+        traits: { plan: "pro" },
+        timestamp: new Date("2026-05-25T10:01:00.000Z")
+      });
+      await touchTenantProfileLastSeen(db, {
+        projectId: "prj_identity_touch",
+        environmentId: "env_identity_touch",
+        tenantId: "tenant_acme",
+        timestamp: new Date("2026-05-25T10:06:00.000Z")
+      });
+
+      const tenant = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_touch")
+        .where("environment_id", "=", "env_identity_touch")
+        .where("tenant_id", "=", "tenant_acme")
+        .executeTakeFirstOrThrow();
+      expect(tenant.traits).toEqual({ plan: "pro" });
+      expect(tenant.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
+      expect(tenant.last_seen_at).toEqual(new Date("2026-05-25T10:06:00.000Z"));
+      expect(tenant.updated_at).toEqual(new Date("2026-05-25T10:06:00.000Z"));
+
+      await touchTenantProfileLastSeen(db, {
+        projectId: "prj_identity_touch",
+        environmentId: "env_identity_touch",
+        tenantId: "tenant_acme",
+        timestamp: new Date("2026-05-25T10:04:00.000Z")
+      });
+
+      const tenantTouchedOlder = await db
+        .selectFrom("tenant_profiles")
+        .select(["traits", "first_seen_at", "last_seen_at", "updated_at"])
+        .where("project_id", "=", "prj_identity_touch")
+        .where("environment_id", "=", "env_identity_touch")
+        .where("tenant_id", "=", "tenant_acme")
+        .executeTakeFirstOrThrow();
+      expect(tenantTouchedOlder.traits).toEqual({ plan: "pro" });
+      expect(tenantTouchedOlder.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
+      expect(tenantTouchedOlder.last_seen_at).toEqual(new Date("2026-05-25T10:06:00.000Z"));
+      expect(tenantTouchedOlder.updated_at).toEqual(new Date("2026-05-25T10:04:00.000Z"));
     });
   });
 
