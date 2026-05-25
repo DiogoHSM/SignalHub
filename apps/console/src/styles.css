@@ -716,6 +716,12 @@ select {
   color: #92400e;
 }
 
+.status-pill--warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .status-pill--unhealthy,
 .status-pill--failed {
   border-color: #fecaca;
@@ -2733,6 +2739,7 @@ pre {
 }
 
 .overview-dashboard,
+.operations-dashboard,
 .investigation-workspace,
 .alerts-panel,
 .artifacts-panel,
@@ -2786,6 +2793,8 @@ pre {
 
 .overview-list button,
 .overview-recent-list button,
+.operations-gaps button,
+.operations-list button,
 .event-row,
 .error-row,
 .error-group-row,
@@ -2811,6 +2820,191 @@ pre {
 
 .status-box.empty {
   color: var(--fg-secondary);
+}
+
+.operations-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.operations-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.operations-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.operations-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.operations-command-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  padding: 14px;
+}
+
+.operations-command-card h3,
+.operations-command-card p {
+  margin: 0;
+}
+
+.operations-command-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.operations-command-card__icon {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--fg-secondary);
+}
+
+.operations-command-card__icon--success {
+  color: var(--accent);
+}
+
+.operations-command-card__icon--warning {
+  color: var(--warning);
+}
+
+.operations-command-card__icon--failed {
+  color: var(--critical);
+}
+
+.operations-command-card__metric {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.small-action {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface-2);
+  color: var(--fg);
+  cursor: pointer;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.operations-gaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.operations-gaps button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--fg);
+  cursor: pointer;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.operations-latency-table {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  padding: 14px;
+}
+
+.operations-latency-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.operations-latency-table th,
+.operations-latency-table td {
+  border-top: 1px solid var(--border-subtle);
+  padding: 10px 8px;
+  text-align: left;
+}
+
+.operations-latency-table th {
+  color: var(--fg-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.operations-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.operations-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operations-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+}
+
+.operations-list strong,
+.operations-list button {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operations-list button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 0;
+}
+
+.operations-list small {
+  grid-column: 2;
+  color: var(--fg-muted);
 }
 
 @media (max-width: 920px) {
@@ -2866,7 +3060,9 @@ pre {
   .setup-shell,
   .workspace-grid,
   .overview-kpis,
-  .overview-lists {
+  .overview-lists,
+  .operations-status-grid,
+  .operations-recent-grid {
     grid-template-columns: 1fr;
   }
 

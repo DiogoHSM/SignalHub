@@ -163,6 +163,42 @@ function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewRe
   };
 }
 
+function operationsResponse() {
+  return {
+    window: "24h",
+    generatedAt: "2026-05-25T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-05-24T12:00:00.000Z", to: "2026-05-25T12:00:00.000Z" },
+    status: "healthy",
+    summary: {
+      monitors: {
+        total: 1,
+        http: { total: 1, up: 1, degraded: 0, down: 0, paused: 0, unknown: 0 },
+        heartbeat: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 }
+      },
+      alerts: {
+        rules: { total: 1, enabled: 1 },
+        events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 }
+      },
+      telemetry: {
+        events: 1,
+        errors: 0,
+        traces: 1,
+        failedTraces: 0,
+        errorRatePercent: 0,
+        p95TraceDurationMs: 120,
+        lastEventAt: "2026-05-25T11:58:00.000Z",
+        lastErrorAt: null,
+        lastTraceAt: "2026-05-25T11:58:00.000Z"
+      },
+      incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 }
+    },
+    recent: { monitors: [], alerts: [], incidents: [] },
+    topLatency: [],
+    setupGaps: []
+  };
+}
+
 function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): SystemHealthResponse {
   return {
     generatedAt: "2026-05-06T12:00:00.000Z",
@@ -845,6 +881,30 @@ describe("ConsoleShell", () => {
     await waitFor(() =>
       expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
     );
+  });
+
+  it("lazy-loads operations when Operations mode is opened", async () => {
+    const getOperations = vi.fn().mockResolvedValue({ data: operationsResponse() });
+    const api = client({
+      getOperations,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    expect(getOperations).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Operations" }));
+
+    await waitFor(() =>
+      expect(getOperations).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
+    );
+    expect(screen.getByRole("button", { name: "Operations" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("drills overview top lists into seeded investigation filters", async () => {
