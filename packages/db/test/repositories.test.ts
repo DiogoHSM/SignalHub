@@ -245,6 +245,59 @@ describe("repositories", () => {
     `.execute(db);
   }
 
+  async function insertTraceRows(
+    db: Db,
+    projectId: string,
+    environmentId: string,
+    count: number,
+    overrides: { name?: string; durationMs?: number } = {}
+  ): Promise<void> {
+    const name = overrides.name ?? "GET /checkout";
+    const routeKey = name.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase();
+    for (let index = 0; index < count; index += 1) {
+      await insertTrace(db, {
+        id: `${projectId}_${routeKey}_trace_${index}`,
+        traceId: `${projectId}_${routeKey}_trace_id_${index}`,
+        projectId,
+        environmentId,
+        timestamp: new Date("2026-05-24T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:00.000Z"),
+        name,
+        status: "success",
+        startedAt: new Date("2026-05-24T12:04:59.000Z"),
+        endedAt: new Date("2026-05-24T12:05:00.000Z"),
+        durationMs: overrides.durationMs ?? 100,
+        metadata: {}
+      });
+    }
+  }
+
+  async function insertErrorRows(
+    db: Db,
+    projectId: string,
+    environmentId: string,
+    count: number,
+    overrides: { fingerprint?: string; traceName?: string } = {}
+  ): Promise<void> {
+    const routeKey = overrides.traceName?.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase();
+    for (let index = 0; index < count; index += 1) {
+      await insertError(db, {
+        id: `${projectId}_error_${index}`,
+        traceId: routeKey === undefined ? undefined : `${projectId}_${routeKey}_trace_id_${index}`,
+        projectId,
+        environmentId,
+        timestamp: new Date("2026-05-24T12:05:30.000Z"),
+        receivedAt: new Date("2026-05-24T12:05:30.000Z"),
+        message: "Checkout failed",
+        severity: "error",
+        status: "open",
+        fingerprint: overrides.fingerprint,
+        metadata: {},
+        context: {}
+      });
+    }
+  }
+
   it("runs migrations idempotently", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -3267,15 +3320,83 @@ describe("repositories", () => {
       });
       expect(llmCostResult.observedValue).toBe("1.25");
 
-      await expect(
-        evaluateAlertRule(db, {
-          projectId: project.id,
-          environmentId: environment.id,
-          type: "error_rate",
-          windowStart: new Date("2026-05-06T11:50:00.000Z"),
-          windowEnd: new Date("2026-05-06T12:00:00.000Z")
-        })
-      ).rejects.toThrow("unsupported_alert_rule_type:error_rate");
+      const errorRateResult = await evaluateAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        type: "error_rate",
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z")
+      });
+      expect(errorRateResult.observedValue).toBe("200");
+    });
+  });
+
+  it("evaluates error rate rules with trace denominator and minimum sample size", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_rate", "env_rate");
+      await insertTraceRows(db, "prj_rate", "env_rate", 100, { name: "GET /checkout" });
+      await insertErrorRows(db, "prj_rate", "env_rate", 5, {
+        fingerprint: "checkout",
+        traceName: "GET /checkout"
+      });
+
+      const result = await evaluateAlertRule(db, {
+        projectId: "prj_rate",
+        environmentId: "env_rate",
+        type: "error_rate",
+        windowStart: new Date("2026-05-24T12:00:00.000Z"),
+        windowEnd: new Date("2026-05-24T12:10:00.000Z"),
+        routePattern: "GET /checkout",
+        minimumSampleSize: 20
+      });
+
+      expect(result).toEqual({ observedValue: "5" });
+    });
+  });
+
+  it("returns zero error rate when denominator is below minimum sample size", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_rate_low", "env_rate_low");
+      await insertTraceRows(db, "prj_rate_low", "env_rate_low", 3, { name: "GET /checkout" });
+      await insertErrorRows(db, "prj_rate_low", "env_rate_low", 1, { fingerprint: "checkout" });
+
+      const result = await evaluateAlertRule(db, {
+        projectId: "prj_rate_low",
+        environmentId: "env_rate_low",
+        type: "error_rate",
+        windowStart: new Date("2026-05-24T12:00:00.000Z"),
+        windowEnd: new Date("2026-05-24T12:10:00.000Z"),
+        routePattern: "GET /checkout",
+        minimumSampleSize: 20
+      });
+
+      expect(result).toEqual({ observedValue: "0" });
+    });
+  });
+
+  it("evaluates trace p95 latency scoped by route pattern", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_p95", "env_p95");
+      await insertTraceRows(db, "prj_p95", "env_p95", 10, { name: "GET /checkout", durationMs: 100 });
+      await insertTraceRows(db, "prj_p95", "env_p95", 10, {
+        name: "GET /settings",
+        durationMs: 2000
+      });
+
+      const result = await evaluateAlertRule(db, {
+        projectId: "prj_p95",
+        environmentId: "env_p95",
+        type: "trace_p95_latency",
+        windowStart: new Date("2026-05-24T12:00:00.000Z"),
+        windowEnd: new Date("2026-05-24T12:10:00.000Z"),
+        routePattern: "GET /checkout",
+        minimumSampleSize: 5
+      });
+
+      expect(Number(result.observedValue)).toBeLessThan(200);
     });
   });
 

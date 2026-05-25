@@ -137,7 +137,9 @@ const stopAlerts = config.alerts.enabled
               environmentId: rule.environmentId,
               type: rule.type,
               windowStart,
-              windowEnd
+              windowEnd,
+              routePattern: rule.routePattern,
+              minimumSampleSize: rule.minimumSampleSize
             }),
           recordAlertEvent: (input) => recordAlertEvent(db, input),
           updateRuleEvaluation: (input) => updateAlertRuleEvaluation(db, input),

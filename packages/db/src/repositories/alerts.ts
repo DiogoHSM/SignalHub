@@ -435,6 +435,8 @@ export async function createAlertRule(
     windowMinutes: number;
     threshold: string;
     cooldownMinutes: number;
+    routePattern?: string | null;
+    minimumSampleSize?: number;
     enabled: boolean;
   }
 ): Promise<AlertRuleRecord> {
@@ -452,8 +454,8 @@ export async function createAlertRule(
       window_minutes: input.windowMinutes,
       threshold: input.threshold,
       cooldown_minutes: input.cooldownMinutes,
-      route_pattern: null,
-      minimum_sample_size: 1,
+      route_pattern: input.routePattern ?? null,
+      minimum_sample_size: input.minimumSampleSize ?? 1,
       enabled: input.enabled
     })
     .returningAll()
@@ -523,6 +525,8 @@ export async function updateAlertRule(
     windowMinutes?: number;
     threshold?: string;
     cooldownMinutes?: number;
+    routePattern?: string | null;
+    minimumSampleSize?: number;
     enabled?: boolean;
   }
 ): Promise<AlertRuleRecord | undefined> {
@@ -557,6 +561,8 @@ export async function updateAlertRule(
       ...(input.windowMinutes !== undefined ? { window_minutes: input.windowMinutes } : {}),
       ...(input.threshold !== undefined ? { threshold: input.threshold } : {}),
       ...(input.cooldownMinutes !== undefined ? { cooldown_minutes: input.cooldownMinutes } : {}),
+      ...(input.routePattern !== undefined ? { route_pattern: input.routePattern } : {}),
+      ...(input.minimumSampleSize !== undefined ? { minimum_sample_size: input.minimumSampleSize } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       updated_at: new Date()
     })
@@ -586,8 +592,12 @@ export async function evaluateAlertRule(
     type: AlertRuleType;
     windowStart: Date;
     windowEnd: Date;
+    routePattern?: string | null;
+    minimumSampleSize?: number;
   }
 ): Promise<{ observedValue: string }> {
+  const minimumSampleSize = input.minimumSampleSize ?? 1;
+
   if (input.type === "critical_errors") {
     const row = await db
       .selectFrom("errors")
@@ -617,13 +627,62 @@ export async function evaluateAlertRule(
 
   if (input.type === "trace_p95_latency") {
     const result = await sql<{ value: string | null }>`
-      select trim_scale(percentile_cont(0.95) within group (order by duration_ms)::numeric(18, 6))::text as value
-      from traces
-      where project_id = ${input.projectId}
-        and environment_id = ${input.environmentId}
-        and timestamp >= ${input.windowStart}
-        and timestamp < ${input.windowEnd}
-        and duration_ms is not null
+      with scoped_traces as (
+        select duration_ms
+        from traces
+        where project_id = ${input.projectId}
+          and environment_id = ${input.environmentId}
+          and timestamp >= ${input.windowStart}
+          and timestamp < ${input.windowEnd}
+          and duration_ms is not null
+          and (${input.routePattern ?? null}::text is null or name = ${input.routePattern ?? null})
+      )
+      select case
+        when count(*) < ${minimumSampleSize} then '0'
+        else trim_scale(percentile_cont(0.95) within group (order by duration_ms)::numeric(18, 6))::text
+      end as value
+      from scoped_traces
+    `.execute(db);
+
+    return { observedValue: result.rows[0]?.value ?? "0" };
+  }
+
+  if (input.type === "error_rate") {
+    const result = await sql<{ value: string }>`
+      with scoped_traces as (
+        select trace_id
+        from traces
+        where project_id = ${input.projectId}
+          and environment_id = ${input.environmentId}
+          and timestamp >= ${input.windowStart}
+          and timestamp < ${input.windowEnd}
+          and (${input.routePattern ?? null}::text is null or name = ${input.routePattern ?? null})
+      ),
+      denominator as (
+        select count(*)::numeric as value
+        from scoped_traces
+      ),
+      numerator as (
+        select count(*)::numeric as value
+        from errors
+        where project_id = ${input.projectId}
+          and environment_id = ${input.environmentId}
+          and timestamp >= ${input.windowStart}
+          and timestamp < ${input.windowEnd}
+          and (
+            ${input.routePattern ?? null}::text is null
+            or exists (
+              select 1
+              from scoped_traces
+              where scoped_traces.trace_id = errors.trace_id
+            )
+          )
+      )
+      select case
+        when denominator.value = 0 or denominator.value < ${minimumSampleSize} then '0'
+        else trim_scale(((numerator.value / denominator.value) * 100)::numeric(18, 6))::text
+      end as value
+      from numerator, denominator
     `.execute(db);
 
     return { observedValue: result.rows[0]?.value ?? "0" };

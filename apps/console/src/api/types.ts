@@ -762,7 +762,7 @@ export type CreateNotificationChannelInput = {
 
 export type UpdateNotificationChannelInput = Partial<CreateNotificationChannelInput>;
 
-export type AlertRuleType = "critical_errors" | "error_count" | "trace_p95_latency" | "llm_cost";
+export type AlertRuleType = "critical_errors" | "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -777,6 +777,8 @@ export type AlertRuleResponse = {
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  routePattern: string | null;
+  minimumSampleSize: number;
   enabled: boolean;
   lastEvaluatedAt: string | null;
   lastTriggeredAt: string | null;
@@ -795,6 +797,8 @@ export type CreateAlertRuleInput = {
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  routePattern?: string | null;
+  minimumSampleSize?: number;
   enabled?: boolean;
 };
 

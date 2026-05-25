@@ -51,6 +51,7 @@ const defaultChannelForm: ChannelForm = {
 const ruleTypeLabels: Record<AlertRuleType, string> = {
   critical_errors: "Critical errors",
   error_count: "Error count",
+  error_rate: "Error rate",
   trace_p95_latency: "Trace p95 latency",
   llm_cost: "LLM cost"
 };

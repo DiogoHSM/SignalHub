@@ -245,21 +245,29 @@ const thresholdSchema = z
   .string()
   .regex(/^\d+(\.\d{1,6})?$/)
   .refine((value) => Number(value) > 0);
+const minimumSampleSizeSchema = z.number().int().min(1);
 
-const alertRuleSchema = z.object({
+const alertRuleBaseSchema = z.object({
   projectId: z.string().trim().min(1),
   environmentId: z.string().trim().min(1),
   notificationChannelId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(256),
-  type: z.enum(["critical_errors", "error_count", "trace_p95_latency", "llm_cost"]),
+  type: z.enum(["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost"]),
   severity: z.enum(["info", "warning", "critical"]),
   windowMinutes: z.number().int().min(1),
   threshold: thresholdSchema,
   cooldownMinutes: z.number().int().min(1),
+  routePattern: z.string().trim().min(1).max(256).nullable().optional(),
+  minimumSampleSize: minimumSampleSizeSchema,
+  enabled: z.boolean()
+});
+
+const alertRuleSchema = alertRuleBaseSchema.extend({
+  minimumSampleSize: minimumSampleSizeSchema.default(1),
   enabled: z.boolean().default(true)
 });
 
-const updateAlertRuleSchema = alertRuleSchema.partial().refine((input) => Object.keys(input).length > 0, {
+const updateAlertRuleSchema = alertRuleBaseSchema.partial().refine((input) => Object.keys(input).length > 0, {
   message: "at_least_one_field_required"
 });
 

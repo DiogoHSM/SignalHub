@@ -54,6 +54,8 @@ function alertRule(overrides: Partial<AlertRuleRecord> = {}): AlertRuleRecord {
     windowMinutes: 5,
     threshold: "1",
     cooldownMinutes: 10,
+    routePattern: null,
+    minimumSampleSize: 1,
     enabled: true,
     lastEvaluatedAt: null,
     lastTriggeredAt: null,
@@ -574,6 +576,70 @@ describe("admin alert routes", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json().rule).toMatchObject({ id: "rule_1", threshold: "1.5" });
     expect(createdRules).toEqual([payload]);
+  });
+
+  it("creates error rate alert rules with route pattern and minimum sample size", async () => {
+    const createdRules: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        createAlertRule: async (input) => {
+          createdRules.push(input);
+          return alertRule(input);
+        }
+      }
+    });
+
+    const payload = {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Checkout error rate",
+      type: "error_rate",
+      severity: "critical",
+      threshold: "5",
+      windowMinutes: 10,
+      cooldownMinutes: 30,
+      routePattern: "GET /checkout",
+      minimumSampleSize: 20
+    };
+
+    const response = await app.inject({ method: "POST", url: "/admin/alert-rules", payload });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().rule).toMatchObject({
+      id: "rule_1",
+      type: "error_rate",
+      routePattern: "GET /checkout",
+      minimumSampleSize: 20
+    });
+    expect(createdRules).toEqual([{ ...payload, enabled: true }]);
+  });
+
+  it("updates alert rule route pattern and minimum sample size", async () => {
+    const updatedRules: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        updateAlertRule: async (id, input) => {
+          updatedRules.push({ id, input });
+          return alertRule({ id, ...input });
+        }
+      }
+    });
+
+    const payload = {
+      type: "error_rate",
+      routePattern: "GET /checkout",
+      minimumSampleSize: 20
+    };
+
+    const response = await app.inject({ method: "PATCH", url: "/admin/alert-rules/rule_1", payload });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().rule).toMatchObject(payload);
+    expect(updatedRules).toEqual([{ id: "rule_1", input: payload }]);
   });
 
   it("returns 503 without leaking repository errors when creating alert rules fails", async () => {
