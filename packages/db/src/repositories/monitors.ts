@@ -370,6 +370,7 @@ export async function listDueHttpMonitors(
     from monitors
     where kind = 'http'
       and enabled = true
+      and status <> 'paused'
       and archived_at is null
       and (
         last_checked_at is null
@@ -389,6 +390,7 @@ export async function recordMonitorCheck(db: Db, input: RecordMonitorCheckInput)
       .selectAll()
       .where("id", "=", input.monitorId)
       .where("archived_at", "is", null)
+      .forUpdate()
       .executeTakeFirstOrThrow();
 
     await trx
@@ -436,10 +438,11 @@ export async function recordHeartbeatCheckIn(
   return db.transaction().execute(async (trx) => {
     const monitor = await trx
       .selectFrom("monitors")
-      .select(["id"])
+      .select(["id", "status"])
       .where("id", "=", input.monitorId)
       .where("kind", "=", "heartbeat")
       .where("archived_at", "is", null)
+      .forUpdate()
       .executeTakeFirst();
     if (!monitor) {
       return null;
@@ -461,7 +464,7 @@ export async function recordHeartbeatCheckIn(
     const row = await trx
       .updateTable("monitors")
       .set({
-        status: "up",
+        status: monitor.status === "paused" ? "paused" : "up",
         consecutive_failures: 0,
         consecutive_successes: 1,
         last_checked_at: input.checkedInAt,
@@ -490,6 +493,7 @@ export async function listStaleHeartbeatMonitors(
     from monitors
     where kind = 'heartbeat'
       and enabled = true
+      and status <> 'paused'
       and archived_at is null
       and (
         last_heartbeat_at is null

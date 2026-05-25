@@ -36,6 +36,7 @@ import {
 import {
   createHeartbeatMonitor,
   createHttpMonitor,
+  listDueHttpMonitors,
   listMonitors,
   listStaleHeartbeatMonitors,
   recordHeartbeatCheckIn,
@@ -1700,6 +1701,56 @@ describe("repositories", () => {
       });
 
       await expect(updateMonitor(db, monitor.id, { bodyContains: "ok" })).rejects.toThrow();
+    });
+  });
+
+  it("does not schedule paused monitors or unpause heartbeat check-ins", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_paused_monitor", "env_paused_monitor");
+
+      const httpMonitor = await createHttpMonitor(db, {
+        projectId: "prj_paused_monitor",
+        environmentId: "env_paused_monitor",
+        name: "Paused HTTP",
+        url: "https://microerp.example.com/health",
+        method: "GET",
+        intervalMinutes: 5,
+        timeoutMs: 3000,
+        expectedStatus: "2xx",
+        failureThreshold: 2,
+        recoveryThreshold: 1,
+        enabled: true
+      });
+      const heartbeatMonitor = await createHeartbeatMonitor(db, {
+        projectId: "prj_paused_monitor",
+        environmentId: "env_paused_monitor",
+        name: "Paused queue",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_paused",
+        enabled: true
+      });
+
+      await updateMonitor(db, httpMonitor.id, { status: "paused" });
+      await updateMonitor(db, heartbeatMonitor.id, { status: "paused" });
+
+      const dueHttp = await listDueHttpMonitors(db, {
+        now: new Date("2026-05-24T12:00:00.000Z"),
+        limit: 10
+      });
+      expect(dueHttp.map((item) => item.id)).not.toContain(httpMonitor.id);
+
+      const checkIn = await recordHeartbeatCheckIn(db, {
+        monitorId: heartbeatMonitor.id,
+        checkedInAt: new Date("2026-05-24T11:50:00.000Z")
+      });
+      expect(checkIn).toMatchObject({ id: heartbeatMonitor.id, status: "paused" });
+
+      const stale = await listStaleHeartbeatMonitors(db, {
+        now: new Date("2026-05-24T12:00:00.000Z")
+      });
+      expect(stale.map((item) => item.id)).not.toContain(heartbeatMonitor.id);
     });
   });
 
