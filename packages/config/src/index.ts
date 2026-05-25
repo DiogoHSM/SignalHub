@@ -170,8 +170,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       parsed.SMTP_USERNAME ||
       parsed.SMTP_PASSWORD ||
       parsed.SMTP_FROM ||
-      env.SMTP_PORT ||
-      env.SMTP_SECURE
+      (env.SMTP_PORT !== undefined && parsed.SMTP_PORT !== 587) ||
+      (env.SMTP_SECURE !== undefined && parsed.SMTP_SECURE !== false)
   );
   if (smtpConfigured) {
     if (!parsed.SMTP_HOST) throw new Error("SMTP_HOST is required when SMTP email is enabled");
