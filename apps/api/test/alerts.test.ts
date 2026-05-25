@@ -54,8 +54,6 @@ function alertRule(overrides: Partial<AlertRuleRecord> = {}): AlertRuleRecord {
     windowMinutes: 5,
     threshold: "1",
     cooldownMinutes: 10,
-    routePattern: null,
-    minimumSampleSize: 1,
     enabled: true,
     lastEvaluatedAt: null,
     lastTriggeredAt: null,
@@ -63,7 +61,7 @@ function alertRule(overrides: Partial<AlertRuleRecord> = {}): AlertRuleRecord {
     updatedAt: createdAt,
     archivedAt: null,
     ...overrides
-  };
+  } as AlertRuleRecord;
 }
 
 function alertEvent(overrides: Partial<AlertEventRecord> = {}): AlertEventRecord {

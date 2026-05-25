@@ -347,6 +347,17 @@ export async function updateNotificationChannel(
   id: string,
   input: UpdateNotificationChannelInput
 ): Promise<NotificationChannelRecord | undefined> {
+  const current = await db
+    .selectFrom("notification_channels")
+    .selectAll()
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
+  if (!current) {
+    return undefined;
+  }
+
+  const targetType = input.type ?? current.type;
   const emailRecipients =
     input.emailRecipients !== undefined ? normalizeEmailRecipients(input.emailRecipients) : undefined;
   if (input.type === "email" && emailRecipients === undefined) {
@@ -355,18 +366,31 @@ export async function updateNotificationChannel(
   if (input.type === "webhook" && !input.url) {
     throw new Error("webhook_url_required");
   }
+  if (
+    targetType === "email" &&
+    (input.url !== undefined || input.secretHeaderName !== undefined || input.secretHeaderValue !== undefined)
+  ) {
+    throw new Error("invalid_email_notification_channel");
+  }
+  if (targetType === "webhook" && input.emailRecipients !== undefined) {
+    throw new Error("invalid_webhook_notification_channel");
+  }
 
   const row = await db
     .updateTable("notification_channels")
     .set({
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.type !== undefined ? { type: input.type } : {}),
-      ...(input.url !== undefined ? { url: input.url } : {}),
-      ...(emailRecipients !== undefined ? { email_recipients: jsonb(emailRecipients) } : {}),
-      ...(input.secretHeaderName !== undefined ? { secret_header_name: input.secretHeaderName } : {}),
-      ...(input.secretHeaderValue !== undefined ? { secret_header_value: input.secretHeaderValue } : {}),
-      ...(input.type === "webhook" ? { email_recipients: jsonb([]) } : {}),
-      ...(input.type === "email"
+      ...(targetType === "webhook" && input.url !== undefined ? { url: input.url } : {}),
+      ...(targetType === "email" && emailRecipients !== undefined ? { email_recipients: jsonb(emailRecipients) } : {}),
+      ...(targetType === "webhook" && input.secretHeaderName !== undefined
+        ? { secret_header_name: input.secretHeaderName }
+        : {}),
+      ...(targetType === "webhook" && input.secretHeaderValue !== undefined
+        ? { secret_header_value: input.secretHeaderValue }
+        : {}),
+      ...(targetType === "webhook" ? { email_recipients: jsonb([]) } : {}),
+      ...(targetType === "email"
         ? {
             url: null,
             secret_header_name: null,

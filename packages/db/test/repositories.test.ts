@@ -29,6 +29,7 @@ import {
   listAlertEvents,
   recordAlertEvent,
   recordNotificationDelivery,
+  updateNotificationChannel,
   updateAlertRule,
   updateAlertRuleEvaluation,
   withAlertEvaluationLock
@@ -1563,6 +1564,13 @@ describe("repositories", () => {
         emailRecipients: ["diogo@example.com"],
         hasSecret: false
       });
+
+      await expect(
+        updateNotificationChannel(db, channel.id, {
+          secretHeaderName: "X-SignalMonitor-Secret",
+          secretHeaderValue: "secret"
+        })
+      ).rejects.toThrow("invalid_email_notification_channel");
     });
   });
 

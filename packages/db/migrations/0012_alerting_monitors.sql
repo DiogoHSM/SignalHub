@@ -7,7 +7,8 @@ ALTER TABLE notification_channels
   ADD CONSTRAINT notification_channels_shape_check CHECK (
     (type = 'webhook' AND url IS NOT NULL AND jsonb_array_length(email_recipients) = 0)
     OR
-    (type = 'email' AND url IS NULL AND jsonb_array_length(email_recipients) > 0)
+    (type = 'email' AND url IS NULL AND jsonb_array_length(email_recipients) > 0
+      AND secret_header_name IS NULL AND secret_header_value IS NULL)
   );
 
 ALTER TABLE alert_rules DROP CONSTRAINT alert_rules_type_check;
