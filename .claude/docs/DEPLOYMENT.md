@@ -81,6 +81,22 @@ On pushes to `main`, the `Deploy EasyPanel` job runs only after the test, build,
 
 Postgres and Redis do not use repository-triggered deploy hooks. They are stateful EasyPanel template services and should be managed directly in EasyPanel.
 
+## SDK Publishing
+
+The JavaScript/TypeScript SDK is published as the public npm package `@sigmon/sdk`. GitHub Actions workflow `Publish SDK` runs when a GitHub release is published, and can also be started manually with `workflow_dispatch`.
+
+The workflow installs dependencies with frozen pnpm, builds only `@sigmon/sdk`, and publishes from the SDK package directory:
+
+```sh
+npm publish --access public
+```
+
+Publishing uses npm Trusted Publishing through GitHub Actions OIDC. The workflow grants `id-token: write` and intentionally does not use an `NPM_TOKEN` secret.
+
+Before the first publish, create or claim the npm `@sigmon` organization/scope. If npm does not allow Trusted Publishing to be configured before the package exists, bootstrap `@sigmon/sdk` once from a locally authenticated npm session with `npm publish --access public`, then configure the package Trusted Publisher for GitHub Actions repository `DiogoHSM/sigmon` and workflow `publish-sdk.yml`.
+
+Before publishing a new SDK release, update `packages/sdk/package.json` version, run the release baseline, merge to `main`, then publish a GitHub release for that version. Future publishes should happen through the `Publish SDK` workflow, not a long-lived npm token.
+
 ## Services
 
 - `postgres`: Postgres 16, bound to `127.0.0.1:${POSTGRES_PORT:-5432}`.

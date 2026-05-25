@@ -2,6 +2,24 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("SDK exports", () => {
+  it("declares public npm package metadata", async () => {
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+
+    expect(manifest.name).toBe("@sigmon/sdk");
+    expect(manifest.private).toBeUndefined();
+    expect(manifest.description).toContain("SignalMonitor");
+    expect(manifest.license).toBe("MIT");
+    expect(manifest.repository).toMatchObject({
+      type: "git",
+      directory: "packages/sdk"
+    });
+    expect(manifest.publishConfig).toEqual({
+      access: "public",
+      registry: "https://registry.npmjs.org/"
+    });
+    expect(manifest.files).toEqual(expect.arrayContaining(["dist", "README.md"]));
+  });
+
   it("publishes explicit browser and node entrypoints", async () => {
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 

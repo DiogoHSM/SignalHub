@@ -67,6 +67,7 @@ Operational rules:
 - S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.
 - API key secrets returned by `/admin/projects/:projectId/api-keys` are one-time values and should be copied directly into the target client secret store.
 - EasyPanel deploy hook URLs can trigger production deploys. Store them only in GitHub Actions secrets, never in committed files or local shell history that might be shared.
+- SDK publishing uses npm Trusted Publishing through GitHub Actions OIDC. Do not create or store a long-lived npm publish token for the SDK workflow.
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 - Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
 - Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalMonitor stores them locally and the console displays resolved frame metadata only, not source content.
