@@ -52,6 +52,42 @@ function overviewResponse() {
   };
 }
 
+function operationsResponse() {
+  return {
+    window: "24h",
+    generatedAt: "2026-05-25T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-05-24T12:00:00.000Z", to: "2026-05-25T12:00:00.000Z" },
+    status: "healthy",
+    summary: {
+      monitors: {
+        total: 0,
+        http: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 },
+        heartbeat: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 }
+      },
+      alerts: {
+        rules: { total: 0, enabled: 0 },
+        events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 }
+      },
+      telemetry: {
+        events: 0,
+        errors: 0,
+        traces: 0,
+        failedTraces: 0,
+        errorRatePercent: null,
+        p95TraceDurationMs: null,
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null
+      },
+      incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 }
+    },
+    recent: { monitors: [], alerts: [], incidents: [] },
+    topLatency: [],
+    setupGaps: []
+  };
+}
+
 describe("createApiClient", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -312,6 +348,22 @@ describe("createApiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/query/overview?project_id=prj_1&environment_id=env_1&window=7d",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes operations query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: operationsResponse() }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getOperations?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/operations?project_id=prj_1&environment_id=env_1&window=7d",
       expect.objectContaining({ method: "GET" })
     );
   });

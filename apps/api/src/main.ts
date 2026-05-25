@@ -81,6 +81,7 @@ import {
   listTraceSpans,
   listTraces
 } from "@sigmon/db/repositories/telemetry-query.js";
+import { getOperations } from "@sigmon/db/repositories/operations-query.js";
 import { getSessionTimeline } from "@sigmon/db/repositories/session-timeline.js";
 import {
   getErrorGroup,
@@ -427,6 +428,7 @@ const app = await buildApp({
     getErrorAggregates: (filters) => getErrorAggregates(db, filters),
     getLlmAggregates: (filters) => getLlmAggregates(db, filters),
     getOverview: (filters) => getOverview(db, filters),
+    getOperations: (filters) => getOperations(db, filters),
     getTraceAggregates: (filters) => getTraceAggregates(db, filters),
     listEntityTenants: (filters) => listEntityTenants(db, filters),
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),

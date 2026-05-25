@@ -26,6 +26,7 @@ Implemented capabilities:
 - Worker-owned source-map artifact retention for local files, metadata, and cached stack resolutions.
 - Lightweight breadcrumb ingestion, short retention, SDK manual breadcrumbs, optional safe browser breadcrumb helper, and error-detail session context timeline.
 - Read-only Overview dashboard for project/environment KPIs, trends, top lists, and recent important signals.
+- Read-only Operations cockpit for project/environment monitor health, alert state, p95 latency, error rate, ingestion freshness, and active incidents.
 - Read-only Events investigation workspace with exact event-name filtering.
 - Errors investigation workspace with grouped triage, status updates, and raw occurrence drilldown/filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.

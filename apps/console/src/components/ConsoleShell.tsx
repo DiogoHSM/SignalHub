@@ -8,6 +8,7 @@ import { IncidentView } from "./IncidentView";
 import { AlertsPanel } from "./AlertsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
 import { MonitorsPanel } from "./MonitorsPanel";
+import { OperationsDashboard } from "./OperationsDashboard";
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SetupWorkspace } from "./SetupWorkspace";
@@ -199,6 +200,24 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     setActiveMode("investigate");
   }
 
+  function openOperationsErrors(filters: { status?: "open" | "investigating"; severity?: string } = {}) {
+    setInvestigationDrilldown((current) => ({
+      nonce: (current?.nonce ?? 0) + 1,
+      tab: "errors",
+      filters: { errors: filters }
+    }));
+    setActiveMode("investigate");
+  }
+
+  function openOperationsTraces() {
+    setInvestigationDrilldown((current) => ({
+      nonce: (current?.nonce ?? 0) + 1,
+      tab: "traces",
+      filters: { traces: {} }
+    }));
+    setActiveMode("investigate");
+  }
+
   function closeIncidentView() {
     window.history.replaceState({}, "", "/console");
     setIncidentRoute({ kind: "none" });
@@ -338,6 +357,20 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   />
                 ) : null}
               </div>
+              <div hidden={activeMode !== "operations"}>
+                {activeMode === "operations" ? (
+                  <OperationsDashboard
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    onOpenAlerts={() => setActiveMode("alerts")}
+                    onOpenErrors={openOperationsErrors}
+                    onOpenIncident={openErrorGroupIncident}
+                    onOpenMonitors={() => setActiveMode("monitors")}
+                    onOpenTraces={openOperationsTraces}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
               <div hidden={activeMode !== "investigate"}>
                 {activeMode === "investigate" ? (
                   <InvestigationWorkspace
@@ -391,6 +424,7 @@ function modeLabel(mode: ConsoleMode): string {
     artifacts: "Artifacts",
     investigate: "Investigate",
     monitors: "Monitors",
+    operations: "Operations",
     overview: "Overview",
     setup: "Setup",
     system: "System health"

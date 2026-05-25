@@ -74,6 +74,7 @@ import {
   listTraceSpans,
   listTraces
 } from "../src/repositories/telemetry-query.js";
+import { getOperations } from "../src/repositories/operations-query.js";
 import { getSessionTimeline } from "../src/repositories/session-timeline.js";
 import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
 import {
@@ -4720,6 +4721,173 @@ describe("repositories", () => {
         openErrors: 2,
         severeErrors: 2
       });
+    });
+  });
+
+  it("builds project operations health from monitors alerts incidents and telemetry", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Operations Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-25T12:00:00.000Z");
+      const inWindow = new Date("2026-05-25T11:50:00.000Z");
+      const receivedAt = new Date("2026-05-25T11:50:01.000Z");
+
+      const channel = await createNotificationChannel(db, {
+        name: "Ops email",
+        type: "email",
+        emailRecipients: ["ops@example.com"],
+        enabled: true
+      });
+
+      const httpMonitor = await createHttpMonitor(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        notificationChannelId: channel.id,
+        name: "API uptime",
+        url: "https://api.example.com/health",
+        method: "GET",
+        intervalMinutes: 5,
+        timeoutMs: 5000,
+        expectedStatus: "2xx",
+        failureThreshold: 2,
+        recoveryThreshold: 2,
+        enabled: true
+      });
+      await recordMonitorCheck(db, {
+        monitorId: httpMonitor.id,
+        checkedAt: inWindow,
+        status: "success",
+        latencyMs: 82,
+        responseStatus: 200
+      });
+
+      await createHeartbeatMonitor(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        notificationChannelId: channel.id,
+        name: "Queue worker heartbeat",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 2,
+        secretHash: "hashed-secret",
+        enabled: true
+      });
+
+      const rule = await createAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        notificationChannelId: channel.id,
+        name: "Checkout p95",
+        type: "trace_p95_latency",
+        severity: "warning",
+        windowMinutes: 10,
+        threshold: "750",
+        cooldownMinutes: 20,
+        routePattern: "checkout",
+        minimumSampleSize: 1,
+        enabled: true
+      });
+      const alertEvent = await recordAlertEvent(db, {
+        rule,
+        triggeredAt: inWindow,
+        windowStart: new Date("2026-05-25T11:40:00.000Z"),
+        windowEnd: inWindow,
+        observedValue: "900",
+        message: "Checkout p95 latency is high",
+        metadata: {}
+      });
+      await recordNotificationDelivery(db, {
+        alertEventId: alertEvent.id,
+        notificationChannelId: channel.id,
+        status: "failed",
+        attemptedAt: inWindow,
+        responseStatus: null,
+        errorMessage: "smtp unavailable"
+      });
+
+      await insertEvent(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "evt_operations_1",
+        name: "checkout.started",
+        timestamp: inWindow,
+        receivedAt
+      });
+      await insertError(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "err_operations_1",
+        message: "Checkout failed",
+        severity: "critical",
+        status: "open",
+        traceId: "trace_checkout_1",
+        timestamp: inWindow,
+        receivedAt
+      });
+      await insertTrace(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "trc_checkout_1",
+        traceId: "trace_checkout_1",
+        name: "checkout",
+        status: "error",
+        timestamp: inWindow,
+        receivedAt,
+        startedAt: inWindow,
+        durationMs: 900
+      });
+
+      const operations = await getOperations(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(operations.status).toBe("degraded");
+      expect(operations.summary.monitors.total).toBe(2);
+      expect(operations.summary.alerts.events.deliveryFailed).toBe(1);
+      expect(operations.summary.telemetry).toMatchObject({
+        events: 1,
+        errors: 1,
+        traces: 1,
+        failedTraces: 1,
+        errorRatePercent: 100
+      });
+      expect(operations.topLatency).toEqual([
+        { name: "checkout", p95TraceDurationMs: 900, traces: 1, failedTraces: 1 }
+      ]);
+      expect(operations.recent.alerts[0]).toMatchObject({
+        message: "Checkout p95 latency is high",
+        latestDeliveryStatus: "failed"
+      });
+      expect(operations.setupGaps.map((gap) => gap.key)).not.toContain("http_monitor");
+    });
+  });
+
+  it("marks operations as not configured when no operational data exists", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Empty Operations Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const operations = await getOperations(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now: new Date("2026-05-25T12:00:00.000Z")
+      });
+
+      expect(operations.status).toBe("not_configured");
+      expect(operations.setupGaps.map((gap) => gap.key)).toEqual([
+        "http_monitor",
+        "heartbeat_monitor",
+        "alert_rule",
+        "notification_channel",
+        "recent_telemetry"
+      ]);
     });
   });
 

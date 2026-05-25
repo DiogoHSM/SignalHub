@@ -1,6 +1,6 @@
-import { Bell, Boxes, Gauge, HeartPulse, KeyRound, Layers, MonitorCheck, SearchCode, Settings } from "lucide-react";
+import { Activity, Bell, Boxes, Gauge, HeartPulse, KeyRound, Layers, MonitorCheck, SearchCode, Settings } from "lucide-react";
 
-export type ConsoleMode = "setup" | "overview" | "investigate" | "alerts" | "monitors" | "artifacts" | "system";
+export type ConsoleMode = "setup" | "overview" | "operations" | "investigate" | "alerts" | "monitors" | "artifacts" | "system";
 
 type Props = {
   activeMode: ConsoleMode;
@@ -10,6 +10,7 @@ type Props = {
 export function ConsoleModeTabs({ activeMode, onChange }: Props) {
   const modes: Array<{ mode: ConsoleMode; label: string; icon: typeof Gauge }> = [
     { mode: "overview", label: "Overview", icon: Gauge },
+    { mode: "operations", label: "Operations", icon: Activity },
     { mode: "investigate", label: "Investigate", icon: SearchCode },
     { mode: "alerts", label: "Alerts", icon: Bell },
     { mode: "monitors", label: "Monitors", icon: HeartPulse },
