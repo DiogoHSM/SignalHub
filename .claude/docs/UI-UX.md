@@ -15,10 +15,11 @@ SignalMonitor includes an admin-only Integration Console.
 ## Investigation UX
 
 - Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
+- Keep `Operations` as a separate project/environment cockpit between `Overview` and `Investigate`.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
 - Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
-- Keep `System` as a quiet operational mode for service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
+- Keep `System` as a quiet global operational mode for Sigmon service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
 - System shows source-map retention policy and deleted counts inside the existing Retention card.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
@@ -59,6 +60,15 @@ SignalMonitor includes an admin-only Integration Console.
 - The Anonymous / Unassigned user bucket should be visible for context but disabled for drill-in.
 - User details should show compact summary metrics, recent sessions, and a cross-signal timeline from events, errors, traces, and LLM calls.
 - User timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from user context to source records.
+
+## Operations UX
+
+- `Operations` is the project/environment cockpit for monitored application health. It is distinct from global `System` health.
+- `Overview` remains the product and telemetry summary for the selected project/environment.
+- `Operations` summarizes monitored health, alert state, p95 latency, error rate, ingestion freshness, and open incidents for the selected project/environment.
+- `System` remains global Sigmon install health: API, Postgres, Redis, queue worker, scheduler, SMTP, retention, and backups.
+- Operations is read-only in this slice. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views for action.
+- Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
 
 ## Alerts UX
 

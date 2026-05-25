@@ -133,6 +133,7 @@ Query:
 - `GET /query/users`
 - `GET /query/users/:userKey`
 - `GET /query/overview`
+- `GET /query/operations`
 - `GET /query/aggregates/events`
 - `GET /query/aggregates/errors`
 - `GET /query/aggregates/llm`
@@ -206,6 +207,14 @@ The console also includes a read-only Users view for user-first investigation. I
 The console includes a read-only `Overview` mode for the selected project and environment. It uses `GET /query/overview` to load KPIs, UTC-bucketed mini trends, top lists, and recent important signals for `24h`, `7d`, or `30d` windows.
 
 Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
+
+## Operations Console
+
+The console includes a read-only `Operations` mode for the selected project and environment. It uses `GET /query/operations` to load monitored health, alert state, error rate, p95 trace latency, ingestion freshness, active incidents, recent monitor and alert activity, top latency names, and setup gaps for `24h`, `7d`, or `30d` windows.
+
+Operations aggregates are computed in `packages/db/src/repositories/operations-query.ts` from existing monitors, monitor checks, alert rules, alert events, notification delivery state, error groups, events, errors, and traces. It does not add storage tables or mutation routes. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views.
+
+`System` remains global Sigmon install health. `Operations` is scoped to a monitored project/environment, so a self-monitoring `sigmon.app` project can be added like any other project without special product logic.
 
 ## Alerts Console
 
