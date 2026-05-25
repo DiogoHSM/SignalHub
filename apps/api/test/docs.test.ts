@@ -28,7 +28,11 @@ describe("API docs", () => {
     expect(response.headers["content-type"]).toContain("application/json");
     expect(spec.openapi).toBe("3.1.0");
     expect(spec.info.title).toBe("SignalMonitor API");
+    expect(spec.info.description).toContain("@sigmon/sdk");
+    expect(spec.info.description).toContain("NEXT_PUBLIC_SIGMON_BROWSER_KEY");
+    expect(spec.info.description).toContain("POST /v1/identify/user");
     expect(spec.servers).toEqual([{ url: "https://my.sigmon.app", description: "Production" }]);
+    expect(spec.externalDocs).toEqual({ description: "Raw OpenAPI document", url: "/openapi.json" });
   });
 
   it("documents the public ingestion paths and auth schemes", async () => {
@@ -72,6 +76,13 @@ describe("API docs", () => {
     expect(spec.paths["/v1/heartbeats/{id}"].post.security).toEqual([{ heartbeatSecret: [] }]);
     expect(spec.paths["/v1/source-maps"].post.security).toEqual([{ sourceMapUploadToken: [] }]);
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.components.schemas.EventPayload.description).toContain("tenant");
+    expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");
+    expect(spec.components.schemas.UserIdentifyPayload.description).toContain("last_seen_at");
+    expect(spec.components.schemas.TenantIdentifyPayload.properties.traits.examples[0]).toMatchObject({
+      name: "MicroERP",
+      operation_mode: "production"
+    });
   });
 
   it("redirects /docs to the Scalar docs page", async () => {

@@ -7,6 +7,7 @@ type OpenApiDocument = {
   };
   servers: Array<{ url: string; description: string }>;
   tags: Array<{ name: string; description: string }>;
+  externalDocs?: { description: string; url: string };
   components: {
     securitySchemes: Record<string, Record<string, unknown>>;
     schemas: Record<string, Record<string, unknown>>;
@@ -93,6 +94,28 @@ const identifyOperation = (
   }
 });
 
+const apiDescription = `Self-hosted telemetry API for product events, errors, breadcrumbs, LLM calls, traces, spans, source maps, and operator workflows.
+
+## Integration guide
+
+For TypeScript, Node.js, browser, and Next.js projects, use the official \`@sigmon/sdk\` package when it is available in your package registry or vendored workspace. The SDK is the recommended path for complete integrations because it keeps browser and server entrypoints separate, maps payloads consistently, provides Next.js route/action wrappers, and exposes identify helpers for user and tenant traits.
+
+Raw HTTP remains the stable contract for other languages, automation, and direct integrations. All ingestion requests use project/environment-scoped API keys created in the SignalMonitor console.
+
+## Recommended rollout
+
+1. Create one SignalMonitor project and one environment per deployed app environment.
+2. Create separate ingestion keys for server and browser telemetry.
+3. Use server-only variables such as \`SIGMON_ENDPOINT\` and \`SIGMON_API_KEY\` for API routes, workers, server actions, and scheduled jobs.
+4. Use browser variables such as \`NEXT_PUBLIC_SIGMON_ENDPOINT\` and \`NEXT_PUBLIC_SIGMON_BROWSER_KEY\` only with a browser-scoped ingestion key.
+5. Send \`identifyUser\` / \`POST /v1/identify/user\` after login or session load, and \`identifyTenant\` / \`POST /v1/identify/tenant\` after tenant/workspace selection.
+6. Send events, errors, breadcrumbs, traces, spans, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
+7. Upload source maps from CI for minified browser bundles so production stacks can be resolved.
+
+## Key model
+
+Browser ingestion keys are public by design, but they must be scoped to one project and environment. Server ingestion keys and source-map upload tokens must stay in server or CI secret storage.`;
+
 const sessionRoute = (summary: string, description: string) => ({
   tags: ["Session authenticated"],
   summary,
@@ -110,17 +133,24 @@ export const openApiDocument = {
   info: {
     title: "SignalMonitor API",
     version: "0.1.0",
-    description:
-      "Self-hosted telemetry API for product events, errors, breadcrumbs, LLM calls, traces, spans, source maps, and operator workflows."
+    description: apiDescription
   },
   servers: [{ url: "https://my.sigmon.app", description: "Production" }],
   tags: [
     { name: "Health", description: "Public service health and readiness checks." },
-    { name: "Ingestion", description: "API-key authenticated telemetry ingestion endpoints." },
+    {
+      name: "Ingestion",
+      description:
+        "API-key authenticated telemetry ingestion endpoints. These endpoints are safe to call from SDKs or raw HTTP clients as long as the API key is scoped to the intended project/environment."
+    },
     { name: "Source maps", description: "CI source-map uploads with dedicated source-map upload tokens." },
     { name: "Auth", description: "Human session login and session management." },
     { name: "Session authenticated", description: "Admin, query, alert, and system routes that require a human session cookie." }
   ],
+  externalDocs: {
+    description: "Raw OpenAPI document",
+    url: "/openapi.json"
+  },
   components: {
     securitySchemes: {
       ingestionApiKey: {
@@ -174,36 +204,38 @@ export const openApiDocument = {
       EventPayload: {
         type: "object",
         required: ["name"],
+        description: "Product or business event. Include stable identity and release fields whenever possible so the console can filter by tenant, user, session, trace, source, and deploy version.",
         properties: {
-          name: { type: "string", examples: ["checkout.started"] },
-          tenant_id: { type: "string" },
-          user_id: { type: "string" },
-          session_id: { type: "string" },
-          trace_id: { type: "string" },
-          source: { type: "string", examples: ["web"] },
-          release: { type: "string", examples: ["2026.05.24"] },
-          properties: { type: "object", additionalProperties: true },
-          metadata: { type: "object", additionalProperties: true },
-          timestamp: { type: "string", format: "date-time" }
+          name: { type: "string", description: "Event name using a stable dot-case convention.", examples: ["checkout.started"] },
+          tenant_id: { type: "string", description: "Stable tenant/workspace/account id." },
+          user_id: { type: "string", description: "Stable authenticated user id." },
+          session_id: { type: "string", description: "Client or server session id used to connect related activity." },
+          trace_id: { type: "string", description: "Trace id when this event belongs to a larger workflow." },
+          source: { type: "string", description: "Emitter or service name.", examples: ["web"] },
+          release: { type: "string", description: "Application version or deploy id.", examples: ["2026.05.24"] },
+          properties: { type: "object", description: "Event-specific attributes. Avoid secrets, tokens, cookies, and full request/response bodies.", additionalProperties: true },
+          metadata: { type: "object", description: "Operational metadata such as request id, module, route, or correlation id.", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time", description: "Optional event timestamp. Defaults to server receive time when omitted." }
         }
       },
       ErrorPayload: {
         type: "object",
         required: ["message"],
+        description: "Exception or error occurrence. Use fingerprint to control grouping when the default grouping is too broad or too noisy.",
         properties: {
-          message: { type: "string" },
-          type: { type: "string" },
-          severity: { type: "string", enum: ["info", "warning", "error", "critical", "fatal"] },
-          fingerprint: { type: "string" },
-          stack: { type: "string" },
+          message: { type: "string", description: "Human-readable error message." },
+          type: { type: "string", description: "Exception class, error name, or domain error type." },
+          severity: { type: "string", enum: ["info", "warning", "error", "critical", "fatal"], description: "Severity used by filters and alerting." },
+          fingerprint: { type: "string", description: "Optional grouping key. Events with the same fingerprint are grouped together." },
+          stack: { type: "string", description: "Raw stack trace. Source maps can resolve minified browser frames when uploaded for the matching release." },
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           session_id: { type: "string" },
           trace_id: { type: "string" },
-          source: { type: "string" },
-          release: { type: "string" },
-          context: { type: "object", additionalProperties: true },
-          metadata: { type: "object", additionalProperties: true },
+          source: { type: "string", description: "Emitter or service name, for example web, api, worker, or scheduler." },
+          release: { type: "string", description: "Application version or deploy id." },
+          context: { type: "object", description: "Debug context for this occurrence. Avoid secrets and full payload bodies.", additionalProperties: true },
+          metadata: { type: "object", description: "Operational metadata such as route, module, request id, or correlation id.", additionalProperties: true },
           timestamp: { type: "string", format: "date-time" }
         }
       },
@@ -282,22 +314,36 @@ export const openApiDocument = {
       UserIdentifyPayload: {
         type: "object",
         required: ["user_id", "traits"],
+        description:
+          "Upserts a project/environment-scoped user profile. Telemetry with matching user_id updates last_seen_at, but only identify calls update stored traits.",
         properties: {
-          user_id: { type: "string" },
-          tenant_id: { type: "string" },
-          traits: { type: "object", additionalProperties: true },
-          metadata: { type: "object", additionalProperties: true },
-          timestamp: { type: "string", format: "date-time" }
+          user_id: { type: "string", description: "Stable authenticated user id from the monitored product." },
+          tenant_id: { type: "string", description: "Optional current tenant/workspace/account id for this user." },
+          traits: {
+            type: "object",
+            description: "Sanitized profile traits such as name, email, role, plan, locale, or operation mode. Secrets are not allowed.",
+            additionalProperties: true,
+            examples: [{ name: "Ana Souza", email: "ana@example.com", role: "admin", plan: "pro" }]
+          },
+          metadata: { type: "object", description: "Accepted for envelope compatibility but not persisted in profile rows in this MVP.", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time", description: "Optional identify timestamp." }
         }
       },
       TenantIdentifyPayload: {
         type: "object",
         required: ["tenant_id", "traits"],
+        description:
+          "Upserts a project/environment-scoped tenant profile used by Entities investigation views and tenant-level filters.",
         properties: {
-          tenant_id: { type: "string" },
-          traits: { type: "object", additionalProperties: true },
-          metadata: { type: "object", additionalProperties: true },
-          timestamp: { type: "string", format: "date-time" }
+          tenant_id: { type: "string", description: "Stable tenant/workspace/account id from the monitored product." },
+          traits: {
+            type: "object",
+            description: "Sanitized tenant traits such as name, plan, status, tier, region, or operation_mode. Secrets are not allowed.",
+            additionalProperties: true,
+            examples: [{ name: "MicroERP", plan: "pro", operation_mode: "production" }]
+          },
+          metadata: { type: "object", description: "Accepted for envelope compatibility but not persisted in profile rows in this MVP.", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time", description: "Optional identify timestamp." }
         }
       },
       LoginPayload: {
@@ -405,16 +451,30 @@ export const openApiDocument = {
       }
     },
     "/v1/events": {
-      post: ingestionOperation("Ingest an event", "Track product or business events.", "EventPayload", {
+      post: ingestionOperation("Ingest an event", "Track product or business events. Use this for product analytics, lifecycle events, and domain milestones.", "EventPayload", {
         name: "checkout.started",
-        properties: { plan: "team" }
+        tenant_id: "tenant_123",
+        user_id: "user_456",
+        session_id: "sess_789",
+        source: "web",
+        release: "2026.05.24",
+        properties: { plan: "team", checkout_id: "chk_123" },
+        metadata: { request_id: "req_abc" }
       })
     },
     "/v1/errors": {
-      post: ingestionOperation("Ingest an error", "Track exceptions, crashes, and grouped error occurrences.", "ErrorPayload", {
+      post: ingestionOperation("Ingest an error", "Track exceptions, crashes, and grouped error occurrences. Include stack, release, source, and identity fields to unlock issue detail, source-map resolution, and tenant/user drilldowns.", "ErrorPayload", {
         message: "Payment provider timeout",
         type: "PaymentTimeoutError",
-        severity: "error"
+        severity: "error",
+        fingerprint: "payment-timeout",
+        stack: "PaymentTimeoutError: provider timeout\n    at chargeCustomer",
+        tenant_id: "tenant_123",
+        user_id: "user_456",
+        source: "api",
+        release: "2026.05.24",
+        context: { provider: "example-pay", operation: "charge" },
+        metadata: { request_id: "req_abc" }
       })
     },
     "/v1/breadcrumbs": {
@@ -447,16 +507,16 @@ export const openApiDocument = {
       })
     },
     "/v1/identify/user": {
-      post: identifyOperation("Identify a user", "Upsert user profile traits scoped to the ingestion API key.", "UserIdentifyPayload", {
-        user_id: "usr_ana",
-        tenant_id: "tenant_acme",
-        traits: { name: "Ana", plan: "pro" }
+      post: identifyOperation("Identify a user", "Upsert user profile traits scoped to the ingestion API key. Call this after login/session load or whenever durable user traits change.", "UserIdentifyPayload", {
+        user_id: "user_456",
+        tenant_id: "tenant_123",
+        traits: { name: "Ana Souza", email: "ana@example.com", role: "admin", plan: "pro" }
       })
     },
     "/v1/identify/tenant": {
-      post: identifyOperation("Identify a tenant", "Upsert tenant profile traits scoped to the ingestion API key.", "TenantIdentifyPayload", {
-        tenant_id: "tenant_acme",
-        traits: { plan: "enterprise" }
+      post: identifyOperation("Identify a tenant", "Upsert tenant profile traits scoped to the ingestion API key. Call this after tenant/workspace selection or whenever durable tenant traits change.", "TenantIdentifyPayload", {
+        tenant_id: "tenant_123",
+        traits: { name: "MicroERP", plan: "pro", operation_mode: "production" }
       })
     },
     "/v1/source-maps": {
