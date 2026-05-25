@@ -15,8 +15,10 @@ type AlertsPanelProps = {
 };
 
 type ChannelForm = {
+  type: "webhook" | "email";
   name: string;
   url: string;
+  emailRecipients: string;
   secretHeaderName: string;
   secretHeaderValue: string;
 };
@@ -42,8 +44,10 @@ const defaultRuleForm: RuleForm = {
 };
 
 const defaultChannelForm: ChannelForm = {
+  type: "webhook",
   name: "",
   url: "",
+  emailRecipients: "",
   secretHeaderName: "",
   secretHeaderValue: ""
 };
@@ -71,6 +75,14 @@ function formatTimestamp(value: string | null | undefined): string {
 
 function displayDeliveryStatus(status: AlertEventResponse["latestDeliveryStatus"]): string {
   return status ?? "pending";
+}
+
+function channelTarget(channel: NotificationChannelResponse): string {
+  return channel.type === "email" ? channel.emailRecipients.join(", ") : channel.url;
+}
+
+function channelSecretLabel(channel: NotificationChannelResponse): string {
+  return channel.type === "email" ? "SMTP delivery" : channel.hasSecret ? "Secret saved" : "No secret";
 }
 
 function parsePositiveInteger(value: string): number | null {
@@ -189,26 +201,41 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     if (isLoading) return;
     const name = channelForm.name.trim();
     const url = channelForm.url.trim();
+    const emailRecipients = channelForm.emailRecipients
+      .split(",")
+      .map((recipient) => recipient.trim())
+      .filter(Boolean);
     const secretHeaderName = channelForm.secretHeaderName.trim();
     const secretHeaderValue = channelForm.secretHeaderValue.trim();
-    if (!name || !url) {
-      setError("Channel name and webhook URL are required");
+    if (!name) {
+      setError("Channel name is required");
       return;
     }
-    const webhookUrlError = validateWebhookUrl(url);
-    if (webhookUrlError) {
-      setError(webhookUrlError);
-      return;
-    }
-    if (secretHeaderValue && !secretHeaderName) {
-      setError("Secret header name is required when a secret value is set");
-      return;
-    }
-    if (secretHeaderName) {
-      const secretHeaderNameError = validateSecretHeaderName(secretHeaderName);
-      if (secretHeaderNameError) {
-        setError(secretHeaderNameError);
+    if (channelForm.type === "email") {
+      if (emailRecipients.length === 0) {
+        setError("At least one email recipient is required");
         return;
+      }
+    } else {
+      if (!url) {
+        setError("Webhook URL is required");
+        return;
+      }
+      const webhookUrlError = validateWebhookUrl(url);
+      if (webhookUrlError) {
+        setError(webhookUrlError);
+        return;
+      }
+      if (secretHeaderValue && !secretHeaderName) {
+        setError("Secret header name is required when a secret value is set");
+        return;
+      }
+      if (secretHeaderName) {
+        const secretHeaderNameError = validateSecretHeaderName(secretHeaderName);
+        if (secretHeaderNameError) {
+          setError(secretHeaderNameError);
+          return;
+        }
       }
     }
 
@@ -217,14 +244,22 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     setIsCreatingChannel(true);
     setError(null);
     try {
-      const { channel } = await client.createNotificationChannel({
-        name,
-        type: "webhook",
-        url,
-        secretHeaderName: secretHeaderName || null,
-        secretHeaderValue: secretHeaderValue || null,
-        enabled: true
-      });
+      const { channel } =
+        channelForm.type === "email"
+          ? await client.createNotificationChannel({
+              name,
+              type: "email",
+              emailRecipients,
+              enabled: true
+            })
+          : await client.createNotificationChannel({
+              name,
+              type: "webhook",
+              url,
+              secretHeaderName: secretHeaderName || null,
+              secretHeaderValue: secretHeaderValue || null,
+              enabled: true
+            });
       if (channelCreateRequestRef.current !== requestId) {
         return;
       }
@@ -381,8 +416,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 <article className="alerts-row" key={channel.id}>
                   <div>
                     <strong>{channel.name}</strong>
-                    <span>{channel.url}</span>
-                    <span>{channel.hasSecret ? "Secret saved" : "No secret"}</span>
+                    <span>{channelTarget(channel)}</span>
+                    <span>{channelSecretLabel(channel)}</span>
                   </div>
                   <span className={statusClass(channel.enabled ? "success" : "neutral")}>{channel.enabled ? "enabled" : "disabled"}</span>
                 </article>
@@ -419,8 +454,20 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
         </section>
 
         <section aria-label="Create notification channel" className="alerts-card">
-          <h3>Create webhook channel</h3>
+          <h3>Create notification channel</h3>
           <form className="alerts-form" noValidate onSubmit={createChannel}>
+            <label>
+              Channel type
+              <select
+                onChange={(event) =>
+                  setChannelForm((current) => ({ ...current, type: event.target.value as ChannelForm["type"] }))
+                }
+                value={channelForm.type}
+              >
+                <option value="webhook">Webhook</option>
+                <option value="email">Email</option>
+              </select>
+            </label>
             <label>
               Channel name
               <input
@@ -429,32 +476,46 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 value={channelForm.name}
               />
             </label>
-            <label>
-              Webhook URL
-              <input
-                onChange={(event) => setChannelForm((current) => ({ ...current, url: event.target.value }))}
-                placeholder="https://hooks.example.com"
-                required
-                type="url"
-                value={channelForm.url}
-              />
-            </label>
-            <label>
-              Secret header name
-              <input
-                onChange={(event) => setChannelForm((current) => ({ ...current, secretHeaderName: event.target.value }))}
-                required={Boolean(channelForm.secretHeaderValue.trim())}
-                value={channelForm.secretHeaderName}
-              />
-            </label>
-            <label>
-              Secret header value
-              <input
-                onChange={(event) => setChannelForm((current) => ({ ...current, secretHeaderValue: event.target.value }))}
-                type="password"
-                value={channelForm.secretHeaderValue}
-              />
-            </label>
+            {channelForm.type === "email" ? (
+              <label>
+                Email recipients
+                <input
+                  onChange={(event) => setChannelForm((current) => ({ ...current, emailRecipients: event.target.value }))}
+                  placeholder="ops@example.com"
+                  required
+                  value={channelForm.emailRecipients}
+                />
+              </label>
+            ) : (
+              <>
+                <label>
+                  Webhook URL
+                  <input
+                    onChange={(event) => setChannelForm((current) => ({ ...current, url: event.target.value }))}
+                    placeholder="https://hooks.example.com"
+                    required
+                    type="url"
+                    value={channelForm.url}
+                  />
+                </label>
+                <label>
+                  Secret header name
+                  <input
+                    onChange={(event) => setChannelForm((current) => ({ ...current, secretHeaderName: event.target.value }))}
+                    required={Boolean(channelForm.secretHeaderValue.trim())}
+                    value={channelForm.secretHeaderName}
+                  />
+                </label>
+                <label>
+                  Secret header value
+                  <input
+                    onChange={(event) => setChannelForm((current) => ({ ...current, secretHeaderValue: event.target.value }))}
+                    type="password"
+                    value={channelForm.secretHeaderValue}
+                  />
+                </label>
+              </>
+            )}
             <button disabled={isLoading || isCreatingChannel} type="submit">
               Create channel
             </button>

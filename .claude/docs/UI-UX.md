@@ -13,6 +13,7 @@ SignalMonitor includes an admin-only Integration Console.
 
 - Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
+- Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
 - Keep `System` as a quiet operational mode for service health, queue depth, ingestion freshness, retention status, and backup status.
 - System shows source-map retention policy and deleted counts inside the existing Retention card.
@@ -61,6 +62,15 @@ SignalMonitor includes an admin-only Integration Console.
 - Alerts should stay dense and operational: rules, channels, recent events, and delivery status should be visible without a marketing-style layout.
 - Alert rule controls should remain scoped to the active project and environment.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
+- Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
+
+## Monitors UX
+
+- Monitors should stay separate from alert rules so uptime and heartbeat setup does not crowd threshold configuration.
+- HTTP monitor rows should prioritize name, target URL, status, and last check time.
+- Heartbeat monitor rows should prioritize name, expected interval, grace window, status, and last check time.
+- Heartbeat secrets are shown only immediately after monitor creation, paired with the check-in URL, and should not be stored in browser storage.
+- Recent monitor checks should stay compact and show status, response or heartbeat marker, latency, and sanitized error text.
 
 ## Artifacts UX
 

@@ -719,6 +719,7 @@ describe("createApiClient", () => {
       name: "Ops webhook",
       type: "webhook",
       url: "https://hooks.example.com/sigmon",
+      emailRecipients: [],
       secretHeaderName: "x-sigmon-secret",
       hasSecret: true,
       enabled: true,
@@ -754,6 +755,44 @@ describe("createApiClient", () => {
     );
     expect(response.channel.hasSecret).toBe(true);
     expect(response.channel).not.toHaveProperty("secretHeaderValue");
+  });
+
+  it("creates email notification channels", async () => {
+    const channel = {
+      id: "chn_email",
+      name: "Ops email",
+      type: "email",
+      url: null,
+      emailRecipients: ["diogo@example.com"],
+      secretHeaderName: null,
+      hasSecret: false,
+      enabled: true,
+      createdAt: "2026-05-06T12:00:00.000Z",
+      updatedAt: "2026-05-06T12:00:00.000Z",
+      archivedAt: null
+    } satisfies NotificationChannelResponse;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { channel }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().createNotificationChannel({
+      name: "Ops email",
+      type: "email",
+      emailRecipients: ["diogo@example.com"],
+      enabled: true
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/notification-channels",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "Ops email",
+          type: "email",
+          emailRecipients: ["diogo@example.com"],
+          enabled: true
+        })
+      })
+    );
   });
 
   it("updates and archives notification channels", async () => {
@@ -873,6 +912,52 @@ describe("createApiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/alerts/events?project_id=prj_1&environment_id=env_1&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("creates and lists monitor resources", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { monitors: [] }))
+      .mockResolvedValueOnce(jsonResponse(201, { monitor: { id: "mon_http" } }))
+      .mockResolvedValueOnce(jsonResponse(201, { monitor: { id: "mon_hb" }, secret: "shhb_secret" }))
+      .mockResolvedValueOnce(jsonResponse(200, { checks: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listMonitors?.({ projectId: "prj/1", environmentId: "env 1", kind: "http" });
+    await createApiClient("/api").createHttpMonitor?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "API",
+      url: "https://api.example.com/health"
+    });
+    await createApiClient("/api").createHeartbeatMonitor?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Worker",
+      expectedIntervalMinutes: 5
+    });
+    await createApiClient("/api").listMonitorChecks?.("mon/1", 10);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/admin/monitors?project_id=prj%2F1&environment_id=env+1&kind=http",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/admin/monitors/http",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/admin/monitors/heartbeat",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/admin/monitors/mon%2F1/checks?limit=10",
       expect.objectContaining({ method: "GET" })
     );
   });

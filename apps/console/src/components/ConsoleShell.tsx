@@ -6,6 +6,7 @@ import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
 import { IncidentView } from "./IncidentView";
 import { AlertsPanel } from "./AlertsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
+import { MonitorsPanel } from "./MonitorsPanel";
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SetupWorkspace } from "./SetupWorkspace";
@@ -321,6 +322,16 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
             <div hidden={activeMode !== "alerts"}>
               {activeMode === "alerts" ? (
                 <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+              ) : null}
+            </div>
+            <div hidden={activeMode !== "monitors"}>
+              {activeMode === "monitors" ? (
+                <MonitorsPanel
+                  apiEndpoint={apiEndpoint ?? ""}
+                  client={client}
+                  environmentId={activeEnvironment?.id}
+                  projectId={activeProject?.id}
+                />
               ) : null}
             </div>
             <div hidden={activeMode !== "artifacts"}>

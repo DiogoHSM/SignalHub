@@ -81,6 +81,7 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
         name: "Ops",
         type: "webhook",
         url: "https://hooks.example.com",
+        emailRecipients: [],
         secretHeaderName: "X-SignalMonitor-Secret",
         hasSecret: true,
         enabled: true,
@@ -136,6 +137,7 @@ describe("AlertsPanel", () => {
             name: "Ops",
             type: "webhook",
             url: "https://hooks.example.com",
+            emailRecipients: [],
             secretHeaderName: null,
             hasSecret: false,
             enabled: true,
@@ -150,6 +152,7 @@ describe("AlertsPanel", () => {
           {
             id: "evt_1",
             ruleId: "rule_1",
+            monitorId: null,
             projectId: "prj_1",
             environmentId: "env_1",
             status: "triggered",
@@ -232,6 +235,41 @@ describe("AlertsPanel", () => {
     expect(createNotificationChannel).not.toHaveBeenCalled();
   });
 
+  it("creates an email notification channel", async () => {
+    const createNotificationChannel = vi.fn().mockResolvedValue({
+      channel: {
+        id: "chn_email",
+        name: "Ops email",
+        type: "email",
+        url: null,
+        emailRecipients: ["diogo@example.com"],
+        secretHeaderName: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+        archivedAt: null
+      }
+    });
+
+    render(<AlertsPanel client={client({ createNotificationChannel })} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.selectOptions(await screen.findByLabelText("Channel type"), "email");
+    await userEvent.type(screen.getByLabelText("Channel name"), "Ops email");
+    await userEvent.type(screen.getByLabelText("Email recipients"), "diogo@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    await waitFor(() =>
+      expect(createNotificationChannel).toHaveBeenCalledWith({
+        name: "Ops email",
+        type: "email",
+        emailRecipients: ["diogo@example.com"],
+        enabled: true
+      })
+    );
+    expect(within(screen.getByLabelText("Notification channels")).getByText("SMTP delivery")).toBeInTheDocument();
+  });
+
   it("rejects invalid webhook URLs before submitting a channel", async () => {
     const createNotificationChannel = vi.fn();
 
@@ -303,6 +341,7 @@ describe("AlertsPanel", () => {
             name: "Ops",
             type: "webhook",
             url: "https://hooks.example.com",
+            emailRecipients: [],
             secretHeaderName: null,
             hasSecret: false,
             enabled: true,
@@ -448,6 +487,7 @@ describe("AlertsPanel", () => {
             name: "Env 1 stale channel",
             type: "webhook",
             url: "https://hooks.example.com/env-1",
+            emailRecipients: [],
             secretHeaderName: null,
             hasSecret: false,
             enabled: true,
@@ -465,6 +505,7 @@ describe("AlertsPanel", () => {
           {
             id: "evt_env_1",
             ruleId: "rule_env_1",
+            monitorId: null,
             projectId: "prj_1",
             environmentId: "env_1",
             status: "triggered",
@@ -529,6 +570,7 @@ describe("AlertsPanel", () => {
             name: "Env 2 fresh channel",
             type: "webhook",
             url: "https://hooks.example.com/env-2",
+            emailRecipients: [],
             secretHeaderName: null,
             hasSecret: false,
             enabled: true,
@@ -543,6 +585,7 @@ describe("AlertsPanel", () => {
           {
             id: "evt_env_2",
             ruleId: "rule_env_2",
+            monitorId: null,
             projectId: "prj_1",
             environmentId: "env_2",
             status: "triggered",
@@ -576,6 +619,7 @@ describe("AlertsPanel", () => {
             name: "Ops",
             type: "webhook",
             url: "https://hooks.example.com",
+            emailRecipients: [],
             secretHeaderName: null,
             hasSecret: false,
             enabled: true,
@@ -623,7 +667,7 @@ describe("AlertsPanel", () => {
     await screen.findByLabelText("Channel name");
     await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Channel name and webhook URL are required");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Channel name is required");
     expect(createNotificationChannel).not.toHaveBeenCalled();
   });
 

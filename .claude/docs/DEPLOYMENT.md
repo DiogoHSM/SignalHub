@@ -89,7 +89,7 @@ Postgres and Redis do not use repository-triggered deploy hooks. They are statef
 - `worker`: BullMQ telemetry worker with `WORKER_ROLE=queue`.
 - `scheduler`: scheduled retention, backup, alert, and monitor evaluation worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
 
-The API and worker containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. Compose defines healthchecks for all four services.
+The API, worker, and scheduler containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. The Dockerfile copies application files with `sigmon` ownership and runs install/build as `sigmon`, avoiding a final recursive ownership rewrite over `/app` during EasyPanel image export. Compose defines healthchecks for all four services.
 
 ## Retention
 

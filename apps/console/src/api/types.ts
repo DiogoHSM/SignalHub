@@ -738,27 +738,49 @@ export type SystemHealthResponse = {
   };
 };
 
-export type NotificationChannelResponse = {
-  id: string;
-  name: string;
-  type: "webhook";
-  url: string;
-  secretHeaderName: string | null;
-  hasSecret: boolean;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-  archivedAt: string | null;
-};
+export type NotificationChannelResponse =
+  | {
+      id: string;
+      name: string;
+      type: "webhook";
+      url: string;
+      emailRecipients: [];
+      secretHeaderName: string | null;
+      hasSecret: boolean;
+      enabled: boolean;
+      createdAt: string;
+      updatedAt: string;
+      archivedAt: string | null;
+    }
+  | {
+      id: string;
+      name: string;
+      type: "email";
+      url: null;
+      emailRecipients: string[];
+      secretHeaderName: null;
+      hasSecret: false;
+      enabled: boolean;
+      createdAt: string;
+      updatedAt: string;
+      archivedAt: string | null;
+    };
 
-export type CreateNotificationChannelInput = {
-  name: string;
-  type: "webhook";
-  url: string;
-  secretHeaderName?: string | null;
-  secretHeaderValue?: string | null;
-  enabled?: boolean;
-};
+export type CreateNotificationChannelInput =
+  | {
+      name: string;
+      type: "webhook";
+      url: string;
+      secretHeaderName?: string | null;
+      secretHeaderValue?: string | null;
+      enabled?: boolean;
+    }
+  | {
+      name: string;
+      type: "email";
+      emailRecipients: string[];
+      enabled?: boolean;
+    };
 
 export type UpdateNotificationChannelInput = Partial<CreateNotificationChannelInput>;
 
@@ -811,7 +833,8 @@ export type AlertRuleListQuery = {
 
 export type AlertEventResponse = {
   id: string;
-  ruleId: string;
+  ruleId: string | null;
+  monitorId: string | null;
   projectId: string;
   environmentId: string;
   status: "triggered";
@@ -831,6 +854,87 @@ export type AlertEventListQuery = {
   projectId: string;
   environmentId: string;
   limit?: number;
+};
+
+export type MonitorKind = "http" | "heartbeat";
+
+export type MonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
+
+export type MonitorCheckStatus = "success" | "failed";
+
+export type MonitorResponse = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  notificationChannelId: string | null;
+  kind: MonitorKind;
+  name: string;
+  enabled: boolean;
+  status: MonitorStatus;
+  url: string | null;
+  method: "GET" | "HEAD" | null;
+  expectedStatus: string | null;
+  bodyContains: string | null;
+  timeoutMs: number | null;
+  intervalMinutes: number | null;
+  failureThreshold: number;
+  recoveryThreshold: number;
+  consecutiveFailures: number;
+  consecutiveSuccesses: number;
+  expectedIntervalMinutes: number | null;
+  graceMinutes: number | null;
+  lastCheckedAt: string | null;
+  lastCheckStatus: MonitorCheckStatus | null;
+  lastCheckLatencyMs: number | null;
+  lastCheckResponseStatus: number | null;
+  lastCheckErrorMessage: string | null;
+  lastHeartbeatAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type MonitorCheckResponse = {
+  id: string;
+  monitorId: string;
+  checkedAt: string;
+  status: MonitorCheckStatus;
+  latencyMs: number | null;
+  responseStatus: number | null;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type MonitorListQuery = {
+  projectId: string;
+  environmentId: string;
+  kind?: MonitorKind;
+};
+
+export type CreateHttpMonitorInput = {
+  projectId: string;
+  environmentId: string;
+  notificationChannelId?: string | null;
+  name: string;
+  url: string;
+  method?: "GET" | "HEAD";
+  intervalMinutes?: number;
+  timeoutMs?: number;
+  expectedStatus?: string;
+  bodyContains?: string | null;
+  failureThreshold?: number;
+  recoveryThreshold?: number;
+  enabled?: boolean;
+};
+
+export type CreateHeartbeatMonitorInput = {
+  projectId: string;
+  environmentId: string;
+  notificationChannelId?: string | null;
+  name: string;
+  expectedIntervalMinutes: number;
+  graceMinutes?: number;
+  enabled?: boolean;
 };
 
 export type SessionTimelineItemType = "breadcrumb" | "event" | "error" | "trace" | "llm";

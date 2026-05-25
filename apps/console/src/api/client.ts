@@ -7,6 +7,8 @@ import type {
   AlertRuleResponse,
   ConsoleConfig,
   CreateAlertRuleInput,
+  CreateHeartbeatMonitorInput,
+  CreateHttpMonitorInput,
   CreatedApiKey,
   CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
@@ -19,6 +21,9 @@ import type {
   EventRecord,
   LlmAggregates,
   LlmCallRecord,
+  MonitorCheckResponse,
+  MonitorListQuery,
+  MonitorResponse,
   NotificationChannelResponse,
   OverviewQuery,
   OverviewResponse,
@@ -72,6 +77,15 @@ export type AlertApiClient = {
   archiveAlertRule: (id: string) => Promise<void>;
   listAlertEvents: (query: AlertEventListQuery) => Promise<QueryListResponse<AlertEventResponse>>;
   getAlertEvent: (id: string) => Promise<AggregateResponse<AlertEventResponse>>;
+};
+
+export type MonitorApiClient = {
+  listMonitors: (query: MonitorListQuery) => Promise<{ monitors: MonitorResponse[] }>;
+  createHttpMonitor: (input: CreateHttpMonitorInput) => Promise<{ monitor: MonitorResponse }>;
+  createHeartbeatMonitor: (input: CreateHeartbeatMonitorInput) => Promise<{ monitor: MonitorResponse; secret: string }>;
+  updateMonitor: (id: string, input: Partial<CreateHttpMonitorInput & CreateHeartbeatMonitorInput>) => Promise<{ monitor: MonitorResponse }>;
+  archiveMonitor: (id: string) => Promise<void>;
+  listMonitorChecks: (id: string, limit?: number) => Promise<{ checks: MonitorCheckResponse[] }>;
 };
 
 export type ErrorGroupApiClient = {
@@ -163,6 +177,7 @@ export type ApiClient = {
 } & AlertApiClient &
   ErrorGroupApiClient &
   SessionTimelineApiClient &
+  Partial<MonitorApiClient> &
   Partial<SourceMapApiClient>;
 
 type RequestOptions = {
@@ -473,6 +488,25 @@ function alertEventListPath(query: AlertEventListQuery): string {
   return `/alerts/events?${params.toString()}`;
 }
 
+function monitorListPath(query: MonitorListQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.kind) params.set("kind", query.kind);
+
+  return `/admin/monitors?${params.toString()}`;
+}
+
+function monitorChecksPath(id: string, limit?: number): string {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set("limit", String(limit));
+  const queryString = params.toString();
+
+  return queryString
+    ? `/admin/monitors/${encodePathSegment(id)}/checks?${queryString}`
+    : `/admin/monitors/${encodePathSegment(id)}/checks`;
+}
+
 export function createApiClient(
   apiBasePath = defaultApiBasePath
 ): ApiClient & SessionTimelineApiClient & SourceMapApiClient {
@@ -624,6 +658,23 @@ export function createApiClient(
       }),
     archiveAlertRule: (id) =>
       request<void>(path(apiBasePath, `/admin/alert-rules/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listMonitors: (query) => request<{ monitors: MonitorResponse[] }>(path(apiBasePath, monitorListPath(query))),
+    createHttpMonitor: (input) =>
+      request<{ monitor: MonitorResponse }>(path(apiBasePath, "/admin/monitors/http"), { method: "POST", body: input }),
+    createHeartbeatMonitor: (input) =>
+      request<{ monitor: MonitorResponse; secret: string }>(path(apiBasePath, "/admin/monitors/heartbeat"), {
+        method: "POST",
+        body: input
+      }),
+    updateMonitor: (id, input) =>
+      request<{ monitor: MonitorResponse }>(path(apiBasePath, `/admin/monitors/${encodePathSegment(id)}`), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveMonitor: (id) =>
+      request<void>(path(apiBasePath, `/admin/monitors/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listMonitorChecks: (id, limit) =>
+      request<{ checks: MonitorCheckResponse[] }>(path(apiBasePath, monitorChecksPath(id, limit))),
     listAlertEvents: (query) =>
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>
