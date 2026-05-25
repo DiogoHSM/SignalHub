@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Bell, Command, RefreshCw } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type { Environment, Project } from "../api/types";
 import { ArtifactsPanel } from "./ArtifactsPanel";
@@ -49,7 +50,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
-  const [activeMode, setActiveMode] = useState<ConsoleMode>("setup");
+  const [activeMode, setActiveMode] = useState<ConsoleMode>("overview");
   const [incidentRoute, setIncidentRoute] = useState<IncidentRoute>(() => parseIncidentRoute(window.location));
   const [investigationDrilldown, setInvestigationDrilldown] = useState<{
     nonce: number;
@@ -256,98 +257,143 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
 
   return (
     <main className="console-layout">
-      <ProjectSwitcher
-        activeProjectId={activeProject?.id}
-        disabled={isLoadingProjects}
-        onCreate={createProject}
-        onSelect={selectProject}
-        projects={projects}
-      />
-      <section className="workspace">
+      <aside className="console-rail" aria-label="Console navigation">
+        <div className="console-logo" role="img" aria-label="sigmon heartbeat logo">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M3 12h4l2.4-6 5.2 12 2.4-6h4" />
+          </svg>
+        </div>
+        <ConsoleModeTabs activeMode={activeMode} onChange={setActiveMode} />
+      </aside>
+      <section className="console-main">
         <header className="workspace-header">
-          <div>
+          <div className="workspace-crumb">
             <h1>{activeProject?.name ?? "No project selected"}</h1>
-            <p>{activeEnvironment ? `Environment: ${activeEnvironment.name}` : "Create an environment to continue setup."}</p>
+            <span aria-hidden="true">/</span>
+            <strong>{activeMode === "setup" ? "Setup" : incidentRoute.kind === "error-group" ? "Incident" : modeLabel(activeMode)}</strong>
           </div>
-          <ConsoleModeTabs activeMode={activeMode} onChange={setActiveMode} />
+          <div className="workspace-scope">
+            <span className="scope-pill">
+              <span className="scope-pill__dot" />
+              {activeEnvironment ? `Environment: ${activeEnvironment.name}` : "Create an environment to continue setup."}
+            </span>
+            <div className="console-search" aria-label="Global search placeholder">
+              <Command aria-hidden="true" size={14} />
+              <span>Jump to event, error, tenant, user, trace...</span>
+              <kbd>⌘K</kbd>
+            </div>
+          </div>
+          <div className="workspace-actions">
+            <button className="icon-button" title="Refresh" type="button">
+              <RefreshCw aria-hidden="true" size={15} />
+            </button>
+            <button className="icon-button" title="Notifications" type="button">
+              <Bell aria-hidden="true" size={15} />
+            </button>
+            <span className="console-avatar" aria-label="Signed in operator">
+              DH
+            </span>
+          </div>
         </header>
-        {incidentRoute.kind === "error-group" ? (
-          <IncidentView
-            client={client}
-            environmentId={incidentRoute.environmentId}
-            errorId={incidentRoute.errorId}
-            groupId={incidentRoute.groupId}
-            onBack={closeIncidentView}
-            projectId={incidentRoute.projectId}
-          />
-        ) : (
-          <>
-            <div hidden={activeMode !== "setup"}>
-              <SetupWorkspace
-                activeEnvironment={activeEnvironment}
-                activeProjectId={activeProject?.id}
-                apiEndpoint={apiEndpoint}
-                client={client}
-                environments={environments}
-                isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
-                latestSecret={scopedLatestSecret}
-                onCreateEnvironment={createEnvironment}
-                onSecretCreated={storeLatestSecret}
-                onSelectEnvironment={setActiveEnvironment}
-              />
-            </div>
-            <div hidden={activeMode !== "overview"}>
-              {activeMode === "overview" ? (
-                <OverviewDashboard
-                  client={client}
-                  environmentId={activeEnvironment?.id}
-                  onDrilldown={handleOverviewDrilldown}
-                  projectId={activeProject?.id}
+        <div className="workspace">
+          {incidentRoute.kind === "error-group" ? (
+            <IncidentView
+              client={client}
+              environmentId={incidentRoute.environmentId}
+              errorId={incidentRoute.errorId}
+              groupId={incidentRoute.groupId}
+              onBack={closeIncidentView}
+              projectId={incidentRoute.projectId}
+            />
+          ) : (
+            <>
+              <div className="setup-shell" hidden={activeMode !== "setup"}>
+                <ProjectSwitcher
+                  activeProjectId={activeProject?.id}
+                  disabled={isLoadingProjects}
+                  onCreate={createProject}
+                  onSelect={selectProject}
+                  projects={projects}
                 />
-              ) : null}
-            </div>
-            <div hidden={activeMode !== "investigate"}>
-              {activeMode === "investigate" ? (
-                <InvestigationWorkspace
+                <SetupWorkspace
+                  activeEnvironment={activeEnvironment}
+                  activeProjectId={activeProject?.id}
+                  apiEndpoint={apiEndpoint}
                   client={client}
-                  environmentId={activeEnvironment?.id}
-                  initialFilters={investigationDrilldown?.filters}
-                  initialTab={investigationDrilldown?.tab}
-                  key={investigationDrilldown?.nonce ?? "investigation"}
-                  onOpenIncident={openErrorGroupIncident}
-                  projectId={activeProject?.id}
+                  environments={environments}
+                  isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
+                  latestSecret={scopedLatestSecret}
+                  onCreateEnvironment={createEnvironment}
+                  onSecretCreated={storeLatestSecret}
+                  onSelectEnvironment={setActiveEnvironment}
                 />
-              ) : null}
-            </div>
-            <div hidden={activeMode !== "alerts"}>
-              {activeMode === "alerts" ? (
-                <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
-              ) : null}
-            </div>
-            <div hidden={activeMode !== "monitors"}>
-              {activeMode === "monitors" ? (
-                <MonitorsPanel
-                  apiEndpoint={apiEndpoint ?? ""}
-                  client={client}
-                  environmentId={activeEnvironment?.id}
-                  projectId={activeProject?.id}
-                />
-              ) : null}
-            </div>
-            <div hidden={activeMode !== "artifacts"}>
-              {activeMode === "artifacts" ? (
-                <ArtifactsPanel
-                  client={client}
-                  environmentId={activeEnvironment?.id}
-                  key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}`}
-                  projectId={activeProject?.id}
-                />
-              ) : null}
-            </div>
-            <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
-          </>
-        )}
+              </div>
+              <div hidden={activeMode !== "overview"}>
+                {activeMode === "overview" ? (
+                  <OverviewDashboard
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    onDrilldown={handleOverviewDrilldown}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "investigate"}>
+                {activeMode === "investigate" ? (
+                  <InvestigationWorkspace
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    initialFilters={investigationDrilldown?.filters}
+                    initialTab={investigationDrilldown?.tab}
+                    key={investigationDrilldown?.nonce ?? "investigation"}
+                    onOpenIncident={openErrorGroupIncident}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "alerts"}>
+                {activeMode === "alerts" ? (
+                  <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "monitors"}>
+                {activeMode === "monitors" ? (
+                  <MonitorsPanel
+                    apiEndpoint={apiEndpoint ?? ""}
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "artifacts"}>
+                {activeMode === "artifacts" ? (
+                  <ArtifactsPanel
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}`}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
+            </>
+          )}
+        </div>
       </section>
     </main>
   );
+}
+
+function modeLabel(mode: ConsoleMode): string {
+  const labels: Record<ConsoleMode, string> = {
+    alerts: "Alerts",
+    artifacts: "Artifacts",
+    investigate: "Investigate",
+    monitors: "Monitors",
+    overview: "Overview",
+    setup: "Setup",
+    system: "System health"
+  };
+  return labels[mode];
 }

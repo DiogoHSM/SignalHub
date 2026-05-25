@@ -5,9 +5,12 @@ SignalMonitor includes an admin-only Integration Console.
 ## Console Principles
 
 - The console is an operational workspace, not a marketing page.
-- The first screen focuses on projects, environments, API keys, snippets, connection status, and simple user administration.
+- The first screen is now the environment Overview. Setup remains available from the rail for projects, environments, API keys, snippets, connection status, and simple user administration.
 - API key secrets are shown only immediately after creation and are not stored in browser storage.
-- The visual style should remain compact, quiet, and optimized for repeated setup work.
+- The visual style should remain compact, quiet, and optimized for repeated operational work.
+- Use a dark-first console shell with a 64px icon rail, dense topbar context, restrained green signal accents, and no marketing-style hero sections.
+- The sigmon mark is a simple mono heartbeat SVG and should remain single-color so it can inherit the surrounding foreground/accent color.
+- Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings.
 
 ## Investigation UX
 

@@ -85,10 +85,15 @@ export function OverviewDashboard({ client, projectId, environmentId, onDrilldow
     let cancelled = false;
     setState("loading");
 
-    void client.getOverview({ projectId, environmentId, window }).then(
-      ({ data: response }) => {
+    void Promise.resolve(client.getOverview({ projectId, environmentId, window })).then(
+      (result) => {
         if (cancelled) return;
-        setData(response);
+        if (!result) {
+          setData(undefined);
+          setState("unavailable");
+          return;
+        }
+        setData(result.data);
         setState("ready");
       },
       () => {
