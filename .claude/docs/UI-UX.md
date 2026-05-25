@@ -11,6 +11,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Use a dark-first console shell with a 64px icon rail, dense topbar context, restrained green signal accents, and no marketing-style hero sections.
 - The sigmon mark is a simple mono heartbeat SVG and should remain single-color so it can inherit the surrounding foreground/accent color.
 - Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings.
+- Operational pages should use dark native surfaces consistently: no white form islands inside the dark console, readable secondary values, compact status pills, and grid spans chosen by workflow density rather than filling space indiscriminately.
 
 ## Investigation UX
 
@@ -28,6 +29,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Overview top-list rows can drill into Investigate with seeded exact filters; recent signals stay read-only.
 - Investigation views are operational, dense, and read-only by default.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.
+- Investigation detail drawers, event rows, filters, and aggregate strips should share the dark console surface language so raw telemetry inspection feels like one professional workspace.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.
 - Missing project/environment state should point operators back to Setup.
 - Keep Events and Errors as peer tabs inside `Investigate`.
@@ -73,6 +75,7 @@ SignalMonitor includes an admin-only Integration Console.
 ## Alerts UX
 
 - Alerts should stay dense and operational: rules, channels, recent events, and delivery status should be visible without a marketing-style layout.
+- Alerts should keep summary counters and creation forms aligned in a compact grid, with dark inputs/selects and subdued empty states.
 - Alert rule controls should remain scoped to the active project and environment.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
@@ -80,6 +83,7 @@ SignalMonitor includes an admin-only Integration Console.
 ## Monitors UX
 
 - Monitors should stay separate from alert rules so uptime and heartbeat setup does not crowd threshold configuration.
+- Monitors uses a full-width monitor list followed by three balanced panels for recent checks, HTTP setup, and heartbeat setup.
 - HTTP monitor rows should prioritize name, target URL, status, and last check time.
 - Heartbeat monitor rows should prioritize name, expected interval, grace window, status, and last check time.
 - Heartbeat secrets are shown only immediately after monitor creation, paired with the check-in URL, and should not be stored in browser storage.
@@ -88,6 +92,7 @@ SignalMonitor includes an admin-only Integration Console.
 ## Artifacts UX
 
 - Artifacts should stay operational: release filter, single-map upload, bundle upload, uploaded artifact list, and delete actions should fit the active project/environment workspace.
+- Artifacts uses two balanced upload panels plus a dark token-management surface; file inputs should look native to the console, not browser-default white controls.
 - Artifacts includes compact source-map upload token management for the active project/environment. Token secrets are shown once after creation.
 - Upload controls should support single `.map` files and `.zip` bundles.
 - Operators must provide release metadata because resolution uses strict release matching and does not guess across releases.
