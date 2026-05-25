@@ -48,6 +48,7 @@ Implemented capabilities:
 - Docker Compose install hardening for the supported production-oriented self-hosted path.
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 - Next.js apps can use App Router route/action wrappers and opt-in browser global error capture through the JavaScript SDK.
+- Public Scalar/OpenAPI API docs include integration rollout guidance, SDK-vs-REST positioning, server/browser key guidance, and richer ingestion/identify schema descriptions.
 
 ## Out of Scope for Current Phase
 
