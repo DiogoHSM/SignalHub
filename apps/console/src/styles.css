@@ -3007,6 +3007,507 @@ pre {
   color: var(--fg-muted);
 }
 
+/* Page polish pass: make operational surfaces feel intentionally designed, not just themed. */
+.workspace > .alerts-panel,
+.workspace > .monitors-panel,
+.workspace > .artifacts-panel,
+.workspace > .system-panel,
+.workspace > .investigation-workspace {
+  max-width: 1440px;
+}
+
+.workspace > .system-panel {
+  max-width: 1680px;
+}
+
+.status-pill,
+.badge {
+  border-color: var(--border);
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.status-pill--healthy,
+.status-pill--success,
+.status-pill--ok,
+.badge.status-resolved {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent-bg) 74%, transparent);
+  color: var(--accent-strong);
+}
+
+.status-pill--neutral {
+  border-color: var(--border);
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+}
+
+.status-pill--degraded,
+.status-box.empty {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: color-mix(in srgb, var(--warning-bg) 72%, transparent);
+  color: var(--warning);
+}
+
+.status-pill--unhealthy,
+.status-pill--failed,
+.status-box.unavailable {
+  border-color: color-mix(in srgb, var(--critical) 52%, var(--border));
+  background: color-mix(in srgb, var(--critical-bg) 74%, transparent);
+  color: var(--critical);
+}
+
+.status-box.success,
+.status-box.received {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--accent-bg) 72%, transparent);
+  color: var(--accent-strong);
+}
+
+.alerts-form input,
+.alerts-form select,
+.artifact-form input,
+.artifact-toolbar input,
+.event-filters input,
+.event-filters select,
+.entity-toolbar input,
+.entity-detail-filters input,
+.entity-detail-filters select,
+.error-group-status-form select,
+.incident-triage-panel select,
+.compact-form input,
+.inline-form input,
+.monitors-secret input {
+  border-color: var(--border);
+  background: #171d25;
+  color: var(--fg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  color-scheme: dark;
+}
+
+.alerts-form input::placeholder,
+.artifact-form input::placeholder,
+.artifact-toolbar input::placeholder,
+.event-filters input::placeholder,
+.compact-form input::placeholder,
+.inline-form input::placeholder {
+  color: var(--fg-faint);
+}
+
+.alerts-form select,
+.event-filters select,
+.entity-detail-filters select,
+.incident-triage-panel select,
+.error-group-status-form select {
+  appearance: auto;
+}
+
+input[type="file"] {
+  padding: 6px;
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 5px 8px;
+}
+
+.alerts-form button,
+.artifact-form button,
+.artifact-toolbar button,
+.artifact-row button,
+.artifact-token-list__item button,
+.artifacts-panel .status-box button,
+.filter-actions button,
+.drawer-actions button,
+.error-group-status-form button,
+.incident-header button,
+.incident-triage-panel button,
+.monitors-secret button,
+.inline-form button,
+.compact-form button {
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: var(--bg-surface-2);
+  color: var(--fg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.alerts-form button:hover:not(:disabled),
+.artifact-form button:hover:not(:disabled),
+.artifact-toolbar button:hover:not(:disabled),
+.filter-actions button:hover:not(:disabled),
+.drawer-actions button:hover:not(:disabled),
+.error-group-status-form button:hover:not(:disabled),
+.incident-header button:hover:not(:disabled),
+.incident-triage-panel button:hover:not(:disabled),
+.inline-form button:hover:not(:disabled),
+.compact-form button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: var(--accent-bg);
+  color: var(--accent-strong);
+}
+
+.alerts-form button:disabled,
+.artifact-form button:disabled,
+.artifact-toolbar button:disabled,
+.artifact-row button:disabled,
+.artifact-token-list__item button:disabled,
+.incident-triage-panel button:disabled {
+  border-color: var(--border-subtle);
+  background: #242c36;
+  color: var(--fg-faint);
+  cursor: not-allowed;
+}
+
+.alerts-panel__header,
+.artifacts-panel__header,
+.system-panel__header {
+  align-items: flex-end;
+  min-height: 48px;
+}
+
+.alerts-panel__header h2,
+.artifacts-panel__header h2,
+.system-panel__header h2,
+.investigation-workspace > .panel-header h2 {
+  color: var(--fg);
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.alerts-panel__header p,
+.artifacts-panel__header p,
+.system-panel__header p {
+  margin: 2px 0 0;
+}
+
+.alerts-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.alerts-card {
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 42%),
+    var(--bg-surface);
+  padding: 18px;
+}
+
+.alerts-panel .alerts-card:nth-child(1),
+.alerts-panel .alerts-card:nth-child(2) {
+  grid-column: span 3;
+  min-height: 116px;
+}
+
+.alerts-panel .alerts-card:nth-child(3) {
+  grid-column: span 6;
+  min-height: 116px;
+}
+
+.alerts-panel .alerts-card:nth-child(4),
+.alerts-panel .alerts-card:nth-child(5) {
+  grid-column: span 3;
+}
+
+.monitors-panel .alerts-card:nth-child(1) {
+  grid-column: 1 / -1;
+}
+
+.monitors-panel .alerts-card:nth-child(2),
+.monitors-panel .alerts-card:nth-child(3),
+.monitors-panel .alerts-card:nth-child(4) {
+  grid-column: span 4;
+  min-height: 340px;
+}
+
+.alerts-card h3,
+.artifact-form h3,
+.system-card h3 {
+  color: var(--fg);
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.overview-list button {
+  border-bottom-color: var(--border-subtle);
+  color: var(--fg-secondary);
+}
+
+.overview-list button:hover:not(:disabled) {
+  color: var(--accent-strong);
+}
+
+.overview-list button strong {
+  color: var(--fg-muted);
+}
+
+.alerts-row,
+.monitors-row {
+  border-top-color: var(--border-subtle);
+}
+
+.alerts-row strong,
+.monitors-row strong,
+.artifact-row strong,
+.artifact-token-list__item strong {
+  color: var(--fg);
+}
+
+.alerts-row span,
+.monitors-row span,
+.artifact-row span,
+.artifact-token-list__item p {
+  color: var(--fg-muted);
+}
+
+.monitors-row {
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 10px;
+}
+
+.monitors-row:hover,
+.monitors-row[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: var(--accent-bg);
+}
+
+.monitors-row[aria-pressed="true"] strong {
+  color: var(--accent-strong);
+}
+
+.alerts-form {
+  gap: 12px;
+}
+
+.alerts-form label,
+.artifact-form label,
+.artifact-toolbar label,
+.event-filters label,
+.error-group-status-form label,
+.incident-triage-panel label {
+  color: var(--fg-muted);
+  letter-spacing: 0;
+}
+
+.alerts-form input,
+.alerts-form select,
+.artifact-form input,
+.artifact-toolbar input,
+.event-filters input,
+.event-filters select {
+  min-height: 38px;
+  border-radius: 8px;
+}
+
+.alerts-form button,
+.artifact-form button,
+.artifact-toolbar button,
+.filter-actions button {
+  min-height: 38px;
+  border-radius: 8px;
+}
+
+.artifact-upload-grid {
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+  gap: 14px;
+}
+
+.artifact-form,
+.artifact-token-panel {
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 42%),
+    var(--bg-surface);
+  padding: 18px;
+}
+
+.artifact-toolbar {
+  grid-template-columns: minmax(240px, 380px) minmax(140px, auto);
+  max-width: 560px;
+}
+
+.artifact-token-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.artifact-token-panel .artifact-form {
+  border: 0;
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 14px;
+}
+
+.artifact-row,
+.artifact-token-list__item {
+  border-color: var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+}
+
+.system-panel {
+  gap: 18px;
+}
+
+.system-grid {
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.system-grid[aria-label="System operations"] {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.system-grid[aria-label="System operations"] .system-card {
+  grid-column: span 4;
+}
+
+.system-grid[aria-label="System operations"] .system-card:nth-child(4),
+.system-grid[aria-label="System operations"] .system-card:nth-child(5) {
+  grid-column: span 6;
+}
+
+.system-card {
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 42%),
+    var(--bg-surface);
+  padding: 18px;
+}
+
+.system-card dl {
+  gap: 10px;
+}
+
+.system-card dl > div {
+  align-items: start;
+  min-width: 0;
+}
+
+.system-card dt {
+  color: color-mix(in srgb, var(--fg-muted) 85%, var(--info));
+  letter-spacing: 0;
+}
+
+.system-card dd {
+  max-width: 68%;
+  color: var(--fg-secondary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.system-card dd span:not(.status-pill) {
+  display: inline-flex;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  font-size: 11px;
+  padding: 3px 7px;
+}
+
+.investigation-workspace {
+  gap: 18px;
+}
+
+.investigation-tabs {
+  gap: 8px;
+}
+
+.investigation-tabs button {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 14px;
+}
+
+.investigation-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+}
+
+.event-panel,
+.detail-drawer,
+.aggregate-strip > div {
+  border-color: var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
+}
+
+.event-filters {
+  gap: 12px;
+}
+
+.filter-actions button[type="button"] {
+  border-color: var(--border);
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+}
+
+.event-row {
+  border-color: var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  padding: 12px 14px;
+}
+
+.event-row:hover,
+.event-row[aria-pressed="true"],
+.event-row[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: var(--accent-bg);
+}
+
+.event-row code {
+  color: var(--fg-muted);
+}
+
+.event-row-action {
+  border-color: var(--border);
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+}
+
+.event-row-action:hover,
+.event-row-select:hover strong {
+  color: var(--accent-strong);
+}
+
+.detail-drawer {
+  min-height: 360px;
+  color: var(--fg-secondary);
+}
+
+.detail-drawer .muted-text {
+  color: var(--fg-muted);
+}
+
+.detail-grid dt {
+  color: var(--fg-muted);
+}
+
+.detail-grid dd {
+  color: var(--fg-secondary);
+}
+
+.aggregate-strip span {
+  color: var(--fg-muted);
+}
+
+.aggregate-strip strong {
+  color: var(--fg);
+}
+
 @media (max-width: 920px) {
   .console-layout {
     grid-template-columns: 1fr;
@@ -3062,8 +3563,33 @@ pre {
   .overview-kpis,
   .overview-lists,
   .operations-status-grid,
-  .operations-recent-grid {
+  .operations-recent-grid,
+  .artifact-upload-grid,
+  .artifact-toolbar,
+  .investigation-layout,
+  .system-grid,
+  .system-grid[aria-label="System operations"] {
     grid-template-columns: 1fr;
+  }
+
+  .alerts-grid,
+  .monitors-panel .alerts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .alerts-panel .alerts-card:nth-child(1),
+  .alerts-panel .alerts-card:nth-child(2),
+  .alerts-panel .alerts-card:nth-child(3),
+  .alerts-panel .alerts-card:nth-child(4),
+  .alerts-panel .alerts-card:nth-child(5),
+  .monitors-panel .alerts-card:nth-child(1),
+  .monitors-panel .alerts-card:nth-child(2),
+  .monitors-panel .alerts-card:nth-child(3),
+  .monitors-panel .alerts-card:nth-child(4),
+  .system-grid[aria-label="System operations"] .system-card,
+  .system-grid[aria-label="System operations"] .system-card:nth-child(4),
+  .system-grid[aria-label="System operations"] .system-card:nth-child(5) {
+    grid-column: auto;
   }
 
   .auth-page {
