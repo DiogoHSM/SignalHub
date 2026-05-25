@@ -1785,6 +1785,32 @@ describe("repositories", () => {
     });
   });
 
+  it("does not mark new heartbeat monitors stale before their first deadline", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_new_heartbeat", "env_new_heartbeat");
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId: "prj_new_heartbeat",
+        environmentId: "env_new_heartbeat",
+        name: "MicroERP new queue",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_1",
+        enabled: true
+      });
+
+      const early = await listStaleHeartbeatMonitors(db, {
+        now: new Date(monitor.createdAt.getTime() + 5 * 60 * 1000)
+      });
+      expect(early.map((item) => item.id)).not.toContain(monitor.id);
+
+      const stale = await listStaleHeartbeatMonitors(db, {
+        now: new Date(monitor.createdAt.getTime() + 7 * 60 * 1000)
+      });
+      expect(stale.map((item) => item.id)).toContain(monitor.id);
+    });
+  });
+
   it("rejects HTTP-only fields on heartbeat monitors", async () => {
     await withDb(async (db) => {
       await migrate(db);

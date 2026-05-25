@@ -1,12 +1,13 @@
-import type { Selectable } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
-import type { AlertEventsTable, MonitorChecksTable, MonitorsTable } from "../schema.js";
+import type { AlertEventsTable, Database, MonitorChecksTable, MonitorsTable } from "../schema.js";
 
 type MonitorRow = Selectable<MonitorsTable>;
 type MonitorCheckRow = Selectable<MonitorChecksTable>;
 type AlertEventRow = Selectable<AlertEventsTable>;
+type MonitorDb = Db | Transaction<Database>;
 const MONITOR_EVALUATION_LOCK_ID = 927380402916;
 
 export type MonitorKind = "http" | "heartbeat";
@@ -407,7 +408,7 @@ export async function archiveMonitor(db: Db, id: string): Promise<void> {
 }
 
 export async function listDueHttpMonitors(
-  db: Db,
+  db: MonitorDb,
   input: { now: Date; limit: number }
 ): Promise<MonitorRecord[]> {
   const limit = clampLimit(input.limit, 50);
@@ -530,7 +531,7 @@ export async function recordHeartbeatCheckIn(
 }
 
 export async function listStaleHeartbeatMonitors(
-  db: Db,
+  db: MonitorDb,
   input: { now: Date; limit?: number }
 ): Promise<MonitorRecord[]> {
   const limit = clampLimit(input.limit, 50);
@@ -541,10 +542,7 @@ export async function listStaleHeartbeatMonitors(
       and enabled = true
       and status <> 'paused'
       and archived_at is null
-      and (
-        last_heartbeat_at is null
-        or last_heartbeat_at <= ${input.now}::timestamptz - make_interval(mins => expected_interval_minutes + grace_minutes)
-      )
+      and coalesce(last_heartbeat_at, created_at) <= ${input.now}::timestamptz - make_interval(mins => expected_interval_minutes + grace_minutes)
     order by last_heartbeat_at asc nulls first, created_at asc
     limit ${limit}
   `.execute(db);
@@ -608,7 +606,7 @@ export async function recordMonitorAlertEvent(
 
 export async function withMonitorEvaluationLock<T>(
   db: Db,
-  run: () => Promise<T>
+  run: (lockedDb: Transaction<Database>) => Promise<T>
 ): Promise<{ locked: false } | { locked: true; result: T }> {
   return db.transaction().execute(async (trx) => {
     const lock = await sql<{ locked: boolean }>`
@@ -619,6 +617,6 @@ export async function withMonitorEvaluationLock<T>(
       return { locked: false };
     }
 
-    return { locked: true, result: await run() };
+    return { locked: true, result: await run(trx) };
   });
 }

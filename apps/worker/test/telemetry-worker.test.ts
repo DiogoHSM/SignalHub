@@ -1714,9 +1714,14 @@ describe("monitor evaluation", () => {
 
     const result = await runMonitorEvaluationOnce({
       now: () => now,
-      withLock: async (run) => ({ locked: true, result: await run() }),
-      listDueHttpMonitors: async () => [monitor],
-      listStaleHeartbeatMonitors: async () => [],
+      withLock: async (run) => ({
+        locked: true,
+        result: await run({
+          listDueHttpMonitors: async () => [monitor],
+          listStaleHeartbeatMonitors: async () => []
+        })
+      }),
+      maxConcurrency: 2,
       checkHttpMonitor: async () => ({ status: "success", latencyMs: 42, responseStatus: 200, errorMessage: null }),
       recordMonitorCheck,
       recordAlertEvent: vi.fn(),
@@ -1740,9 +1745,14 @@ describe("monitor evaluation", () => {
 
     const result = await runMonitorEvaluationOnce({
       now: () => new Date("2026-05-24T12:07:00.000Z"),
-      withLock: async (run) => ({ locked: true, result: await run() }),
-      listDueHttpMonitors: async () => [],
-      listStaleHeartbeatMonitors: async () => [heartbeat],
+      withLock: async (run) => ({
+        locked: true,
+        result: await run({
+          listDueHttpMonitors: async () => [],
+          listStaleHeartbeatMonitors: async () => [heartbeat]
+        })
+      }),
+      maxConcurrency: 2,
       checkHttpMonitor: vi.fn(),
       recordMonitorCheck,
       recordAlertEvent,
@@ -1778,9 +1788,14 @@ describe("monitor evaluation", () => {
 
     const result = await runMonitorEvaluationOnce({
       now: () => new Date("2026-05-24T12:07:00.000Z"),
-      withLock: async (run) => ({ locked: true, result: await run() }),
-      listDueHttpMonitors: async () => [],
-      listStaleHeartbeatMonitors: async () => [heartbeat],
+      withLock: async (run) => ({
+        locked: true,
+        result: await run({
+          listDueHttpMonitors: async () => [],
+          listStaleHeartbeatMonitors: async () => [heartbeat]
+        })
+      }),
+      maxConcurrency: 2,
       checkHttpMonitor: vi.fn(),
       recordMonitorCheck: vi.fn().mockResolvedValue(heartbeat),
       recordAlertEvent,
@@ -1797,10 +1812,7 @@ describe("monitor evaluation", () => {
     const result = await runMonitorEvaluationOnce({
       now: () => now,
       withLock: async () => ({ locked: false }),
-      listDueHttpMonitors: async () => {
-        throw new Error("should_not_list_monitors");
-      },
-      listStaleHeartbeatMonitors: async () => [],
+      maxConcurrency: 2,
       checkHttpMonitor: vi.fn(),
       recordMonitorCheck: vi.fn(),
       recordAlertEvent: vi.fn(),
