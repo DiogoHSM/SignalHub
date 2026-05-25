@@ -512,6 +512,8 @@ export type EntitySignalType = "event" | "error" | "trace" | "llm";
 export type TenantSummary = {
   tenantId: string | null;
   label: string;
+  traits: Record<string, unknown>;
+  keyTraits: Record<string, string>;
   isUnassigned: boolean;
   impactScore: number;
   lastSeenAt: string | null;
@@ -632,6 +634,8 @@ export type UserSignalType = "event" | "error" | "trace" | "llm";
 export type UserSummary = {
   userId: string | null;
   label: string;
+  traits: Record<string, unknown>;
+  keyTraits: Record<string, string>;
   isAnonymous: boolean;
   impactScore: number;
   lastSeenAt: string | null;

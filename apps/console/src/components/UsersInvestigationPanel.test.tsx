@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -23,6 +23,8 @@ function user(overrides: Partial<UserSummary> = {}): UserSummary {
     llmCostUsd: "1.25",
     activeTenants: 2,
     activeSessions: 3,
+    traits: {},
+    keyTraits: {},
     ...overrides
   };
 }
@@ -207,17 +209,24 @@ describe("UsersInvestigationPanel", () => {
   });
 
   it("selecting user loads summary recent sessions and timeline", async () => {
-    const getUserDetail = vi.fn().mockResolvedValue({ data: detail() });
+    const ana = user({ label: "Ana Souza", keyTraits: { role: "admin" } } as Partial<UserSummary>);
+    const getUserDetail = vi.fn().mockResolvedValue({ data: detail({ user: ana }) });
     const api = client({
-      listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [user()] } }),
+      listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [ana] } }),
       getUserDetail
     });
 
     render(<UsersInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /user_1/ }));
+    const row = await screen.findByRole("button", { name: /Ana Souza/ });
+    expect(row).toHaveTextContent("role: admin");
+    await userEvent.click(row);
 
     expect(await screen.findByText("Active tenants")).toBeInTheDocument();
+    const detailPanel = screen.getByRole("heading", { name: "Ana Souza" }).closest(".user-detail");
+    expect(detailPanel).not.toBeNull();
+    expect(within(detailPanel as HTMLElement).getByText("user_1")).toBeInTheDocument();
+    expect(screen.getAllByText("role: admin")).toHaveLength(2);
     expect(screen.getByRole("columnheader", { name: "Session" })).toBeInTheDocument();
     expect(screen.getByText("session_1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Checkout started/ })).toBeInTheDocument();

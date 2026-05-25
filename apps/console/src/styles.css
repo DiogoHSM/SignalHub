@@ -2092,6 +2092,26 @@ select {
   gap: 0.35rem;
 }
 
+.trait-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.trait-chip {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  padding: 4px 7px;
+}
+
 .entity-tenant-row[aria-pressed="true"],
 .entity-timeline-row:focus-visible,
 .user-row[aria-pressed="true"],

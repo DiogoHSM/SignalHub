@@ -5316,6 +5316,150 @@ describe("repositories", () => {
     });
   });
 
+  it("joins tenant profile traits into tenant list detail and profile search", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Entity Profiles" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+
+      await identifyTenantProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        traits: { name: "MicroERP", plan: "pro" },
+        timestamp: new Date("2026-05-05T11:00:00.000Z")
+      });
+      await identifyTenantProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_email",
+        traits: { email: "billing@tenant.example" },
+        timestamp: new Date("2026-05-05T11:00:00.000Z")
+      });
+      await identifyTenantProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_display",
+        traits: { display_name: "Display ERP", operation_mode: 2, status: true },
+        timestamp: new Date("2026-05-05T11:00:00.000Z")
+      });
+      await insertEvent(db, {
+        id: "evt_tenant_profile",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:05:00.000Z"),
+        receivedAt,
+        name: "profile.match",
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "session_1"
+      });
+      await insertEvent(db, {
+        id: "evt_tenant_profile_email",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:06:00.000Z"),
+        receivedAt,
+        name: "profile.email",
+        tenantId: "tenant_email",
+        userId: "user_email",
+        sessionId: "session_email"
+      });
+      await insertEvent(db, {
+        id: "evt_tenant_profile_display",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:06:30.000Z"),
+        receivedAt,
+        name: "profile.display",
+        tenantId: "tenant_display",
+        userId: "user_display",
+        sessionId: "session_display"
+      });
+      await insertEvent(db, {
+        id: "evt_tenant_profile_unassigned",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:07:00.000Z"),
+        receivedAt,
+        name: "profile.unassigned",
+        userId: "user_unassigned",
+        sessionId: "session_unassigned"
+      });
+
+      const result = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "MicroERP",
+        limit: 50,
+        now
+      });
+
+      expect(result.tenants).toHaveLength(1);
+      expect(result.tenants[0]).toMatchObject({
+        tenantId: "tenant_1",
+        label: "MicroERP",
+        traits: { name: "MicroERP", plan: "pro" },
+        keyTraits: { plan: "pro" }
+      });
+
+      const detail = await getEntityTenantDetail(db, "tenant_1", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+      expect(detail.tenant).toMatchObject({
+        tenantId: "tenant_1",
+        label: "MicroERP",
+        traits: { name: "MicroERP", plan: "pro" },
+        keyTraits: { plan: "pro" }
+      });
+
+      const byEmail = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "billing@tenant",
+        limit: 50,
+        now
+      });
+      expect(byEmail.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_email"]);
+
+      const byDisplayName = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "Display ERP",
+        limit: 50,
+        now
+      });
+      expect(byDisplayName.tenants[0]).toMatchObject({
+        tenantId: "tenant_display",
+        label: "Display ERP",
+        keyTraits: { operation_mode: "2", status: "true" }
+      });
+
+      const allTenants = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+      expect(allTenants.tenants.find((tenant) => tenant.tenantId === null)).toMatchObject({
+        label: "Unassigned",
+        traits: {},
+        keyTraits: {}
+      });
+    });
+  });
+
   it("lists users by deterministic impact score", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -5485,6 +5629,153 @@ describe("repositories", () => {
         now
       });
       expect(byTenant.users.map((user) => user.userId)).toEqual(["user_other"]);
+    });
+  });
+
+  it("joins user profile traits into user list detail and profile search", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "User Profiles" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_1",
+        tenantId: "tenant_1",
+        traits: { name: "Ana Souza", role: "admin" },
+        timestamp: new Date("2026-05-05T11:00:00.000Z")
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_email",
+        tenantId: "tenant_1",
+        traits: { email: "ana.email@example.com" },
+        timestamp: new Date("2026-05-05T11:00:00.000Z")
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_display",
+        tenantId: "tenant_1",
+        traits: { display_name: "Ana Display", operation_mode: 7, status: false },
+        timestamp: new Date("2026-05-05T11:00:00.000Z")
+      });
+      await insertEvent(db, {
+        id: "evt_user_profile",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:05:00.000Z"),
+        receivedAt,
+        name: "profile.match",
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "session_1"
+      });
+      await insertEvent(db, {
+        id: "evt_user_profile_email",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:06:00.000Z"),
+        receivedAt,
+        name: "profile.email",
+        tenantId: "tenant_1",
+        userId: "user_email",
+        sessionId: "session_email"
+      });
+      await insertEvent(db, {
+        id: "evt_user_profile_display",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:06:30.000Z"),
+        receivedAt,
+        name: "profile.display",
+        tenantId: "tenant_1",
+        userId: "user_display",
+        sessionId: "session_display"
+      });
+      await insertEvent(db, {
+        id: "evt_user_profile_anonymous",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:07:00.000Z"),
+        receivedAt,
+        name: "profile.anonymous",
+        tenantId: "tenant_1",
+        sessionId: "session_anonymous"
+      });
+
+      const result = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "Ana Souza",
+        limit: 50,
+        now
+      });
+
+      expect(result.users).toHaveLength(1);
+      expect(result.users[0]).toMatchObject({
+        userId: "user_1",
+        label: "Ana Souza",
+        traits: { name: "Ana Souza", role: "admin" },
+        keyTraits: { role: "admin" }
+      });
+
+      const detail = await getUserDetail(db, "user_1", {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+      expect(detail.user).toMatchObject({
+        userId: "user_1",
+        label: "Ana Souza",
+        traits: { name: "Ana Souza", role: "admin" },
+        keyTraits: { role: "admin" }
+      });
+
+      const byEmail = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "ana.email",
+        limit: 50,
+        now
+      });
+      expect(byEmail.users.map((user) => user.userId)).toEqual(["user_email"]);
+
+      const byDisplayName = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "Ana Display",
+        limit: 50,
+        now
+      });
+      expect(byDisplayName.users[0]).toMatchObject({
+        userId: "user_display",
+        label: "Ana Display",
+        keyTraits: { operation_mode: "7", status: "false" }
+      });
+
+      const allUsers = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+      expect(allUsers.users.find((user) => user.userId === null)).toMatchObject({
+        label: "Anonymous / Unassigned",
+        traits: {},
+        keyTraits: {}
+      });
     });
   });
 

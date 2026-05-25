@@ -108,6 +108,15 @@ export function EntitiesTenantList({ tenants, selectedTenantId, sort, onSortChan
                   <strong>{tenant.label}</strong>
                   <code>{key}</code>
                 </span>
+                {Object.keys(tenant.keyTraits).length > 0 ? (
+                  <span className="trait-chips">
+                    {Object.entries(tenant.keyTraits).map(([key, value]) => (
+                      <span className="trait-chip" key={key}>
+                        {key}: {value}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
                 <span>Impact {tenant.impactScore}</span>
                 <span>Events {tenant.events}</span>
                 <span>Errors {tenant.errors}</span>

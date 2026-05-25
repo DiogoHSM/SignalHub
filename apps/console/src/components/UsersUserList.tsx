@@ -107,6 +107,15 @@ export function UsersUserList({ users, selectedUserId, sort, onSortChange, onSel
                   <strong>{user.label}</strong>
                   <code>{key}</code>
                 </span>
+                {Object.keys(user.keyTraits).length > 0 ? (
+                  <span className="trait-chips">
+                    {Object.entries(user.keyTraits).map(([key, value]) => (
+                      <span className="trait-chip" key={key}>
+                        {key}: {value}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
                 <span>Impact {user.impactScore}</span>
                 <span>Events {user.events}</span>
                 <span>Errors {user.errors}</span>

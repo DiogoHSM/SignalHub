@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -39,6 +39,8 @@ function tenant(overrides: Partial<TenantSummary> = {}): TenantSummary {
     llmCostUsd: "1.25",
     activeUsers: 2,
     activeSessions: 3,
+    traits: {},
+    keyTraits: {},
     ...overrides
   };
 }
@@ -164,7 +166,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [] } }),
     getEntityTenantDetail: vi.fn(),
     listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [] } }),
-    getUserDetail: vi.fn().mockResolvedValue({ data: { window: "7d", generatedAt: "2026-05-05T12:00:00.000Z", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" }, user: { userId: "user_1", label: "user_1", isAnonymous: false, impactScore: 0, lastSeenAt: null, events: 0, errors: 0, openErrors: 0, severeErrors: 0, traces: 0, failedTraces: 0, llmCalls: 0, failedLlmCalls: 0, llmCostUsd: "0", activeTenants: 0, activeSessions: 0 }, recentSessions: [], timeline: [] } }),
+    getUserDetail: vi.fn().mockResolvedValue({ data: { window: "7d", generatedAt: "2026-05-05T12:00:00.000Z", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" }, user: { userId: "user_1", label: "user_1", traits: {}, keyTraits: {}, isAnonymous: false, impactScore: 0, lastSeenAt: null, events: 0, errors: 0, openErrors: 0, severeErrors: 0, traces: 0, failedTraces: 0, llmCalls: 0, failedLlmCalls: 0, llmCostUsd: "0", activeTenants: 0, activeSessions: 0 }, recentSessions: [], timeline: [] } }),
     listUsers: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),
@@ -247,17 +249,24 @@ describe("EntitiesInvestigationPanel", () => {
   });
 
   it("selecting tenant loads summary top users and timeline", async () => {
-    const getEntityTenantDetail = vi.fn().mockResolvedValue({ data: detail() });
+    const microErp = tenant({ label: "MicroERP", keyTraits: { plan: "pro" } } as Partial<TenantSummary>);
+    const getEntityTenantDetail = vi.fn().mockResolvedValue({ data: detail({ tenant: microErp }) });
     const api = client({
-      listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [tenant()] } }),
+      listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [microErp] } }),
       getEntityTenantDetail
     });
 
     render(<EntitiesInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Tenant A/ }));
+    const row = await screen.findByRole("button", { name: /MicroERP/ });
+    expect(row).toHaveTextContent("plan: pro");
+    await userEvent.click(row);
 
     expect(await screen.findByText("Active users")).toBeInTheDocument();
+    const detailPanel = screen.getByRole("heading", { name: "MicroERP" }).closest(".entity-detail");
+    expect(detailPanel).not.toBeNull();
+    expect(within(detailPanel as HTMLElement).getByText("tenant_a")).toBeInTheDocument();
+    expect(screen.getAllByText("plan: pro")).toHaveLength(2);
     expect(screen.getByRole("columnheader", { name: "User" })).toBeInTheDocument();
     expect(screen.getByText("user_1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Checkout started/ })).toBeInTheDocument();
