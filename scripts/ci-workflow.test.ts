@@ -107,4 +107,21 @@ describe("GitHub Actions CI workflow", () => {
       smokeJob.indexOf("- name: Cleanup smoke resources")
     );
   });
+
+  it("deploys only repository-built EasyPanel app services from main pushes", () => {
+    const deployJob = jobBlock(workflow(), "deploy-easypanel");
+
+    expectIncludesAll(deployJob, [
+      "needs: [test, build, compose-config, smoke-compose]",
+      "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      "EASYPANEL_API_DEPLOY_URL: ${{ secrets.EASYPANEL_API_DEPLOY_URL || secrets.EASYPANEL_DEPLOY_URL }}",
+      "EASYPANEL_WORKER_DEPLOY_URL: ${{ secrets.EASYPANEL_WORKER_DEPLOY_URL }}",
+      "EASYPANEL_SCHEDULER_DEPLOY_URL: ${{ secrets.EASYPANEL_SCHEDULER_DEPLOY_URL }}",
+      "curl --fail --silent --show-error --request POST \"${EASYPANEL_API_DEPLOY_URL}\"",
+      "curl --fail --silent --show-error --request POST \"${EASYPANEL_WORKER_DEPLOY_URL}\"",
+      "curl --fail --silent --show-error --request POST \"${EASYPANEL_SCHEDULER_DEPLOY_URL}\""
+    ]);
+    expect(deployJob).not.toContain("POSTGRES_DEPLOY_URL");
+    expect(deployJob).not.toContain("REDIS_DEPLOY_URL");
+  });
 });

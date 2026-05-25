@@ -319,6 +319,7 @@ On pushes to `main`, CI also triggers EasyPanel deploy hooks after all gates pas
 
 - `EASYPANEL_API_DEPLOY_URL` for the EasyPanel `api` service. The legacy `EASYPANEL_DEPLOY_URL` secret is also accepted as an API deploy URL.
 - `EASYPANEL_WORKER_DEPLOY_URL` for the EasyPanel `worker` service.
+- `EASYPANEL_SCHEDULER_DEPLOY_URL` for the EasyPanel `scheduler` service when scheduler work runs as a split service. Omit it when scheduler work runs inside the worker service.
 
 Do not configure deploy hooks for Postgres or Redis. They are stateful EasyPanel template services and should not be redeployed from the repository build.
 

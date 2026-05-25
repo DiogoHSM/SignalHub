@@ -126,6 +126,7 @@ jobs:
     env:
       EASYPANEL_API_DEPLOY_URL: ${{ secrets.EASYPANEL_API_DEPLOY_URL || secrets.EASYPANEL_DEPLOY_URL }}
       EASYPANEL_WORKER_DEPLOY_URL: ${{ secrets.EASYPANEL_WORKER_DEPLOY_URL }}
+      EASYPANEL_SCHEDULER_DEPLOY_URL: ${{ secrets.EASYPANEL_SCHEDULER_DEPLOY_URL }}
     steps:
       - name: Trigger EasyPanel deploy hooks
         run: |
@@ -141,4 +142,10 @@ jobs:
             curl --fail --silent --show-error --request POST "${EASYPANEL_WORKER_DEPLOY_URL}"
           else
             echo "::notice::No EasyPanel worker deploy URL configured; skipping worker deploy."
+          fi
+
+          if [ -n "${EASYPANEL_SCHEDULER_DEPLOY_URL}" ]; then
+            curl --fail --silent --show-error --request POST "${EASYPANEL_SCHEDULER_DEPLOY_URL}"
+          else
+            echo "::notice::No EasyPanel scheduler deploy URL configured; skipping scheduler deploy."
           fi
