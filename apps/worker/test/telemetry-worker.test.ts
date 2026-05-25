@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { LookupFunction } from "node:net";
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
+  deliverNotification,
   deliverWebhook,
   runAlertEvaluationOnce,
   startAlertScheduler,
@@ -2147,6 +2148,7 @@ describe("deliverEmail", () => {
         secure: false
       },
       payload: alertPayload(),
+      timeoutMs: 2500,
       transportFactory: () => ({ sendMail }) as never
     });
 
@@ -2164,7 +2166,8 @@ describe("deliverEmail", () => {
     const result = await deliverEmail({
       channel: emailChannel(),
       smtp: { enabled: false, host: "", port: 587, username: "", password: "", from: "", secure: false },
-      payload: alertPayload()
+      payload: alertPayload(),
+      timeoutMs: 2500
     });
 
     expect(result).toEqual({ status: "failed", responseStatus: null, errorMessage: "SMTP is not configured" });
@@ -2184,6 +2187,7 @@ describe("deliverEmail", () => {
         secure: false
       },
       payload: alertPayload(),
+      timeoutMs: 2500,
       transportFactory: () => ({ sendMail }) as never
     });
 
@@ -2192,6 +2196,38 @@ describe("deliverEmail", () => {
       responseStatus: null,
       errorMessage: "SMTP auth failed for [REDACTED]"
     });
+  });
+
+  it("dispatches email notification channels with the alert timeout", async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "msg_1" });
+    const transportFactory = vi.fn(() => ({ sendMail }) as never);
+
+    const result = await deliverNotification({
+      channel: emailChannel(),
+      smtp: {
+        enabled: true,
+        host: "smtp.example.com",
+        port: 587,
+        username: "user",
+        password: "password",
+        from: "Sigmon <alerts@example.com>",
+        secure: false
+      },
+      payload: alertPayload(),
+      timeoutMs: 2500,
+      nodeEnv: "production",
+      emailTransportFactory: transportFactory
+    });
+
+    expect(result).toEqual({ status: "success", responseStatus: null, errorMessage: null });
+    expect(transportFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionTimeout: 2500,
+        greetingTimeout: 2500,
+        socketTimeout: 2500
+      })
+    );
+    expect(sendMail).toHaveBeenCalledOnce();
   });
 });
 

@@ -12,7 +12,7 @@ import {
   type ResolvedAddress
 } from "@sigmon/config";
 import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
-import { deliverEmail } from "./email.js";
+import { deliverEmail, type EmailTransportFactory } from "./email.js";
 
 export type AlertWebhookPayload = {
   alertEventId: string;
@@ -172,7 +172,7 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
     try {
       delivery = await runtime.deliver(pending.channel, pending.payload);
     } catch (error) {
-      console.error(`Alert webhook delivery ${pending.eventId} failed`, error);
+      console.error(`Alert notification delivery ${pending.eventId} failed`, error);
       continue;
     }
 
@@ -184,7 +184,7 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
         ...delivery
       });
     } catch (error) {
-      console.error(`Alert webhook delivery ${pending.eventId} recording failed`, error);
+      console.error(`Alert notification delivery ${pending.eventId} recording failed`, error);
     }
   }
 
@@ -206,6 +206,7 @@ export async function deliverNotification(input: {
   smtp: AppConfig["smtp"];
   timeoutMs: number;
   nodeEnv: string;
+  emailTransportFactory?: EmailTransportFactory;
 }): Promise<DeliveryResult> {
   if (input.channel.type === "webhook") {
     return deliverWebhook({
@@ -219,7 +220,9 @@ export async function deliverNotification(input: {
   return deliverEmail({
     channel: input.channel,
     smtp: input.smtp,
-    payload: input.payload
+    payload: input.payload,
+    timeoutMs: input.timeoutMs,
+    transportFactory: input.emailTransportFactory
   });
 }
 

@@ -4,11 +4,14 @@ import type { NotificationChannelRecord } from "@sigmon/db/repositories/alerts.j
 import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
 import type { AlertWebhookPayload, DeliveryResult } from "./alerts.js";
 
+export type EmailTransportFactory = typeof createTransport;
+
 export async function deliverEmail(input: {
   channel: Extract<NotificationChannelRecord, { type: "email" }>;
   smtp: AppConfig["smtp"];
   payload: AlertWebhookPayload;
-  transportFactory?: typeof createTransport;
+  timeoutMs: number;
+  transportFactory?: EmailTransportFactory;
 }): Promise<DeliveryResult> {
   if (!input.smtp.enabled) {
     return { status: "failed", responseStatus: null, errorMessage: "SMTP is not configured" };
@@ -22,7 +25,10 @@ export async function deliverEmail(input: {
       auth: {
         user: input.smtp.username,
         pass: input.smtp.password
-      }
+      },
+      connectionTimeout: input.timeoutMs,
+      greetingTimeout: input.timeoutMs,
+      socketTimeout: input.timeoutMs
     });
 
     await transport.sendMail({
