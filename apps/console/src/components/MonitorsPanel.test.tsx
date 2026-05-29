@@ -126,6 +126,15 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
       }),
       secret: "shhb_secret"
     }),
+    updateMonitor: vi.fn().mockResolvedValue({
+      monitor: monitor({
+        name: "API v2",
+        url: "https://api.example.com/ready",
+        intervalMinutes: 10,
+        timeoutMs: 3000
+      })
+    }),
+    archiveMonitor: vi.fn().mockResolvedValue(undefined),
     ...overrides
   } satisfies ApiClient;
 }
@@ -168,5 +177,56 @@ describe("MonitorsPanel", () => {
     const secretRegion = await screen.findByRole("region", { name: "New heartbeat secret" });
     expect(within(secretRegion).getByDisplayValue("https://my.sigmon.app/v1/heartbeats/mon_hb")).toBeInTheDocument();
     expect(within(secretRegion).getByDisplayValue("shhb_secret")).toBeInTheDocument();
+  });
+
+  it("edits the selected HTTP monitor", async () => {
+    const api = client();
+
+    render(<MonitorsPanel apiEndpoint="https://my.sigmon.app" client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit API health" }));
+    const editForm = screen.getByRole("region", { name: "Edit monitor" });
+    await userEvent.clear(within(editForm).getByLabelText("Name", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("Name", { selector: "input" }), "API v2");
+    await userEvent.clear(within(editForm).getByLabelText("URL", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("URL", { selector: "input" }), "https://api.example.com/ready");
+    await userEvent.clear(within(editForm).getByLabelText("Interval", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("Interval", { selector: "input" }), "10");
+    await userEvent.clear(within(editForm).getByLabelText("Timeout", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("Timeout", { selector: "input" }), "3000");
+    await userEvent.click(within(editForm).getByRole("button", { name: "Save monitor" }));
+
+    await waitFor(() =>
+      expect(api.updateMonitor).toHaveBeenCalledWith("mon_1", {
+        notificationChannelId: null,
+        name: "API v2",
+        enabled: true,
+        url: "https://api.example.com/ready",
+        intervalMinutes: 10,
+        timeoutMs: 3000
+      })
+    );
+    expect(await screen.findByText("API v2")).toBeInTheDocument();
+  });
+
+  it("archives a monitor from the list", async () => {
+    const api = client({
+      listMonitors: vi.fn().mockResolvedValue({
+        monitors: [
+          monitor({ id: "mon_1", name: "API health" }),
+          monitor({ id: "mon_2", name: "Worker heartbeat", kind: "heartbeat", url: null, expectedIntervalMinutes: 5, graceMinutes: 2 })
+        ]
+      })
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<MonitorsPanel apiEndpoint="https://my.sigmon.app" client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Delete API health" }));
+
+    await waitFor(() => expect(api.archiveMonitor).toHaveBeenCalledWith("mon_1"));
+    expect(screen.queryByText("API health")).not.toBeInTheDocument();
+    expect(await screen.findByText("Worker heartbeat")).toBeInTheDocument();
+    confirmSpy.mockRestore();
   });
 });

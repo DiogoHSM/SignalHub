@@ -879,6 +879,28 @@ select {
   cursor: not-allowed;
 }
 
+.alerts-form .secondary-button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.checkbox-row {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.checkbox-row input {
+  min-height: auto;
+}
+
 .alerts-form__columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(80px, 1fr));
@@ -890,12 +912,11 @@ select {
 }
 
 .monitors-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   width: 100%;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 10px;
   border: 0;
   border-top: 1px solid #e2e8f0;
@@ -909,11 +930,24 @@ select {
   padding-top: 0;
 }
 
-.monitors-row[aria-pressed="true"] strong {
+.monitors-row[data-selected="true"] strong {
   color: #2563eb;
 }
 
-.monitors-row > div {
+.monitors-row__select {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+
+.monitors-row__select > div {
   display: grid;
   min-width: 0;
   gap: 3px;
@@ -933,6 +967,16 @@ select {
 .monitors-row span {
   color: #64748b;
   font-size: 12px;
+}
+
+.monitor-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.icon-button--danger {
+  color: #b91c1c;
 }
 
 .monitors-secret {
@@ -3295,13 +3339,31 @@ input[type="file"]::file-selector-button {
 }
 
 .monitors-row:hover,
-.monitors-row[aria-pressed="true"] {
+.monitors-row[data-selected="true"] {
   border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
   background: var(--accent-bg);
 }
 
-.monitors-row[aria-pressed="true"] strong {
+.monitors-row[data-selected="true"] strong {
   color: var(--accent-strong);
+}
+
+.monitors-row__select {
+  color: inherit;
+}
+
+.monitor-row-actions .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.icon-button--danger {
+  color: var(--critical);
+}
+
+.icon-button--danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--critical) 54%, var(--border));
+  background: color-mix(in srgb, var(--critical) 12%, transparent);
 }
 
 .alerts-form {
