@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type { MonitorCheckResponse, MonitorResponse, NotificationChannelResponse } from "../api/types";
 
@@ -22,6 +23,19 @@ type HeartbeatForm = {
   expectedIntervalMinutes: string;
   graceMinutes: string;
   notificationChannelId: string;
+};
+
+type EditForm = {
+  id: string;
+  kind: MonitorResponse["kind"];
+  name: string;
+  enabled: boolean;
+  notificationChannelId: string;
+  url: string;
+  intervalMinutes: string;
+  timeoutMs: string;
+  expectedIntervalMinutes: string;
+  graceMinutes: string;
 };
 
 type LatestSecret = {
@@ -91,6 +105,21 @@ function channelLabel(channel: NotificationChannelResponse): string {
   return channel.type === "email" ? `${channel.name} · email` : `${channel.name} · webhook`;
 }
 
+function editFormFromMonitor(monitor: MonitorResponse): EditForm {
+  return {
+    id: monitor.id,
+    kind: monitor.kind,
+    name: monitor.name,
+    enabled: monitor.enabled,
+    notificationChannelId: monitor.notificationChannelId ?? "",
+    url: monitor.url ?? "",
+    intervalMinutes: String(monitor.intervalMinutes ?? 5),
+    timeoutMs: String(monitor.timeoutMs ?? 5000),
+    expectedIntervalMinutes: String(monitor.expectedIntervalMinutes ?? 5),
+    graceMinutes: String(monitor.graceMinutes ?? 0)
+  };
+}
+
 export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }: Props) {
   const scopeRef = useRef({ projectId, environmentId });
   const [monitors, setMonitors] = useState<MonitorResponse[]>([]);
@@ -99,10 +128,13 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
   const [checks, setChecks] = useState<MonitorCheckResponse[]>([]);
   const [httpForm, setHttpForm] = useState<HttpForm>(defaultHttpForm);
   const [heartbeatForm, setHeartbeatForm] = useState<HeartbeatForm>(defaultHeartbeatForm);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [latestSecret, setLatestSecret] = useState<LatestSecret | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingHttp, setIsCreatingHttp] = useState(false);
   const [isCreatingHeartbeat, setIsCreatingHeartbeat] = useState(false);
+  const [isSavingMonitor, setIsSavingMonitor] = useState(false);
+  const [deletingMonitorId, setDeletingMonitorId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   scopeRef.current = { projectId, environmentId };
@@ -115,6 +147,7 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
   useEffect(() => {
     setHttpForm(defaultHttpForm);
     setHeartbeatForm(defaultHeartbeatForm);
+    setEditForm(null);
     setLatestSecret(null);
   }, [projectId, environmentId]);
 
@@ -275,6 +308,96 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
     }
   }
 
+  function startEditingMonitor(monitor: MonitorResponse) {
+    setSelectedMonitorId(monitor.id);
+    setEditForm(editFormFromMonitor(monitor));
+    setError(null);
+  }
+
+  async function saveMonitor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editForm || !client.updateMonitor || isSavingMonitor) return;
+
+    const name = editForm.name.trim();
+    if (!name) {
+      setError("Monitor name is required");
+      return;
+    }
+
+    const input: Parameters<NonNullable<ApiClient["updateMonitor"]>>[1] = {
+      notificationChannelId: editForm.notificationChannelId || null,
+      name,
+      enabled: editForm.enabled
+    };
+
+    if (editForm.kind === "http") {
+      const url = editForm.url.trim();
+      if (!url) {
+        setError("HTTP monitor URL is required");
+        return;
+      }
+      const urlError = validateHttpUrl(url);
+      if (urlError) {
+        setError(urlError);
+        return;
+      }
+      const intervalMinutes = parsePositiveInteger(editForm.intervalMinutes, 1);
+      const timeoutMs = parsePositiveInteger(editForm.timeoutMs, 100);
+      if (intervalMinutes === null || timeoutMs === null) {
+        setError("HTTP monitor interval and timeout must be valid numbers");
+        return;
+      }
+      input.url = url;
+      input.intervalMinutes = intervalMinutes;
+      input.timeoutMs = timeoutMs;
+    } else {
+      const expectedIntervalMinutes = parsePositiveInteger(editForm.expectedIntervalMinutes, 1);
+      const graceMinutes = parsePositiveInteger(editForm.graceMinutes, 0);
+      if (expectedIntervalMinutes === null || graceMinutes === null) {
+        setError("Heartbeat interval and grace must be valid numbers");
+        return;
+      }
+      input.expectedIntervalMinutes = expectedIntervalMinutes;
+      input.graceMinutes = graceMinutes;
+    }
+
+    setIsSavingMonitor(true);
+    setError(null);
+    try {
+      const { monitor } = await client.updateMonitor(editForm.id, input);
+      setMonitors((current) => current.map((item) => (item.id === monitor.id ? monitor : item)));
+      setSelectedMonitorId(monitor.id);
+      setEditForm(editFormFromMonitor(monitor));
+    } catch {
+      setError("Could not update monitor");
+    } finally {
+      setIsSavingMonitor(false);
+    }
+  }
+
+  async function archiveMonitor(monitor: MonitorResponse) {
+    if (!client.archiveMonitor || deletingMonitorId) return;
+    const confirmed = window.confirm(`Delete monitor "${monitor.name}"? Historical checks will be kept.`);
+    if (!confirmed) return;
+
+    setDeletingMonitorId(monitor.id);
+    setError(null);
+    try {
+      await client.archiveMonitor(monitor.id);
+      const remaining = monitors.filter((item) => item.id !== monitor.id);
+      setMonitors(remaining);
+      setSelectedMonitorId((current) => (current === monitor.id ? remaining[0]?.id ?? null : current));
+      if (selectedMonitor?.id === monitor.id) {
+        setChecks([]);
+      }
+      setEditForm((current) => (current?.id === monitor.id ? null : current));
+    } catch {
+      setError("Could not delete monitor");
+    } finally {
+      setDeletingMonitorId(null);
+    }
+  }
+
   function copyText(value: string) {
     void navigator.clipboard?.writeText(value);
   }
@@ -337,20 +460,35 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
           ) : (
             <div className="alerts-list">
               {monitors.map((monitor) => (
-                <button
-                  aria-pressed={selectedMonitor?.id === monitor.id}
+                <article
                   className="monitors-row"
                   key={monitor.id}
-                  onClick={() => setSelectedMonitorId(monitor.id)}
-                  type="button"
+                  data-selected={selectedMonitor?.id === monitor.id ? "true" : "false"}
                 >
-                  <div>
-                    <strong>{monitor.name}</strong>
-                    <span>{monitor.kind === "http" ? monitor.url : `every ${monitor.expectedIntervalMinutes}m + ${monitor.graceMinutes}m grace`}</span>
-                    <span>Last check {formatTimestamp(monitor.lastCheckedAt)}</span>
+                  <button className="monitors-row__select" onClick={() => setSelectedMonitorId(monitor.id)} type="button">
+                    <div>
+                      <strong>{monitor.name}</strong>
+                      <span>{monitor.kind === "http" ? monitor.url : `every ${monitor.expectedIntervalMinutes}m + ${monitor.graceMinutes}m grace`}</span>
+                      <span>Last check {formatTimestamp(monitor.lastCheckedAt)}</span>
+                    </div>
+                    <span className={statusClass(monitor.status)}>{monitor.status}</span>
+                  </button>
+                  <div className="monitor-row-actions">
+                    <button aria-label={`Edit ${monitor.name}`} className="icon-button" onClick={() => startEditingMonitor(monitor)} title="Edit monitor" type="button">
+                      <Pencil aria-hidden="true" size={16} />
+                    </button>
+                    <button
+                      aria-label={`Delete ${monitor.name}`}
+                      className="icon-button icon-button--danger"
+                      disabled={deletingMonitorId === monitor.id}
+                      onClick={() => void archiveMonitor(monitor)}
+                      title="Delete monitor"
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={16} />
+                    </button>
                   </div>
-                  <span className={statusClass(monitor.status)}>{monitor.status}</span>
-                </button>
+                </article>
               ))}
             </div>
           )}
@@ -422,6 +560,74 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
             <button disabled={isLoading || isCreatingHttp} type="submit">Create HTTP monitor</button>
           </form>
         </section>
+
+        {editForm ? (
+          <section aria-label="Edit monitor" className="alerts-card">
+            <div className="alerts-card__header">
+              <h3>Edit monitor</h3>
+              <span className="status-pill status-pill--neutral">{editForm.kind}</span>
+            </div>
+            <form className="alerts-form" noValidate onSubmit={saveMonitor}>
+              <label>
+                Name
+                <input onChange={(event) => setEditForm((current) => current ? { ...current, name: event.target.value } : current)} required value={editForm.name} />
+              </label>
+              {editForm.kind === "http" ? (
+                <>
+                  <label>
+                    URL
+                    <input
+                      onChange={(event) => setEditForm((current) => current ? { ...current, url: event.target.value } : current)}
+                      required
+                      type="url"
+                      value={editForm.url}
+                    />
+                  </label>
+                  <div className="alerts-form__columns alerts-form__columns--two">
+                    <label>
+                      Interval
+                      <input min="1" onChange={(event) => setEditForm((current) => current ? { ...current, intervalMinutes: event.target.value } : current)} required type="number" value={editForm.intervalMinutes} />
+                    </label>
+                    <label>
+                      Timeout
+                      <input min="100" onChange={(event) => setEditForm((current) => current ? { ...current, timeoutMs: event.target.value } : current)} required type="number" value={editForm.timeoutMs} />
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <div className="alerts-form__columns alerts-form__columns--two">
+                  <label>
+                    Interval
+                    <input min="1" onChange={(event) => setEditForm((current) => current ? { ...current, expectedIntervalMinutes: event.target.value } : current)} required type="number" value={editForm.expectedIntervalMinutes} />
+                  </label>
+                  <label>
+                    Grace
+                    <input min="0" onChange={(event) => setEditForm((current) => current ? { ...current, graceMinutes: event.target.value } : current)} required type="number" value={editForm.graceMinutes} />
+                  </label>
+                </div>
+              )}
+              <label>
+                Channel
+                <select onChange={(event) => setEditForm((current) => current ? { ...current, notificationChannelId: event.target.value } : current)} value={editForm.notificationChannelId}>
+                  <option value="">No channel</option>
+                  {channels.map((channel) => (
+                    <option key={channel.id} value={channel.id}>
+                      {channelLabel(channel)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="checkbox-row">
+                <input checked={editForm.enabled} onChange={(event) => setEditForm((current) => current ? { ...current, enabled: event.target.checked } : current)} type="checkbox" />
+                Enabled
+              </label>
+              <div className="form-actions">
+                <button disabled={isSavingMonitor} type="submit">Save monitor</button>
+                <button className="secondary-button" onClick={() => setEditForm(null)} type="button">Cancel</button>
+              </div>
+            </form>
+          </section>
+        ) : null}
 
         <section aria-label="Create heartbeat monitor" className="alerts-card">
           <h3>Create heartbeat monitor</h3>
