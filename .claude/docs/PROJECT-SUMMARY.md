@@ -42,7 +42,7 @@ Implemented capabilities:
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
 - Structured API and worker logs redact secret-bearing fields, and unhandled API errors return sanitized JSON.
-- API startup cleanup, ordered bounded shutdown, Docker non-root `tini` runtime, Compose service healthchecks, backup SHA-256 verification, SDK browser/node entrypoints, security headers, and hardened production session cookies.
+- API startup cleanup, ordered bounded shutdown, Docker non-root `tini` runtime, cache-friendly Docker dependency layer, Compose service healthchecks, backup SHA-256 verification, SDK browser/node entrypoints, security headers, and hardened production session cookies.
 - Health and readiness endpoints.
 - Read-only operator doctor command for local and Docker Compose validation.
 - Docker Compose install hardening for the supported production-oriented self-hosted path.
