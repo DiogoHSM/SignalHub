@@ -4,6 +4,11 @@ JavaScript and TypeScript SDK for sending telemetry to a self-hosted SignalMonit
 
 Use this package when instrumenting TypeScript, Node.js, browser, or Next.js projects. Use the raw OpenAPI document when integrating other languages or low-level automation.
 
+Public docs:
+
+- `https://my.sigmon.app/sdk`
+- `https://my.sigmon.app/docs`
+
 ## Install
 
 ```sh
