@@ -20,6 +20,82 @@ afterEach(async () => {
 });
 
 describe("ingestion routes", () => {
+  it("allows browser preflight requests for configured ingestion origins", async () => {
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.controledaempresa.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/errors",
+      headers: {
+        origin: "https://app.controledaempresa.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type"
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.controledaempresa.com");
+    expect(response.headers["access-control-allow-methods"]).toContain("POST");
+    expect(response.headers["access-control-allow-headers"]).toContain("Authorization");
+    expect(response.headers.vary).toContain("Origin");
+  });
+
+  it("adds CORS headers to browser ingestion responses for configured origins", async () => {
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.controledaempresa.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/errors",
+      headers: {
+        authorization: "Bearer sh_valid",
+        origin: "https://app.controledaempresa.com"
+      },
+      payload: { message: "Browser boom" }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.controledaempresa.com");
+    expect(response.headers.vary).toContain("Origin");
+  });
+
+  it("does not allow browser ingestion CORS for unconfigured origins", async () => {
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.controledaempresa.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/errors",
+      headers: {
+        origin: "https://evil.example",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type"
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
   it("accepts a valid event payload and enqueues it", async () => {
     const enqueued: EnqueuedJob[] = [];
 

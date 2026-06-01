@@ -48,6 +48,7 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
 | `CONSOLE_ENABLED` | No | Enables the built Integration Console from the API. Compose sets this to `true`. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://sigmon.example.com`. |
+| `BROWSER_CORS_ORIGINS` | No | Comma-separated browser app origins allowed to post SDK telemetry directly to `/v1/*`, for example `https://app.example.com`. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | Local directory for uploaded source-map artifacts. Defaults to `/var/lib/sigmon/source-maps`. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | Maximum source-map upload size in MiB. Defaults to `50`. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | Email for the first admin account. |
