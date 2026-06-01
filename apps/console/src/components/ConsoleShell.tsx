@@ -173,6 +173,12 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     setActiveProject(project);
   }
 
+  function selectProjectById(projectId: string) {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (!project) return;
+    selectProject(project);
+  }
+
   function storeLatestSecret(secret: string) {
     if (!activeProject || !activeEnvironment) return;
     setLatestSecret({
@@ -287,7 +293,22 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
       <section className="console-main">
         <header className="workspace-header">
           <div className="workspace-crumb">
-            <h1>{activeProject?.name ?? "No project selected"}</h1>
+            <label className="project-scope-control">
+              <span>Project</span>
+              <select
+                aria-label="Current project"
+                disabled={isLoadingProjects || projects.length === 0}
+                onChange={(event) => selectProjectById(event.target.value)}
+                value={activeProject?.id ?? ""}
+              >
+                {activeProject ? null : <option value="">No project selected</option>}
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <span aria-hidden="true">/</span>
             <strong>{activeMode === "setup" ? "Setup" : incidentRoute.kind === "error-group" ? "Incident" : modeLabel(activeMode)}</strong>
           </div>

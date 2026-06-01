@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./api/client";
 import { App } from "./App";
@@ -137,7 +137,7 @@ describe("App", () => {
   it("renders the authenticated console workspace", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Acme App" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Current project" })).toHaveValue("prj_1"));
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
     expect(createApiClient).toHaveBeenNthCalledWith(1);
     expect(createApiClient).toHaveBeenNthCalledWith(2, "/api");
