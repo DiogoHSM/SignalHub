@@ -165,15 +165,34 @@ describe("container runtime configuration", () => {
   it("hardens the Dockerfile runtime with tini, curl, and a non-root user", () => {
     const dockerfile = readFileSync("Dockerfile", "utf8");
 
+    expect(dockerfile).toContain("# syntax=docker/dockerfile:1.7");
     expect(dockerfile).toContain("apk add --no-cache postgresql16-client tini curl");
     expect(dockerfile).toContain("addgroup -S sigmon && adduser -S -G sigmon sigmon");
+    expect(dockerfile).toContain("corepack enable && corepack prepare pnpm@9.15.4 --activate");
     expect(dockerfile).toContain("mkdir -p /app /var/lib/sigmon/backups /var/lib/sigmon/source-maps");
+    expect(dockerfile).toContain("COPY --chown=sigmon:sigmon apps/api/package.json ./apps/api/package.json");
+    expect(dockerfile).toContain("COPY --chown=sigmon:sigmon packages/sdk/package.json ./packages/sdk/package.json");
+    expect(dockerfile).toContain(
+      "RUN --mount=type=cache,id=sigmon-pnpm-store,target=/home/sigmon/.local/share/pnpm/store pnpm install --frozen-lockfile"
+    );
     expect(dockerfile).toContain("COPY --chown=sigmon:sigmon apps ./apps");
     expect(dockerfile).toContain("USER sigmon");
-    expect(dockerfile.indexOf("USER sigmon")).toBeLessThan(dockerfile.indexOf("RUN pnpm install --frozen-lockfile"));
+    expect(dockerfile.indexOf("USER sigmon")).toBeLessThan(dockerfile.indexOf("pnpm install --frozen-lockfile"));
+    expect(dockerfile.indexOf("apps/api/package.json")).toBeLessThan(dockerfile.indexOf("RUN --mount=type=cache"));
+    expect(dockerfile.indexOf("RUN --mount=type=cache")).toBeLessThan(dockerfile.indexOf("COPY --chown=sigmon:sigmon apps ./apps"));
     expect(dockerfile).not.toContain("RUN chown -R sigmon:sigmon /app /var/lib/sigmon");
     expect(dockerfile).toContain('ENTRYPOINT ["/sbin/tini", "--"]');
     expect(dockerfile).toContain('CMD ["pnpm", "start:api"]');
+  });
+
+  it("keeps local Docker build contexts small", () => {
+    const dockerignore = readFileSync(".dockerignore", "utf8");
+
+    expect(dockerignore).toContain("node_modules");
+    expect(dockerignore).toContain("**/node_modules");
+    expect(dockerignore).toContain(".worktrees");
+    expect(dockerignore).toContain("SECRETS.md");
+    expect(dockerignore).toContain("audit.md");
   });
 });
 
