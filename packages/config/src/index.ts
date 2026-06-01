@@ -51,6 +51,24 @@ function requireProductionDatabasePasswordIsNotPlaceholder(databaseUrl: string, 
   }
 }
 
+function parseOriginList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .map((origin) => {
+      try {
+        return new URL(origin).origin;
+      } catch {
+        throw new Error(`BROWSER_CORS_ORIGINS contains an invalid origin: ${origin}`);
+      }
+    });
+}
+
 const rawConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   WORKER_ROLE: z.enum(["all", "queue", "scheduler"]).default("all"),
@@ -73,6 +91,7 @@ const rawConfigSchema = z.object({
     .optional()
     .transform((value) => (value === undefined ? undefined : value === "true")),
   SIGMON_PUBLIC_ENDPOINT: optionalEnvUrl,
+  BROWSER_CORS_ORIGINS: optionalEnvString,
   RETENTION_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -211,6 +230,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     console: {
       enabled: parsed.CONSOLE_ENABLED ?? (parsed.NODE_ENV === "production"),
       publicEndpoint: parsed.SIGMON_PUBLIC_ENDPOINT ?? ""
+    },
+    browserCors: {
+      origins: parseOriginList(parsed.BROWSER_CORS_ORIGINS)
     },
     retention: {
       enabled: parsed.RETENTION_ENABLED,

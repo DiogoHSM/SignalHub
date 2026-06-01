@@ -581,6 +581,7 @@ const app = await buildApp({
   },
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,
+  browserCorsOrigins: config.browserCors.origins,
   nodeEnv: config.nodeEnv,
   console: {
     enabled: config.console.enabled,

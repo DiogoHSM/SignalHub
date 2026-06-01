@@ -61,6 +61,18 @@ describe("loadConfig", () => {
     expect(config.console.publicEndpoint).toBe("https://sigmon.example.com");
   });
 
+  it("loads browser CORS origins for cross-origin SDK ingestion", () => {
+    const config = loadConfig({
+      ...validEnv,
+      BROWSER_CORS_ORIGINS: "https://app.controledaempresa.com, https://microerp.example.com/"
+    });
+
+    expect(config.browserCors.origins).toEqual([
+      "https://app.controledaempresa.com",
+      "https://microerp.example.com"
+    ]);
+  });
+
   it("loads retention defaults", () => {
     const config = loadConfig({
       NODE_ENV: "test",

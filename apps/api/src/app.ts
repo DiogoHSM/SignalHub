@@ -51,7 +51,38 @@ export type BuildAppOptions = {
   nodeEnv?: string;
   console?: Omit<ConsoleRouteOptions, "googleOAuthEnabled">;
   corsOrigin?: string | string[];
+  browserCorsOrigins?: string[];
 };
+
+const browserIngestionCorsPaths = new Set([
+  "/v1/events",
+  "/v1/errors",
+  "/v1/breadcrumbs",
+  "/v1/llm",
+  "/v1/traces",
+  "/v1/spans",
+  "/v1/identify/user",
+  "/v1/identify/tenant"
+]);
+const browserIngestionCorsMethods = "POST, OPTIONS";
+const browserIngestionCorsHeaders = "Authorization, Content-Type";
+
+function requestPath(url: string): string {
+  return url.split("?")[0] ?? url;
+}
+
+function isBrowserIngestionCorsPath(url: string): boolean {
+  return browserIngestionCorsPaths.has(requestPath(url));
+}
+
+function appendVary(existing: unknown, value: string): string {
+  if (typeof existing !== "string" || existing.length === 0) {
+    return value;
+  }
+
+  const values = existing.split(",").map((entry) => entry.trim().toLowerCase());
+  return values.includes(value.toLowerCase()) ? existing : `${existing}, ${value}`;
+}
 
 function serializeFastifyError(error: FastifyError): { type: string; message: string; stack: string; [key: string]: unknown } {
   const redacted = redactLogFields(error) as Record<string, unknown>;
@@ -75,6 +106,7 @@ function getErrorStatusCode(error: unknown): number {
 
 export async function buildApp(options: BuildAppOptions) {
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
+  const browserCorsOrigins = new Set(options.browserCorsOrigins ?? []);
   const fastifyOptions: FastifyHttpOptions<Server> = {
     logger: {
       level: nodeEnv === "test" ? "silent" : "info",
@@ -105,6 +137,23 @@ export async function buildApp(options: BuildAppOptions) {
     );
     if (nodeEnv === "production") {
       reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+  });
+
+  app.addHook("onRequest", async (request, reply) => {
+    const origin = request.headers.origin;
+    if (typeof origin !== "string" || !browserCorsOrigins.has(origin) || !isBrowserIngestionCorsPath(request.url)) {
+      return;
+    }
+
+    reply.header("Access-Control-Allow-Origin", origin);
+    reply.header("Access-Control-Allow-Methods", browserIngestionCorsMethods);
+    reply.header("Access-Control-Allow-Headers", browserIngestionCorsHeaders);
+    reply.header("Access-Control-Max-Age", "600");
+    reply.header("Vary", appendVary(reply.getHeader("Vary"), "Origin"));
+
+    if (request.method === "OPTIONS") {
+      return reply.status(204).send();
     }
   });
 
