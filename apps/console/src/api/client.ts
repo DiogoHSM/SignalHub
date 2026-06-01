@@ -212,13 +212,15 @@ async function parseJson(response: Response): Promise<unknown> {
 }
 
 async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(url, {
     method: options.method ?? "GET",
     credentials: "include",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json"
-    },
+    headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
   });
 

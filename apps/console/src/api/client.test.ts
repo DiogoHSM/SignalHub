@@ -1045,6 +1045,22 @@ describe("createApiClient", () => {
     );
   });
 
+  it("does not send json content-type for bodyless delete requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(204, undefined));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").archiveMonitor?.("mon/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/monitors/mon%2F1",
+      expect.objectContaining({
+        method: "DELETE",
+        body: undefined,
+        headers: expect.not.objectContaining({ "Content-Type": "application/json" })
+      })
+    );
+  });
+
   it("gets alert events by id", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "evt_1" } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -1070,8 +1086,7 @@ describe("createApiClient", () => {
       method: "GET",
       credentials: "include",
       headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json"
+        Accept: "application/json"
       },
       body: undefined
     });
@@ -1102,8 +1117,7 @@ describe("createApiClient", () => {
       method: "GET",
       credentials: "include",
       headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json"
+        Accept: "application/json"
       },
       body: undefined
     });
@@ -1213,8 +1227,7 @@ describe("createApiClient", () => {
       method: "GET",
       credentials: "include",
       headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json"
+        Accept: "application/json"
       },
       body: undefined
     });
@@ -1271,8 +1284,7 @@ describe("createApiClient", () => {
         method: "DELETE",
         credentials: "include",
         headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json"
+          Accept: "application/json"
         },
         body: undefined
       }

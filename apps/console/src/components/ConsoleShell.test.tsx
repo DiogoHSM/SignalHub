@@ -500,6 +500,35 @@ describe("ConsoleShell", () => {
     expect(api.listEnvironments).toHaveBeenCalledWith("prj_1");
   });
 
+  it("switches projects from the global header without opening setup", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [
+          { id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null },
+          { id: "prj_2", name: "Beta App", createdAt: "", updatedAt: "", archivedAt: null }
+        ]
+      }),
+      listEnvironments: vi.fn((projectId: string) =>
+        Promise.resolve({
+          environments:
+            projectId === "prj_1"
+              ? [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+              : [{ id: "env_2", projectId: "prj_2", name: "Preview", createdAt: "", updatedAt: "", archivedAt: null }]
+        })
+      )
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Current project" }), "prj_2");
+
+    expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Current project" })).toHaveValue("prj_2");
+    expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("creates a project and selects it", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
@@ -527,7 +556,7 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Create project" }));
 
     await waitFor(() => expect(api.createProject).toHaveBeenCalledWith({ name: "New Project" }));
-    expect(await screen.findByRole("heading", { name: "New Project" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Current project" })).toHaveValue("prj_2");
     expect(screen.getByText("Create an environment to continue setup.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Production" })).not.toBeInTheDocument();
   });
@@ -544,7 +573,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Setup" }));
-    expect(await screen.findByRole("heading", { name: "Acme App" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Current project" })).toHaveValue("prj_1");
     expect(screen.getByLabelText("New environment name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create environment" })).toBeDisabled();
 
