@@ -24,6 +24,7 @@ import { registerIdentifyRoutes, type IdentifyRouteDependencies } from "./routes
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
 import { registerMonitorRoutes, type MonitorRouteDependencies } from "./routes/monitors.js";
 import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
+import { registerSdkDocsRoutes } from "./routes/sdk-docs.js";
 import { registerSourceMapUploadRoutes, type SourceMapUploadRouteDependencies } from "./routes/source-map-uploads.js";
 import { registerSystemRoutes, type SystemHealthDependencies } from "./routes/system.js";
 
@@ -131,6 +132,7 @@ export async function buildApp(options: BuildAppOptions) {
 
   registerRequestContext(app);
   await registerDocsRoutes(app);
+  await registerSdkDocsRoutes(app);
   registerHealthRoutes(app, options.readiness);
   registerAuthRoutes(app, {
     auth: options.auth,

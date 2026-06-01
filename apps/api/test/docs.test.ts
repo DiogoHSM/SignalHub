@@ -107,4 +107,31 @@ describe("API docs", () => {
     expect(response.headers["content-security-policy"]).toContain("script-src 'self' 'unsafe-inline'");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
   });
+
+  it("redirects /sdk to the public SDK guide", async () => {
+    const server = await createApp();
+
+    const response = await server.inject({ method: "GET", url: "/sdk" });
+
+    expect(response.statusCode).toBe(301);
+    expect(response.headers.location).toBe("/sdk/");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("serves public SDK documentation HTML", async () => {
+    const server = await createApp();
+
+    const response = await server.inject({ method: "GET", url: "/sdk/" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.body).toContain("SignalMonitor SDK");
+    expect(response.body).toContain("@sigmon/sdk");
+    expect(response.body).toContain("NEXT_PUBLIC_SIGMON_BROWSER_KEY");
+    expect(response.body).toContain("withSignalMonitorRoute");
+    expect(response.body).toContain("identifyTenant");
+    expect(response.body).toContain("source-maps:upload");
+    expect(response.headers["content-security-policy"]).toContain("script-src 'self'");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+  });
 });
