@@ -10,6 +10,7 @@ import { InvestigationWorkspace, type InvestigationInitialFilters, type Investig
 import { MonitorsPanel } from "./MonitorsPanel";
 import { OperationsDashboard } from "./OperationsDashboard";
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
+import { ProjectSettingsWorkspace } from "./ProjectSettingsWorkspace";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SetupWorkspace } from "./SetupWorkspace";
 import { SystemHealthPanel } from "./SystemHealthPanel";
@@ -432,12 +433,18 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
               </div>
               <div hidden={activeMode !== "project-settings"}>
                 {activeMode === "project-settings" ? (
-                  <section className="panel-stack" aria-labelledby="project-settings-heading">
-                    <div>
-                      <h2 id="project-settings-heading">Project Settings</h2>
-                      <p className="muted-text">Recurring project configuration will live here.</p>
-                    </div>
-                  </section>
+                  <ProjectSettingsWorkspace
+                    activeEnvironment={activeEnvironment}
+                    activeProjectId={activeProject?.id}
+                    apiEndpoint={apiEndpoint}
+                    client={client}
+                    environments={environments}
+                    isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
+                    latestSecret={scopedLatestSecret}
+                    onCreateEnvironment={createEnvironment}
+                    onSecretCreated={storeLatestSecret}
+                    onSelectEnvironment={setActiveEnvironment}
+                  />
                 ) : null}
               </div>
               <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>

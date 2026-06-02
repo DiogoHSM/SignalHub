@@ -810,7 +810,7 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
   });
 
-  it("renders a placeholder when Project Settings mode is opened", async () => {
+  it("renders the project settings workspace when Project Settings mode is opened", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
         projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
@@ -827,7 +827,8 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
 
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Recurring project configuration will live here.")).toBeInTheDocument();
+    expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browser origins" })).toBeInTheDocument();
   });
 
   it("lazy-loads system health when System mode is opened", async () => {
