@@ -1,41 +1,73 @@
-import { Activity, Bell, Boxes, Gauge, HeartPulse, KeyRound, Layers, MonitorCheck, SearchCode, Settings } from "lucide-react";
+import { Activity, Bell, FileCode2, Gauge, HeartPulse, KeyRound, MonitorCheck, SearchCode, Settings, ShieldCheck } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-export type ConsoleMode = "setup" | "overview" | "operations" | "investigate" | "alerts" | "monitors" | "artifacts" | "system";
+export type ConsoleMode =
+  | "setup"
+  | "overview"
+  | "operations"
+  | "investigate"
+  | "alerts"
+  | "monitors"
+  | "artifacts"
+  | "project-settings"
+  | "system";
 
 type Props = {
   activeMode: ConsoleMode;
   onChange: (mode: ConsoleMode) => void;
 };
 
+type ModeItem = {
+  mode: ConsoleMode;
+  label: string;
+  icon: LucideIcon;
+};
+
+type ModeButtonProps = ModeItem & {
+  activeMode: ConsoleMode;
+  onChange: (mode: ConsoleMode) => void;
+};
+
+function ModeButton({ activeMode, icon: Icon, label, mode, onChange }: ModeButtonProps) {
+  return (
+    <button aria-pressed={activeMode === mode} onClick={() => onChange(mode)} title={label} type="button">
+      <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
 export function ConsoleModeTabs({ activeMode, onChange }: Props) {
-  const modes: Array<{ mode: ConsoleMode; label: string; icon: typeof Gauge }> = [
+  const projectModes: ModeItem[] = [
     { mode: "overview", label: "Overview", icon: Gauge },
     { mode: "operations", label: "Operations", icon: Activity },
     { mode: "investigate", label: "Investigate", icon: SearchCode },
     { mode: "alerts", label: "Alerts", icon: Bell },
     { mode: "monitors", label: "Monitors", icon: HeartPulse },
-    { mode: "artifacts", label: "Artifacts", icon: Layers },
-    { mode: "system", label: "System", icon: MonitorCheck },
-    { mode: "setup", label: "Setup", icon: KeyRound }
+    { mode: "artifacts", label: "Artifacts", icon: FileCode2 },
+    { mode: "project-settings", label: "Project Settings", icon: Settings }
+  ];
+
+  const adminModes: ModeItem[] = [
+    { mode: "system", label: "System Health", icon: MonitorCheck },
+    { mode: "setup", label: "Onboarding", icon: KeyRound }
   ];
 
   return (
     <div className="mode-tabs" aria-label="Console modes">
-      {modes.map(({ icon: Icon, label, mode }) => (
-        <button aria-pressed={activeMode === mode} key={mode} onClick={() => onChange(mode)} title={label} type="button">
-          <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
-          <span>{label}</span>
-        </button>
+      <span className="mode-tabs__label">Project Workspace</span>
+      {projectModes.map((item) => (
+        <ModeButton activeMode={activeMode} key={item.mode} onChange={onChange} {...item} />
+      ))}
+      <span className="mode-tabs__label">Sigmon Admin</span>
+      {adminModes.map((item) => (
+        <ModeButton activeMode={activeMode} key={item.mode} onChange={onChange} {...item} />
       ))}
       <div className="mode-tabs__spacer" />
-      <button aria-label="Documentation" aria-pressed="false" title="Documentation" type="button">
-        <Boxes aria-hidden="true" size={18} strokeWidth={1.8} />
-        <span>Docs</span>
-      </button>
-      <button aria-label="Settings" aria-pressed="false" title="Settings" type="button">
-        <Settings aria-hidden="true" size={18} strokeWidth={1.8} />
-        <span>Settings</span>
-      </button>
+      <a className="mode-tabs__link" href="/sdk" title="Public SDK documentation">
+        <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.8} />
+        <span>SDK Docs</span>
+      </a>
     </div>
   );
 }
