@@ -447,6 +447,7 @@ function modeLabel(mode: ConsoleMode): string {
     monitors: "Monitors",
     operations: "Operations",
     overview: "Overview",
+    "project-settings": "Project Settings",
     setup: "Setup",
     system: "System health"
   };
