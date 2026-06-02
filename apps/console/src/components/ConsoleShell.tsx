@@ -12,8 +12,8 @@ import { OperationsDashboard } from "./OperationsDashboard";
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
 import { ProjectSettingsWorkspace } from "./ProjectSettingsWorkspace";
 import { ProjectSwitcher } from "./ProjectSwitcher";
+import { SigmonAdminWorkspace } from "./SigmonAdminWorkspace";
 import { SetupWorkspace } from "./SetupWorkspace";
-import { SystemHealthPanel } from "./SystemHealthPanel";
 
 type LatestSecret = {
   secret: string;
@@ -447,7 +447,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   />
                 ) : null}
               </div>
-              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
+              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SigmonAdminWorkspace client={client} /> : null}</div>
             </>
           )}
         </div>
@@ -466,7 +466,7 @@ function modeLabel(mode: ConsoleMode): string {
     overview: "Overview",
     "project-settings": "Project Settings",
     setup: "Setup",
-    system: "System health"
+    system: "Sigmon Admin"
   };
   return labels[mode];
 }

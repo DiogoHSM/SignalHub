@@ -831,7 +831,7 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("button", { name: "Browser origins" })).toBeInTheDocument();
   });
 
-  it("lazy-loads system health when System mode is opened", async () => {
+  it("renders the Sigmon admin workspace and lazy-loads system health when System mode is opened", async () => {
     const health = deferred<{ data: SystemHealthResponse }>();
     const getSystemHealth = vi.fn().mockReturnValue(health.promise);
     const api = client({
@@ -852,6 +852,8 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "System Health" }));
 
     expect(getSystemHealth).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "Sigmon Admin" })).toBeInTheDocument();
+    expect(screen.getByText("Installation-level status and server configuration.")).toBeInTheDocument();
     expect(screen.getByText("Loading system health")).toBeInTheDocument();
 
     await act(async () => {
@@ -860,7 +862,7 @@ describe("ConsoleShell", () => {
     });
 
     expect(screen.getByRole("button", { name: "System Health" })).toHaveAttribute("aria-pressed", "true");
-    expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "System health" })).toBeInTheDocument();
     expect(screen.getByText("Postgres")).toBeInTheDocument();
   });
 
