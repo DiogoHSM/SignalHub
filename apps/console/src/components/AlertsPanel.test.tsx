@@ -357,6 +357,7 @@ describe("AlertsPanel", () => {
 
     await userEvent.type(await screen.findByLabelText("Rule name"), "Critical errors");
     expect(screen.getByText("Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.")).toBeInTheDocument();
+    expect(screen.getByText("Threshold is a count of critical or fatal errors in the window.")).toBeInTheDocument();
     expect(screen.getByLabelText("Window (minutes)")).toBeInTheDocument();
     expect(screen.getByLabelText("Threshold")).toBeInTheDocument();
     expect(screen.getByLabelText("Cooldown (minutes)")).toBeInTheDocument();
@@ -377,6 +378,18 @@ describe("AlertsPanel", () => {
         enabled: true
       })
     );
+  });
+
+  it("updates threshold help when selecting a unit-bearing alert rule type", async () => {
+    const api = client();
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await screen.findByLabelText("Rule type");
+    await userEvent.selectOptions(screen.getByLabelText("Rule type"), "trace_p95_latency");
+
+    expect(screen.getByText("Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.")).toBeInTheDocument();
+    expect(screen.getByText("Threshold is trace p95 latency in milliseconds.")).toBeInTheDocument();
   });
 
   it("does not render a stale created alert rule after switching environments", async () => {
