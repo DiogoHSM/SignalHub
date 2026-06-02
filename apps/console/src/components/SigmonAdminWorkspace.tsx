@@ -98,6 +98,7 @@ export function SigmonAdminWorkspace({ client }: Props) {
       <div className="settings-workspace__body">
         <SettingsSectionNav
           activeSectionId={activeSectionId}
+          ariaLabel="Sigmon admin sections"
           onSelectSection={(sectionId) => setActiveSectionId(sectionId as SectionId)}
           sections={sections}
         />

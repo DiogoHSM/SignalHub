@@ -146,6 +146,7 @@ export function ProjectSettingsWorkspace({
       <div className="settings-workspace__body">
         <SettingsSectionNav
           activeSectionId={activeSectionId}
+          ariaLabel="Project settings sections"
           onSelectSection={(sectionId) => setActiveSectionId(sectionId as SectionId)}
           sections={sections}
         />

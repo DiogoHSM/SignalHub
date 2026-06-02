@@ -6,13 +6,14 @@ export type SettingsSection = {
 
 type Props = {
   activeSectionId: string;
+  ariaLabel: string;
   sections: SettingsSection[];
   onSelectSection: (sectionId: string) => void;
 };
 
-export function SettingsSectionNav({ activeSectionId, sections, onSelectSection }: Props) {
+export function SettingsSectionNav({ activeSectionId, ariaLabel, sections, onSelectSection }: Props) {
   return (
-    <nav aria-label="Project settings sections" className="settings-section-nav">
+    <nav aria-label={ariaLabel} className="settings-section-nav">
       {sections.map((section) => {
         const labelId = `settings-section-${section.id}-label`;
         const descriptionId = `settings-section-${section.id}-description`;

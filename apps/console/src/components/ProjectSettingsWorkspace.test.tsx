@@ -116,6 +116,7 @@ describe("ProjectSettingsWorkspace", () => {
 
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
     expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Project settings sections" })).toBeInTheDocument();
 
     for (const label of ["Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();

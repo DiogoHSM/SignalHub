@@ -153,6 +153,7 @@ describe("SigmonAdminWorkspace", () => {
 
     expect(screen.getByRole("heading", { name: "Sigmon Admin" })).toBeInTheDocument();
     expect(screen.getByText("Installation-level status and server configuration.")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Sigmon admin sections" })).toBeInTheDocument();
 
     for (const label of ["System health", "Server settings", "SMTP & delivery", "Retention & backups", "Security & CORS"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
