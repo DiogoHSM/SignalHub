@@ -90,7 +90,7 @@ export function SigmonAdminWorkspace({ client }: Props) {
   }
 
   return (
-    <section className="settings-workspace">
+    <section className="settings-workspace sigmon-admin-workspace">
       <header className="settings-workspace__header">
         <h1>Sigmon Admin</h1>
         <p>Installation-level status and server configuration.</p>

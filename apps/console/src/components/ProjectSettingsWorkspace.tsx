@@ -138,7 +138,7 @@ export function ProjectSettingsWorkspace({
   }
 
   return (
-    <section className="settings-workspace">
+    <section className="settings-workspace project-settings-workspace">
       <header className="settings-workspace__header">
         <h1>Project Settings</h1>
         <p>Recurring configuration for the selected project and environment.</p>

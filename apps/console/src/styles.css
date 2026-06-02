@@ -2836,6 +2836,11 @@ textarea:focus-visible {
   font-size: 14px;
 }
 
+.project-settings-workspace .settings-workspace__header,
+.sigmon-admin-workspace .settings-workspace__header {
+  max-width: 760px;
+}
+
 .settings-workspace__body {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
