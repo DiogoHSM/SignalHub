@@ -810,6 +810,26 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
   });
 
+  it("renders a placeholder when Project Settings mode is opened", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
+
+    expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Recurring project configuration will live here.")).toBeInTheDocument();
+  });
+
   it("lazy-loads system health when System mode is opened", async () => {
     const health = deferred<{ data: SystemHealthResponse }>();
     const getSystemHealth = vi.fn().mockReturnValue(health.promise);

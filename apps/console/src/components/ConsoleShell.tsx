@@ -430,6 +430,16 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   />
                 ) : null}
               </div>
+              <div hidden={activeMode !== "project-settings"}>
+                {activeMode === "project-settings" ? (
+                  <section className="panel-stack" aria-labelledby="project-settings-heading">
+                    <div>
+                      <h2 id="project-settings-heading">Project Settings</h2>
+                      <p className="muted-text">Recurring project configuration will live here.</p>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
               <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
             </>
           )}
