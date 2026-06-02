@@ -49,9 +49,9 @@ const sections = [
     description: "Upload source maps and manage upload tokens."
   },
   {
-    id: "members",
-    label: "Members",
-    description: "Manage console users who can access this workspace."
+    id: "console-users",
+    label: "Console users",
+    description: "Installation-level console access."
   }
 ] satisfies SettingsSection[];
 
@@ -116,8 +116,13 @@ export function ProjectSettingsWorkspace({
         );
       case "source-maps":
         return <ArtifactsPanel client={client} environmentId={activeEnvironmentId} projectId={activeProjectId} />;
-      case "members":
-        return <UserAdminPanel client={client} />;
+      case "console-users":
+        return (
+          <>
+            <p className="muted-text">Console users are installation-level accounts, not project-scoped members.</p>
+            <UserAdminPanel client={client} />
+          </>
+        );
       case "environments":
       default:
         return (

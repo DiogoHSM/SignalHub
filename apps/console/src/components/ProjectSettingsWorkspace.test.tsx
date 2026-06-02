@@ -117,9 +117,12 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
     expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
 
-    for (const label of ["Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Members"]) {
+    for (const label of ["Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
+    expect(screen.getByRole("button", { name: "Console users" })).toHaveAccessibleDescription(
+      "Installation-level console access."
+    );
 
     expect(screen.getByText("Create and select deployment environments for this project.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
@@ -135,6 +138,15 @@ describe("ProjectSettingsWorkspace", () => {
       screen.getByText("Browser origins must include protocol, for example https://app.example.com.")
     ).toBeInTheDocument();
     expect(screen.getByText(/BROWSER_CORS_ORIGINS is currently configured globally/i)).toBeInTheDocument();
+  });
+
+  it("labels console user access as installation-level, not project membership", async () => {
+    renderWorkspace();
+
+    await userEvent.click(screen.getByRole("button", { name: "Console users" }));
+
+    expect(screen.getByText("Console users are installation-level accounts, not project-scoped members.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument();
   });
 
   it("shows an empty state when no project is selected", () => {
