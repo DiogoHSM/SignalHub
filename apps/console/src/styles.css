@@ -2812,6 +2812,95 @@ textarea:focus-visible {
   gap: 16px;
 }
 
+.settings-workspace {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.settings-workspace__header {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-workspace__header h1 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.settings-workspace__header p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+
+.settings-workspace__body {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.settings-workspace__content {
+  min-width: 0;
+}
+
+.settings-section-nav {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-section-nav__button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.settings-section-nav__button:hover {
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.settings-section-nav__button.active,
+.settings-section-nav__button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--bg-surface-2);
+  color: var(--fg);
+}
+
+.settings-section-nav__label {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.settings-section-nav__description {
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.browser-origins-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.browser-origins-panel p {
+  margin: 0;
+  line-height: 1.5;
+}
+
 .project-sidebar,
 .panel,
 .overview-kpi-group,
@@ -3746,6 +3835,7 @@ input[type="file"]::file-selector-button {
   }
 
   .setup-shell,
+  .settings-workspace__body,
   .workspace-grid,
   .overview-kpis,
   .overview-lists,
