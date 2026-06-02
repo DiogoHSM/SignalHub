@@ -8,10 +8,12 @@ type Props = {
 
 export function CopyButton({ label = "Copy", value }: Props) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed" | "unavailable">("idle");
+  const isMounted = useRef(true);
   const resetTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     return () => {
+      isMounted.current = false;
       if (resetTimer.current !== undefined) {
         window.clearTimeout(resetTimer.current);
       }
@@ -19,11 +21,17 @@ export function CopyButton({ label = "Copy", value }: Props) {
   }, []);
 
   function showTemporaryStatus(nextStatus: typeof status) {
+    if (!isMounted.current) return;
+
     if (resetTimer.current !== undefined) {
       window.clearTimeout(resetTimer.current);
     }
     setStatus(nextStatus);
-    resetTimer.current = window.setTimeout(() => setStatus("idle"), 1500);
+    resetTimer.current = window.setTimeout(() => {
+      if (isMounted.current) {
+        setStatus("idle");
+      }
+    }, 1500);
   }
 
   async function copy() {

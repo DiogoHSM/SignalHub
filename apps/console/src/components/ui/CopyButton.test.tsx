@@ -81,4 +81,28 @@ describe("CopyButton", () => {
 
     expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
   });
+
+  it("does not schedule feedback when clipboard resolves after unmount", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let resolveWrite: () => void = () => {};
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWrite = resolve;
+        })
+    );
+    setClipboard(writeText);
+
+    const { unmount } = render(<CopyButton value="sigmon-token" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    unmount();
+    await act(async () => {
+      resolveWrite();
+    });
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
 });
