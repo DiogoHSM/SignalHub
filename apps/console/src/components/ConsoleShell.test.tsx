@@ -828,7 +828,7 @@ describe("ConsoleShell", () => {
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
     expect(getSystemHealth).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "System" }));
+    await userEvent.click(screen.getByRole("button", { name: "System Health" }));
 
     expect(getSystemHealth).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Loading system health")).toBeInTheDocument();
@@ -838,7 +838,7 @@ describe("ConsoleShell", () => {
       await health.promise;
     });
 
-    expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "System Health" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
     expect(screen.getByText("Postgres")).toBeInTheDocument();
   });

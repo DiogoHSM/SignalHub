@@ -2566,6 +2566,45 @@ textarea:focus-visible {
   content: "";
 }
 
+.mode-tabs__label {
+  margin-top: 10px;
+  color: var(--fg-subtle);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.mode-tabs__label:first-child {
+  margin-top: 0;
+}
+
+.mode-tabs__link {
+  display: grid;
+  width: 40px;
+  min-height: 40px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+
+.mode-tabs__link:hover,
+.mode-tabs__link:focus-visible {
+  background: var(--bg-surface-2);
+  color: var(--fg);
+  outline: none;
+}
+
+.mode-tabs__link span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .mode-tabs__spacer {
   flex: 1;
 }
