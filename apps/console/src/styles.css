@@ -2465,6 +2465,48 @@ textarea:focus-visible {
   display: none !important;
 }
 
+.field-help {
+  margin: 4px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.console-empty-state {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+  border: 1px dashed rgba(148, 163, 184, 0.38);
+  border-radius: 8px;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.24);
+}
+
+.console-empty-state p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.console-empty-state__action {
+  margin-top: 6px;
+}
+
+.copy-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
 .console-layout {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
