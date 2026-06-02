@@ -12,7 +12,7 @@ function setClipboard(writeText?: (value: string) => Promise<void>) {
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   setClipboard();
 });
