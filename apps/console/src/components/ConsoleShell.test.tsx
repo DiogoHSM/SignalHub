@@ -384,6 +384,34 @@ describe("ConsoleShell", () => {
     });
   });
 
+  it("opens System Health instead of showing an incident under installation-wide chrome", async () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
+    const getSystemHealth = vi.fn().mockResolvedValue({ data: systemHealthResponse() });
+    const api = client({
+      getErrorGroupIncident: vi.fn().mockResolvedValue({
+        data: incidentFixture({ groupId: "egrp_1" })
+      }),
+      getSystemHealth,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "System Health" }));
+
+    expect(getSystemHealth).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Checkout failed")).not.toBeInTheDocument();
+    expect(screen.getByText("Installation-wide")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "System health" })).toBeInTheDocument();
+  });
+
   it("lets users leave an unavailable incident route", async () => {
     window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
     const api = client({

@@ -52,8 +52,10 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
-  const [activeMode, setActiveMode] = useState<ConsoleMode>("overview");
   const [incidentRoute, setIncidentRoute] = useState<IncidentRoute>(() => parseIncidentRoute(window.location));
+  const [activeMode, setActiveMode] = useState<ConsoleMode>(() =>
+    parseIncidentRoute(window.location).kind === "error-group" ? "investigate" : "overview"
+  );
   const [investigationDrilldown, setInvestigationDrilldown] = useState<{
     nonce: number;
     tab: InvestigationTab;
@@ -73,7 +75,11 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
 
   useEffect(() => {
     function handlePopState() {
-      setIncidentRoute(parseIncidentRoute(window.location));
+      const nextRoute = parseIncidentRoute(window.location);
+      setIncidentRoute(nextRoute);
+      if (nextRoute.kind === "error-group") {
+        setActiveMode("investigate");
+      }
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -282,7 +288,8 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   }
 
   const isSigmonAdminMode = activeMode === "system";
-  const activeModeLabel = activeMode === "setup" ? "Setup" : incidentRoute.kind === "error-group" ? "Incident" : modeLabel(activeMode);
+  const isIncidentViewActive = activeMode === "investigate" && incidentRoute.kind === "error-group";
+  const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
 
   return (
     <main className="console-layout">
@@ -348,7 +355,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
           </div>
         </header>
         <div className="workspace">
-          {incidentRoute.kind === "error-group" ? (
+          {isIncidentViewActive ? (
             <IncidentView
               client={client}
               environmentId={incidentRoute.environmentId}
