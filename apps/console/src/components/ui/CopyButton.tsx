@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 type Props = {
@@ -7,20 +7,49 @@ type Props = {
 };
 
 export function CopyButton({ label = "Copy", value }: Props) {
-  const [copied, setCopied] = useState(false);
+  const [status, setStatus] = useState<"idle" | "copied" | "failed" | "unavailable">("idle");
+  const resetTimer = useRef<number | undefined>(undefined);
 
-  async function copy() {
-    await navigator.clipboard?.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+  useEffect(() => {
+    return () => {
+      if (resetTimer.current !== undefined) {
+        window.clearTimeout(resetTimer.current);
+      }
+    };
+  }, []);
+
+  function showTemporaryStatus(nextStatus: typeof status) {
+    if (resetTimer.current !== undefined) {
+      window.clearTimeout(resetTimer.current);
+    }
+    setStatus(nextStatus);
+    resetTimer.current = window.setTimeout(() => setStatus("idle"), 1500);
   }
 
-  const Icon = copied ? Check : Copy;
+  async function copy() {
+    const writeText = navigator.clipboard?.writeText;
+
+    if (!writeText) {
+      showTemporaryStatus("unavailable");
+      return;
+    }
+
+    try {
+      await writeText.call(navigator.clipboard, value);
+      showTemporaryStatus("copied");
+    } catch {
+      showTemporaryStatus("failed");
+    }
+  }
+
+  const Icon = status === "copied" ? Check : Copy;
+  const buttonLabel =
+    status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : status === "unavailable" ? "Copy unavailable" : label;
 
   return (
-    <button className="copy-button" onClick={() => void copy()} title={copied ? "Copied" : label} type="button">
+    <button className="copy-button" onClick={() => void copy()} title={buttonLabel} type="button">
       <Icon aria-hidden="true" size={15} />
-      <span>{copied ? "Copied" : label}</span>
+      <span>{buttonLabel}</span>
     </button>
   );
 }
