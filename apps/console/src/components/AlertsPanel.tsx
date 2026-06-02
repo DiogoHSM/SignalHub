@@ -546,6 +546,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 ))}
               </select>
             </label>
+            <p className="muted-text">Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.</p>
             <label>
               Severity
               <select
@@ -559,7 +560,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
             </label>
             <div className="alerts-form__columns">
               <label>
-                Window
+                Window (minutes)
                 <input
                   min="1"
                   onChange={(event) => setRuleForm((current) => ({ ...current, windowMinutes: event.target.value }))}
@@ -583,7 +584,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 />
               </label>
               <label>
-                Cooldown
+                Cooldown (minutes)
                 <input
                   min="1"
                   onChange={(event) => setRuleForm((current) => ({ ...current, cooldownMinutes: event.target.value }))}

@@ -538,11 +538,11 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
             </label>
             <div className="alerts-form__columns alerts-form__columns--two">
               <label>
-                Interval
+                Check interval (minutes)
                 <input min="1" onChange={(event) => setHttpForm((current) => ({ ...current, intervalMinutes: event.target.value }))} required type="number" value={httpForm.intervalMinutes} />
               </label>
               <label>
-                Timeout
+                Timeout (milliseconds)
                 <input min="100" onChange={(event) => setHttpForm((current) => ({ ...current, timeoutMs: event.target.value }))} required type="number" value={httpForm.timeoutMs} />
               </label>
             </div>
@@ -585,11 +585,11 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
                   </label>
                   <div className="alerts-form__columns alerts-form__columns--two">
                     <label>
-                      Interval
+                      Check interval (minutes)
                       <input min="1" onChange={(event) => setEditForm((current) => current ? { ...current, intervalMinutes: event.target.value } : current)} required type="number" value={editForm.intervalMinutes} />
                     </label>
                     <label>
-                      Timeout
+                      Timeout (milliseconds)
                       <input min="100" onChange={(event) => setEditForm((current) => current ? { ...current, timeoutMs: event.target.value } : current)} required type="number" value={editForm.timeoutMs} />
                     </label>
                   </div>
@@ -597,11 +597,11 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
               ) : (
                 <div className="alerts-form__columns alerts-form__columns--two">
                   <label>
-                    Interval
+                    Expected heartbeat interval (minutes)
                     <input min="1" onChange={(event) => setEditForm((current) => current ? { ...current, expectedIntervalMinutes: event.target.value } : current)} required type="number" value={editForm.expectedIntervalMinutes} />
                   </label>
                   <label>
-                    Grace
+                    Grace period (minutes)
                     <input min="0" onChange={(event) => setEditForm((current) => current ? { ...current, graceMinutes: event.target.value } : current)} required type="number" value={editForm.graceMinutes} />
                   </label>
                 </div>
@@ -636,13 +636,14 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
               Name
               <input onChange={(event) => setHeartbeatForm((current) => ({ ...current, name: event.target.value }))} required value={heartbeatForm.name} />
             </label>
+            <p className="muted-text">A heartbeat is down when no check-in arrives inside the expected interval plus grace period.</p>
             <div className="alerts-form__columns alerts-form__columns--two">
               <label>
-                Interval
+                Expected heartbeat interval (minutes)
                 <input min="1" onChange={(event) => setHeartbeatForm((current) => ({ ...current, expectedIntervalMinutes: event.target.value }))} required type="number" value={heartbeatForm.expectedIntervalMinutes} />
               </label>
               <label>
-                Grace
+                Grace period (minutes)
                 <input min="0" onChange={(event) => setHeartbeatForm((current) => ({ ...current, graceMinutes: event.target.value }))} required type="number" value={heartbeatForm.graceMinutes} />
               </label>
             </div>
