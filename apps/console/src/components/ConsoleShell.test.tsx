@@ -398,7 +398,7 @@ describe("ConsoleShell", () => {
 
     expect(window.location.pathname).toBe("/console");
     expect(screen.queryByText("Incident unavailable")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
@@ -478,7 +478,7 @@ describe("ConsoleShell", () => {
 
     expect(() => render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />)).not.toThrow();
     expect(api.getErrorGroupIncident).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
@@ -494,7 +494,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(await screen.findByRole("button", { name: "Acme App" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Production" })).toBeInTheDocument();
     expect(api.listEnvironments).toHaveBeenCalledWith("prj_1");
@@ -550,7 +550,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByLabelText("New project name"), "New Project");
     await userEvent.click(screen.getByRole("button", { name: "Create project" }));
@@ -572,7 +572,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(await screen.findByRole("combobox", { name: "Current project" })).toHaveValue("prj_1");
     expect(screen.getByLabelText("New environment name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create environment" })).toBeDisabled();
@@ -598,7 +598,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     await waitFor(() => expect(screen.getByLabelText("New environment name")).toBeEnabled());
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -646,7 +646,7 @@ describe("ConsoleShell", () => {
 
       await act(async () => {});
       expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-      await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+      await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
       await userEvent.type(screen.getByLabelText("New API key name"), "Browser key");
       await userEvent.click(screen.getByRole("button", { name: "Create key" }));
@@ -688,7 +688,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -737,7 +737,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -775,7 +775,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByLabelText("New project name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled();
 
@@ -805,7 +805,7 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
     expect(screen.getByRole("heading", { name: "Investigate" })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByText("Environment: Production")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
   });
@@ -879,7 +879,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByRole("textbox", { name: "New environment name" }), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
@@ -887,7 +887,7 @@ describe("ConsoleShell", () => {
     expect(screen.queryByRole("textbox", { name: "New environment name" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "New environment name", hidden: true })).toHaveValue("Staging");
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     expect(screen.getByRole("textbox", { name: "New environment name" })).toHaveValue("Staging");
   });
@@ -1159,7 +1159,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Beta App" }));
 
