@@ -990,6 +990,56 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("button", { name: "Operations" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("opens an operations recent incident in the investigation incident view", async () => {
+    const getOperations = vi.fn().mockResolvedValue({
+      data: {
+        ...operationsResponse(),
+        recent: {
+          monitors: [],
+          alerts: [],
+          incidents: [
+            {
+              id: "egrp_1",
+              message: "Checkout failed",
+              status: "open",
+              priority: "high",
+              lastSeenAt: "2026-05-25T11:58:00.000Z",
+              latestErrorId: "err_1"
+            }
+          ]
+        }
+      }
+    });
+    const getErrorGroupIncident = vi.fn().mockResolvedValue({
+      data: incidentFixture({ groupId: "egrp_1" })
+    });
+    const api = client({
+      getOperations,
+      getErrorGroupIncident,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Operations" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Checkout failed" }));
+
+    expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "true");
+    expect(getErrorGroupIncident).toHaveBeenCalledWith("egrp_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorId: "err_1"
+    });
+    expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/console/incidents/error-groups/egrp_1");
+  });
+
   it("drills overview top lists into seeded investigation filters", async () => {
     const listEvents = vi.fn().mockResolvedValue({ data: [] });
     const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });

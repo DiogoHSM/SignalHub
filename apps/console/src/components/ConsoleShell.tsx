@@ -255,6 +255,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
       environmentId: activeEnvironment.id,
       errorId: options?.errorId
     });
+    setActiveMode("investigate");
   }
 
   async function createProject(name: string) {
