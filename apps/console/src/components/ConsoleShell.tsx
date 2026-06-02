@@ -281,6 +281,9 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     setActiveEnvironment(environment);
   }
 
+  const isSigmonAdminMode = activeMode === "system";
+  const activeModeLabel = activeMode === "setup" ? "Setup" : incidentRoute.kind === "error-group" ? "Incident" : modeLabel(activeMode);
+
   return (
     <main className="console-layout">
       <aside className="console-rail" aria-label="Console navigation">
@@ -294,29 +297,37 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
       <section className="console-main">
         <header className="workspace-header">
           <div className="workspace-crumb">
-            <label className="project-scope-control">
-              <span>Project</span>
-              <select
-                aria-label="Current project"
-                disabled={isLoadingProjects || projects.length === 0}
-                onChange={(event) => selectProjectById(event.target.value)}
-                value={activeProject?.id ?? ""}
-              >
-                {activeProject ? null : <option value="">No project selected</option>}
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {isSigmonAdminMode ? (
+              <strong>Sigmon</strong>
+            ) : (
+              <label className="project-scope-control">
+                <span>Project</span>
+                <select
+                  aria-label="Current project"
+                  disabled={isLoadingProjects || projects.length === 0}
+                  onChange={(event) => selectProjectById(event.target.value)}
+                  value={activeProject?.id ?? ""}
+                >
+                  {activeProject ? null : <option value="">No project selected</option>}
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <span aria-hidden="true">/</span>
-            <strong>{activeMode === "setup" ? "Setup" : incidentRoute.kind === "error-group" ? "Incident" : modeLabel(activeMode)}</strong>
+            <strong>{activeModeLabel}</strong>
           </div>
           <div className="workspace-scope">
             <span className="scope-pill">
               <span className="scope-pill__dot" />
-              {activeEnvironment ? `Environment: ${activeEnvironment.name}` : "Create an environment to continue setup."}
+              {isSigmonAdminMode
+                ? "Installation-wide"
+                : activeEnvironment
+                  ? `Environment: ${activeEnvironment.name}`
+                  : "Create an environment to continue setup."}
             </span>
             <div className="console-search" aria-label="Global search placeholder">
               <Command aria-hidden="true" size={14} />

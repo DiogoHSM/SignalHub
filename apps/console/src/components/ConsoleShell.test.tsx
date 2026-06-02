@@ -852,6 +852,9 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "System Health" }));
 
     expect(getSystemHealth).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Current project")).not.toBeInTheDocument();
+    expect(screen.queryByText("Environment: Production")).not.toBeInTheDocument();
+    expect(screen.getByText("Installation-wide")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sigmon Admin" })).toBeInTheDocument();
     expect(screen.getByText("Installation-level status and server configuration.")).toBeInTheDocument();
     expect(screen.getByText("Loading system health")).toBeInTheDocument();

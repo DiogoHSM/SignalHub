@@ -185,6 +185,16 @@ describe("MonitorsPanel", () => {
     const secretRegion = await screen.findByRole("region", { name: "New heartbeat secret" });
     expect(within(secretRegion).getByDisplayValue("https://my.sigmon.app/v1/heartbeats/mon_hb")).toBeInTheDocument();
     expect(within(secretRegion).getByDisplayValue("shhb_secret")).toBeInTheDocument();
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+
+    await userEvent.click(within(secretRegion).getByRole("button", { name: "Copy URL" }));
+    expect(writeText).toHaveBeenCalledWith("https://my.sigmon.app/v1/heartbeats/mon_hb");
+    expect(within(secretRegion).getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
   it("edits the selected HTTP monitor", async () => {
@@ -286,9 +296,10 @@ describe("MonitorsPanel", () => {
 
     render(<MonitorsPanel apiEndpoint="https://my.sigmon.app" client={api} projectId="prj_1" environmentId="env_1" />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Delete API health" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Archive API health" }));
 
     await waitFor(() => expect(api.archiveMonitor).toHaveBeenCalledWith("mon_1"));
+    expect(confirmSpy).toHaveBeenCalledWith('Archive monitor "API health"? Historical checks will be kept.');
     expect(screen.queryByText("API health")).not.toBeInTheDocument();
     expect(await screen.findByText("Worker heartbeat")).toBeInTheDocument();
     confirmSpy.mockRestore();
