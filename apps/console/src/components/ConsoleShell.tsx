@@ -304,6 +304,14 @@ export function ConsoleShell({
     selectProject(project);
   }
 
+  function selectEnvironmentById(environmentId: string) {
+    const environment = environments.find((candidate) => candidate.id === environmentId);
+    if (!environment) return;
+    activeEnvironmentRef.current = environment;
+    setActiveEnvironment(environment);
+    setRefreshToken((current) => current + 1);
+  }
+
   function storeLatestSecret(secret: string) {
     if (!activeProject || !activeEnvironment) return;
     setLatestSecret({
@@ -482,6 +490,24 @@ export function ConsoleShell({
             <strong>{activeModeLabel}</strong>
           </div>
           <div className="workspace-scope">
+            {!isSigmonAdminMode ? (
+              <label className="environment-scope-control">
+                <span>Environment</span>
+                <select
+                  aria-label="Current environment"
+                  disabled={!activeProject || loadedEnvironmentProjectId !== activeProject.id || environments.length === 0}
+                  onChange={(event) => selectEnvironmentById(event.target.value)}
+                  value={activeEnvironment?.id ?? ""}
+                >
+                  {activeEnvironment ? null : <option value="">No environment selected</option>}
+                  {environments.map((environment) => (
+                    <option key={environment.id} value={environment.id}>
+                      {environment.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <span className="scope-pill">
               <span className="scope-pill__dot" />
               {isSigmonAdminMode

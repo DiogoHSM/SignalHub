@@ -557,6 +557,37 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("switches environments from the global header without opening setup", async () => {
+    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
+    const api = client({
+      getOverview,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [
+          { id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null },
+          { id: "env_2", projectId: "prj_1", name: "Preview", createdAt: "", updatedAt: "", archivedAt: null }
+        ]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
+    );
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Current environment" }), "env_2");
+
+    expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Current environment" })).toHaveValue("env_2");
+    await waitFor(() =>
+      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_2", window: "24h" })
+    );
+  });
+
   it("creates a project and selects it", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
