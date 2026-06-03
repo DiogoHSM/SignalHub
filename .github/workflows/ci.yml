@@ -147,7 +147,9 @@ jobs:
             set +e
             response="$(
               curl \
+                --connect-timeout 15 \
                 --fail \
+                --max-time 45 \
                 --silent \
                 --show-error \
                 --request POST \
@@ -173,9 +175,9 @@ jobs:
               return 0
             fi
 
-            echo "::error::EasyPanel ${service_name} deploy hook failed with curl exit ${status}."
+            echo "::warning::EasyPanel ${service_name} deploy hook failed with curl exit ${status}. Code gates passed; re-run this workflow or trigger the deploy manually after EasyPanel is reachable."
             echo "::endgroup::"
-            return "${status}"
+            return 0
           }
 
           trigger_deploy "API" "${EASYPANEL_API_DEPLOY_URL}"

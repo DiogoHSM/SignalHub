@@ -125,9 +125,13 @@ describe("GitHub Actions CI workflow", () => {
       "trigger_deploy \"API\" \"${EASYPANEL_API_DEPLOY_URL}\"",
       "trigger_deploy \"worker\" \"${EASYPANEL_WORKER_DEPLOY_URL}\"",
       "trigger_deploy \"scheduler\" \"${EASYPANEL_SCHEDULER_DEPLOY_URL}\"",
+      "--connect-timeout 15",
+      "--max-time 45",
       "--retry-all-errors",
       "grep -qi \"Deploying\"",
-      "deploy hook started but reset the connection after responding"
+      "deploy hook started but reset the connection after responding",
+      "Code gates passed; re-run this workflow or trigger the deploy manually after EasyPanel is reachable.",
+      "return 0"
     ]);
     expect(deployJob).not.toContain("POSTGRES_DEPLOY_URL");
     expect(deployJob).not.toContain("REDIS_DEPLOY_URL");
