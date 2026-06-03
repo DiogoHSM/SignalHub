@@ -9,6 +9,7 @@ SignalMonitor includes an admin-only Integration Console.
 - `Project Settings` is the recurring configuration workspace for the active project/environment. `Onboarding` is for creating the first project, environment, and initial setup path.
 - The first screen is now the environment Overview. Setup remains available from the rail for projects, environments, API keys, snippets, connection status, and simple user administration.
 - API key secrets are shown only immediately after creation and are not stored in browser storage.
+- API key rows expose a compact revoke action; revoked keys should leave the active key list after confirmation while historical telemetry remains intact.
 - The visual style should remain compact, quiet, and optimized for repeated operational work.
 - Use a dark-first console shell with a 64px icon rail, dense topbar context, restrained green signal accents, and no marketing-style hero sections.
 - The active project is selectable from the global header in every console mode. Setup keeps the fuller project creation/sidebar workflow, but operators should not need to return to Setup just to switch context.

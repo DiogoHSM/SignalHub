@@ -526,6 +526,14 @@ select {
   gap: 3px;
 }
 
+.key-list-item__actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .key-list-item strong {
   font-size: 14px;
 }
@@ -544,6 +552,7 @@ select {
 .key-list-item code {
   color: #334155;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .secret-callout {
