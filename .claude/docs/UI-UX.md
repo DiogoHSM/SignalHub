@@ -15,6 +15,8 @@ SignalMonitor includes an admin-only Integration Console.
 - The sigmon mark is a simple mono heartbeat SVG and should remain single-color so it can inherit the surrounding foreground/accent color.
 - Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings.
 - Operational pages should use dark native surfaces consistently: no white form islands inside the dark console, readable secondary values, compact status pills, and grid spans chosen by workflow density rather than filling space indiscriminately.
+- The console shell uses viewport-bounded scrolling: the icon rail and topbar stay anchored to the browser height while the workspace content owns its own vertical scroll.
+- The global header includes manual refresh, configurable auto-refresh intervals, and an operator menu with sign-out. These controls should remain available from project and admin modes.
 
 ## Investigation UX
 
@@ -29,7 +31,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.
-- Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency.
+- Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency. Trend charts should include grid context, stable empty states, color-consistent series, and legend values so sparse data does not read as broken.
 - Overview top-list rows can drill into Investigate with seeded exact filters; recent signals stay read-only.
 - Investigation views are operational, dense, and read-only by default.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.
@@ -41,6 +43,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Grouped Errors use a list/detail layout with filters above the group list, operator-editable group status, occurrence/user/tenant counts, fingerprint context, and a direct raw occurrence drilldown for the selected group.
 - Grouped and raw error rows expose `Open incident` actions that navigate to a shareable incident URL for the selected error group and, when opened from a raw occurrence, preserve the raw error id as context.
 - Incident view uses a split investigation layout: technical primary occurrence details, stack, source-map status, context, and metadata on the left; operational triage, related identifiers, strongly related activity, and nearby context on the right. It stacks before the console layout becomes cramped.
+- Incident view uses the same dark operational surface system as the console shell; it should not introduce light cards or browser-default controls inside the dark app.
 - Priority badges show saved priority when present and suggested priority otherwise. Severity, status, and priority badges should remain compact and scannable in both the error lists and Incident view.
 - Nearby context is explicitly labeled as supporting activity around the primary occurrence, separate from strongly related signals, so operators do not read it as guaranteed causality.
 - Error group status filters should be constrained to supported workflow statuses: open, investigating, resolved, and ignored.
@@ -61,11 +64,13 @@ SignalMonitor includes an admin-only Integration Console.
 - The Unassigned tenant bucket should be visible for context but disabled for drill-in.
 - Entity details should show compact summary metrics, top users, and a cross-signal timeline from events, errors, traces, and LLM calls.
 - Entity timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from tenant context to source records.
+- Entities surfaces should remain dark and scannable: sort buttons, selected tenant cards, metric tiles, filters, top-user tables, and timeline rows all inherit the console theme.
 - Keep Users as a peer tab with Events, Errors, Traces, LLM, and Entities inside `Investigate`.
 - Users uses a user-first layout with a default `7d` window, impact-ranked user rows, tenant/search filters, and a selected-user detail panel.
 - The Anonymous / Unassigned user bucket should be visible for context but disabled for drill-in.
 - User details should show compact summary metrics, recent sessions, and a cross-signal timeline from events, errors, traces, and LLM calls.
 - User timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from user context to source records.
+- Users surfaces should follow the same dark treatment as Entities, including disabled Anonymous rows, selected user cards, metric tiles, filters, sessions, and timeline rows.
 
 ## Operations UX
 

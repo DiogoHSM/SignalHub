@@ -4,7 +4,7 @@ import type { User } from "../api/types";
 
 type AuthGateProps = {
   client: ApiClient;
-  children: ReactNode;
+  children: ReactNode | ((session: { user: User; signOut: () => Promise<void> }) => ReactNode);
 };
 
 type AuthState =
@@ -114,7 +114,7 @@ export function AuthGate({ client, children }: AuthGateProps) {
   }
 
   if (authState.status === "authenticated") {
-    return <>{children}</>;
+    return <>{typeof children === "function" ? children({ user: authState.user, signOut: handleSignOut }) : children}</>;
   }
 
   return (

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, Command, RefreshCw } from "lucide-react";
+import { Bell, ChevronDown, Command, LogOut, RefreshCw } from "lucide-react";
 import type { ApiClient } from "../api/client";
-import type { Environment, Project } from "../api/types";
+import type { Environment, Project, User } from "../api/types";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
 import { IncidentView } from "./IncidentView";
@@ -25,6 +25,13 @@ type IncidentRoute =
   | { kind: "none" }
   | { kind: "error-group"; groupId: string; projectId: string; environmentId: string; errorId?: string };
 
+const autoRefreshOptions = [
+  { label: "Off", value: "0", milliseconds: 0 },
+  { label: "1 min", value: "60000", milliseconds: 60_000 },
+  { label: "2 min", value: "120000", milliseconds: 120_000 },
+  { label: "15 min", value: "900000", milliseconds: 900_000 }
+];
+
 function parseIncidentRoute(location: Location): IncidentRoute {
   const match = location.pathname.match(/\/console\/incidents\/error-groups\/([^/]+)$/);
   if (!match) return { kind: "none" };
@@ -47,7 +54,17 @@ function parseIncidentRoute(location: Location): IncidentRoute {
   };
 }
 
-export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEndpoint?: string }) {
+export function ConsoleShell({
+  client,
+  apiEndpoint,
+  onSignOut,
+  user
+}: {
+  client: ApiClient;
+  apiEndpoint?: string;
+  onSignOut?: () => Promise<void>;
+  user?: User;
+}) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
@@ -64,6 +81,10 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   const [latestSecret, setLatestSecret] = useState<LatestSecret | undefined>();
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [loadedEnvironmentProjectId, setLoadedEnvironmentProjectId] = useState<string | undefined>();
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [autoRefreshMs, setAutoRefreshMs] = useState(0);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const activeProjectIdRef = useRef<string | undefined>(undefined);
   const activeEnvironmentRef = useRef<Environment | undefined>(undefined);
   const environmentsRef = useRef<Environment[]>([]);
@@ -100,6 +121,14 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   useEffect(() => {
     environmentsRef.current = environments;
   }, [environments]);
+
+  useEffect(() => {
+    if (autoRefreshMs <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setRefreshToken((current) => current + 1);
+    }, autoRefreshMs);
+    return () => window.clearInterval(timer);
+  }, [autoRefreshMs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -258,6 +287,21 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     setActiveMode("investigate");
   }
 
+  function refreshWorkspace() {
+    setRefreshToken((current) => current + 1);
+  }
+
+  async function signOut() {
+    if (!onSignOut || isSigningOut) return;
+    setIsSigningOut(true);
+    try {
+      await onSignOut();
+    } finally {
+      setIsSigningOut(false);
+      setIsUserMenuOpen(false);
+    }
+  }
+
   async function createProject(name: string) {
     if (isLoadingProjects) return;
 
@@ -291,6 +335,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   const isSigmonAdminMode = activeMode === "system";
   const isIncidentViewActive = activeMode === "investigate" && incidentRoute.kind === "error-group";
   const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
+  const userInitials = initials(user?.email);
 
   return (
     <main className="console-layout">
@@ -344,15 +389,52 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
             </div>
           </div>
           <div className="workspace-actions">
-            <button className="icon-button" title="Refresh" type="button">
+            <button aria-label="Refresh current view" className="icon-button" onClick={refreshWorkspace} title="Refresh current view" type="button">
               <RefreshCw aria-hidden="true" size={15} />
             </button>
+            <label className="auto-refresh-control">
+              <span>Auto refresh</span>
+              <select
+                aria-label="Auto refresh interval"
+                onChange={(event) => setAutoRefreshMs(Number(event.target.value))}
+                value={String(autoRefreshMs)}
+              >
+                {autoRefreshOptions.map((option) => (
+                  <option key={option.value} value={option.milliseconds}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button className="icon-button" title="Notifications" type="button">
               <Bell aria-hidden="true" size={15} />
             </button>
-            <span className="console-avatar" aria-label="Signed in operator">
-              DH
-            </span>
+            <div className="user-menu">
+              <button
+                aria-expanded={isUserMenuOpen}
+                aria-haspopup="menu"
+                className="console-avatar-button"
+                onClick={() => setIsUserMenuOpen((current) => !current)}
+                title={user?.email ?? "Signed in operator"}
+                type="button"
+              >
+                <span className="console-avatar" aria-hidden="true">{userInitials}</span>
+                <ChevronDown aria-hidden="true" size={13} />
+                <span className="sr-only">Signed in operator menu</span>
+              </button>
+              {isUserMenuOpen ? (
+                <div className="user-menu__popover" role="menu">
+                  <div className="user-menu__identity">
+                    <strong>{user?.email ?? "Console operator"}</strong>
+                    <span>{user?.isAdmin ? "Administrator" : "User"}</span>
+                  </div>
+                  <button disabled={!onSignOut || isSigningOut} onClick={() => void signOut()} role="menuitem" type="button">
+                    <LogOut aria-hidden="true" size={15} />
+                    {isSigningOut ? "Signing out" : "Sign out"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </header>
         <div className="workspace">
@@ -362,6 +444,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
               environmentId={incidentRoute.environmentId}
               errorId={incidentRoute.errorId}
               groupId={incidentRoute.groupId}
+              key={`${incidentRoute.groupId}:${incidentRoute.errorId ?? ""}:${refreshToken}`}
               onBack={closeIncidentView}
               projectId={incidentRoute.projectId}
             />
@@ -393,6 +476,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   <OverviewDashboard
                     client={client}
                     environmentId={activeEnvironment?.id}
+                    key={`overview:${refreshToken}`}
                     onDrilldown={handleOverviewDrilldown}
                     projectId={activeProject?.id}
                   />
@@ -403,6 +487,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   <OperationsDashboard
                     client={client}
                     environmentId={activeEnvironment?.id}
+                    key={`operations:${refreshToken}`}
                     onOpenAlerts={() => setActiveMode("alerts")}
                     onOpenErrors={openOperationsErrors}
                     onOpenIncident={openErrorGroupIncident}
@@ -419,7 +504,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                     environmentId={activeEnvironment?.id}
                     initialFilters={investigationDrilldown?.filters}
                     initialTab={investigationDrilldown?.tab}
-                    key={investigationDrilldown?.nonce ?? "investigation"}
+                    key={`${investigationDrilldown?.nonce ?? "investigation"}:${refreshToken}`}
                     onOpenIncident={openErrorGroupIncident}
                     projectId={activeProject?.id}
                   />
@@ -427,7 +512,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
               </div>
               <div hidden={activeMode !== "alerts"}>
                 {activeMode === "alerts" ? (
-                  <AlertsPanel client={client} environmentId={activeEnvironment?.id} projectId={activeProject?.id} />
+                  <AlertsPanel client={client} environmentId={activeEnvironment?.id} key={`alerts:${refreshToken}`} projectId={activeProject?.id} />
                 ) : null}
               </div>
               <div hidden={activeMode !== "monitors"}>
@@ -436,6 +521,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                     apiEndpoint={apiEndpoint ?? ""}
                     client={client}
                     environmentId={activeEnvironment?.id}
+                    key={`monitors:${refreshToken}`}
                     projectId={activeProject?.id}
                   />
                 ) : null}
@@ -445,7 +531,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   <ArtifactsPanel
                     client={client}
                     environmentId={activeEnvironment?.id}
-                    key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}`}
+                    key={`${activeProject?.id ?? "none"}:${activeEnvironment?.id ?? "none"}:${refreshToken}`}
                     projectId={activeProject?.id}
                   />
                 ) : null}
@@ -466,13 +552,21 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   />
                 ) : null}
               </div>
-              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SigmonAdminWorkspace client={client} /> : null}</div>
+              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SigmonAdminWorkspace client={client} key={`system:${refreshToken}`} /> : null}</div>
             </>
           )}
         </div>
       </section>
     </main>
   );
+}
+
+function initials(email: string | undefined): string {
+  if (!email) return "OP";
+  const [name] = email.split("@");
+  const parts = name.split(/[._\-\s]+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
 }
 
 function modeLabel(mode: ConsoleMode): string {

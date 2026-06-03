@@ -966,6 +966,53 @@ describe("ConsoleShell", () => {
     );
   });
 
+  it("refreshes the active console view and exposes auto-refresh intervals", async () => {
+    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
+    const api = client({
+      getOverview,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await waitFor(() => expect(getOverview).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh current view" }));
+
+    await waitFor(() => expect(getOverview).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("combobox", { name: "Auto refresh interval" })).toHaveDisplayValue("Off");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Auto refresh interval" }), "120000");
+    expect(screen.getByRole("combobox", { name: "Auto refresh interval" })).toHaveDisplayValue("2 min");
+  });
+
+  it("opens the operator menu and signs out", async () => {
+    const signOut = vi.fn().mockResolvedValue(undefined);
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} onSignOut={signOut} user={{ id: "usr_1", email: "diogo.hsm@example.com", isAdmin: true }} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Signed in operator menu" }));
+
+    expect(screen.getByText("diogo.hsm@example.com")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+  });
+
   it("lazy-loads operations when Operations mode is opened", async () => {
     const getOperations = vi.fn().mockResolvedValue({ data: operationsResponse() });
     const api = client({
