@@ -106,6 +106,15 @@ function channelLabel(channel: NotificationChannelResponse): string {
   return channel.type === "email" ? `${channel.name} · email` : `${channel.name} · webhook`;
 }
 
+function monitorCadence(monitor: MonitorResponse): string {
+  if (monitor.kind === "http") return `every ${monitor.intervalMinutes ?? 5}m · ${monitor.timeoutMs ?? 5000}ms timeout`;
+  return `every ${monitor.expectedIntervalMinutes ?? 5}m · ${monitor.graceMinutes ?? 0}m grace`;
+}
+
+function monitorTarget(monitor: MonitorResponse): string {
+  return monitor.kind === "http" ? monitor.url ?? "No URL" : "Heartbeat check-in";
+}
+
 function editFormFromMonitor(monitor: MonitorResponse): EditForm {
   return {
     id: monitor.id,
@@ -463,10 +472,21 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
                   data-selected={selectedMonitor?.id === monitor.id ? "true" : "false"}
                 >
                   <button className="monitors-row__select" onClick={() => setSelectedMonitorId(monitor.id)} type="button">
-                    <div>
+                    <div className="monitors-row__identity">
                       <strong>{monitor.name}</strong>
-                      <span>{monitor.kind === "http" ? monitor.url : `every ${monitor.expectedIntervalMinutes}m + ${monitor.graceMinutes}m grace`}</span>
-                      <span>Last check {formatTimestamp(monitor.lastCheckedAt)}</span>
+                      <span>{monitor.kind}</span>
+                    </div>
+                    <div className="monitors-row__meta">
+                      <span>Target</span>
+                      <strong>{monitorTarget(monitor)}</strong>
+                    </div>
+                    <div className="monitors-row__meta">
+                      <span>Schedule</span>
+                      <strong>{monitorCadence(monitor)}</strong>
+                    </div>
+                    <div className="monitors-row__meta">
+                      <span>Last check</span>
+                      <strong>{formatTimestamp(monitor.lastCheckedAt)}</strong>
                     </div>
                     <span className={statusClass(monitor.status)}>{monitor.status}</span>
                   </button>
