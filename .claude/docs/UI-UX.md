@@ -107,6 +107,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Artifacts should stay operational: release filter, single-map upload, bundle upload, uploaded artifact list, and delete actions should fit the active project/environment workspace.
 - Artifacts uses two balanced upload panels plus a dark token-management surface; file inputs should look native to the console, not browser-default white controls.
 - Artifacts includes compact source-map upload token management for the active project/environment. Token secrets are shown once after creation.
+- Source-map upload token rows expose edit and revoke actions; renaming a token never rotates or re-displays the write-only secret.
 - Upload controls should support single `.map` files and `.zip` bundles.
 - Operators must provide release metadata because resolution uses strict release matching and does not guess across releases.
 - Artifact rows should prioritize release, minified file, original filename, size, upload time, and a short delete action.
