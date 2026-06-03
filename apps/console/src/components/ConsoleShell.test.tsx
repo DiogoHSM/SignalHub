@@ -384,6 +384,34 @@ describe("ConsoleShell", () => {
     });
   });
 
+  it("opens System Health instead of showing an incident under installation-wide chrome", async () => {
+    window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
+    const getSystemHealth = vi.fn().mockResolvedValue({ data: systemHealthResponse() });
+    const api = client({
+      getErrorGroupIncident: vi.fn().mockResolvedValue({
+        data: incidentFixture({ groupId: "egrp_1" })
+      }),
+      getSystemHealth,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "System Health" }));
+
+    expect(getSystemHealth).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Checkout failed")).not.toBeInTheDocument();
+    expect(screen.getByText("Installation-wide")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "System health" })).toBeInTheDocument();
+  });
+
   it("lets users leave an unavailable incident route", async () => {
     window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
     const api = client({
@@ -398,7 +426,7 @@ describe("ConsoleShell", () => {
 
     expect(window.location.pathname).toBe("/console");
     expect(screen.queryByText("Incident unavailable")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
@@ -478,7 +506,7 @@ describe("ConsoleShell", () => {
 
     expect(() => render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />)).not.toThrow();
     expect(api.getErrorGroupIncident).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
@@ -494,7 +522,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(await screen.findByRole("button", { name: "Acme App" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Production" })).toBeInTheDocument();
     expect(api.listEnvironments).toHaveBeenCalledWith("prj_1");
@@ -550,7 +578,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByLabelText("New project name"), "New Project");
     await userEvent.click(screen.getByRole("button", { name: "Create project" }));
@@ -572,7 +600,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(await screen.findByRole("combobox", { name: "Current project" })).toHaveValue("prj_1");
     expect(screen.getByLabelText("New environment name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create environment" })).toBeDisabled();
@@ -598,7 +626,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     await waitFor(() => expect(screen.getByLabelText("New environment name")).toBeEnabled());
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -646,7 +674,7 @@ describe("ConsoleShell", () => {
 
       await act(async () => {});
       expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-      await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+      await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
       await userEvent.type(screen.getByLabelText("New API key name"), "Browser key");
       await userEvent.click(screen.getByRole("button", { name: "Create key" }));
@@ -688,7 +716,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -737,7 +765,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -775,7 +803,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByLabelText("New project name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled();
 
@@ -805,12 +833,33 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
     expect(screen.getByRole("heading", { name: "Investigate" })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
     expect(screen.getByText("Environment: Production")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
   });
 
-  it("lazy-loads system health when System mode is opened", async () => {
+  it("renders the project settings workspace when Project Settings mode is opened", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
+
+    expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browser origins" })).toBeInTheDocument();
+  });
+
+  it("renders the Sigmon admin workspace and lazy-loads system health when System mode is opened", async () => {
     const health = deferred<{ data: SystemHealthResponse }>();
     const getSystemHealth = vi.fn().mockReturnValue(health.promise);
     const api = client({
@@ -828,9 +877,14 @@ describe("ConsoleShell", () => {
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
     expect(getSystemHealth).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "System" }));
+    await userEvent.click(screen.getByRole("button", { name: "System Health" }));
 
     expect(getSystemHealth).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Current project")).not.toBeInTheDocument();
+    expect(screen.queryByText("Environment: Production")).not.toBeInTheDocument();
+    expect(screen.getByText("Installation-wide")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sigmon Admin" })).toBeInTheDocument();
+    expect(screen.getByText("Installation-level status and server configuration.")).toBeInTheDocument();
     expect(screen.getByText("Loading system health")).toBeInTheDocument();
 
     await act(async () => {
@@ -838,8 +892,8 @@ describe("ConsoleShell", () => {
       await health.promise;
     });
 
-    expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
-    expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "System Health" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("heading", { name: "System health" })).toBeInTheDocument();
     expect(screen.getByText("Postgres")).toBeInTheDocument();
   });
 
@@ -879,7 +933,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.type(screen.getByRole("textbox", { name: "New environment name" }), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
@@ -887,7 +941,7 @@ describe("ConsoleShell", () => {
     expect(screen.queryByRole("textbox", { name: "New environment name" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "New environment name", hidden: true })).toHaveValue("Staging");
 
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     expect(screen.getByRole("textbox", { name: "New environment name" })).toHaveValue("Staging");
   });
@@ -934,6 +988,56 @@ describe("ConsoleShell", () => {
       expect(getOperations).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
     );
     expect(screen.getByRole("button", { name: "Operations" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("opens an operations recent incident in the investigation incident view", async () => {
+    const getOperations = vi.fn().mockResolvedValue({
+      data: {
+        ...operationsResponse(),
+        recent: {
+          monitors: [],
+          alerts: [],
+          incidents: [
+            {
+              id: "egrp_1",
+              message: "Checkout failed",
+              status: "open",
+              priority: "high",
+              lastSeenAt: "2026-05-25T11:58:00.000Z",
+              latestErrorId: "err_1"
+            }
+          ]
+        }
+      }
+    });
+    const getErrorGroupIncident = vi.fn().mockResolvedValue({
+      data: incidentFixture({ groupId: "egrp_1" })
+    });
+    const api = client({
+      getOperations,
+      getErrorGroupIncident,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Operations" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Checkout failed" }));
+
+    expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "true");
+    expect(getErrorGroupIncident).toHaveBeenCalledWith("egrp_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorId: "err_1"
+    });
+    expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/console/incidents/error-groups/egrp_1");
   });
 
   it("drills overview top lists into seeded investigation filters", async () => {
@@ -1159,7 +1263,7 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell client={api} />);
 
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Setup" }));
+    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Beta App" }));
 

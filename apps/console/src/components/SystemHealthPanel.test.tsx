@@ -172,7 +172,7 @@ describe("SystemHealthPanel", () => {
     render(<SystemHealthPanel client={api} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading system health");
-    expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "System health" })).toBeInTheDocument();
     expect(within(screen.getByRole("group", { name: "System health summary" })).getByText("healthy")).toBeInTheDocument();
     expect(screen.getByText("Postgres")).toBeInTheDocument();
     expect(screen.getByText("Redis")).toBeInTheDocument();
@@ -337,7 +337,7 @@ describe("SystemHealthPanel", () => {
 
     render(<SystemHealthPanel client={api} />);
 
-    expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "System health" })).toBeInTheDocument();
     expect(screen.queryByText("Invalid Date")).not.toBeInTheDocument();
     expect(screen.getByText("Generated No data")).toBeInTheDocument();
     expect(screen.getAllByText("No data").length).toBeGreaterThanOrEqual(4);

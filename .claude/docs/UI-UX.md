@@ -5,6 +5,8 @@ SignalMonitor includes an admin-only Integration Console.
 ## Console Principles
 
 - The console is an operational workspace, not a marketing page.
+- Navigation is split by scope: Project Workspace modes operate on the selected monitored project/environment, while Sigmon Admin is reserved for installation-level status and server configuration.
+- `Project Settings` is the recurring configuration workspace for the active project/environment. `Onboarding` is for creating the first project, environment, and initial setup path.
 - The first screen is now the environment Overview. Setup remains available from the rail for projects, environments, API keys, snippets, connection status, and simple user administration.
 - API key secrets are shown only immediately after creation and are not stored in browser storage.
 - The visual style should remain compact, quiet, and optimized for repeated operational work.
@@ -16,13 +18,14 @@ SignalMonitor includes an admin-only Integration Console.
 
 ## Investigation UX
 
-- Keep `Setup`, `Overview`, and `Investigate` as separate top-level console modes.
+- Keep `Onboarding`, `Overview`, and `Investigate` as separate top-level console modes.
 - Keep `Operations` as a separate project/environment cockpit between `Overview` and `Investigate`.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
 - Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
-- Keep `System` as a quiet global operational mode for Sigmon service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
-- System shows source-map retention policy and deleted counts inside the existing Retention card.
+- Keep `Project Settings` as a project-scoped configuration mode for environments, API keys, browser origins, SDK snippets, source maps, and the current console user administration surface.
+- Keep `System Health` inside Sigmon Admin as a quiet global operational mode for Sigmon service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
+- System Health shows source-map retention policy and deleted counts inside the existing Retention card.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.
@@ -69,7 +72,7 @@ SignalMonitor includes an admin-only Integration Console.
 - `Operations` is the project/environment cockpit for monitored application health. It is distinct from global `System` health.
 - `Overview` remains the product and telemetry summary for the selected project/environment.
 - `Operations` summarizes monitored health, alert state, p95 latency, error rate, ingestion freshness, and open incidents for the selected project/environment.
-- `System` remains global Sigmon install health: API, Postgres, Redis, queue worker, scheduler, SMTP, retention, and backups.
+- `System Health` remains global Sigmon install health: API, Postgres, Redis, queue worker, scheduler, SMTP, retention, and backups.
 - Operations is read-only in this slice. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views for action.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
 
@@ -78,6 +81,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Alerts should stay dense and operational: rules, channels, recent events, and delivery status should be visible without a marketing-style layout.
 - Alerts should keep summary counters and creation forms aligned in a compact grid, with dark inputs/selects and subdued empty states.
 - Alert rule controls should remain scoped to the active project and environment.
+- Alert rule fields should expose units in labels or nearby help: windows and cooldowns are minutes, error-rate thresholds are percentages, trace p95 thresholds are milliseconds, critical/error count thresholds are counts, and LLM cost thresholds are USD.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
 
@@ -87,6 +91,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Monitors uses a full-width monitor list followed by three balanced panels for recent checks, HTTP setup, and heartbeat setup.
 - HTTP monitor rows should prioritize name, target URL, status, and last check time.
 - Heartbeat monitor rows should prioritize name, expected interval, grace window, status, and last check time.
+- Monitor form labels should include units: check interval and heartbeat grace values are minutes, HTTP timeout is milliseconds.
 - Monitor rows expose compact edit and delete actions. Editing uses a contextual form for the selected monitor type; deleting archives the monitor after confirmation while preserving historical checks.
 - Heartbeat secrets are shown only immediately after monitor creation, paired with the check-in URL, and should not be stored in browser storage.
 - Recent monitor checks should stay compact and show status, response or heartbeat marker, latency, and sanitized error text.

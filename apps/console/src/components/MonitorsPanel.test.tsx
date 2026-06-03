@@ -147,6 +147,9 @@ describe("MonitorsPanel", () => {
 
     expect(await screen.findByRole("heading", { name: "Monitors" })).toBeInTheDocument();
     expect(await screen.findByText("API health")).toBeInTheDocument();
+    const httpForm = screen.getByRole("region", { name: "Create HTTP monitor" });
+    expect(within(httpForm).getByLabelText("Check interval (minutes)")).toBeInTheDocument();
+    expect(within(httpForm).getByLabelText("Timeout (milliseconds)")).toBeInTheDocument();
     await waitFor(() =>
       expect(within(screen.getByRole("region", { name: "Recent monitor checks" })).getByText("success")).toBeInTheDocument()
     );
@@ -160,6 +163,11 @@ describe("MonitorsPanel", () => {
     render(<MonitorsPanel apiEndpoint="https://my.sigmon.app" client={api} projectId="prj_1" environmentId="env_1" />);
 
     const heartbeatForm = await screen.findByRole("region", { name: "Create heartbeat monitor" });
+    expect(
+      within(heartbeatForm).getByText("A heartbeat is down when no check-in arrives inside the expected interval plus grace period.")
+    ).toBeInTheDocument();
+    expect(within(heartbeatForm).getByLabelText("Expected heartbeat interval (minutes)")).toBeInTheDocument();
+    expect(within(heartbeatForm).getByLabelText("Grace period (minutes)")).toBeInTheDocument();
     await userEvent.type(within(heartbeatForm).getByLabelText("Name", { selector: "input" }), "Queue heartbeat");
     await userEvent.click(screen.getByRole("button", { name: "Create heartbeat monitor" }));
 
@@ -177,6 +185,16 @@ describe("MonitorsPanel", () => {
     const secretRegion = await screen.findByRole("region", { name: "New heartbeat secret" });
     expect(within(secretRegion).getByDisplayValue("https://my.sigmon.app/v1/heartbeats/mon_hb")).toBeInTheDocument();
     expect(within(secretRegion).getByDisplayValue("shhb_secret")).toBeInTheDocument();
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+
+    await userEvent.click(within(secretRegion).getByRole("button", { name: "Copy URL" }));
+    expect(writeText).toHaveBeenCalledWith("https://my.sigmon.app/v1/heartbeats/mon_hb");
+    expect(within(secretRegion).getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
   it("edits the selected HTTP monitor", async () => {
@@ -190,10 +208,10 @@ describe("MonitorsPanel", () => {
     await userEvent.type(within(editForm).getByLabelText("Name", { selector: "input" }), "API v2");
     await userEvent.clear(within(editForm).getByLabelText("URL", { selector: "input" }));
     await userEvent.type(within(editForm).getByLabelText("URL", { selector: "input" }), "https://api.example.com/ready");
-    await userEvent.clear(within(editForm).getByLabelText("Interval", { selector: "input" }));
-    await userEvent.type(within(editForm).getByLabelText("Interval", { selector: "input" }), "10");
-    await userEvent.clear(within(editForm).getByLabelText("Timeout", { selector: "input" }));
-    await userEvent.type(within(editForm).getByLabelText("Timeout", { selector: "input" }), "3000");
+    await userEvent.clear(within(editForm).getByLabelText("Check interval (minutes)", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("Check interval (minutes)", { selector: "input" }), "10");
+    await userEvent.clear(within(editForm).getByLabelText("Timeout (milliseconds)", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("Timeout (milliseconds)", { selector: "input" }), "3000");
     await userEvent.click(within(editForm).getByRole("button", { name: "Save monitor" }));
 
     await waitFor(() =>
@@ -209,6 +227,62 @@ describe("MonitorsPanel", () => {
     expect(await screen.findByText("API v2")).toBeInTheDocument();
   });
 
+  it("uses explicit heartbeat timing labels when editing heartbeat monitors", async () => {
+    const api = client({
+      listMonitors: vi.fn().mockResolvedValue({
+        monitors: [
+          monitor({
+            id: "mon_hb",
+            name: "Worker heartbeat",
+            kind: "heartbeat",
+            status: "up",
+            url: null,
+            method: null,
+            expectedStatus: null,
+            timeoutMs: null,
+            intervalMinutes: null,
+            expectedIntervalMinutes: 5,
+            graceMinutes: 2
+          })
+        ]
+      }),
+      updateMonitor: vi.fn().mockResolvedValue({
+        monitor: monitor({
+          id: "mon_hb",
+          name: "Worker heartbeat",
+          kind: "heartbeat",
+          url: null,
+          method: null,
+          expectedStatus: null,
+          timeoutMs: null,
+          intervalMinutes: null,
+          expectedIntervalMinutes: 10,
+          graceMinutes: 3
+        })
+      })
+    });
+
+    render(<MonitorsPanel apiEndpoint="https://my.sigmon.app" client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Worker heartbeat" }));
+    const editForm = screen.getByRole("region", { name: "Edit monitor" });
+    await userEvent.clear(within(editForm).getByLabelText("Expected heartbeat interval (minutes)", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("Expected heartbeat interval (minutes)", { selector: "input" }), "10");
+    await userEvent.clear(within(editForm).getByLabelText("Grace period (minutes)", { selector: "input" }));
+    await userEvent.type(within(editForm).getByLabelText("Grace period (minutes)", { selector: "input" }), "3");
+    await userEvent.click(within(editForm).getByRole("button", { name: "Save monitor" }));
+
+    await waitFor(() =>
+      expect(api.updateMonitor).toHaveBeenCalledWith("mon_hb", {
+        notificationChannelId: null,
+        name: "Worker heartbeat",
+        enabled: true,
+        expectedIntervalMinutes: 10,
+        graceMinutes: 3
+      })
+    );
+  });
+
   it("archives a monitor from the list", async () => {
     const api = client({
       listMonitors: vi.fn().mockResolvedValue({
@@ -222,9 +296,10 @@ describe("MonitorsPanel", () => {
 
     render(<MonitorsPanel apiEndpoint="https://my.sigmon.app" client={api} projectId="prj_1" environmentId="env_1" />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Delete API health" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Archive API health" }));
 
     await waitFor(() => expect(api.archiveMonitor).toHaveBeenCalledWith("mon_1"));
+    expect(confirmSpy).toHaveBeenCalledWith('Archive monitor "API health"? Historical checks will be kept.');
     expect(screen.queryByText("API health")).not.toBeInTheDocument();
     expect(await screen.findByText("Worker heartbeat")).toBeInTheDocument();
     confirmSpy.mockRestore();

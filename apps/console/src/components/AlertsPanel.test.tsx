@@ -356,6 +356,11 @@ describe("AlertsPanel", () => {
     render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
 
     await userEvent.type(await screen.findByLabelText("Rule name"), "Critical errors");
+    expect(screen.getByText("Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.")).toBeInTheDocument();
+    expect(screen.getByText("Threshold is a count of critical or fatal errors in the window.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Window (minutes)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Threshold")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cooldown (minutes)")).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText("Notification channel"), "chn_1");
     await userEvent.click(screen.getByRole("button", { name: "Create rule" }));
 
@@ -373,6 +378,18 @@ describe("AlertsPanel", () => {
         enabled: true
       })
     );
+  });
+
+  it("updates threshold help when selecting a unit-bearing alert rule type", async () => {
+    const api = client();
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await screen.findByLabelText("Rule type");
+    await userEvent.selectOptions(screen.getByLabelText("Rule type"), "trace_p95_latency");
+
+    expect(screen.getByText("Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.")).toBeInTheDocument();
+    expect(screen.getByText("Threshold is trace p95 latency in milliseconds.")).toBeInTheDocument();
   });
 
   it("does not render a stale created alert rule after switching environments", async () => {
@@ -638,12 +655,12 @@ describe("AlertsPanel", () => {
     await userEvent.type(screen.getByLabelText("Secret header name"), "X-SignalMonitor-Secret");
     await userEvent.type(screen.getByLabelText("Secret header value"), "unsaved-secret");
     await userEvent.type(screen.getByLabelText("Rule name"), "Unsaved rule");
-    await userEvent.clear(screen.getByLabelText("Window"));
-    await userEvent.type(screen.getByLabelText("Window"), "15");
+    await userEvent.clear(screen.getByLabelText("Window (minutes)"));
+    await userEvent.type(screen.getByLabelText("Window (minutes)"), "15");
     await userEvent.clear(screen.getByLabelText("Threshold"));
     await userEvent.type(screen.getByLabelText("Threshold"), "3");
-    await userEvent.clear(screen.getByLabelText("Cooldown"));
-    await userEvent.type(screen.getByLabelText("Cooldown"), "45");
+    await userEvent.clear(screen.getByLabelText("Cooldown (minutes)"));
+    await userEvent.type(screen.getByLabelText("Cooldown (minutes)"), "45");
     await userEvent.selectOptions(screen.getByLabelText("Notification channel"), "chn_1");
 
     rerender(<AlertsPanel client={api} projectId="prj_1" environmentId="env_2" />);
@@ -653,9 +670,9 @@ describe("AlertsPanel", () => {
     expect(screen.getByLabelText("Secret header name")).toHaveValue("");
     expect(screen.getByLabelText("Secret header value")).toHaveValue("");
     expect(screen.getByLabelText("Rule name")).toHaveValue("");
-    expect(screen.getByLabelText("Window")).toHaveValue(10);
+    expect(screen.getByLabelText("Window (minutes)")).toHaveValue(10);
     expect(screen.getByLabelText("Threshold")).toHaveValue(1);
-    expect(screen.getByLabelText("Cooldown")).toHaveValue(30);
+    expect(screen.getByLabelText("Cooldown (minutes)")).toHaveValue(30);
     expect(screen.getByLabelText("Notification channel")).toHaveValue("");
   });
 
@@ -689,13 +706,13 @@ describe("AlertsPanel", () => {
     render(<AlertsPanel client={client({ createAlertRule })} projectId="prj_1" environmentId="env_1" />);
 
     await userEvent.type(await screen.findByLabelText("Rule name"), "Critical errors");
-    await userEvent.clear(screen.getByLabelText("Window"));
+    await userEvent.clear(screen.getByLabelText("Window (minutes)"));
     await userEvent.click(screen.getByRole("button", { name: "Create rule" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Window must be a whole number of at least 1 minute");
     expect(createAlertRule).not.toHaveBeenCalled();
 
-    await userEvent.type(screen.getByLabelText("Window"), "10");
+    await userEvent.type(screen.getByLabelText("Window (minutes)"), "10");
     await userEvent.clear(screen.getByLabelText("Threshold"));
     await userEvent.type(screen.getByLabelText("Threshold"), "1.1234567");
     await userEvent.click(screen.getByRole("button", { name: "Create rule" }));

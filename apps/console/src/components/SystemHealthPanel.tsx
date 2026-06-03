@@ -157,8 +157,8 @@ export function SystemHealthPanel({ client }: Props) {
     <section className="system-panel">
       <header aria-label="System health summary" className="system-panel__header" role="group">
         <div>
-          <h2>System</h2>
-          <p className="muted-text">Read-only operational status for core services and background work.</p>
+          <h2>System health</h2>
+          <p className="muted-text">Read-only installation health for core services, background work, retention, and backups.</p>
           {health ? <p className="muted-text">Generated {formatTimestamp(health.generatedAt)}</p> : null}
         </div>
         {health ? <span className={statusClass(health.status)}>{health.status}</span> : null}

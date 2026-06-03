@@ -10,9 +10,10 @@ import { InvestigationWorkspace, type InvestigationInitialFilters, type Investig
 import { MonitorsPanel } from "./MonitorsPanel";
 import { OperationsDashboard } from "./OperationsDashboard";
 import { OverviewDashboard, type OverviewDrilldown } from "./OverviewDashboard";
+import { ProjectSettingsWorkspace } from "./ProjectSettingsWorkspace";
 import { ProjectSwitcher } from "./ProjectSwitcher";
+import { SigmonAdminWorkspace } from "./SigmonAdminWorkspace";
 import { SetupWorkspace } from "./SetupWorkspace";
-import { SystemHealthPanel } from "./SystemHealthPanel";
 
 type LatestSecret = {
   secret: string;
@@ -51,8 +52,10 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
-  const [activeMode, setActiveMode] = useState<ConsoleMode>("overview");
   const [incidentRoute, setIncidentRoute] = useState<IncidentRoute>(() => parseIncidentRoute(window.location));
+  const [activeMode, setActiveMode] = useState<ConsoleMode>(() =>
+    parseIncidentRoute(window.location).kind === "error-group" ? "investigate" : "overview"
+  );
   const [investigationDrilldown, setInvestigationDrilldown] = useState<{
     nonce: number;
     tab: InvestigationTab;
@@ -72,7 +75,11 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
 
   useEffect(() => {
     function handlePopState() {
-      setIncidentRoute(parseIncidentRoute(window.location));
+      const nextRoute = parseIncidentRoute(window.location);
+      setIncidentRoute(nextRoute);
+      if (nextRoute.kind === "error-group") {
+        setActiveMode("investigate");
+      }
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -248,6 +255,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
       environmentId: activeEnvironment.id,
       errorId: options?.errorId
     });
+    setActiveMode("investigate");
   }
 
   async function createProject(name: string) {
@@ -280,6 +288,10 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
     setActiveEnvironment(environment);
   }
 
+  const isSigmonAdminMode = activeMode === "system";
+  const isIncidentViewActive = activeMode === "investigate" && incidentRoute.kind === "error-group";
+  const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
+
   return (
     <main className="console-layout">
       <aside className="console-rail" aria-label="Console navigation">
@@ -293,29 +305,37 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
       <section className="console-main">
         <header className="workspace-header">
           <div className="workspace-crumb">
-            <label className="project-scope-control">
-              <span>Project</span>
-              <select
-                aria-label="Current project"
-                disabled={isLoadingProjects || projects.length === 0}
-                onChange={(event) => selectProjectById(event.target.value)}
-                value={activeProject?.id ?? ""}
-              >
-                {activeProject ? null : <option value="">No project selected</option>}
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {isSigmonAdminMode ? (
+              <strong>Sigmon</strong>
+            ) : (
+              <label className="project-scope-control">
+                <span>Project</span>
+                <select
+                  aria-label="Current project"
+                  disabled={isLoadingProjects || projects.length === 0}
+                  onChange={(event) => selectProjectById(event.target.value)}
+                  value={activeProject?.id ?? ""}
+                >
+                  {activeProject ? null : <option value="">No project selected</option>}
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <span aria-hidden="true">/</span>
-            <strong>{activeMode === "setup" ? "Setup" : incidentRoute.kind === "error-group" ? "Incident" : modeLabel(activeMode)}</strong>
+            <strong>{activeModeLabel}</strong>
           </div>
           <div className="workspace-scope">
             <span className="scope-pill">
               <span className="scope-pill__dot" />
-              {activeEnvironment ? `Environment: ${activeEnvironment.name}` : "Create an environment to continue setup."}
+              {isSigmonAdminMode
+                ? "Installation-wide"
+                : activeEnvironment
+                  ? `Environment: ${activeEnvironment.name}`
+                  : "Create an environment to continue setup."}
             </span>
             <div className="console-search" aria-label="Global search placeholder">
               <Command aria-hidden="true" size={14} />
@@ -336,7 +356,7 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
           </div>
         </header>
         <div className="workspace">
-          {incidentRoute.kind === "error-group" ? (
+          {isIncidentViewActive ? (
             <IncidentView
               client={client}
               environmentId={incidentRoute.environmentId}
@@ -430,7 +450,23 @@ export function ConsoleShell({ client, apiEndpoint }: { client: ApiClient; apiEn
                   />
                 ) : null}
               </div>
-              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SystemHealthPanel client={client} /> : null}</div>
+              <div hidden={activeMode !== "project-settings"}>
+                {activeMode === "project-settings" ? (
+                  <ProjectSettingsWorkspace
+                    activeEnvironment={activeEnvironment}
+                    activeProjectId={activeProject?.id}
+                    apiEndpoint={apiEndpoint}
+                    client={client}
+                    environments={environments}
+                    isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
+                    latestSecret={scopedLatestSecret}
+                    onCreateEnvironment={createEnvironment}
+                    onSecretCreated={storeLatestSecret}
+                    onSelectEnvironment={setActiveEnvironment}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SigmonAdminWorkspace client={client} /> : null}</div>
             </>
           )}
         </div>
@@ -447,8 +483,9 @@ function modeLabel(mode: ConsoleMode): string {
     monitors: "Monitors",
     operations: "Operations",
     overview: "Overview",
+    "project-settings": "Project Settings",
     setup: "Setup",
-    system: "System health"
+    system: "Sigmon Admin"
   };
   return labels[mode];
 }

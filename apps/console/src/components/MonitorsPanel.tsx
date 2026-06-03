@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type { MonitorCheckResponse, MonitorResponse, NotificationChannelResponse } from "../api/types";
+import { CopyButton } from "./ui/CopyButton";
 
 type Props = {
   apiEndpoint: string;
@@ -377,7 +378,7 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
 
   async function archiveMonitor(monitor: MonitorResponse) {
     if (!client.archiveMonitor || deletingMonitorId) return;
-    const confirmed = window.confirm(`Delete monitor "${monitor.name}"? Historical checks will be kept.`);
+    const confirmed = window.confirm(`Archive monitor "${monitor.name}"? Historical checks will be kept.`);
     if (!confirmed) return;
 
     setDeletingMonitorId(monitor.id);
@@ -392,14 +393,10 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
       }
       setEditForm((current) => (current?.id === monitor.id ? null : current));
     } catch {
-      setError("Could not delete monitor");
+      setError("Could not archive monitor");
     } finally {
       setDeletingMonitorId(null);
     }
-  }
-
-  function copyText(value: string) {
-    void navigator.clipboard?.writeText(value);
   }
 
   if (!projectId || !environmentId) {
@@ -440,12 +437,12 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
             Check-in URL
             <input readOnly value={latestSecret.url} />
           </label>
-          <button onClick={() => copyText(latestSecret.url)} type="button">Copy URL</button>
+          <CopyButton label="Copy URL" value={latestSecret.url} />
           <label>
             Secret
             <input readOnly value={latestSecret.secret} />
           </label>
-          <button onClick={() => copyText(latestSecret.secret)} type="button">Copy secret</button>
+          <CopyButton label="Copy secret" value={latestSecret.secret} />
         </section>
       ) : null}
 
@@ -478,11 +475,11 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
                       <Pencil aria-hidden="true" size={16} />
                     </button>
                     <button
-                      aria-label={`Delete ${monitor.name}`}
+                      aria-label={`Archive ${monitor.name}`}
                       className="icon-button icon-button--danger"
                       disabled={deletingMonitorId === monitor.id}
                       onClick={() => void archiveMonitor(monitor)}
-                      title="Delete monitor"
+                      title="Archive monitor"
                       type="button"
                     >
                       <Trash2 aria-hidden="true" size={16} />
@@ -538,11 +535,11 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
             </label>
             <div className="alerts-form__columns alerts-form__columns--two">
               <label>
-                Interval
+                Check interval (minutes)
                 <input min="1" onChange={(event) => setHttpForm((current) => ({ ...current, intervalMinutes: event.target.value }))} required type="number" value={httpForm.intervalMinutes} />
               </label>
               <label>
-                Timeout
+                Timeout (milliseconds)
                 <input min="100" onChange={(event) => setHttpForm((current) => ({ ...current, timeoutMs: event.target.value }))} required type="number" value={httpForm.timeoutMs} />
               </label>
             </div>
@@ -585,11 +582,11 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
                   </label>
                   <div className="alerts-form__columns alerts-form__columns--two">
                     <label>
-                      Interval
+                      Check interval (minutes)
                       <input min="1" onChange={(event) => setEditForm((current) => current ? { ...current, intervalMinutes: event.target.value } : current)} required type="number" value={editForm.intervalMinutes} />
                     </label>
                     <label>
-                      Timeout
+                      Timeout (milliseconds)
                       <input min="100" onChange={(event) => setEditForm((current) => current ? { ...current, timeoutMs: event.target.value } : current)} required type="number" value={editForm.timeoutMs} />
                     </label>
                   </div>
@@ -597,11 +594,11 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
               ) : (
                 <div className="alerts-form__columns alerts-form__columns--two">
                   <label>
-                    Interval
+                    Expected heartbeat interval (minutes)
                     <input min="1" onChange={(event) => setEditForm((current) => current ? { ...current, expectedIntervalMinutes: event.target.value } : current)} required type="number" value={editForm.expectedIntervalMinutes} />
                   </label>
                   <label>
-                    Grace
+                    Grace period (minutes)
                     <input min="0" onChange={(event) => setEditForm((current) => current ? { ...current, graceMinutes: event.target.value } : current)} required type="number" value={editForm.graceMinutes} />
                   </label>
                 </div>
@@ -636,13 +633,14 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
               Name
               <input onChange={(event) => setHeartbeatForm((current) => ({ ...current, name: event.target.value }))} required value={heartbeatForm.name} />
             </label>
+            <p className="muted-text">A heartbeat is down when no check-in arrives inside the expected interval plus grace period.</p>
             <div className="alerts-form__columns alerts-form__columns--two">
               <label>
-                Interval
+                Expected heartbeat interval (minutes)
                 <input min="1" onChange={(event) => setHeartbeatForm((current) => ({ ...current, expectedIntervalMinutes: event.target.value }))} required type="number" value={heartbeatForm.expectedIntervalMinutes} />
               </label>
               <label>
-                Grace
+                Grace period (minutes)
                 <input min="0" onChange={(event) => setHeartbeatForm((current) => ({ ...current, graceMinutes: event.target.value }))} required type="number" value={heartbeatForm.graceMinutes} />
               </label>
             </div>
