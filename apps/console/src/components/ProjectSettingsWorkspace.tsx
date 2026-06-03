@@ -17,9 +17,11 @@ type Props = {
   environments: Environment[];
   isEnvironmentCreationDisabled: boolean;
   latestSecret?: string;
+  onArchiveEnvironment?: (environment: Environment) => Promise<void>;
   onCreateEnvironment: (name: string) => Promise<void>;
   onSecretCreated: (secret: string) => void;
   onSelectEnvironment: (environment: Environment) => void;
+  onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;
 };
 
 const sections = [
@@ -65,9 +67,11 @@ export function ProjectSettingsWorkspace({
   environments,
   isEnvironmentCreationDisabled,
   latestSecret,
+  onArchiveEnvironment,
   onCreateEnvironment,
   onSecretCreated,
-  onSelectEnvironment
+  onSelectEnvironment,
+  onUpdateEnvironment
 }: Props) {
   const [activeSectionId, setActiveSectionId] = useState<SectionId>("environments");
   const activeEnvironmentId = activeEnvironment?.id;
@@ -130,8 +134,10 @@ export function ProjectSettingsWorkspace({
             activeEnvironmentId={activeEnvironmentId}
             disabled={isEnvironmentCreationDisabled}
             environments={environments}
+            onArchive={onArchiveEnvironment}
             onCreate={onCreateEnvironment}
             onSelect={onSelectEnvironment}
+            onUpdate={onUpdateEnvironment}
           />
         );
     }

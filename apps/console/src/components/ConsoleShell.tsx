@@ -431,6 +431,41 @@ export function ConsoleShell({
     setActiveEnvironment(environment);
   }
 
+  async function updateEnvironment(environment: Environment, name: string) {
+    const { environment: updatedEnvironment } = await client.updateEnvironment(environment.id, { name });
+    if (activeProjectIdRef.current !== updatedEnvironment.projectId) return;
+
+    setEnvironments((current) => {
+      const next = current.map((currentEnvironment) =>
+        currentEnvironment.id === updatedEnvironment.id ? updatedEnvironment : currentEnvironment
+      );
+      environmentsRef.current = next;
+      return next;
+    });
+
+    if (activeEnvironmentRef.current?.id === updatedEnvironment.id) {
+      activeEnvironmentRef.current = updatedEnvironment;
+      setActiveEnvironment(updatedEnvironment);
+    }
+  }
+
+  async function archiveEnvironment(environment: Environment) {
+    await client.archiveEnvironment(environment.id);
+    if (activeProjectIdRef.current !== environment.projectId) return;
+
+    setEnvironments((current) => {
+      const next = current.filter((currentEnvironment) => currentEnvironment.id !== environment.id);
+      environmentsRef.current = next;
+      const shouldReplaceActive = activeEnvironmentRef.current?.id === environment.id;
+      if (shouldReplaceActive) {
+        const nextActiveEnvironment = next[0];
+        activeEnvironmentRef.current = nextActiveEnvironment;
+        setActiveEnvironment(nextActiveEnvironment);
+      }
+      return next;
+    });
+  }
+
   const isSigmonAdminMode = activeMode === "system";
   const isIncidentViewActive = activeMode === "investigate" && incidentRoute.kind === "error-group";
   const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
@@ -693,9 +728,11 @@ export function ConsoleShell({
                     environments={environments}
                     isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
                     latestSecret={scopedLatestSecret}
+                    onArchiveEnvironment={archiveEnvironment}
                     onCreateEnvironment={createEnvironment}
                     onSecretCreated={storeLatestSecret}
                     onSelectEnvironment={setActiveEnvironment}
+                    onUpdateEnvironment={updateEnvironment}
                   />
                 ) : null}
               </div>

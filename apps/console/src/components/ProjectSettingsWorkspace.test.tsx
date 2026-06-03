@@ -98,9 +98,11 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof ProjectSetting
       environments={[environment]}
       isEnvironmentCreationDisabled={false}
       latestSecret="sh_secret_value"
+      onArchiveEnvironment={vi.fn()}
       onCreateEnvironment={vi.fn()}
       onSecretCreated={vi.fn()}
       onSelectEnvironment={vi.fn()}
+      onUpdateEnvironment={vi.fn()}
       {...overrides}
     />
   );
@@ -128,6 +130,20 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByText("Create and select deployment environments for this project.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Production" })).toBeInTheDocument();
+  });
+
+  it("exposes environment management actions from the environments section", async () => {
+    const onArchiveEnvironment = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace({ onArchiveEnvironment });
+
+    expect(screen.getByRole("button", { name: "Edit Production" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Archive Production" }));
+
+    expect(window.confirm).toHaveBeenCalledWith("Archive environment Production?");
+    expect(onArchiveEnvironment).toHaveBeenCalledWith(environment);
   });
 
   it("shows browser origin guidance and the current global CORS limitation", async () => {

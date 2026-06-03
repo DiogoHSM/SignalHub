@@ -859,6 +859,42 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("button", { name: "Browser origins" })).toBeInTheDocument();
   });
 
+  it("updates and archives environments from Project Settings", async () => {
+    const production: Environment = { id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null };
+    const preview: Environment = { id: "env_2", projectId: "prj_1", name: "Preview", createdAt: "", updatedAt: "", archivedAt: null };
+    const renamed: Environment = { ...production, name: "Prod" };
+    const updateEnvironment = vi.fn().mockResolvedValue({ environment: renamed });
+    const archiveEnvironment = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const api = client({
+      archiveEnvironment,
+      updateEnvironment,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [production, preview] })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit Production" }));
+    await userEvent.clear(screen.getByLabelText("Environment name"));
+    await userEvent.type(screen.getByLabelText("Environment name"), "Prod");
+    await userEvent.click(screen.getByRole("button", { name: "Save environment" }));
+
+    await waitFor(() => expect(updateEnvironment).toHaveBeenCalledWith("env_1", { name: "Prod" }));
+    expect(await screen.findByText("Environment: Prod")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Archive Prod" }));
+
+    expect(window.confirm).toHaveBeenCalledWith("Archive environment Prod?");
+    await waitFor(() => expect(archiveEnvironment).toHaveBeenCalledWith("env_1"));
+    expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
+  });
+
   it("renders the Sigmon admin workspace and lazy-loads system health when System mode is opened", async () => {
     const health = deferred<{ data: SystemHealthResponse }>();
     const getSystemHealth = vi.fn().mockReturnValue(health.promise);
