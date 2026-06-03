@@ -59,7 +59,9 @@ export function App() {
 
   return (
     <AuthGate client={runtime.client}>
-      <ConsoleShell apiEndpoint={resolveApiEndpoint(runtime.config.apiEndpoint)} client={runtime.client} />
+      {({ user, signOut }) => (
+        <ConsoleShell apiEndpoint={resolveApiEndpoint(runtime.config.apiEndpoint)} client={runtime.client} onSignOut={signOut} user={user} />
+      )}
     </AuthGate>
   );
 }

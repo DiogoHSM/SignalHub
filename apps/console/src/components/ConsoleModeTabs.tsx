@@ -55,11 +55,17 @@ export function ConsoleModeTabs({ activeMode, onChange }: Props) {
 
   return (
     <div className="mode-tabs" aria-label="Console modes">
-      <span className="mode-tabs__label">Project Workspace</span>
+      <span aria-label="Project Workspace" className="mode-tabs__label">
+        <span aria-hidden="true">Project</span>
+        <span className="sr-only">Project Workspace</span>
+      </span>
       {projectModes.map((item) => (
         <ModeButton activeMode={activeMode} key={item.mode} onChange={onChange} {...item} />
       ))}
-      <span className="mode-tabs__label">Sigmon Admin</span>
+      <span aria-label="Sigmon Admin" className="mode-tabs__label">
+        <span aria-hidden="true">Admin</span>
+        <span className="sr-only">Sigmon Admin</span>
+      </span>
       {adminModes.map((item) => (
         <ModeButton activeMode={activeMode} key={item.mode} onChange={onChange} {...item} />
       ))}

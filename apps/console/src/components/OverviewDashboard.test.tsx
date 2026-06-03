@@ -190,9 +190,10 @@ describe("OverviewDashboard", () => {
     render(<OverviewDashboard client={api} environmentId="env_1" onDrilldown={vi.fn()} projectId="prj_1" />);
 
     expect(screen.getByText("Loading overview")).toBeInTheDocument();
-    expect(await screen.findByText("18")).toBeInTheDocument();
+    await screen.findByText("Usage trend");
     const kpis = screen.getByLabelText("Overview KPIs");
     expect(within(kpis).getByText("Signal intake")).toBeInTheDocument();
+    expect(within(kpis).getByText("18")).toBeInTheDocument();
     expect(within(kpis).getByText("Reliability")).toBeInTheDocument();
     expect(within(kpis).getByText("Latency")).toBeInTheDocument();
     expect(within(kpis).getByText("AI spend")).toBeInTheDocument();
@@ -359,8 +360,8 @@ describe("OverviewDashboard", () => {
     render(<OverviewDashboard client={api} environmentId="env_1" onDrilldown={vi.fn()} projectId="prj_1" />);
 
     expect(await screen.findByText("Usage trend")).toBeInTheDocument();
-    for (const line of document.querySelectorAll("polyline")) {
-      expect(line.getAttribute("points")).not.toMatch(/NaN|Infinity/);
+    for (const path of document.querySelectorAll(".overview-trend-line")) {
+      expect(path.getAttribute("d")).not.toMatch(/NaN|Infinity/);
     }
   });
 });

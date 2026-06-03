@@ -7,8 +7,20 @@ type Props = {
 type Trend = {
   title: string;
   valueLabel: string;
-  series: Array<{ label: string; values: number[] }>;
+  series: Array<{ label: string; values: number[]; formatValue?: (value: number) => string }>;
 };
+
+const chartFrame = {
+  width: 320,
+  height: 150,
+  top: 14,
+  right: 16,
+  bottom: 28,
+  left: 34
+};
+
+const plotWidth = chartFrame.width - chartFrame.left - chartFrame.right;
+const plotHeight = chartFrame.height - chartFrame.top - chartFrame.bottom;
 
 function toNumber(value: string): number {
   const parsed = Number(value);
@@ -19,17 +31,43 @@ function currency(value: number): string {
   return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(value);
 }
 
-function points(values: number[], max: number): string {
-  if (values.length === 0) return "0,36 100,36";
+function compactNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: value >= 10 ? 0 : 1, notation: value >= 1000 ? "compact" : "standard" }).format(value);
+}
 
-  const finiteValues = values.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0));
-  return finiteValues
-    .map((value, index) => {
-      const x = finiteValues.length === 1 ? 50 : (index / (finiteValues.length - 1)) * 100;
-      const y = 36 - (value / max) * 32;
-      return `${x},${y}`;
+function cleanValues(values: number[]): number[] {
+  return values.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0));
+}
+
+function pointFor(value: number, index: number, length: number, max: number): [number, number] {
+  const x = chartFrame.left + (length <= 1 ? plotWidth / 2 : (index / (length - 1)) * plotWidth);
+  const y = chartFrame.top + plotHeight - (value / max) * plotHeight;
+  return [x, y];
+}
+
+function linePath(values: number[], max: number): string {
+  const finiteValues = cleanValues(values);
+  if (finiteValues.length === 0) return "";
+
+  const coordinates = finiteValues.map((value, index) => pointFor(value, index, finiteValues.length, max));
+  return coordinates
+    .map(([x, y], index) => {
+      if (index === 0) return `M ${x.toFixed(2)} ${y.toFixed(2)}`;
+      const [previousX, previousY] = coordinates[index - 1];
+      const controlX = (previousX + x) / 2;
+      return `C ${controlX.toFixed(2)} ${previousY.toFixed(2)} ${controlX.toFixed(2)} ${y.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
+}
+
+function areaPath(values: number[], max: number): string {
+  const finiteValues = cleanValues(values);
+  if (finiteValues.length === 0) return "";
+  const line = linePath(finiteValues, max);
+  const first = pointFor(finiteValues[0] ?? 0, 0, finiteValues.length, max);
+  const last = pointFor(finiteValues[finiteValues.length - 1] ?? 0, finiteValues.length - 1, finiteValues.length, max);
+  const baseline = chartFrame.top + plotHeight;
+  return `${line} L ${last[0].toFixed(2)} ${baseline.toFixed(2)} L ${first[0].toFixed(2)} ${baseline.toFixed(2)} Z`;
 }
 
 function total(values: number[]): number {
@@ -37,7 +75,25 @@ function total(values: number[]): number {
 }
 
 function chartMax(series: Trend["series"]): number {
-  return Math.max(1, ...series.flatMap((item) => item.values.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0))));
+  const max = Math.max(0, ...series.flatMap((item) => cleanValues(item.values)));
+  if (max <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(max));
+  return Math.ceil(max / magnitude) * magnitude;
+}
+
+function latest(values: number[]): number {
+  const finiteValues = cleanValues(values);
+  return finiteValues[finiteValues.length - 1] ?? 0;
+}
+
+function hasActivity(series: Trend["series"]): boolean {
+  return series.some((item) => cleanValues(item.values).some((value) => value > 0));
+}
+
+function tickLabel(value: number): string {
+  if (value >= 1000) return compactNumber(value);
+  if (value < 1 && value > 0) return value.toFixed(2);
+  return String(Math.round(value));
 }
 
 export function OverviewMiniTrends({ trends }: Props) {
@@ -72,7 +128,7 @@ export function OverviewMiniTrends({ trends }: Props) {
       title: "AI cost trend",
       valueLabel: currency(total(trends.aiCost.map((bucket) => toNumber(bucket.llmCostUsd)))),
       series: [
-        { label: "Cost", values: trends.aiCost.map((bucket) => toNumber(bucket.llmCostUsd)) },
+        { label: "Cost", values: trends.aiCost.map((bucket) => toNumber(bucket.llmCostUsd)), formatValue: currency },
         { label: "Calls", values: trends.aiCost.map((bucket) => bucket.llmCalls) }
       ]
     }
@@ -82,29 +138,58 @@ export function OverviewMiniTrends({ trends }: Props) {
     <section className="overview-trends" aria-label="Overview trends">
       {trendItems.map((trend) => {
         const max = chartMax(trend.series);
+        const active = hasActivity(trend.series);
+        const ticks = [max, max / 2, 0];
         return (
           <article className="overview-trend" key={trend.title}>
-            <div>
-              <h3>{trend.title}</h3>
-              <p>{trend.valueLabel}</p>
+            <div className="overview-trend__header">
+              <div>
+                <h3>{trend.title}</h3>
+                <p>{trend.valueLabel}</p>
+              </div>
             </div>
-            <svg aria-hidden="true" focusable="false" viewBox="0 0 100 40" preserveAspectRatio="none">
-              {trend.series.map((series, index) => (
-                <polyline
-                  className={`overview-trend-line series-${index + 1}`}
-                  fill="none"
-                  key={series.label}
-                  points={points(series.values, max)}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                />
-              ))}
+            <svg
+              aria-label={`${trend.title} chart`}
+              className="overview-trend-chart"
+              focusable="false"
+              preserveAspectRatio="none"
+              role="img"
+              viewBox={`0 0 ${chartFrame.width} ${chartFrame.height}`}
+            >
+              {ticks.map((tick, index) => {
+                const y = chartFrame.top + (index / (ticks.length - 1)) * plotHeight;
+                return (
+                  <g className="overview-trend-grid" key={tick}>
+                    <line x1={chartFrame.left} x2={chartFrame.width - chartFrame.right} y1={y} y2={y} />
+                    <text x={chartFrame.left - 10} y={y + 4}>
+                      {tickLabel(tick)}
+                    </text>
+                  </g>
+                );
+              })}
+              <line className="overview-trend-axis" x1={chartFrame.left} x2={chartFrame.width - chartFrame.right} y1={chartFrame.top + plotHeight} y2={chartFrame.top + plotHeight} />
+              {active ? (
+                trend.series.map((series, index) => {
+                  const path = linePath(series.values, max);
+                  if (!path) return null;
+                  return (
+                    <g className={`overview-trend-series series-${index + 1}`} key={series.label}>
+                      {index === 0 ? <path className="overview-trend-area" d={areaPath(series.values, max)} /> : null}
+                      <path className="overview-trend-line" d={path} />
+                    </g>
+                  );
+                })
+              ) : (
+                <text className="overview-trend-empty" x={chartFrame.left + plotWidth / 2} y={chartFrame.top + plotHeight / 2}>
+                  No activity in this window
+                </text>
+              )}
             </svg>
             <div className="overview-trend-legend">
               {trend.series.map((series, index) => (
                 <span className={`series-${index + 1}`} key={series.label}>
-                  {series.label}
+                  <span>{series.label}</span>
+                  <strong>{(series.formatValue ?? compactNumber)(latest(series.values))}</strong>
                 </span>
               ))}
             </div>
