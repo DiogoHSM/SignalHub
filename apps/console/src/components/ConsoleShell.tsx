@@ -446,7 +446,7 @@ export function ConsoleShell({
     : commandDestinations;
 
   return (
-    <main className="console-layout">
+    <main className="console-layout console-shell">
       <aside className="console-rail" aria-label="Console navigation">
         <div className="console-logo" role="img" aria-label="sigmon heartbeat logo">
           <svg aria-hidden="true" viewBox="0 0 24 24">

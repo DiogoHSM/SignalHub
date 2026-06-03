@@ -20,7 +20,8 @@ select {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100%;
+  overflow: auto;
 }
 
 .empty-state {
@@ -2455,6 +2456,7 @@ select {
 
 /* SignalMonitor Console Redesign */
 :root {
+  color-scheme: dark;
   color: #f5f7fa;
   background: #161a21;
   font-family:
@@ -2483,30 +2485,40 @@ select {
   --info-bg: #213345;
   --violet: #d2a8ff;
   --violet-bg: #352743;
+  --scrollbar-track: #111722;
+  --scrollbar-thumb: #3f4a58;
+  --scrollbar-thumb-hover: #5a6675;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
 }
 
-* {
-  scrollbar-color: var(--border) var(--bg-base);
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
 }
 
-*::-webkit-scrollbar {
+.console-shell * {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.console-shell *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-*::-webkit-scrollbar-track {
-  background: var(--bg-base);
+.console-shell *::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
 }
 
-*::-webkit-scrollbar-thumb {
-  border: 2px solid var(--bg-base);
+.console-shell *::-webkit-scrollbar-thumb {
+  border: 2px solid var(--scrollbar-track);
   border-radius: 999px;
-  background: var(--border);
+  background: var(--scrollbar-thumb);
 }
 
-*::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--fg-muted) 60%, var(--border));
+.console-shell *::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 body {
