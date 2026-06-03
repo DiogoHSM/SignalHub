@@ -115,6 +115,57 @@ describe("UserAdminPanel", () => {
     expect(screen.getByLabelText("Temporary password")).toHaveValue("");
   });
 
+  it("updates an existing console user", async () => {
+    const api = client({
+      listUsers: vi.fn().mockResolvedValue({
+        users: [{ id: "usr_2", email: "user@example.com", isAdmin: false }]
+      }),
+      updateUser: vi.fn().mockResolvedValue({
+        user: { id: "usr_2", email: "operator@example.com", isAdmin: true }
+      })
+    });
+
+    render(<UserAdminPanel client={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit user@example.com" }));
+    await userEvent.clear(screen.getByLabelText("User email"));
+    await userEvent.type(screen.getByLabelText("User email"), "operator@example.com");
+    await userEvent.click(screen.getByLabelText("Administrator"));
+    await userEvent.type(screen.getByLabelText("Temporary password"), "new-temporary-password");
+    await userEvent.click(screen.getByRole("button", { name: "Save user" }));
+
+    await waitFor(() =>
+      expect(api.updateUser).toHaveBeenCalledWith("usr_2", {
+        email: "operator@example.com",
+        isAdmin: true,
+        password: "new-temporary-password"
+      })
+    );
+    expect(await screen.findByText("operator@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create user" })).toBeInTheDocument();
+  });
+
+  it("archives an existing console user after confirmation", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const api = client({
+      listUsers: vi.fn().mockResolvedValue({
+        users: [{ id: "usr_2", email: "user@example.com", isAdmin: false }]
+      }),
+      archiveUser: vi.fn().mockResolvedValue(undefined)
+    });
+
+    render(<UserAdminPanel client={api} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Archive user@example.com" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("Archive user user@example.com? They will no longer be able to access the console.");
+    await waitFor(() => expect(api.archiveUser).toHaveBeenCalledWith("usr_2"));
+    expect(screen.queryByText("user@example.com")).not.toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
   it("clears the temporary password when user creation fails", async () => {
     const api = client({
       createUser: vi.fn().mockRejectedValue(new Error("create failed"))

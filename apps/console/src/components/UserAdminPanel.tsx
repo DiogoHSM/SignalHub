@@ -10,6 +10,9 @@ export function UserAdminPanel({ client }: Props) {
   const [users, setUsers] = useState<User[]>([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | undefined>();
+  const [archivingUserId, setArchivingUserId] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -37,7 +40,7 @@ export function UserAdminPanel({ client }: Props) {
     if (isSubmitting) return;
 
     const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) return;
+    if (!trimmedEmail || (!editingUser && !password)) return;
 
     const temporaryPassword = password;
     setPassword("");
@@ -45,17 +48,62 @@ export function UserAdminPanel({ client }: Props) {
     setIsSubmitting(true);
 
     try {
-      const { user } = await client.createUser({
-        email: trimmedEmail,
-        password: temporaryPassword,
-        isAdmin: false
-      });
-      setUsers((current) => [...current, user]);
-      setEmail("");
+      if (editingUser) {
+        const { user } = await client.updateUser(editingUser.id, {
+          email: trimmedEmail,
+          isAdmin,
+          ...(temporaryPassword ? { password: temporaryPassword } : {})
+        });
+        setUsers((current) => current.map((currentUser) => (currentUser.id === user.id ? user : currentUser)));
+        resetForm();
+      } else {
+        const { user } = await client.createUser({
+          email: trimmedEmail,
+          password: temporaryPassword,
+          isAdmin: false
+        });
+        setUsers((current) => [...current, user]);
+        resetForm();
+      }
     } catch {
-      setError("Could not create user.");
+      setError(editingUser ? "Could not update user." : "Could not create user.");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  function startEditingUser(user: User) {
+    setEditingUser(user);
+    setEmail(user.email);
+    setPassword("");
+    setIsAdmin(user.isAdmin);
+    setError(undefined);
+  }
+
+  function resetForm() {
+    setEmail("");
+    setPassword("");
+    setIsAdmin(false);
+    setEditingUser(undefined);
+  }
+
+  async function archiveUser(user: User) {
+    const confirmed = window.confirm(`Archive user ${user.email}? They will no longer be able to access the console.`);
+    if (!confirmed) return;
+
+    setError(undefined);
+    setArchivingUserId(user.id);
+
+    try {
+      await client.archiveUser(user.id);
+      setUsers((current) => current.filter((currentUser) => currentUser.id !== user.id));
+      if (editingUser?.id === user.id) {
+        resetForm();
+      }
+    } catch {
+      setError("Could not archive user.");
+    } finally {
+      setArchivingUserId(undefined);
     }
   }
 
@@ -71,24 +119,51 @@ export function UserAdminPanel({ client }: Props) {
         <ul className="key-list">
           {users.map((user) => (
             <li className="key-list-item" key={user.id}>
-              <strong>{user.email}</strong>
-              <span>{user.isAdmin ? "Admin" : "User"}</span>
+              <div>
+                <strong>{user.email}</strong>
+                <span>{user.isAdmin ? "Admin" : "User"}</span>
+              </div>
+              <div className="key-list-item__actions">
+                <button aria-label={`Edit ${user.email}`} onClick={() => startEditingUser(user)} type="button">
+                  Edit
+                </button>
+                <button
+                  aria-label={`Archive ${user.email}`}
+                  className="button-danger"
+                  disabled={archivingUserId === user.id}
+                  onClick={() => void archiveUser(user)}
+                  type="button"
+                >
+                  Archive
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       )}
       <form className="compact-form" onSubmit={submit}>
         <label>
-          New user email
+          {editingUser ? "User email" : "New user email"}
           <input onChange={(event) => setEmail(event.target.value)} type="email" value={email} />
+        </label>
+        <label className="checkbox-field">
+          <input checked={isAdmin} onChange={(event) => setIsAdmin(event.target.checked)} type="checkbox" />
+          Administrator
         </label>
         <label>
           Temporary password
           <input onChange={(event) => setPassword(event.target.value)} type="password" value={password} />
         </label>
-        <button disabled={isSubmitting} type="submit">
-          Create user
-        </button>
+        <div className="compact-form__actions">
+          {editingUser ? (
+            <button onClick={resetForm} type="button">
+              Cancel
+            </button>
+          ) : null}
+          <button disabled={isSubmitting} type="submit">
+            {editingUser ? "Save user" : "Create user"}
+          </button>
+        </div>
       </form>
     </section>
   );
