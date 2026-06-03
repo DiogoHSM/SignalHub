@@ -566,6 +566,28 @@ select {
   font-size: 13px;
 }
 
+.origin-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.origin-list li {
+  border: 1px solid var(--border-subtle, #d7dde7);
+  border-radius: 6px;
+  background: var(--bg-surface-2, #f8fafc);
+  padding: 10px 12px;
+}
+
+.origin-list code {
+  color: var(--fg, #1e293b);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .status-box {
   display: grid;
   min-height: 64px;

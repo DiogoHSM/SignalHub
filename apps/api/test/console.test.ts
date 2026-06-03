@@ -19,6 +19,7 @@ describe("console routes", () => {
     app = await buildApp({
       readiness,
       googleOAuthEnabled: true,
+      browserCorsOrigins: ["https://app.controledaempresa.com", "https://microerp.example.com"],
       console: {
         enabled: false,
         apiBasePath: "/",
@@ -32,6 +33,7 @@ describe("console routes", () => {
     expect(response.json()).toEqual({
       apiBasePath: "/",
       apiEndpoint: "https://sigmon.example.com",
+      browserCorsOrigins: ["https://app.controledaempresa.com", "https://microerp.example.com"],
       googleOAuthEnabled: true
     });
   });

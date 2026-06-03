@@ -4,6 +4,7 @@ import { SettingsSectionNav, type SettingsSection } from "./SettingsSectionNav";
 import { SystemHealthPanel } from "./SystemHealthPanel";
 
 type Props = {
+  browserCorsOrigins?: string[];
   client: ApiClient;
 };
 
@@ -37,7 +38,7 @@ const sections = [
 
 type SectionId = (typeof sections)[number]["id"];
 
-export function SigmonAdminWorkspace({ client }: Props) {
+export function SigmonAdminWorkspace({ browserCorsOrigins = [], client }: Props) {
   const [activeSectionId, setActiveSectionId] = useState<SectionId>("system-health");
 
   function renderSection() {
@@ -81,6 +82,17 @@ export function SigmonAdminWorkspace({ client }: Props) {
               <h2>Security & CORS</h2>
             </div>
             <p>Global browser ingestion origins are currently configured by BROWSER_CORS_ORIGINS.</p>
+            {browserCorsOrigins.length > 0 ? (
+              <ul className="origin-list" aria-label="Configured browser origins">
+                {browserCorsOrigins.map((origin) => (
+                  <li key={origin}>
+                    <code>{origin}</code>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted-text">No browser origins are configured for cross-origin browser ingestion.</p>
+            )}
           </section>
         );
       case "system-health":
