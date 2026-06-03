@@ -18,6 +18,7 @@ import {
   listEnvironments,
   listProjects,
   revokeApiKey,
+  updateApiKeyRecord,
   updateEnvironment,
   updateProject
 } from "../src/repositories/admin.js";
@@ -4662,6 +4663,10 @@ describe("repositories", () => {
         hash: "runtime-hash"
       });
       await expect(listApiKeys(db, project.id)).resolves.toEqual([expect.objectContaining({ id: apiKey.id })]);
+      await expect(updateApiKeyRecord(db, apiKey.id, { name: "runtime key renamed" })).resolves.toMatchObject({
+        id: apiKey.id,
+        name: "runtime key renamed"
+      });
       await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toMatchObject({ id: apiKey.id });
 
       const archivedProject = await createProject(db, { name: "Archived Key Project" });

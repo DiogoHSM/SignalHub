@@ -13,6 +13,7 @@ import {
   listEnvironments,
   listProjects,
   revokeApiKey,
+  updateApiKeyRecord,
   updateEnvironment,
   updateProject
 } from "@sigmon/db/repositories/admin.js";
@@ -407,6 +408,7 @@ const app = await buildApp({
     apiKeys: {
       list: (projectId) => listApiKeys(db, projectId),
       create: (input) => createApiKeyRecord(db, input),
+      update: (id, input) => updateApiKeyRecord(db, id, input),
       revoke: (id) => revokeApiKey(db, id)
     }
   },

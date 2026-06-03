@@ -234,6 +234,24 @@ export async function listApiKeys(db: Db, projectId: string): Promise<ApiKeyReco
   return rows.map(toApiKeyRecord);
 }
 
+export async function updateApiKeyRecord(
+  db: Db,
+  id: string,
+  input: { name?: string }
+): Promise<ApiKeyRecord | undefined> {
+  const row = await db
+    .updateTable("api_keys")
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {})
+    })
+    .where("id", "=", id)
+    .where("revoked_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toApiKeyRecord(row) : undefined;
+}
+
 export async function findApiKeyByPrefix(db: Db, prefix: string): Promise<ApiKeyRecord | undefined> {
   const row = await db
     .selectFrom("api_keys")
