@@ -95,8 +95,9 @@ SignalMonitor includes an admin-only Integration Console.
 
 - Monitors should stay separate from alert rules so uptime and heartbeat setup does not crowd threshold configuration.
 - Monitors uses a full-width monitor list followed by three balanced panels for recent checks, HTTP setup, and heartbeat setup.
-- HTTP monitor rows should prioritize name, target URL, status, and last check time.
-- Heartbeat monitor rows should prioritize name, expected interval, grace window, status, and last check time.
+- Monitor list rows use explicit columns for monitor identity, target, schedule, last check, status, and row actions so the full-width list earns its space.
+- HTTP monitor rows should prioritize name, target URL, schedule, status, and last check time.
+- Heartbeat monitor rows should prioritize name, check-in target, expected interval, grace window, status, and last check time.
 - Monitor form labels should include units: check interval and heartbeat grace values are minutes, HTTP timeout is milliseconds.
 - Monitor rows expose compact edit and delete actions. Editing uses a contextual form for the selected monitor type; deleting archives the monitor after confirmation while preserving historical checks.
 - Heartbeat secrets are shown only immediately after monitor creation, paired with the check-in URL, and should not be stored in browser storage.
