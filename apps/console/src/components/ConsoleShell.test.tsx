@@ -991,6 +991,55 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("combobox", { name: "Auto refresh interval" })).toHaveDisplayValue("2 min");
   });
 
+  it("opens the command palette and navigates to console destinations", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listMonitors: vi.fn().mockResolvedValue({ monitors: [] }),
+      listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Command palette" });
+    expect(within(dialog).getByRole("textbox", { name: "Search commands" })).toHaveFocus();
+
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Search commands" }), "monitor");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Open Monitors" }));
+
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Monitors" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Monitors" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("opens and closes the command palette from keyboard shortcuts", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+
+    expect(screen.getByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
+  });
+
   it("opens the operator menu and signs out", async () => {
     const signOut = vi.fn().mockResolvedValue(undefined);
     const api = client({
