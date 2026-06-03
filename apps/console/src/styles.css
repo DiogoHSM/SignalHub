@@ -2486,6 +2486,29 @@ select {
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
 }
 
+* {
+  scrollbar-color: var(--border) var(--bg-base);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--bg-base);
+  border-radius: 999px;
+  background: var(--border);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--fg-muted) 60%, var(--border));
+}
+
 body {
   background: var(--bg-base);
   color: var(--fg);
@@ -3205,7 +3228,7 @@ textarea:focus-visible {
 
 .overview-trend svg.overview-trend-chart {
   width: 100%;
-  height: 142px;
+  height: clamp(156px, 18vw, 210px);
   overflow: visible;
 }
 
@@ -3217,8 +3240,10 @@ textarea:focus-visible {
 
 .overview-trend-grid text {
   fill: var(--fg-faint);
-  font-size: 10px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0;
 }
 
 .overview-trend-axis {
@@ -3254,7 +3279,7 @@ textarea:focus-visible {
   stroke: var(--series-color);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 3;
+  stroke-width: 2.4;
   vector-effect: non-scaling-stroke;
 }
 
@@ -3265,8 +3290,9 @@ textarea:focus-visible {
 
 .overview-trend-empty {
   fill: var(--fg-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 750;
+  letter-spacing: 0;
   text-anchor: middle;
 }
 
@@ -3295,6 +3321,7 @@ textarea:focus-visible {
   color: var(--fg-secondary);
   font-size: 11px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .overview-trend-legend > span.series-1 {
@@ -3942,6 +3969,7 @@ input[type="file"]::file-selector-button {
 }
 
 .monitors-row {
+  grid-template-columns: minmax(0, 1fr) auto;
   border-radius: 10px;
   border: 1px solid transparent;
   padding: 10px;
@@ -3958,7 +3986,34 @@ input[type="file"]::file-selector-button {
 }
 
 .monitors-row__select {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 1.6fr) minmax(160px, 1fr) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
   color: inherit;
+}
+
+.monitors-row__identity,
+.monitors-row__meta {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.monitors-row__identity > span,
+.monitors-row__meta > span {
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.monitors-row__meta > strong {
+  overflow-wrap: anywhere;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .monitor-row-actions .icon-button {
@@ -4396,6 +4451,18 @@ input[type="file"]::file-selector-button {
   .alerts-grid,
   .monitors-panel .alerts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .monitors-row {
+    grid-template-columns: 1fr;
+  }
+
+  .monitors-row__select {
+    grid-template-columns: 1fr;
+  }
+
+  .monitor-row-actions {
+    justify-content: flex-end;
   }
 
   .overview-trends {

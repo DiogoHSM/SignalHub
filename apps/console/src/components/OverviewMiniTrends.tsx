@@ -11,12 +11,12 @@ type Trend = {
 };
 
 const chartFrame = {
-  width: 320,
-  height: 150,
-  top: 14,
-  right: 16,
-  bottom: 28,
-  left: 34
+  width: 720,
+  height: 190,
+  top: 18,
+  right: 18,
+  bottom: 34,
+  left: 46
 };
 
 const plotWidth = chartFrame.width - chartFrame.left - chartFrame.right;
@@ -33,6 +33,10 @@ function currency(value: number): string {
 
 function compactNumber(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: value >= 10 ? 0 : 1, notation: value >= 1000 ? "compact" : "standard" }).format(value);
+}
+
+function integer(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
 function cleanValues(values: number[]): number[] {
@@ -74,11 +78,27 @@ function total(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0);
 }
 
+function niceCeil(value: number): number {
+  if (value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return niceNormalized * magnitude;
+}
+
 function chartMax(series: Trend["series"]): number {
   const max = Math.max(0, ...series.flatMap((item) => cleanValues(item.values)));
   if (max <= 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(max));
-  return Math.ceil(max / magnitude) * magnitude;
+  return niceCeil(max * 1.08);
+}
+
+function axisTicks(max: number): number[] {
+  const steps = max <= 5 ? max : 4;
+  const tickCount = Math.max(2, Math.min(5, Math.round(steps) + 1));
+  return Array.from({ length: tickCount }, (_, index) => {
+    const value = max - (max / (tickCount - 1)) * index;
+    return value < 1 ? value : Math.round(value);
+  });
 }
 
 function latest(values: number[]): number {
@@ -100,7 +120,7 @@ export function OverviewMiniTrends({ trends }: Props) {
   const trendItems: Trend[] = [
     {
       title: "Usage trend",
-      valueLabel: `${total(trends.usage.map((bucket) => bucket.events))} events`,
+      valueLabel: `${integer(total(trends.usage.map((bucket) => bucket.events)))} events · ${integer(total(trends.usage.map((bucket) => bucket.traces)))} traces · ${integer(total(trends.usage.map((bucket) => bucket.llmCalls)))} LLM calls`,
       series: [
         { label: "Events", values: trends.usage.map((bucket) => bucket.events) },
         { label: "Traces", values: trends.usage.map((bucket) => bucket.traces) },
@@ -109,7 +129,7 @@ export function OverviewMiniTrends({ trends }: Props) {
     },
     {
       title: "Error trend",
-      valueLabel: `${total(trends.errors.map((bucket) => bucket.errors))} errors`,
+      valueLabel: `${integer(total(trends.errors.map((bucket) => bucket.errors)))} errors · ${integer(total(trends.errors.map((bucket) => bucket.openErrors)))} open · ${integer(total(trends.errors.map((bucket) => bucket.severeErrors)))} severe`,
       series: [
         { label: "Errors", values: trends.errors.map((bucket) => bucket.errors) },
         { label: "Open", values: trends.errors.map((bucket) => bucket.openErrors) },
@@ -139,7 +159,7 @@ export function OverviewMiniTrends({ trends }: Props) {
       {trendItems.map((trend) => {
         const max = chartMax(trend.series);
         const active = hasActivity(trend.series);
-        const ticks = [max, max / 2, 0];
+        const ticks = axisTicks(max);
         return (
           <article className="overview-trend" key={trend.title}>
             <div className="overview-trend__header">
