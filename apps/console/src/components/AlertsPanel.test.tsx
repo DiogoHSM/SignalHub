@@ -182,6 +182,48 @@ describe("AlertsPanel", () => {
     expect(api.listAlertEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 20 });
   });
 
+  it("archives an alert rule after confirmation and removes it from the rule list", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const archiveAlertRule = vi.fn().mockResolvedValue(undefined);
+    const api = client({
+      archiveAlertRule,
+      listAlertRules: vi.fn().mockResolvedValue({
+        rules: [
+          {
+            id: "rule_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            notificationChannelId: null,
+            name: "Critical errors",
+            type: "critical_errors",
+            severity: "critical",
+            windowMinutes: 10,
+            threshold: "1",
+            cooldownMinutes: 30,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: null,
+            createdAt: "2026-05-06T11:00:00.000Z",
+            updatedAt: "2026-05-06T11:00:00.000Z",
+            archivedAt: null
+          }
+        ]
+      })
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    expect(await within(screen.getByLabelText("Alert rules")).findByText("Critical errors")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Archive Critical errors" }));
+
+    expect(confirm).toHaveBeenCalledWith("Archive alert rule Critical errors?");
+    expect(archiveAlertRule).toHaveBeenCalledWith("rule_1");
+    await waitFor(() => expect(within(screen.getByLabelText("Alert rules")).queryByText("Critical errors")).not.toBeInTheDocument());
+    expect(within(screen.getByLabelText("Alert rules")).getByText("No alert rules.")).toBeInTheDocument();
+
+    confirm.mockRestore();
+  });
+
   it("creates a webhook channel without displaying the saved secret", async () => {
     const createNotificationChannel = vi.fn().mockResolvedValue({
       channel: {

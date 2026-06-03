@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type {
   AlertEventResponse,
@@ -352,6 +353,18 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     }
   }
 
+  async function archiveRule(rule: AlertRuleResponse) {
+    if (!window.confirm(`Archive alert rule ${rule.name}?`)) return;
+
+    setError(null);
+    try {
+      await client.archiveAlertRule(rule.id);
+      setRules((current) => current.filter((currentRule) => currentRule.id !== rule.id));
+    } catch {
+      setError("Could not archive alert rule");
+    }
+  }
+
   if (!projectId || !environmentId) {
     return (
       <section className="alerts-panel">
@@ -404,7 +417,18 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                     </span>
                     <span>Last trigger {formatTimestamp(rule.lastTriggeredAt)}</span>
                   </div>
-                  <span className={statusClass(rule.enabled ? "success" : "neutral")}>{rule.enabled ? "enabled" : "disabled"}</span>
+                  <div className="alerts-row__actions">
+                    <span className={statusClass(rule.enabled ? "success" : "neutral")}>{rule.enabled ? "enabled" : "disabled"}</span>
+                    <button
+                      aria-label={`Archive ${rule.name}`}
+                      className="icon-button icon-button--danger"
+                      onClick={() => void archiveRule(rule)}
+                      title="Archive alert rule"
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={16} />
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>

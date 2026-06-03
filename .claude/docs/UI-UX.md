@@ -88,6 +88,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Alerts should keep summary counters and creation forms aligned in a compact grid, with dark inputs/selects and subdued empty states.
 - Alert rule controls should remain scoped to the active project and environment.
 - Alert rule fields should expose units in labels or nearby help: windows and cooldowns are minutes, error-rate thresholds are percentages, trace p95 thresholds are milliseconds, critical/error count thresholds are counts, and LLM cost thresholds are USD.
+- Alert rule rows expose compact destructive actions; archiving requires confirmation and removes the rule from the active rule list.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
 
