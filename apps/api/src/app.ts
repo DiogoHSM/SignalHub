@@ -52,6 +52,7 @@ export type BuildAppOptions = {
   console?: Omit<ConsoleRouteOptions, "googleOAuthEnabled">;
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
+  isBrowserCorsOriginAllowed?: (origin: string) => Promise<boolean>;
 };
 
 const browserIngestionCorsPaths = new Set([
@@ -142,7 +143,11 @@ export async function buildApp(options: BuildAppOptions) {
 
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
-    if (typeof origin !== "string" || !browserCorsOrigins.has(origin) || !isBrowserIngestionCorsPath(request.url)) {
+    if (typeof origin !== "string" || !isBrowserIngestionCorsPath(request.url)) {
+      return;
+    }
+    const allowed = browserCorsOrigins.has(origin) || (await options.isBrowserCorsOriginAllowed?.(origin));
+    if (!allowed) {
       return;
     }
 

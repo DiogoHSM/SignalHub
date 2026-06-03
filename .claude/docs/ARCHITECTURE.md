@@ -33,8 +33,10 @@ Human operations:
 
 1. Admin seed creates the first admin user.
 2. Humans log in through `/auth/login` and receive a signed cookie.
-3. Admin-only routes manage users, projects, environments, and API keys.
+3. Admin-only routes manage users, projects, environments, project browser origins, and API keys.
 4. Authenticated users can query raw telemetry and aggregates.
+
+Browser ingestion CORS is limited to public `/v1/*` ingestion paths. The API allows an origin when it is either present in the optional global `BROWSER_CORS_ORIGINS` allowlist or stored as an active project browser origin. Project browser origins are normalized to exact `URL.origin` values before storage.
 
 Production human sessions use `__Host-sigmon_session` with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`. The OAuth state cookie remains `sigmon_oauth_state` because it is intentionally scoped to `/auth/google/callback`, which is incompatible with the `__Host-` prefix.
 
@@ -44,6 +46,7 @@ Operational tables:
 
 - `users`
 - `projects`
+- `project_browser_origins`
 - `environments`
 - `api_keys`
 - `system_heartbeats`

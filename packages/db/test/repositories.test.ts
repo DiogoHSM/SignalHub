@@ -9,12 +9,15 @@ import { insertDeadLetterJob } from "../src/repositories/dead-letter.js";
 import {
   archiveEnvironment,
   archiveProject,
+  archiveProjectBrowserOrigin,
   createApiKeyRecord,
   createEnvironment,
   createProject,
+  createProjectBrowserOrigin,
   findApiKeyByPrefix,
   getProject,
   listApiKeys,
+  listProjectBrowserOrigins,
   listEnvironments,
   listProjects,
   revokeApiKey,
@@ -4664,6 +4667,20 @@ describe("repositories", () => {
       await expect(listApiKeys(db, project.id)).resolves.toEqual([expect.objectContaining({ id: apiKey.id })]);
       await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toMatchObject({ id: apiKey.id });
 
+      const browserOrigin = await createProjectBrowserOrigin(db, {
+        projectId: project.id,
+        origin: "https://app.example.com/dashboard"
+      });
+      await expect(listProjectBrowserOrigins(db, project.id)).resolves.toEqual([
+        expect.objectContaining({
+          id: browserOrigin.id,
+          projectId: project.id,
+          origin: "https://app.example.com"
+        })
+      ]);
+      await archiveProjectBrowserOrigin(db, browserOrigin.id);
+      await expect(listProjectBrowserOrigins(db, project.id)).resolves.toEqual([]);
+
       const archivedProject = await createProject(db, { name: "Archived Key Project" });
       const archivedProjectEnvironment = await createEnvironment(db, {
         projectId: archivedProject.id,
@@ -4716,6 +4733,12 @@ describe("repositories", () => {
       await expect(createEnvironment(db, { projectId: archivedProject.id, name: "staging" })).rejects.toThrow(
         "active_project_not_found"
       );
+      await expect(
+        createProjectBrowserOrigin(db, {
+          projectId: archivedProject.id,
+          origin: "https://archived.example.com"
+        })
+      ).rejects.toThrow("active_project_not_found");
       await expect(
         createApiKeyRecord(db, {
           projectId: archivedProject.id,

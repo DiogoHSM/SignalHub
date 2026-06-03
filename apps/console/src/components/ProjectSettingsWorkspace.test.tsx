@@ -32,6 +32,9 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [] }),
     createApiKey: vi.fn(),
     revokeApiKey: vi.fn(),
+    listBrowserOrigins: vi.fn().mockResolvedValue({ origins: [] }),
+    createBrowserOrigin: vi.fn(),
+    archiveBrowserOrigin: vi.fn(),
     listEvents: vi.fn(),
     listErrors: vi.fn(),
     listTraces: vi.fn().mockResolvedValue({ data: [] }),
@@ -130,15 +133,54 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByRole("button", { name: "Production" })).toBeInTheDocument();
   });
 
-  it("shows browser origin guidance and the current global CORS limitation", async () => {
-    renderWorkspace();
+  it("manages browser origins for the selected project", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const api = client({
+      listBrowserOrigins: vi.fn().mockResolvedValue({
+        origins: [
+          {
+            id: "borg_1",
+            projectId: "prj_1",
+            origin: "https://app.example.com",
+            createdAt: "2026-05-01T00:00:00.000Z",
+            archivedAt: null
+          }
+        ]
+      }),
+      createBrowserOrigin: vi.fn().mockResolvedValue({
+        origin: {
+          id: "borg_2",
+          projectId: "prj_1",
+          origin: "https://new.example.com",
+          createdAt: "2026-05-01T00:00:00.000Z",
+          archivedAt: null
+        }
+      }),
+      archiveBrowserOrigin: vi.fn().mockResolvedValue(undefined)
+    });
+
+    renderWorkspace({ client: api });
 
     await userEvent.click(screen.getByRole("button", { name: "Browser origins" }));
 
     expect(
       screen.getByText("Browser origins must include protocol, for example https://app.example.com.")
     ).toBeInTheDocument();
-    expect(screen.getByText(/BROWSER_CORS_ORIGINS is currently configured globally/i)).toBeInTheDocument();
+    expect(await screen.findByText("https://app.example.com")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Allowed browser origin"), "https://new.example.com/dashboard");
+    await userEvent.click(screen.getByRole("button", { name: "Add origin" }));
+
+    expect(api.createBrowserOrigin).toHaveBeenCalledWith("prj_1", { origin: "https://new.example.com/dashboard" });
+    expect(await screen.findByText("https://new.example.com")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Archive https://app.example.com" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("Archive browser origin https://app.example.com?");
+    expect(api.archiveBrowserOrigin).toHaveBeenCalledWith("borg_1");
+    expect(screen.queryByText("https://app.example.com")).not.toBeInTheDocument();
+
+    confirmSpy.mockRestore();
   });
 
   it("labels console user access as installation-level, not project membership", async () => {
