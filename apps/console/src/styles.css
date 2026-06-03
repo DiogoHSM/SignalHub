@@ -3378,6 +3378,13 @@ textarea:focus-visible {
   letter-spacing: 0;
 }
 
+.overview-trend-axis-label {
+  fill: var(--fg-faint);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
 .overview-trend-axis {
   stroke: color-mix(in srgb, var(--border) 75%, transparent);
   stroke-width: 1;
