@@ -32,6 +32,78 @@ const autoRefreshOptions = [
   { label: "15 min", value: "900000", milliseconds: 900_000 }
 ];
 
+const commandDestinations: Array<{
+  mode: ConsoleMode;
+  title: string;
+  scope: "Project workspace" | "Sigmon admin";
+  description: string;
+  keywords: string[];
+}> = [
+  {
+    mode: "overview",
+    title: "Overview",
+    scope: "Project workspace",
+    description: "Telemetry summary, KPIs, trends, and top activity.",
+    keywords: ["home", "dashboard", "kpi", "trend"]
+  },
+  {
+    mode: "operations",
+    title: "Operations",
+    scope: "Project workspace",
+    description: "Health cockpit for monitored app reliability.",
+    keywords: ["health", "status", "latency", "error rate"]
+  },
+  {
+    mode: "investigate",
+    title: "Investigate",
+    scope: "Project workspace",
+    description: "Events, errors, traces, LLM calls, tenants, and users.",
+    keywords: ["event", "error", "trace", "llm", "tenant", "user"]
+  },
+  {
+    mode: "alerts",
+    title: "Alerts",
+    scope: "Project workspace",
+    description: "Alert rules, channels, recent alerts, and delivery state.",
+    keywords: ["rule", "email", "webhook", "notification"]
+  },
+  {
+    mode: "monitors",
+    title: "Monitors",
+    scope: "Project workspace",
+    description: "HTTP uptime checks and heartbeat monitors.",
+    keywords: ["uptime", "heartbeat", "check"]
+  },
+  {
+    mode: "artifacts",
+    title: "Artifacts",
+    scope: "Project workspace",
+    description: "Source maps, upload tokens, releases, and artifact cleanup.",
+    keywords: ["source map", "sourcemap", "release", "token"]
+  },
+  {
+    mode: "project-settings",
+    title: "Project Settings",
+    scope: "Project workspace",
+    description: "Environments, API keys, browser origins, snippets, and users.",
+    keywords: ["settings", "api key", "origin", "sdk", "user"]
+  },
+  {
+    mode: "setup",
+    title: "Onboarding",
+    scope: "Project workspace",
+    description: "Create projects, environments, API keys, and smoke checks.",
+    keywords: ["setup", "install", "create", "onboard"]
+  },
+  {
+    mode: "system",
+    title: "System Health",
+    scope: "Sigmon admin",
+    description: "Sigmon server health, workers, scheduler, retention, and backups.",
+    keywords: ["admin", "server", "worker", "scheduler", "backup", "retention"]
+  }
+];
+
 function parseIncidentRoute(location: Location): IncidentRoute {
   const match = location.pathname.match(/\/console\/incidents\/error-groups\/([^/]+)$/);
   if (!match) return { kind: "none" };
@@ -85,6 +157,8 @@ export function ConsoleShell({
   const [autoRefreshMs, setAutoRefreshMs] = useState(0);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
   const activeProjectIdRef = useRef<string | undefined>(undefined);
   const activeEnvironmentRef = useRef<Environment | undefined>(undefined);
   const environmentsRef = useRef<Environment[]>([]);
@@ -129,6 +203,21 @@ export function ConsoleShell({
     }, autoRefreshMs);
     return () => window.clearInterval(timer);
   }, [autoRefreshMs]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsCommandPaletteOpen(true);
+      }
+      if (event.key === "Escape") {
+        setIsCommandPaletteOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -266,6 +355,16 @@ export function ConsoleShell({
     setActiveMode("investigate");
   }
 
+  function navigateToMode(mode: ConsoleMode) {
+    if (incidentRoute.kind !== "none") {
+      window.history.replaceState({}, "", "/console");
+      setIncidentRoute({ kind: "none" });
+    }
+    setActiveMode(mode);
+    setIsCommandPaletteOpen(false);
+    setCommandQuery("");
+  }
+
   function openErrorGroupIncident(groupId: string, options?: { errorId?: string }) {
     if (!activeProject || !activeEnvironment) return;
 
@@ -336,6 +435,15 @@ export function ConsoleShell({
   const isIncidentViewActive = activeMode === "investigate" && incidentRoute.kind === "error-group";
   const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
   const userInitials = initials(user?.email);
+  const normalizedCommandQuery = commandQuery.trim().toLowerCase();
+  const filteredCommands = normalizedCommandQuery
+    ? commandDestinations.filter((destination) =>
+        [destination.title, destination.scope, destination.description, ...destination.keywords]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedCommandQuery)
+      )
+    : commandDestinations;
 
   return (
     <main className="console-layout">
@@ -345,7 +453,7 @@ export function ConsoleShell({
             <path d="M3 12h4l2.4-6 5.2 12 2.4-6h4" />
           </svg>
         </div>
-        <ConsoleModeTabs activeMode={activeMode} onChange={setActiveMode} />
+        <ConsoleModeTabs activeMode={activeMode} onChange={navigateToMode} />
       </aside>
       <section className="console-main">
         <header className="workspace-header">
@@ -382,11 +490,11 @@ export function ConsoleShell({
                   ? `Environment: ${activeEnvironment.name}`
                   : "Create an environment to continue setup."}
             </span>
-            <div className="console-search" aria-label="Global search placeholder">
+            <button aria-label="Open command palette" className="console-search" onClick={() => setIsCommandPaletteOpen(true)} type="button">
               <Command aria-hidden="true" size={14} />
               <span>Jump to event, error, tenant, user, trace...</span>
               <kbd>⌘K</kbd>
-            </div>
+            </button>
           </div>
           <div className="workspace-actions">
             <button aria-label="Refresh current view" className="icon-button" onClick={refreshWorkspace} title="Refresh current view" type="button">
@@ -437,6 +545,45 @@ export function ConsoleShell({
             </div>
           </div>
         </header>
+        {isCommandPaletteOpen ? (
+          <div aria-label="Command palette" aria-modal="true" className="command-palette" role="dialog">
+            <div className="command-palette__backdrop" onClick={() => setIsCommandPaletteOpen(false)} />
+            <section className="command-palette__panel">
+              <label className="command-palette__search">
+                <Command aria-hidden="true" size={16} />
+                <input
+                  aria-label="Search commands"
+                  autoFocus
+                  onChange={(event) => setCommandQuery(event.target.value)}
+                  placeholder="Jump to project, error, monitor, settings..."
+                  value={commandQuery}
+                />
+                <kbd>Esc</kbd>
+              </label>
+              <div className="command-palette__list">
+                {filteredCommands.length === 0 ? (
+                  <p className="muted-text">No commands match this search.</p>
+                ) : (
+                  filteredCommands.map((destination) => (
+                    <button
+                      aria-label={`Open ${destination.title}`}
+                      className="command-palette__item"
+                      key={destination.mode}
+                      onClick={() => navigateToMode(destination.mode)}
+                      type="button"
+                    >
+                      <span>
+                        <strong>Open {destination.title}</strong>
+                        <small>{destination.description}</small>
+                      </span>
+                      <em>{destination.scope}</em>
+                    </button>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+        ) : null}
         <div className="workspace">
           {isIncidentViewActive ? (
             <IncidentView

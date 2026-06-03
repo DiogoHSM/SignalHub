@@ -17,6 +17,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Operational pages should use dark native surfaces consistently: no white form islands inside the dark console, readable secondary values, compact status pills, and grid spans chosen by workflow density rather than filling space indiscriminately.
 - The console shell uses viewport-bounded scrolling: the icon rail and topbar stay anchored to the browser height while the workspace content owns its own vertical scroll.
 - The global header includes manual refresh, configurable auto-refresh intervals, and an operator menu with sign-out. These controls should remain available from project and admin modes.
+- The global command palette opens from the header or `Cmd/Ctrl+K` and should provide fast navigation across project workspace and Sigmon admin destinations before growing into record-level search.
 
 ## Investigation UX
 
