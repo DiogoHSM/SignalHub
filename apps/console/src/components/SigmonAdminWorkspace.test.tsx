@@ -149,7 +149,12 @@ describe("SigmonAdminWorkspace", () => {
   it("renders the admin heading, description, section buttons, and default system health panel", async () => {
     const getSystemHealth = vi.fn().mockResolvedValue({ data: healthyResponse() });
 
-    render(<SigmonAdminWorkspace client={client(getSystemHealth)} />);
+    render(
+      <SigmonAdminWorkspace
+        browserCorsOrigins={["https://app.controledaempresa.com", "https://microerp.example.com"]}
+        client={client(getSystemHealth)}
+      />
+    );
 
     expect(screen.getByRole("heading", { name: "Sigmon Admin" })).toBeInTheDocument();
     expect(screen.getByText("Installation-level status and server configuration.")).toBeInTheDocument();
@@ -168,7 +173,12 @@ describe("SigmonAdminWorkspace", () => {
   it("renders read-only installation guidance for non-health sections", async () => {
     const getSystemHealth = vi.fn().mockResolvedValue({ data: healthyResponse() });
 
-    render(<SigmonAdminWorkspace client={client(getSystemHealth)} />);
+    render(
+      <SigmonAdminWorkspace
+        browserCorsOrigins={["https://app.controledaempresa.com", "https://microerp.example.com"]}
+        client={client(getSystemHealth)}
+      />
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Server settings" }));
     expect(screen.getByText("Deployment readiness is read-only here while Sigmon admin editing is still being built.")).toBeInTheDocument();
@@ -183,5 +193,7 @@ describe("SigmonAdminWorkspace", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Security & CORS" }));
     expect(screen.getByText("Global browser ingestion origins are currently configured by BROWSER_CORS_ORIGINS.")).toBeInTheDocument();
+    expect(screen.getByText("https://app.controledaempresa.com")).toBeInTheDocument();
+    expect(screen.getByText("https://microerp.example.com")).toBeInTheDocument();
   });
 });

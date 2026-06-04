@@ -465,6 +465,14 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
             <p className="muted-text">No monitors.</p>
           ) : (
             <div className="alerts-list">
+              <div className="monitors-list-header" aria-hidden="true">
+                <span>Monitor</span>
+                <span>Target</span>
+                <span>Schedule</span>
+                <span>Last check</span>
+                <span>Status</span>
+                <span>Actions</span>
+              </div>
               {monitors.map((monitor) => (
                 <article
                   className="monitors-row"

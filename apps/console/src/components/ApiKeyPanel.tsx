@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type { ApiKey } from "../api/types";
 
@@ -76,6 +77,16 @@ export function ApiKeyPanel({ client, projectId, environmentId, onSecretCreated 
     setName("");
   }
 
+  async function revoke(apiKey: ApiKey) {
+    if (!window.confirm(`Revoke API key ${apiKey.name}?`)) return;
+
+    const revokeProjectId = projectId;
+    await client.revokeApiKey(apiKey.id);
+    if (projectIdRef.current !== revokeProjectId) return;
+
+    setApiKeys((current) => current.filter((currentApiKey) => currentApiKey.id !== apiKey.id));
+  }
+
   return (
     <section className="panel api-key-panel">
       <div className="panel-header">
@@ -89,8 +100,22 @@ export function ApiKeyPanel({ client, projectId, environmentId, onSecretCreated 
             <li className="key-list-item" key={apiKey.id}>
               <div>
                 <strong>{apiKey.name}</strong>
+                {apiKey.revokedAt ? <span>Revoked</span> : null}
               </div>
-              <code>{apiKey.prefix}</code>
+              <div className="key-list-item__actions">
+                <code>{apiKey.prefix}</code>
+                {apiKey.revokedAt ? null : (
+                  <button
+                    aria-label={`Revoke ${apiKey.name}`}
+                    className="icon-button icon-button--danger"
+                    onClick={() => void revoke(apiKey)}
+                    title="Revoke API key"
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" size={16} />
+                  </button>
+                )}
+              </div>
             </li>
           ))}
         </ul>
