@@ -123,6 +123,25 @@ export async function updateSourceMapUploadTokenLastUsed(db: Db, id: string): Pr
     .execute();
 }
 
+export async function updateSourceMapUploadToken(
+  db: Db,
+  input: SourceMapUploadTokenScope & { id: string; name?: string }
+): Promise<SourceMapUploadTokenRecord | undefined> {
+  const row = await db
+    .updateTable("source_map_upload_tokens")
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {})
+    })
+    .where("id", "=", input.id)
+    .where("project_id", "=", input.projectId)
+    .where("environment_id", "=", input.environmentId)
+    .where("revoked_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toSourceMapUploadToken(row) : undefined;
+}
+
 export async function revokeSourceMapUploadToken(
   db: Db,
   input: SourceMapUploadTokenScope & { id: string }

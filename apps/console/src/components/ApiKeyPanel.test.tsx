@@ -204,6 +204,33 @@ describe("ApiKeyPanel", () => {
     expect(screen.getByRole("button", { name: "Create key" })).toBeDisabled();
   });
 
+  it("revokes an existing key after confirmation and removes it from the active list", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const api = client({
+      listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [existingKey] }),
+      revokeApiKey: vi.fn().mockResolvedValue({})
+    });
+
+    render(
+      <ApiKeyPanel
+        client={api}
+        environmentId="env_1"
+        onSecretCreated={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    expect(await screen.findByText("Production ingest")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Revoke Production ingest" }));
+
+    expect(confirm).toHaveBeenCalledWith("Revoke API key Production ingest?");
+    expect(api.revokeApiKey).toHaveBeenCalledWith("key_1");
+    await waitFor(() => expect(screen.queryByText("Production ingest")).not.toBeInTheDocument());
+    expect(screen.getByText("No API keys yet.")).toBeInTheDocument();
+
+    confirm.mockRestore();
+  });
+
   it("does not apply a created key after the environment changes before the response resolves", async () => {
     const createApiKey = deferred<{ apiKey: CreatedApiKey }>();
     const onSecretCreated = vi.fn();

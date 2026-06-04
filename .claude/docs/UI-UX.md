@@ -9,13 +9,16 @@ SignalMonitor includes an admin-only Integration Console.
 - `Project Settings` is the recurring configuration workspace for the active project/environment. `Onboarding` is for creating the first project, environment, and initial setup path.
 - The first screen is now the environment Overview. Setup remains available from the rail for projects, environments, API keys, snippets, connection status, and simple user administration.
 - API key secrets are shown only immediately after creation and are not stored in browser storage.
+- API key rows expose a compact revoke action; revoked keys should leave the active key list after confirmation while historical telemetry remains intact.
 - The visual style should remain compact, quiet, and optimized for repeated operational work.
 - Use a dark-first console shell with a 64px icon rail, dense topbar context, restrained green signal accents, and no marketing-style hero sections.
 - The active project is selectable from the global header in every console mode. Setup keeps the fuller project creation/sidebar workflow, but operators should not need to return to Setup just to switch context.
+- The active environment is also selectable from the global header once environments are loaded, so operators can switch monitored environments without returning to Onboarding.
 - The sigmon mark is a simple mono heartbeat SVG and should remain single-color so it can inherit the surrounding foreground/accent color.
 - Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings.
 - Operational pages should use dark native surfaces consistently: no white form islands inside the dark console, readable secondary values, compact status pills, and grid spans chosen by workflow density rather than filling space indiscriminately.
 - The console shell uses viewport-bounded scrolling: the icon rail and topbar stay anchored to the browser height while the workspace content owns its own vertical scroll.
+- Console scrollbars should be dark-themed inside the shell and scoped to internal workspace/list panes so browser-default light scrollbars do not appear in project views.
 - The global header includes manual refresh, configurable auto-refresh intervals, and an operator menu with sign-out. These controls should remain available from project and admin modes.
 - The global command palette opens from the header or `Cmd/Ctrl+K` and should provide fast navigation across project workspace and Sigmon admin destinations before growing into record-level search.
 
@@ -26,14 +29,18 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
 - Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
-- Keep `Project Settings` as a project-scoped configuration mode for environments, API keys, browser origins, SDK snippets, source maps, and the current console user administration surface.
+- Keep `Project Settings` as a project-scoped configuration mode for the selected project, environments, API keys, browser origins, SDK snippets, source maps, and the current console user administration surface.
+- Project Settings opens on the `Project` section, where operators can rename or archive the selected project. Archive is a destructive action with confirmation and should stay visually separated from routine setup fields.
+- Project Settings environment rows expose compact edit and archive actions. Onboarding keeps the lighter create/select flow, while recurring configuration lives in Project Settings.
+- Project Settings starts with a compact setup checklist for the selected project/environment so operators can see whether project scope, environment, endpoint, and one-time API key setup are ready before handing integration details to another developer.
 - Console user rows expose edit and archive actions. Editing supports email/admin role changes and optional temporary password rotation; archived users are removed from the active console user list after confirmation.
 - Keep `System Health` inside Sigmon Admin as a quiet global operational mode for Sigmon service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
+- Browser origin panels should show the currently configured global `BROWSER_CORS_ORIGINS` values so operators can validate browser SDK readiness without checking server env vars.
 - System Health shows source-map retention policy and deleted counts inside the existing Retention card.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.
-- Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency. Trend charts should include grid context, stable empty states, color-consistent series, and legend values so sparse data does not read as broken.
+- Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency. Trend charts should include grid context, metric-unit axis labels, stable empty states, color-consistent series, and legend values so sparse data does not read as broken.
 - Overview top-list rows can drill into Investigate with seeded exact filters; recent signals stay read-only.
 - Investigation views are operational, dense, and read-only by default.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.
@@ -89,15 +96,20 @@ SignalMonitor includes an admin-only Integration Console.
 - Alerts should keep summary counters and creation forms aligned in a compact grid, with dark inputs/selects and subdued empty states.
 - Alert rule controls should remain scoped to the active project and environment.
 - Alert rule fields should expose units in labels or nearby help: windows and cooldowns are minutes, error-rate thresholds are percentages, trace p95 thresholds are milliseconds, critical/error count thresholds are counts, and LLM cost thresholds are USD.
+- Alert rule rows expose compact edit actions. Editing reuses the rule form, preserves project/environment scope, and should update the row after saving without forcing a full page refresh.
+- Alert rule rows expose compact destructive actions; archiving requires confirmation and removes the rule from the active rule list.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
+- Notification channel rows expose compact edit actions. Editing reuses the channel form, keeps saved webhook secrets write-only, and should update the channel row without forcing a full page refresh.
+- Notification channel rows expose compact destructive actions; archiving requires confirmation and removes the channel from active rule configuration lists.
 
 ## Monitors UX
 
 - Monitors should stay separate from alert rules so uptime and heartbeat setup does not crowd threshold configuration.
 - Monitors uses a full-width monitor list followed by three balanced panels for recent checks, HTTP setup, and heartbeat setup.
-- HTTP monitor rows should prioritize name, target URL, status, and last check time.
-- Heartbeat monitor rows should prioritize name, expected interval, grace window, status, and last check time.
+- Monitor list rows use explicit columns for monitor identity, target, schedule, last check, status, and row actions so the full-width list earns its space.
+- HTTP monitor rows should prioritize name, target URL, schedule, status, and last check time.
+- Heartbeat monitor rows should prioritize name, check-in target, expected interval, grace window, status, and last check time.
 - Monitor form labels should include units: check interval and heartbeat grace values are minutes, HTTP timeout is milliseconds.
 - Monitor rows expose compact edit and delete actions. Editing uses a contextual form for the selected monitor type; deleting archives the monitor after confirmation while preserving historical checks.
 - Heartbeat secrets are shown only immediately after monitor creation, paired with the check-in URL, and should not be stored in browser storage.
@@ -108,6 +120,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Artifacts should stay operational: release filter, single-map upload, bundle upload, uploaded artifact list, and delete actions should fit the active project/environment workspace.
 - Artifacts uses two balanced upload panels plus a dark token-management surface; file inputs should look native to the console, not browser-default white controls.
 - Artifacts includes compact source-map upload token management for the active project/environment. Token secrets are shown once after creation.
+- Source-map upload token rows expose edit and revoke actions; renaming a token never rotates or re-displays the write-only secret.
 - Upload controls should support single `.map` files and `.zip` bundles.
 - Operators must provide release metadata because resolution uses strict release matching and does not guess across releases.
 - Artifact rows should prioritize release, minified file, original filename, size, upload time, and a short delete action.
