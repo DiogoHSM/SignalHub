@@ -217,7 +217,7 @@ Production builds include `apps/console/dist`. The API serves the console at `/c
 
 Set `SIGMON_PUBLIC_ENDPOINT` to the externally reachable API origin when SignalMonitor runs behind a domain, HTTPS reverse proxy, or non-default port. The console uses that value in SDK, HTTP, and environment snippets.
 
-Set `BROWSER_CORS_ORIGINS` on the API service when browser SDK telemetry should post directly from another app origin to SignalMonitor. Use a comma-separated allowlist of exact origins such as `https://app.controledaempresa.com,https://microerp.example.com`. This CORS handling is limited to public ingestion endpoints under `/v1/*`; admin, query, auth, system, docs, and console routes remain outside the browser ingestion CORS allowlist.
+Browser SDK telemetry can post directly from another app origin to SignalMonitor after that origin is added in `Project Settings > Browser origins`. Origins must be exact browser origins such as `https://app.controledaempresa.com`; paths are normalized away. `BROWSER_CORS_ORIGINS` remains available as an optional global allowlist for bootstrap or emergency use. CORS handling is limited to public ingestion endpoints under `/v1/*`; admin, query, auth, system, docs, and console routes remain outside the browser ingestion CORS allowlist.
 
 Public SDK docs are served at `/sdk`, API reference docs are served at `/docs`, and the raw OpenAPI 3.1 document is served at `/openapi.json`. For the EasyPanel deployment, use `https://my.sigmon.app/sdk`, `https://my.sigmon.app/docs`, and `https://my.sigmon.app/openapi.json`. The docs are public, but protected endpoints still require their normal ingestion API key, source-map upload token, heartbeat secret, or human session cookie.
 

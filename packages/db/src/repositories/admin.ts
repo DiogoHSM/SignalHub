@@ -1,9 +1,10 @@
 import type { Selectable } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
-import type { ApiKeysTable, EnvironmentsTable, ProjectsTable } from "../schema.js";
+import type { ApiKeysTable, EnvironmentsTable, ProjectBrowserOriginsTable, ProjectsTable } from "../schema.js";
 
 type ProjectRow = Selectable<ProjectsTable>;
+type ProjectBrowserOriginRow = Selectable<ProjectBrowserOriginsTable>;
 type EnvironmentRow = Selectable<EnvironmentsTable>;
 type ApiKeyRow = Selectable<ApiKeysTable>;
 
@@ -24,6 +25,14 @@ export interface Environment {
   archivedAt: Date | null;
 }
 
+export interface ProjectBrowserOrigin {
+  id: string;
+  projectId: string;
+  origin: string;
+  createdAt: Date;
+  archivedAt: Date | null;
+}
+
 export interface ApiKeyRecord {
   id: string;
   projectId: string;
@@ -35,12 +44,31 @@ export interface ApiKeyRecord {
   revokedAt: Date | null;
 }
 
+function normalizeBrowserOrigin(origin: string): string {
+  const parsed = new URL(origin);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("invalid_browser_origin");
+  }
+
+  return parsed.origin;
+}
+
 function toProject(row: ProjectRow): Project {
   return {
     id: row.id,
     name: row.name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    archivedAt: row.archived_at
+  };
+}
+
+function toProjectBrowserOrigin(row: ProjectBrowserOriginRow): ProjectBrowserOrigin {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    origin: row.origin,
+    createdAt: row.created_at,
     archivedAt: row.archived_at
   };
 }
@@ -124,6 +152,82 @@ export async function archiveProject(db: Db, id: string): Promise<void> {
     .where("id", "=", id)
     .where("archived_at", "is", null)
     .execute();
+}
+
+export async function createProjectBrowserOrigin(
+  db: Db,
+  input: { projectId: string; origin: string }
+): Promise<ProjectBrowserOrigin> {
+  const activeProject = await db
+    .selectFrom("projects")
+    .select("id")
+    .where("id", "=", input.projectId)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
+  if (!activeProject) {
+    throw new Error("active_project_not_found");
+  }
+
+  const origin = normalizeBrowserOrigin(input.origin);
+  const existing = await db
+    .selectFrom("project_browser_origins")
+    .selectAll()
+    .where("project_id", "=", input.projectId)
+    .where("origin", "=", origin)
+    .where("archived_at", "is", null)
+    .executeTakeFirst();
+  if (existing) {
+    return toProjectBrowserOrigin(existing);
+  }
+
+  const row = await db
+    .insertInto("project_browser_origins")
+    .values({
+      id: createId("borg"),
+      project_id: input.projectId,
+      origin
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  return toProjectBrowserOrigin(row);
+}
+
+export async function listProjectBrowserOrigins(db: Db, projectId: string): Promise<ProjectBrowserOrigin[]> {
+  const rows = await db
+    .selectFrom("project_browser_origins")
+    .innerJoin("projects", "projects.id", "project_browser_origins.project_id")
+    .selectAll("project_browser_origins")
+    .where("project_browser_origins.project_id", "=", projectId)
+    .where("project_browser_origins.archived_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .orderBy("project_browser_origins.created_at", "asc")
+    .execute();
+
+  return rows.map(toProjectBrowserOrigin);
+}
+
+export async function archiveProjectBrowserOrigin(db: Db, id: string): Promise<void> {
+  await db
+    .updateTable("project_browser_origins")
+    .set({ archived_at: new Date() })
+    .where("id", "=", id)
+    .where("archived_at", "is", null)
+    .execute();
+}
+
+export async function isBrowserOriginAllowed(db: Db, origin: string): Promise<boolean> {
+  const normalizedOrigin = normalizeBrowserOrigin(origin);
+  const row = await db
+    .selectFrom("project_browser_origins")
+    .innerJoin("projects", "projects.id", "project_browser_origins.project_id")
+    .select("project_browser_origins.id")
+    .where("project_browser_origins.origin", "=", normalizedOrigin)
+    .where("project_browser_origins.archived_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .executeTakeFirst();
+
+  return row !== undefined;
 }
 
 export async function createEnvironment(

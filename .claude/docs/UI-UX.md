@@ -29,6 +29,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep `Alerts` as a compact operational mode for rules, generic webhook channels, recent alert history, and delivery status.
 - Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
+- Browser origins are configured inside Project Settings for the selected project. Operators can add exact app origins and archive old origins; saved origins enable direct browser SDK ingestion CORS for public `/v1/*` endpoints.
 - Keep `Project Settings` as a project-scoped configuration mode for the selected project, environments, API keys, browser origins, SDK snippets, source maps, and the current console user administration surface.
 - Project Settings opens on the `Project` section, where operators can rename or archive the selected project. Archive is a destructive action with confirmation and should stay visually separated from routine setup fields.
 - Project Settings environment rows expose compact edit and archive actions. Onboarding keeps the lighter create/select flow, while recurring configuration lives in Project Settings.

@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { Environment, Project } from "../api/types";
+import type { BrowserOrigin, Environment, Project } from "../api/types";
 import { ApiKeyPanel } from "./ApiKeyPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { EnvironmentSelector } from "./EnvironmentSelector";
@@ -69,12 +69,143 @@ const sections = [
 
 type SectionId = (typeof sections)[number]["id"];
 
+function BrowserOriginsPanel({ client, projectId }: { client: ApiClient; projectId: string }) {
+  const [origins, setOrigins] = useState<BrowserOrigin[]>([]);
+  const [origin, setOrigin] = useState("");
+  const [error, setError] = useState<string | undefined>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [archivingId, setArchivingId] = useState<string | undefined>();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!client.listBrowserOrigins) {
+      setError("Browser origin management is unavailable.");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void client
+      .listBrowserOrigins(projectId)
+      .then(({ origins }) => {
+        if (cancelled) return;
+        setOrigins(origins);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("Could not load browser origins.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, projectId]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedOrigin = origin.trim();
+    if (!trimmedOrigin || isSubmitting) return;
+    if (!client.createBrowserOrigin) {
+      setError("Browser origin management is unavailable.");
+      return;
+    }
+
+    setError(undefined);
+    setIsSubmitting(true);
+
+    try {
+      const response = await client.createBrowserOrigin(projectId, { origin: trimmedOrigin });
+      setOrigins((current) => {
+        const withoutDuplicate = current.filter((item) => item.id !== response.origin.id && item.origin !== response.origin.origin);
+        return [...withoutDuplicate, response.origin];
+      });
+      setOrigin("");
+    } catch {
+      setError("Could not add browser origin.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function archiveOrigin(item: BrowserOrigin) {
+    const confirmed = window.confirm(`Archive browser origin ${item.origin}?`);
+    if (!confirmed) return;
+    if (!client.archiveBrowserOrigin) {
+      setError("Browser origin management is unavailable.");
+      return;
+    }
+
+    setError(undefined);
+    setArchivingId(item.id);
+
+    try {
+      await client.archiveBrowserOrigin(item.id);
+      setOrigins((current) => current.filter((originItem) => originItem.id !== item.id));
+    } catch {
+      setError("Could not archive browser origin.");
+    } finally {
+      setArchivingId(undefined);
+    }
+  }
+
+  return (
+    <section className="panel browser-origins-panel">
+      <div className="panel-header">
+        <h2>Browser origins</h2>
+      </div>
+      <p>Browser origins must include protocol, for example https://app.example.com.</p>
+      <p className="muted-text">
+        These origins are allowed to send browser SDK telemetry directly to Sigmon ingestion endpoints for this project.
+      </p>
+      {error ? <p className="form-error">{error}</p> : null}
+      {origins.length === 0 ? (
+        <p className="muted-text">No browser origins configured for this project.</p>
+      ) : (
+        <ul className="key-list">
+          {origins.map((item) => (
+            <li className="key-list-item" key={item.id}>
+              <div>
+                <strong>{item.origin}</strong>
+                <span>Created {new Date(item.createdAt).toLocaleString()}</span>
+              </div>
+              <div className="key-list-item__actions">
+                <button
+                  aria-label={`Archive ${item.origin}`}
+                  className="button-danger"
+                  disabled={archivingId === item.id}
+                  onClick={() => void archiveOrigin(item)}
+                  type="button"
+                >
+                  Archive
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="compact-form" onSubmit={submit}>
+        <label>
+          Allowed browser origin
+          <input
+            onChange={(event) => setOrigin(event.target.value)}
+            placeholder="https://app.example.com"
+            type="url"
+            value={origin}
+          />
+        </label>
+        <button disabled={isSubmitting} type="submit">
+          Add origin
+        </button>
+      </form>
+    </section>
+  );
+}
+
 export function ProjectSettingsWorkspace({
   activeEnvironment,
   activeProject,
   activeProjectId,
   apiEndpoint,
-  browserCorsOrigins = [],
   client,
   environments,
   isEnvironmentCreationDisabled,
@@ -124,29 +255,7 @@ export function ProjectSettingsWorkspace({
           />
         );
       case "browser-origins":
-        return (
-          <section className="panel browser-origins-panel">
-            <div className="panel-header">
-              <h2>Browser origins</h2>
-            </div>
-            <p>Browser origins must include protocol, for example https://app.example.com.</p>
-            {browserCorsOrigins.length > 0 ? (
-              <ul className="origin-list" aria-label="Configured browser origins">
-                {browserCorsOrigins.map((origin) => (
-                  <li key={origin}>
-                    <code>{origin}</code>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted-text">No browser origins are configured for cross-origin browser ingestion.</p>
-            )}
-            <p className="muted-text">
-              BROWSER_CORS_ORIGINS is currently configured globally, so browser origin changes apply across the console instead of this
-              selected project or environment. Per-project origin CRUD will be added later.
-            </p>
-          </section>
-        );
+        return <BrowserOriginsPanel client={client} projectId={activeProjectId} />;
       case "sdk-snippets":
         return (
           <SnippetPanel

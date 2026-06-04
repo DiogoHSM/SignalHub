@@ -269,6 +269,87 @@ describe("admin routes", () => {
     expect(createdEnvironments).toEqual([{ projectId: "prj_1", name: "Production" }]);
   });
 
+  it("manages project browser origins", async () => {
+    const createdOrigins: unknown[] = [];
+    const archivedOriginIds: string[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        browserOrigins: {
+          list: async (projectId) => [
+            {
+              id: "borg_1",
+              projectId,
+              origin: "https://app.example.com",
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              archivedAt: null
+            }
+          ],
+          create: async (input) => {
+            createdOrigins.push(input);
+            return {
+              id: "borg_2",
+              projectId: input.projectId,
+              origin: "https://new.example.com",
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              archivedAt: null
+            };
+          },
+          archive: async (id) => {
+            archivedOriginIds.push(id);
+          }
+        }
+      }
+    });
+
+    const listResponse = await app.inject({ method: "GET", url: "/admin/projects/prj_1/browser-origins" });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().origins).toEqual([
+      expect.objectContaining({ id: "borg_1", projectId: "prj_1", origin: "https://app.example.com" })
+    ]);
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/browser-origins",
+      payload: { origin: "https://new.example.com/dashboard" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json().origin).toMatchObject({ id: "borg_2", origin: "https://new.example.com" });
+    expect(createdOrigins).toEqual([{ projectId: "prj_1", origin: "https://new.example.com/dashboard" }]);
+
+    const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_1" });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archivedOriginIds).toEqual(["borg_1"]);
+  });
+
+  it("rejects invalid browser origins", async () => {
+    const createOrigin = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        browserOrigins: {
+          list: async () => [],
+          create: createOrigin,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/browser-origins",
+      payload: { origin: "not a url" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_browser_origin_request" });
+    expect(createOrigin).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when environment creation targets an inactive project scope", async () => {
     app = await buildApp({
       readiness,
