@@ -5,6 +5,8 @@ type Props = {
 };
 
 type Trend = {
+  axisLabel: string;
+  formatTick?: (value: number) => string;
   title: string;
   valueLabel: string;
   series: Array<{ label: string; values: number[]; formatValue?: (value: number) => string }>;
@@ -16,7 +18,7 @@ const chartFrame = {
   top: 18,
   right: 18,
   bottom: 34,
-  left: 46
+  left: 58
 };
 
 const plotWidth = chartFrame.width - chartFrame.left - chartFrame.right;
@@ -110,7 +112,8 @@ function hasActivity(series: Trend["series"]): boolean {
   return series.some((item) => cleanValues(item.values).some((value) => value > 0));
 }
 
-function tickLabel(value: number): string {
+function tickLabel(value: number, formatter?: (value: number) => string): string {
+  if (formatter) return formatter(value);
   if (value >= 1000) return compactNumber(value);
   if (value < 1 && value > 0) return value.toFixed(2);
   return String(Math.round(value));
@@ -119,6 +122,7 @@ function tickLabel(value: number): string {
 export function OverviewMiniTrends({ trends }: Props) {
   const trendItems: Trend[] = [
     {
+      axisLabel: "Count axis",
       title: "Usage trend",
       valueLabel: `${integer(total(trends.usage.map((bucket) => bucket.events)))} events · ${integer(total(trends.usage.map((bucket) => bucket.traces)))} traces · ${integer(total(trends.usage.map((bucket) => bucket.llmCalls)))} LLM calls`,
       series: [
@@ -128,6 +132,7 @@ export function OverviewMiniTrends({ trends }: Props) {
       ]
     },
     {
+      axisLabel: "Errors axis",
       title: "Error trend",
       valueLabel: `${integer(total(trends.errors.map((bucket) => bucket.errors)))} errors · ${integer(total(trends.errors.map((bucket) => bucket.openErrors)))} open · ${integer(total(trends.errors.map((bucket) => bucket.severeErrors)))} severe`,
       series: [
@@ -137,6 +142,8 @@ export function OverviewMiniTrends({ trends }: Props) {
       ]
     },
     {
+      axisLabel: "Latency (ms) axis",
+      formatTick: (value) => `${compactNumber(value)} ms`,
       title: "Latency trend",
       valueLabel: `${Math.round(total(trends.latency.map((bucket) => bucket.averageTraceDurationMs)) / Math.max(1, trends.latency.length))} ms avg`,
       series: [
@@ -145,6 +152,7 @@ export function OverviewMiniTrends({ trends }: Props) {
       ]
     },
     {
+      axisLabel: "Cost / calls axis",
       title: "AI cost trend",
       valueLabel: currency(total(trends.aiCost.map((bucket) => toNumber(bucket.llmCostUsd)))),
       series: [
@@ -179,14 +187,17 @@ export function OverviewMiniTrends({ trends }: Props) {
               {ticks.map((tick, index) => {
                 const y = chartFrame.top + (index / (ticks.length - 1)) * plotHeight;
                 return (
-                  <g className="overview-trend-grid" key={tick}>
+                  <g className="overview-trend-grid" key={`${tick}-${index}`}>
                     <line x1={chartFrame.left} x2={chartFrame.width - chartFrame.right} y1={y} y2={y} />
                     <text x={chartFrame.left - 10} y={y + 4}>
-                      {tickLabel(tick)}
+                      {tickLabel(tick, trend.formatTick)}
                     </text>
                   </g>
                 );
               })}
+              <text className="overview-trend-axis-label" x={chartFrame.left} y={chartFrame.height - 8}>
+                {trend.axisLabel}
+              </text>
               <line className="overview-trend-axis" x1={chartFrame.left} x2={chartFrame.width - chartFrame.right} y1={chartFrame.top + plotHeight} y2={chartFrame.top + plotHeight} />
               {active ? (
                 trend.series.map((series, index) => {

@@ -182,6 +182,85 @@ describe("AlertsPanel", () => {
     expect(api.listAlertEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 20 });
   });
 
+  it("archives an alert rule after confirmation and removes it from the rule list", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const archiveAlertRule = vi.fn().mockResolvedValue(undefined);
+    const api = client({
+      archiveAlertRule,
+      listAlertRules: vi.fn().mockResolvedValue({
+        rules: [
+          {
+            id: "rule_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            notificationChannelId: null,
+            name: "Critical errors",
+            type: "critical_errors",
+            severity: "critical",
+            windowMinutes: 10,
+            threshold: "1",
+            cooldownMinutes: 30,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: null,
+            createdAt: "2026-05-06T11:00:00.000Z",
+            updatedAt: "2026-05-06T11:00:00.000Z",
+            archivedAt: null
+          }
+        ]
+      })
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    expect(await within(screen.getByLabelText("Alert rules")).findByText("Critical errors")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Archive Critical errors" }));
+
+    expect(confirm).toHaveBeenCalledWith("Archive alert rule Critical errors?");
+    expect(archiveAlertRule).toHaveBeenCalledWith("rule_1");
+    await waitFor(() => expect(within(screen.getByLabelText("Alert rules")).queryByText("Critical errors")).not.toBeInTheDocument());
+    expect(within(screen.getByLabelText("Alert rules")).getByText("No alert rules.")).toBeInTheDocument();
+
+    confirm.mockRestore();
+  });
+
+  it("archives a notification channel after confirmation and removes it from the channel list", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const archiveNotificationChannel = vi.fn().mockResolvedValue(undefined);
+    const api = client({
+      archiveNotificationChannel,
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_1",
+            name: "Ops",
+            type: "webhook",
+            url: "https://hooks.example.com",
+            emailRecipients: [],
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "2026-05-06T11:00:00.000Z",
+            updatedAt: "2026-05-06T11:00:00.000Z",
+            archivedAt: null
+          }
+        ]
+      })
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    expect(await within(screen.getByLabelText("Notification channels")).findByText("Ops")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Archive Ops" }));
+
+    expect(confirm).toHaveBeenCalledWith("Archive notification channel Ops?");
+    expect(archiveNotificationChannel).toHaveBeenCalledWith("chn_1");
+    await waitFor(() => expect(within(screen.getByLabelText("Notification channels")).queryByText("Ops")).not.toBeInTheDocument());
+    expect(within(screen.getByLabelText("Notification channels")).getByText("No notification channels.")).toBeInTheDocument();
+
+    confirm.mockRestore();
+  });
+
   it("creates a webhook channel without displaying the saved secret", async () => {
     const createNotificationChannel = vi.fn().mockResolvedValue({
       channel: {
@@ -219,6 +298,65 @@ describe("AlertsPanel", () => {
     expect(screen.queryByDisplayValue("secret")).not.toBeInTheDocument();
     expect(screen.queryByText("secret")).not.toBeInTheDocument();
     expect(within(screen.getByLabelText("Notification channels")).getByText("Secret saved")).toBeInTheDocument();
+  });
+
+  it("edits an existing webhook notification channel", async () => {
+    const updateNotificationChannel = vi.fn().mockResolvedValue({
+      channel: {
+        id: "chn_1",
+        name: "Ops updated",
+        type: "webhook",
+        url: "https://hooks.example.com/updated",
+        emailRecipients: [],
+        secretHeaderName: "X-SignalMonitor-Secret",
+        hasSecret: true,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+        archivedAt: null
+      }
+    });
+    const api = client({
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_1",
+            name: "Ops",
+            type: "webhook",
+            url: "https://hooks.example.com",
+            emailRecipients: [],
+            secretHeaderName: "X-SignalMonitor-Secret",
+            hasSecret: true,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      }),
+      updateNotificationChannel
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Ops" }));
+    await userEvent.clear(screen.getByLabelText("Channel name"));
+    await userEvent.type(screen.getByLabelText("Channel name"), "Ops updated");
+    await userEvent.clear(screen.getByLabelText("Webhook URL"));
+    await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com/updated");
+    await userEvent.click(screen.getByRole("button", { name: "Save channel" }));
+
+    await waitFor(() =>
+      expect(updateNotificationChannel).toHaveBeenCalledWith("chn_1", {
+        name: "Ops updated",
+        type: "webhook",
+        url: "https://hooks.example.com/updated",
+        secretHeaderName: "X-SignalMonitor-Secret",
+        enabled: true
+      })
+    );
+    expect(within(screen.getByLabelText("Notification channels")).getByText("Ops updated")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create channel" })).toBeInTheDocument();
   });
 
   it("requires a secret header name before submitting a secret value", async () => {

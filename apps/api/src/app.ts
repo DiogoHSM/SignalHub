@@ -49,7 +49,7 @@ export type BuildAppOptions = {
   hashHeartbeatSecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
   nodeEnv?: string;
-  console?: Omit<ConsoleRouteOptions, "googleOAuthEnabled">;
+  console?: Omit<ConsoleRouteOptions, "browserCorsOrigins" | "googleOAuthEnabled">;
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
 };
@@ -193,6 +193,7 @@ export async function buildApp(options: BuildAppOptions) {
     apiBasePath: options.console?.apiBasePath ?? "/",
     apiEndpoint: options.console?.apiEndpoint ?? "",
     assetsDir: options.console?.assetsDir,
+    browserCorsOrigins: options.browserCorsOrigins ?? [],
     googleOAuthEnabled: options.googleOAuthEnabled ?? false
   });
   registerAdminRoutes(app, {

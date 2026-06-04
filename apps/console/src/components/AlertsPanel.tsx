@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type {
   AlertEventResponse,
@@ -144,8 +145,10 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
   const [channelForm, setChannelForm] = useState<ChannelForm>(defaultChannelForm);
   const [ruleForm, setRuleForm] = useState<RuleForm>(defaultRuleForm);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
+  const [isUpdatingChannel, setIsUpdatingChannel] = useState(false);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isUpdatingRule, setIsUpdatingRule] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +161,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     setChannelForm(defaultChannelForm);
     setRuleForm(defaultRuleForm);
     setEditingRuleId(null);
+    setEditingChannelId(null);
     setIsCreatingChannel(false);
+    setIsUpdatingChannel(false);
     setIsCreatingRule(false);
     setIsUpdatingRule(false);
   }, [projectId, environmentId]);
@@ -208,7 +213,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     };
   }, [client, projectId, environmentId]);
 
-  async function createChannel(event: FormEvent<HTMLFormElement>) {
+  async function saveChannel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isLoading) return;
     const name = channelForm.name.trim();
@@ -253,11 +258,30 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
 
     const requestId = channelCreateRequestRef.current + 1;
     channelCreateRequestRef.current = requestId;
-    setIsCreatingChannel(true);
+    if (editingChannelId) {
+      setIsUpdatingChannel(true);
+    } else {
+      setIsCreatingChannel(true);
+    }
     setError(null);
     try {
-      const { channel } =
-        channelForm.type === "email"
+      const { channel } = editingChannelId
+        ? channelForm.type === "email"
+          ? await client.updateNotificationChannel(editingChannelId, {
+              name,
+              type: "email",
+              emailRecipients,
+              enabled: true
+            })
+          : await client.updateNotificationChannel(editingChannelId, {
+              name,
+              type: "webhook",
+              url,
+              secretHeaderName: secretHeaderName || null,
+              ...(secretHeaderValue ? { secretHeaderValue } : {}),
+              enabled: true
+            })
+        : channelForm.type === "email"
           ? await client.createNotificationChannel({
               name,
               type: "email",
@@ -275,18 +299,43 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       if (channelCreateRequestRef.current !== requestId) {
         return;
       }
-      setChannels((current) => [...current, channel]);
+      setChannels((current) =>
+        editingChannelId
+          ? current.map((currentChannel) => (currentChannel.id === channel.id ? channel : currentChannel))
+          : [...current, channel]
+      );
+      setEditingChannelId(null);
       setChannelForm(defaultChannelForm);
     } catch {
       if (channelCreateRequestRef.current !== requestId) {
         return;
       }
-      setError("Could not create notification channel");
+      setError(editingChannelId ? "Could not update notification channel" : "Could not create notification channel");
     } finally {
       if (channelCreateRequestRef.current === requestId) {
         setIsCreatingChannel(false);
+        setIsUpdatingChannel(false);
       }
     }
+  }
+
+  function editChannel(channel: NotificationChannelResponse) {
+    setEditingChannelId(channel.id);
+    setError(null);
+    setChannelForm({
+      type: channel.type,
+      name: channel.name,
+      url: channel.type === "webhook" ? channel.url : "",
+      emailRecipients: channel.type === "email" ? channel.emailRecipients.join(", ") : "",
+      secretHeaderName: channel.type === "webhook" ? (channel.secretHeaderName ?? "") : "",
+      secretHeaderValue: ""
+    });
+  }
+
+  function cancelChannelEdit() {
+    setEditingChannelId(null);
+    setChannelForm(defaultChannelForm);
+    setError(null);
   }
 
   async function saveRule(event: FormEvent<HTMLFormElement>) {
@@ -387,6 +436,33 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     setError(null);
   }
 
+  async function archiveRule(rule: AlertRuleResponse) {
+    if (!window.confirm(`Archive alert rule ${rule.name}?`)) return;
+
+    setError(null);
+    try {
+      await client.archiveAlertRule(rule.id);
+      setRules((current) => current.filter((currentRule) => currentRule.id !== rule.id));
+    } catch {
+      setError("Could not archive alert rule");
+    }
+  }
+
+  async function archiveChannel(channel: NotificationChannelResponse) {
+    if (!window.confirm(`Archive notification channel ${channel.name}?`)) return;
+
+    setError(null);
+    try {
+      await client.archiveNotificationChannel(channel.id);
+      setChannels((current) => current.filter((currentChannel) => currentChannel.id !== channel.id));
+      setRuleForm((current) =>
+        current.notificationChannelId === channel.id ? { ...current, notificationChannelId: "" } : current
+      );
+    } catch {
+      setError("Could not archive notification channel");
+    }
+  }
+
   if (!projectId || !environmentId) {
     return (
       <section className="alerts-panel">
@@ -441,8 +517,17 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                   </div>
                   <div className="alerts-row__actions">
                     <span className={statusClass(rule.enabled ? "success" : "neutral")}>{rule.enabled ? "enabled" : "disabled"}</span>
-                    <button aria-label={`Edit ${rule.name}`} onClick={() => editRule(rule)} type="button">
+                    <button className="secondary-button" aria-label={`Edit ${rule.name}`} onClick={() => editRule(rule)} type="button">
                       Edit
+                    </button>
+                    <button
+                      aria-label={`Archive ${rule.name}`}
+                      className="icon-button icon-button--danger"
+                      onClick={() => void archiveRule(rule)}
+                      title="Archive alert rule"
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={16} />
                     </button>
                   </div>
                 </article>
@@ -467,7 +552,21 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                     <span>{channelTarget(channel)}</span>
                     <span>{channelSecretLabel(channel)}</span>
                   </div>
-                  <span className={statusClass(channel.enabled ? "success" : "neutral")}>{channel.enabled ? "enabled" : "disabled"}</span>
+                  <div className="alerts-row__actions">
+                    <span className={statusClass(channel.enabled ? "success" : "neutral")}>{channel.enabled ? "enabled" : "disabled"}</span>
+                    <button className="secondary-button" aria-label={`Edit ${channel.name}`} onClick={() => editChannel(channel)} type="button">
+                      Edit
+                    </button>
+                    <button
+                      aria-label={`Archive ${channel.name}`}
+                      className="icon-button icon-button--danger"
+                      onClick={() => void archiveChannel(channel)}
+                      title="Archive notification channel"
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={16} />
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -501,9 +600,16 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
           )}
         </section>
 
-        <section aria-label="Create notification channel" className="alerts-card">
-          <h3>Create notification channel</h3>
-          <form className="alerts-form" noValidate onSubmit={createChannel}>
+        <section aria-label={editingChannelId ? "Edit notification channel" : "Create notification channel"} className="alerts-card">
+          <div className="alerts-card__header">
+            <h3>{editingChannelId ? "Edit notification channel" : "Create notification channel"}</h3>
+            {editingChannelId ? (
+              <button className="secondary-button" onClick={cancelChannelEdit} type="button">
+                Cancel
+              </button>
+            ) : null}
+          </div>
+          <form className="alerts-form" noValidate onSubmit={saveChannel}>
             <label>
               Channel type
               <select
@@ -564,8 +670,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 </label>
               </>
             )}
-            <button disabled={isLoading || isCreatingChannel} type="submit">
-              Create channel
+            <button disabled={isLoading || isCreatingChannel || isUpdatingChannel} type="submit">
+              {editingChannelId ? (isUpdatingChannel ? "Saving channel" : "Save channel") : "Create channel"}
             </button>
           </form>
         </section>
