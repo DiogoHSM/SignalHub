@@ -127,11 +127,13 @@ function parseIncidentRoute(location: Location): IncidentRoute {
 }
 
 export function ConsoleShell({
+  browserCorsOrigins = [],
   client,
   apiEndpoint,
   onSignOut,
   user
 }: {
+  browserCorsOrigins?: string[];
   client: ApiClient;
   apiEndpoint?: string;
   onSignOut?: () => Promise<void>;
@@ -689,6 +691,7 @@ export function ConsoleShell({
                     activeEnvironment={activeEnvironment}
                     activeProjectId={activeProject?.id}
                     apiEndpoint={apiEndpoint}
+                    browserCorsOrigins={browserCorsOrigins}
                     client={client}
                     environments={environments}
                     isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
@@ -699,7 +702,11 @@ export function ConsoleShell({
                   />
                 ) : null}
               </div>
-              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SigmonAdminWorkspace client={client} key={`system:${refreshToken}`} /> : null}</div>
+              <div hidden={activeMode !== "system"}>
+                {activeMode === "system" ? (
+                  <SigmonAdminWorkspace browserCorsOrigins={browserCorsOrigins} client={client} key={`system:${refreshToken}`} />
+                ) : null}
+              </div>
             </>
           )}
         </div>

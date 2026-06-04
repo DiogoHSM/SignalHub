@@ -7,6 +7,7 @@ export type ConsoleRouteOptions = {
   apiBasePath: string;
   apiEndpoint: string;
   assetsDir?: string;
+  browserCorsOrigins: string[];
   googleOAuthEnabled: boolean;
 };
 
@@ -15,6 +16,7 @@ export async function registerConsoleRoutes(app: FastifyInstance, options: Conso
     reply.send({
       apiBasePath: options.apiBasePath,
       apiEndpoint: options.apiEndpoint,
+      browserCorsOrigins: options.browserCorsOrigins,
       googleOAuthEnabled: options.googleOAuthEnabled
     })
   );
