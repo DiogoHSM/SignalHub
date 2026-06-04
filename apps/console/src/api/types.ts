@@ -31,6 +31,14 @@ export type ApiKey = {
   revokedAt: string | null;
 };
 
+export type BrowserOrigin = {
+  id: string;
+  projectId: string;
+  origin: string;
+  createdAt: string;
+  archivedAt: string | null;
+};
+
 export type CreatedApiKey = ApiKey & {
   secret: string;
 };
@@ -1115,6 +1123,7 @@ export type SessionTimelineResponse = {
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
+  browserCorsOrigins: string[];
   googleOAuthEnabled: boolean;
 };
 

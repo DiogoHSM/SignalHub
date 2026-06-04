@@ -1,6 +1,7 @@
 import type {
   AggregateResponse,
   ApiKey,
+  BrowserOrigin,
   AlertEventListQuery,
   AlertEventResponse,
   AlertRuleListQuery,
@@ -128,6 +129,11 @@ export type SourceMapApiClient = {
     environmentId: string;
     name: string;
   }) => Promise<{ token: CreatedSourceMapUploadToken }>;
+  updateSourceMapUploadToken: (
+    id: string,
+    query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">,
+    input: { name?: string }
+  ) => Promise<{ token: SourceMapUploadToken }>;
   revokeSourceMapUploadToken: (
     id: string,
     query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">
@@ -159,6 +165,9 @@ export type ApiClient = {
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
   revokeApiKey: (id: string) => Promise<void>;
+  listBrowserOrigins?: (projectId: string) => Promise<{ origins: BrowserOrigin[] }>;
+  createBrowserOrigin?: (projectId: string, input: { origin: string }) => Promise<{ origin: BrowserOrigin }>;
+  archiveBrowserOrigin?: (id: string) => Promise<void>;
   listEvents: (filters: QueryFilters) => Promise<QueryListResponse<EventRecord>>;
   listErrors: (filters: QueryFilters) => Promise<QueryListResponse<ErrorRecord>>;
   listTraces: (filters: QueryFilters) => Promise<QueryListResponse<TraceRecord>>;
@@ -566,6 +575,15 @@ export function createApiClient(
         body: input
       }),
     revokeApiKey: (id) => request<void>(path(apiBasePath, `/admin/api-keys/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listBrowserOrigins: (projectId) =>
+      request<{ origins: BrowserOrigin[] }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/browser-origins`)),
+    createBrowserOrigin: (projectId, input) =>
+      request<{ origin: BrowserOrigin }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/browser-origins`), {
+        method: "POST",
+        body: input
+      }),
+    archiveBrowserOrigin: (id) =>
+      request<void>(path(apiBasePath, `/admin/browser-origins/${encodePathSegment(id)}`), { method: "DELETE" }),
     listEvents: (filters) =>
       request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters, { includeEventName: true }))),
     listErrors: (filters) =>
@@ -613,6 +631,11 @@ export function createApiClient(
     createSourceMapUploadToken: (input) =>
       request<{ token: CreatedSourceMapUploadToken }>(path(apiBasePath, "/admin/source-map-upload-tokens"), {
         method: "POST",
+        body: input
+      }),
+    updateSourceMapUploadToken: (id, query, input) =>
+      request<{ token: SourceMapUploadToken }>(path(apiBasePath, sourceMapUploadTokenPath(id, query)), {
+        method: "PATCH",
         body: input
       }),
     revokeSourceMapUploadToken: (id, query) =>

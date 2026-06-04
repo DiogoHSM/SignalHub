@@ -147,6 +147,12 @@ describe("MonitorsPanel", () => {
 
     expect(await screen.findByRole("heading", { name: "Monitors" })).toBeInTheDocument();
     expect(await screen.findByText("API health")).toBeInTheDocument();
+    const monitorList = screen.getByRole("region", { name: "Monitor list" });
+    expect(within(monitorList).getByText("Monitor", { selector: ".monitors-list-header span" })).toBeInTheDocument();
+    expect(within(monitorList).getByText("Target", { selector: ".monitors-list-header span" })).toBeInTheDocument();
+    expect(within(monitorList).getByText("Schedule", { selector: ".monitors-list-header span" })).toBeInTheDocument();
+    expect(within(monitorList).getByText("Last check", { selector: ".monitors-list-header span" })).toBeInTheDocument();
+    expect(within(monitorList).getByText("Status", { selector: ".monitors-list-header span" })).toBeInTheDocument();
     const httpForm = screen.getByRole("region", { name: "Create HTTP monitor" });
     expect(within(httpForm).getByLabelText("Check interval (minutes)")).toBeInTheDocument();
     expect(within(httpForm).getByLabelText("Timeout (milliseconds)")).toBeInTheDocument();

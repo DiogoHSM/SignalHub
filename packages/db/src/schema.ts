@@ -29,6 +29,14 @@ export interface ProjectsTable {
   archived_at: NullableTimestamp;
 }
 
+export interface ProjectBrowserOriginsTable {
+  id: string;
+  project_id: string;
+  origin: string;
+  created_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -455,6 +463,7 @@ export interface MigrationsTable {
 export interface Database {
   users: UsersTable;
   projects: ProjectsTable;
+  project_browser_origins: ProjectBrowserOriginsTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;

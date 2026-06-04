@@ -47,6 +47,33 @@ describe("ingestion routes", () => {
     expect(response.headers.vary).toContain("Origin");
   });
 
+  it("allows browser preflight requests for persisted project origins", async () => {
+    const isBrowserCorsOriginAllowed = vi.fn().mockResolvedValue(true);
+
+    app = await buildApp({
+      readiness,
+      isBrowserCorsOriginAllowed,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/errors",
+      headers: {
+        origin: "https://app.example.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type"
+      }
+    });
+
+    expect(isBrowserCorsOriginAllowed).toHaveBeenCalledWith("https://app.example.com");
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.example.com");
+  });
+
   it("adds CORS headers to browser ingestion responses for configured origins", async () => {
     app = await buildApp({
       readiness,

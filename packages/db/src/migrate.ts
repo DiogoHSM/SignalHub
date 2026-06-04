@@ -16,7 +16,8 @@ const migrations = [
   { name: "0010_backup_checksums.sql", url: new URL("../migrations/0010_backup_checksums.sql", import.meta.url) },
   { name: "0011_error_group_priority.sql", url: new URL("../migrations/0011_error_group_priority.sql", import.meta.url) },
   { name: "0012_alerting_monitors.sql", url: new URL("../migrations/0012_alerting_monitors.sql", import.meta.url) },
-  { name: "0013_identity_profiles.sql", url: new URL("../migrations/0013_identity_profiles.sql", import.meta.url) }
+  { name: "0013_identity_profiles.sql", url: new URL("../migrations/0013_identity_profiles.sql", import.meta.url) },
+  { name: "0014_project_browser_origins.sql", url: new URL("../migrations/0014_project_browser_origins.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

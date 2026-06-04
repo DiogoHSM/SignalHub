@@ -2,15 +2,19 @@ import { createStructuredLogger, loadConfig } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
 import {
+  archiveProjectBrowserOrigin,
   archiveEnvironment,
   archiveProject,
   createApiKeyRecord,
   createEnvironment,
   createProject,
+  createProjectBrowserOrigin,
   findApiKeyByPrefix,
   getProject,
+  isBrowserOriginAllowed,
   listApiKeys,
   listEnvironments,
+  listProjectBrowserOrigins,
   listProjects,
   revokeApiKey,
   updateApiKeyRecord,
@@ -67,6 +71,7 @@ import {
   findSourceMapUploadTokenByPrefix,
   listSourceMapUploadTokens,
   revokeSourceMapUploadToken,
+  updateSourceMapUploadToken,
   updateSourceMapUploadTokenLastUsed
 } from "@sigmon/db/repositories/source-map-upload-tokens.js";
 import {
@@ -410,6 +415,11 @@ const app = await buildApp({
       create: (input) => createApiKeyRecord(db, input),
       update: (id, input) => updateApiKeyRecord(db, id, input),
       revoke: (id) => revokeApiKey(db, id)
+    },
+    browserOrigins: {
+      list: (projectId) => listProjectBrowserOrigins(db, projectId),
+      create: (input) => createProjectBrowserOrigin(db, input),
+      archive: (id) => archiveProjectBrowserOrigin(db, id)
     }
   },
   ingestion: {
@@ -579,11 +589,13 @@ const app = await buildApp({
   sourceMapUploadTokens: {
     list: (scope) => listSourceMapUploadTokens(db, scope),
     create: (input) => createSourceMapUploadTokenRecord(db, input),
+    update: (input) => updateSourceMapUploadToken(db, input),
     revoke: (input) => revokeSourceMapUploadToken(db, input)
   },
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,
   browserCorsOrigins: config.browserCors.origins,
+  isBrowserCorsOriginAllowed: (origin) => isBrowserOriginAllowed(db, origin),
   nodeEnv: config.nodeEnv,
   console: {
     enabled: config.console.enabled,

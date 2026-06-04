@@ -49,9 +49,10 @@ export type BuildAppOptions = {
   hashHeartbeatSecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
   nodeEnv?: string;
-  console?: Omit<ConsoleRouteOptions, "googleOAuthEnabled">;
+  console?: Omit<ConsoleRouteOptions, "browserCorsOrigins" | "googleOAuthEnabled">;
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
+  isBrowserCorsOriginAllowed?: (origin: string) => Promise<boolean>;
 };
 
 const browserIngestionCorsPaths = new Set([
@@ -142,7 +143,11 @@ export async function buildApp(options: BuildAppOptions) {
 
   app.addHook("onRequest", async (request, reply) => {
     const origin = request.headers.origin;
-    if (typeof origin !== "string" || !browserCorsOrigins.has(origin) || !isBrowserIngestionCorsPath(request.url)) {
+    if (typeof origin !== "string" || !isBrowserIngestionCorsPath(request.url)) {
+      return;
+    }
+    const allowed = browserCorsOrigins.has(origin) || (await options.isBrowserCorsOriginAllowed?.(origin));
+    if (!allowed) {
       return;
     }
 
@@ -193,6 +198,7 @@ export async function buildApp(options: BuildAppOptions) {
     apiBasePath: options.console?.apiBasePath ?? "/",
     apiEndpoint: options.console?.apiEndpoint ?? "",
     assetsDir: options.console?.assetsDir,
+    browserCorsOrigins: options.browserCorsOrigins ?? [],
     googleOAuthEnabled: options.googleOAuthEnabled ?? false
   });
   registerAdminRoutes(app, {

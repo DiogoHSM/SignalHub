@@ -62,6 +62,7 @@ function client(overrides: Partial<ApiClient & SourceMapApiClient> = {}): ApiCli
     deleteSourceMapArtifact: vi.fn().mockResolvedValue(undefined),
     listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [] }),
     createSourceMapUploadToken: vi.fn(),
+    updateSourceMapUploadToken: vi.fn(),
     revokeSourceMapUploadToken: vi.fn().mockResolvedValue(undefined),
     getErrorSourceMapResolution: vi.fn(),
     ...overrides
@@ -326,6 +327,33 @@ describe("ArtifactsPanel", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Revoke GitHub Actions" }));
 
     expect(api.revokeSourceMapUploadToken).toHaveBeenCalledWith("smtok_1", { projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("renames source map upload tokens", async () => {
+    const api = client({
+      listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+      listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [uploadToken()] }),
+      updateSourceMapUploadToken: vi.fn().mockResolvedValue({
+        token: uploadToken({ name: "Production sourcemaps" })
+      })
+    });
+
+    render(<ArtifactsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit GitHub Actions" }));
+    await userEvent.clear(screen.getByLabelText("Token name"));
+    await userEvent.type(screen.getByLabelText("Token name"), "Production sourcemaps");
+    await userEvent.click(screen.getByRole("button", { name: "Save token" }));
+
+    await waitFor(() =>
+      expect(api.updateSourceMapUploadToken).toHaveBeenCalledWith(
+        "smtok_1",
+        { projectId: "prj_1", environmentId: "env_1" },
+        { name: "Production sourcemaps" }
+      )
+    );
+    expect(await screen.findByText("Production sourcemaps")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create token" })).toBeInTheDocument();
   });
 
   it("keeps a created token when an earlier same-scope token load resolves later", async () => {
