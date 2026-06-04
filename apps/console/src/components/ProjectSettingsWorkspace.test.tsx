@@ -103,15 +103,18 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof ProjectSetting
       activeProject={project}
       activeProjectId="prj_1"
       apiEndpoint="https://sigmon.example.com"
+      browserCorsOrigins={["https://app.controledaempresa.com"]}
       client={client()}
       environments={[environment]}
       isEnvironmentCreationDisabled={false}
       latestSecret="sh_secret_value"
+      onArchiveEnvironment={vi.fn()}
       onCreateEnvironment={vi.fn()}
       onArchiveProject={vi.fn()}
       onSecretCreated={vi.fn()}
       onSelectEnvironment={vi.fn()}
       onUpdateProject={vi.fn()}
+      onUpdateEnvironment={vi.fn()}
       {...overrides}
     />
   );
@@ -127,6 +130,8 @@ describe("ProjectSettingsWorkspace", () => {
 
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
     expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument();
+    expect(screen.getByText("4 of 4 ready")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Project settings sections" })).toBeInTheDocument();
 
     for (const label of ["Project", "Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
@@ -168,6 +173,22 @@ describe("ProjectSettingsWorkspace", () => {
     confirmSpy.mockRestore();
   });
 
+  it("exposes environment management actions from the environments section", async () => {
+    const onArchiveEnvironment = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace({ onArchiveEnvironment });
+
+    await userEvent.click(screen.getByRole("button", { name: "Environments" }));
+
+    expect(screen.getByRole("button", { name: "Edit Production" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Archive Production" }));
+
+    expect(window.confirm).toHaveBeenCalledWith("Archive environment Production?");
+    expect(onArchiveEnvironment).toHaveBeenCalledWith(environment);
+  });
+
   it("shows browser origin guidance and the current global CORS limitation", async () => {
     renderWorkspace();
 
@@ -176,6 +197,7 @@ describe("ProjectSettingsWorkspace", () => {
     expect(
       screen.getByText("Browser origins must include protocol, for example https://app.example.com.")
     ).toBeInTheDocument();
+    expect(screen.getByText("https://app.controledaempresa.com")).toBeInTheDocument();
     expect(screen.getByText(/BROWSER_CORS_ORIGINS is currently configured globally/i)).toBeInTheDocument();
   });
 

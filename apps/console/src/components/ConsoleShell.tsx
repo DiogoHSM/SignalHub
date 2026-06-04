@@ -127,11 +127,13 @@ function parseIncidentRoute(location: Location): IncidentRoute {
 }
 
 export function ConsoleShell({
+  browserCorsOrigins = [],
   client,
   apiEndpoint,
   onSignOut,
   user
 }: {
+  browserCorsOrigins?: string[];
   client: ApiClient;
   apiEndpoint?: string;
   onSignOut?: () => Promise<void>;
@@ -304,6 +306,14 @@ export function ConsoleShell({
     selectProject(project);
   }
 
+  function selectEnvironmentById(environmentId: string) {
+    const environment = environments.find((candidate) => candidate.id === environmentId);
+    if (!environment) return;
+    activeEnvironmentRef.current = environment;
+    setActiveEnvironment(environment);
+    setRefreshToken((current) => current + 1);
+  }
+
   function storeLatestSecret(secret: string) {
     if (!activeProject || !activeEnvironment) return;
     setLatestSecret({
@@ -456,6 +466,41 @@ export function ConsoleShell({
     setActiveEnvironment(environment);
   }
 
+  async function updateEnvironment(environment: Environment, name: string) {
+    const { environment: updatedEnvironment } = await client.updateEnvironment(environment.id, { name });
+    if (activeProjectIdRef.current !== updatedEnvironment.projectId) return;
+
+    setEnvironments((current) => {
+      const next = current.map((currentEnvironment) =>
+        currentEnvironment.id === updatedEnvironment.id ? updatedEnvironment : currentEnvironment
+      );
+      environmentsRef.current = next;
+      return next;
+    });
+
+    if (activeEnvironmentRef.current?.id === updatedEnvironment.id) {
+      activeEnvironmentRef.current = updatedEnvironment;
+      setActiveEnvironment(updatedEnvironment);
+    }
+  }
+
+  async function archiveEnvironment(environment: Environment) {
+    await client.archiveEnvironment(environment.id);
+    if (activeProjectIdRef.current !== environment.projectId) return;
+
+    setEnvironments((current) => {
+      const next = current.filter((currentEnvironment) => currentEnvironment.id !== environment.id);
+      environmentsRef.current = next;
+      const shouldReplaceActive = activeEnvironmentRef.current?.id === environment.id;
+      if (shouldReplaceActive) {
+        const nextActiveEnvironment = next[0];
+        activeEnvironmentRef.current = nextActiveEnvironment;
+        setActiveEnvironment(nextActiveEnvironment);
+      }
+      return next;
+    });
+  }
+
   const isSigmonAdminMode = activeMode === "system";
   const isIncidentViewActive = activeMode === "investigate" && incidentRoute.kind === "error-group";
   const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
@@ -471,7 +516,7 @@ export function ConsoleShell({
     : commandDestinations;
 
   return (
-    <main className="console-layout">
+    <main className="console-layout console-shell">
       <aside className="console-rail" aria-label="Console navigation">
         <div className="console-logo" role="img" aria-label="sigmon heartbeat logo">
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -507,6 +552,24 @@ export function ConsoleShell({
             <strong>{activeModeLabel}</strong>
           </div>
           <div className="workspace-scope">
+            {!isSigmonAdminMode ? (
+              <label className="environment-scope-control">
+                <span>Environment</span>
+                <select
+                  aria-label="Current environment"
+                  disabled={!activeProject || loadedEnvironmentProjectId !== activeProject.id || environments.length === 0}
+                  onChange={(event) => selectEnvironmentById(event.target.value)}
+                  value={activeEnvironment?.id ?? ""}
+                >
+                  {activeEnvironment ? null : <option value="">No environment selected</option>}
+                  {environments.map((environment) => (
+                    <option key={environment.id} value={environment.id}>
+                      {environment.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <span className="scope-pill">
               <span className="scope-pill__dot" />
               {isSigmonAdminMode
@@ -715,19 +778,26 @@ export function ConsoleShell({
                     activeProject={activeProject}
                     activeProjectId={activeProject?.id}
                     apiEndpoint={apiEndpoint}
+                    browserCorsOrigins={browserCorsOrigins}
                     client={client}
                     environments={environments}
                     isEnvironmentCreationDisabled={isEnvironmentCreationDisabled}
                     latestSecret={scopedLatestSecret}
+                    onArchiveEnvironment={archiveEnvironment}
                     onCreateEnvironment={createEnvironment}
                     onArchiveProject={archiveProject}
                     onSecretCreated={storeLatestSecret}
                     onSelectEnvironment={setActiveEnvironment}
                     onUpdateProject={updateProject}
+                    onUpdateEnvironment={updateEnvironment}
                   />
                 ) : null}
               </div>
-              <div hidden={activeMode !== "system"}>{activeMode === "system" ? <SigmonAdminWorkspace client={client} key={`system:${refreshToken}`} /> : null}</div>
+              <div hidden={activeMode !== "system"}>
+                {activeMode === "system" ? (
+                  <SigmonAdminWorkspace browserCorsOrigins={browserCorsOrigins} client={client} key={`system:${refreshToken}`} />
+                ) : null}
+              </div>
             </>
           )}
         </div>
