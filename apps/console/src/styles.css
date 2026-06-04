@@ -2909,7 +2909,8 @@ textarea:focus-visible {
   font-weight: 650;
 }
 
-.project-scope-control {
+.project-scope-control,
+.environment-scope-control {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2920,7 +2921,8 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 
-.project-scope-control select {
+.project-scope-control select,
+.environment-scope-control select {
   min-width: 120px;
   max-width: 220px;
   min-height: 32px;
@@ -2935,7 +2937,12 @@ textarea:focus-visible {
   padding: 0 28px 0 10px;
 }
 
-.project-scope-control select:focus-visible {
+.environment-scope-control select {
+  max-width: 180px;
+}
+
+.project-scope-control select:focus-visible,
+.environment-scope-control select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
