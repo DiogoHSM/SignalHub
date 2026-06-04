@@ -129,6 +129,11 @@ export type SourceMapApiClient = {
     environmentId: string;
     name: string;
   }) => Promise<{ token: CreatedSourceMapUploadToken }>;
+  updateSourceMapUploadToken: (
+    id: string,
+    query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">,
+    input: { name?: string }
+  ) => Promise<{ token: SourceMapUploadToken }>;
   revokeSourceMapUploadToken: (
     id: string,
     query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">
@@ -620,6 +625,11 @@ export function createApiClient(
     createSourceMapUploadToken: (input) =>
       request<{ token: CreatedSourceMapUploadToken }>(path(apiBasePath, "/admin/source-map-upload-tokens"), {
         method: "POST",
+        body: input
+      }),
+    updateSourceMapUploadToken: (id, query, input) =>
+      request<{ token: SourceMapUploadToken }>(path(apiBasePath, sourceMapUploadTokenPath(id, query)), {
+        method: "PATCH",
         body: input
       }),
     revokeSourceMapUploadToken: (id, query) =>

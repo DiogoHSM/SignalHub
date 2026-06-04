@@ -1,9 +1,10 @@
 import { type FormEvent, useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { BrowserOrigin, Environment } from "../api/types";
+import type { BrowserOrigin, Environment, Project } from "../api/types";
 import { ApiKeyPanel } from "./ApiKeyPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { EnvironmentSelector } from "./EnvironmentSelector";
+import { ProjectOnboardingChecklist } from "./ProjectOnboardingChecklist";
 import { SettingsSectionNav, type SettingsSection } from "./SettingsSectionNav";
 import { SnippetPanel } from "./SnippetPanel";
 import { EmptyState } from "./ui/EmptyState";
@@ -12,17 +13,28 @@ import { UserAdminPanel } from "./UserAdminPanel";
 type Props = {
   client: ApiClient;
   activeEnvironment?: Environment;
+  activeProject?: Project;
   activeProjectId?: string;
   apiEndpoint?: string;
+  browserCorsOrigins?: string[];
   environments: Environment[];
   isEnvironmentCreationDisabled: boolean;
   latestSecret?: string;
+  onArchiveEnvironment?: (environment: Environment) => Promise<void>;
   onCreateEnvironment: (name: string) => Promise<void>;
+  onArchiveProject: (projectId: string) => Promise<void>;
   onSecretCreated: (secret: string) => void;
   onSelectEnvironment: (environment: Environment) => void;
+  onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
+  onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;
 };
 
 const sections = [
+  {
+    id: "project",
+    label: "Project",
+    description: "Rename or archive the selected monitored product."
+  },
   {
     id: "environments",
     label: "Environments",
@@ -191,17 +203,22 @@ function BrowserOriginsPanel({ client, projectId }: { client: ApiClient; project
 
 export function ProjectSettingsWorkspace({
   activeEnvironment,
+  activeProject,
   activeProjectId,
   apiEndpoint,
   client,
   environments,
   isEnvironmentCreationDisabled,
   latestSecret,
+  onArchiveEnvironment,
   onCreateEnvironment,
+  onArchiveProject,
   onSecretCreated,
-  onSelectEnvironment
+  onSelectEnvironment,
+  onUpdateProject,
+  onUpdateEnvironment
 }: Props) {
-  const [activeSectionId, setActiveSectionId] = useState<SectionId>("environments");
+  const [activeSectionId, setActiveSectionId] = useState<SectionId>("project");
   const activeEnvironmentId = activeEnvironment?.id;
 
   function renderSection() {
@@ -215,6 +232,19 @@ export function ProjectSettingsWorkspace({
     }
 
     switch (activeSectionId) {
+      case "project":
+        return activeProject ? (
+          <ProjectManagementPanel
+            onArchiveProject={onArchiveProject}
+            onUpdateProject={onUpdateProject}
+            project={activeProject}
+          />
+        ) : (
+          <EmptyState
+            description="Select a project before changing project settings."
+            title="No project selected"
+          />
+        );
       case "api-keys":
         return (
           <ApiKeyPanel
@@ -251,8 +281,10 @@ export function ProjectSettingsWorkspace({
             activeEnvironmentId={activeEnvironmentId}
             disabled={isEnvironmentCreationDisabled}
             environments={environments}
+            onArchive={onArchiveEnvironment}
             onCreate={onCreateEnvironment}
             onSelect={onSelectEnvironment}
+            onUpdate={onUpdateEnvironment}
           />
         );
     }
@@ -264,6 +296,14 @@ export function ProjectSettingsWorkspace({
         <h1>Project Settings</h1>
         <p>Recurring configuration for the selected project and environment.</p>
       </header>
+      {activeProjectId ? (
+        <ProjectOnboardingChecklist
+          activeEnvironment={activeEnvironment}
+          activeProjectId={activeProjectId}
+          apiEndpoint={apiEndpoint}
+          latestSecret={latestSecret}
+        />
+      ) : null}
       <div className="settings-workspace__body">
         <SettingsSectionNav
           activeSectionId={activeSectionId}
@@ -272,6 +312,78 @@ export function ProjectSettingsWorkspace({
           sections={sections}
         />
         <div className="settings-workspace__content">{renderSection()}</div>
+      </div>
+    </section>
+  );
+}
+
+function ProjectManagementPanel({
+  onArchiveProject,
+  onUpdateProject,
+  project
+}: {
+  onArchiveProject: (projectId: string) => Promise<void>;
+  onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
+  project: Project;
+}) {
+  const [name, setName] = useState(project.name);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+
+  useEffect(() => {
+    setName(project.name);
+  }, [project.name]);
+
+  async function saveProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === project.name || isSaving) return;
+
+    setIsSaving(true);
+    try {
+      await onUpdateProject(project.id, { name: trimmed });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function archiveProject() {
+    if (isArchiving) return;
+    if (!window.confirm(`Archive project ${project.name}? This hides it from the project switcher.`)) return;
+
+    setIsArchiving(true);
+    try {
+      await onArchiveProject(project.id);
+    } finally {
+      setIsArchiving(false);
+    }
+  }
+
+  return (
+    <section className="panel project-management-panel">
+      <div className="panel-header">
+        <div>
+          <h2>Project</h2>
+          <p className="muted-text">Project settings apply to every environment, key, monitor, and artifact inside this project.</p>
+        </div>
+      </div>
+      <form className="inline-form" onSubmit={saveProject}>
+        <label>
+          Project name
+          <input onChange={(event) => setName(event.target.value)} value={name} />
+        </label>
+        <button disabled={!name.trim() || name.trim() === project.name || isSaving} type="submit">
+          {isSaving ? "Saving" : "Save project"}
+        </button>
+      </form>
+      <div className="danger-zone">
+        <div>
+          <h3>Archive project</h3>
+          <p className="muted-text">Archived projects are hidden from the switcher. Existing telemetry remains stored until retention removes it.</p>
+        </div>
+        <button aria-label={`Archive ${project.name}`} disabled={isArchiving} onClick={() => void archiveProject()} type="button">
+          {isArchiving ? "Archiving" : "Archive project"}
+        </button>
       </div>
     </section>
   );

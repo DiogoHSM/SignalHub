@@ -599,6 +599,54 @@ describe("admin routes", () => {
     expect(listTokens).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
   });
 
+  it("renames source map upload tokens without exposing secrets or hashes", async () => {
+    const updateToken = vi.fn().mockResolvedValue({
+      id: "smtok_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Production sourcemaps",
+      prefix: "shsmap_test",
+      hash: "hash",
+      createdAt: new Date("2026-05-11T12:00:00.000Z"),
+      lastUsedAt: null,
+      revokedAt: null
+    });
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMapUploadTokens: {
+        list: vi.fn(),
+        create: vi.fn(),
+        update: updateToken,
+        revoke: vi.fn()
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/source-map-upload-tokens/smtok_1?project_id=prj_1&environment_id=env_1",
+      payload: { name: "Production sourcemaps" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().token).toMatchObject({
+      id: "smtok_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Production sourcemaps",
+      prefix: "shsmap_test"
+    });
+    expect(response.json().token.secret).toBeUndefined();
+    expect(response.json().token.hash).toBeUndefined();
+    expect(updateToken).toHaveBeenCalledWith({
+      id: "smtok_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Production sourcemaps"
+    });
+  });
+
   it("revokes source map upload tokens for admins", async () => {
     const revoke = vi.fn();
 

@@ -1123,6 +1123,7 @@ export type SessionTimelineResponse = {
 export type ConsoleConfig = {
   apiBasePath: string;
   apiEndpoint: string;
+  browserCorsOrigins: string[];
   googleOAuthEnabled: boolean;
 };
 

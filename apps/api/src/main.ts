@@ -70,6 +70,7 @@ import {
   findSourceMapUploadTokenByPrefix,
   listSourceMapUploadTokens,
   revokeSourceMapUploadToken,
+  updateSourceMapUploadToken,
   updateSourceMapUploadTokenLastUsed
 } from "@sigmon/db/repositories/source-map-upload-tokens.js";
 import {
@@ -586,6 +587,7 @@ const app = await buildApp({
   sourceMapUploadTokens: {
     list: (scope) => listSourceMapUploadTokens(db, scope),
     create: (input) => createSourceMapUploadTokenRecord(db, input),
+    update: (input) => updateSourceMapUploadToken(db, input),
     revoke: (input) => revokeSourceMapUploadToken(db, input)
   },
   apiKeyPepper: config.apiKeyPepper,
