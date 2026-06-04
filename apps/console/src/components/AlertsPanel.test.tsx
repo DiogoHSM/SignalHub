@@ -518,6 +518,104 @@ describe("AlertsPanel", () => {
     );
   });
 
+  it("edits an existing alert rule", async () => {
+    const updateAlertRule = vi.fn().mockResolvedValue({
+      rule: {
+        id: "rule_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        notificationChannelId: "chn_1",
+        name: "Critical errors updated",
+        type: "error_count",
+        severity: "warning",
+        windowMinutes: 15,
+        threshold: "3",
+        cooldownMinutes: 45,
+        enabled: true,
+        lastEvaluatedAt: null,
+        lastTriggeredAt: null,
+        createdAt: "",
+        updatedAt: "",
+        archivedAt: null
+      }
+    });
+    const api = client({
+      listAlertRules: vi.fn().mockResolvedValue({
+        rules: [
+          {
+            id: "rule_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            notificationChannelId: null,
+            name: "Critical errors",
+            type: "critical_errors",
+            severity: "critical",
+            windowMinutes: 10,
+            threshold: "1",
+            cooldownMinutes: 30,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: null,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      }),
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_1",
+            name: "Ops",
+            type: "email",
+            url: null,
+            emailRecipients: ["ops@example.com"],
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      }),
+      updateAlertRule
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Critical errors" }));
+    await userEvent.clear(screen.getByLabelText("Rule name"));
+    await userEvent.type(screen.getByLabelText("Rule name"), "Critical errors updated");
+    await userEvent.selectOptions(screen.getByLabelText("Rule type"), "error_count");
+    await userEvent.selectOptions(screen.getByLabelText("Severity"), "warning");
+    await userEvent.clear(screen.getByLabelText("Window (minutes)"));
+    await userEvent.type(screen.getByLabelText("Window (minutes)"), "15");
+    await userEvent.clear(screen.getByLabelText("Threshold"));
+    await userEvent.type(screen.getByLabelText("Threshold"), "3");
+    await userEvent.clear(screen.getByLabelText("Cooldown (minutes)"));
+    await userEvent.type(screen.getByLabelText("Cooldown (minutes)"), "45");
+    await userEvent.selectOptions(screen.getByLabelText("Notification channel"), "chn_1");
+    await userEvent.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() =>
+      expect(updateAlertRule).toHaveBeenCalledWith("rule_1", {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        notificationChannelId: "chn_1",
+        name: "Critical errors updated",
+        type: "error_count",
+        severity: "warning",
+        windowMinutes: 15,
+        threshold: "3",
+        cooldownMinutes: 45,
+        enabled: true
+      })
+    );
+    expect(within(screen.getByLabelText("Alert rules")).getByText("Critical errors updated")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create rule" })).toBeInTheDocument();
+  });
+
   it("updates threshold help when selecting a unit-bearing alert rule type", async () => {
     const api = client();
 

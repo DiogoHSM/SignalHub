@@ -144,11 +144,13 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
   const [events, setEvents] = useState<AlertEventResponse[]>([]);
   const [channelForm, setChannelForm] = useState<ChannelForm>(defaultChannelForm);
   const [ruleForm, setRuleForm] = useState<RuleForm>(defaultRuleForm);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
   const [isUpdatingChannel, setIsUpdatingChannel] = useState(false);
   const [isCreatingRule, setIsCreatingRule] = useState(false);
+  const [isUpdatingRule, setIsUpdatingRule] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   currentScopeRef.current = { projectId, environmentId };
@@ -158,10 +160,12 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     ruleCreateRequestRef.current += 1;
     setChannelForm(defaultChannelForm);
     setRuleForm(defaultRuleForm);
+    setEditingRuleId(null);
     setEditingChannelId(null);
     setIsCreatingChannel(false);
     setIsUpdatingChannel(false);
     setIsCreatingRule(false);
+    setIsUpdatingRule(false);
   }, [projectId, environmentId]);
 
   useEffect(() => {
@@ -334,7 +338,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     setError(null);
   }
 
-  async function createRule(event: FormEvent<HTMLFormElement>) {
+  async function saveRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!projectId || !environmentId || isLoading) return;
     const submittedProjectId = projectId;
@@ -361,10 +365,14 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
 
     const requestId = ruleCreateRequestRef.current + 1;
     ruleCreateRequestRef.current = requestId;
-    setIsCreatingRule(true);
+    if (editingRuleId) {
+      setIsUpdatingRule(true);
+    } else {
+      setIsCreatingRule(true);
+    }
     setError(null);
     try {
-      const { rule } = await client.createAlertRule({
+      const input = {
         projectId: submittedProjectId,
         environmentId: submittedEnvironmentId,
         notificationChannelId: ruleForm.notificationChannelId || null,
@@ -375,7 +383,10 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
         threshold: ruleForm.threshold.trim(),
         cooldownMinutes,
         enabled: true
-      });
+      };
+      const { rule } = editingRuleId
+        ? await client.updateAlertRule(editingRuleId, input)
+        : await client.createAlertRule(input);
       if (
         ruleCreateRequestRef.current !== requestId ||
         currentScopeRef.current.projectId !== submittedProjectId ||
@@ -383,7 +394,10 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       ) {
         return;
       }
-      setRules((current) => [...current, rule]);
+      setRules((current) =>
+        editingRuleId ? current.map((currentRule) => (currentRule.id === rule.id ? rule : currentRule)) : [...current, rule]
+      );
+      setEditingRuleId(null);
       setRuleForm((current) => ({ ...defaultRuleForm, notificationChannelId: current.notificationChannelId }));
     } catch {
       if (
@@ -393,12 +407,33 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
       ) {
         return;
       }
-      setError("Could not create alert rule");
+      setError(editingRuleId ? "Could not update alert rule" : "Could not create alert rule");
     } finally {
       if (ruleCreateRequestRef.current === requestId) {
         setIsCreatingRule(false);
+        setIsUpdatingRule(false);
       }
     }
+  }
+
+  function editRule(rule: AlertRuleResponse) {
+    setEditingRuleId(rule.id);
+    setError(null);
+    setRuleForm({
+      name: rule.name,
+      type: rule.type,
+      severity: rule.severity,
+      threshold: rule.threshold,
+      windowMinutes: String(rule.windowMinutes),
+      cooldownMinutes: String(rule.cooldownMinutes),
+      notificationChannelId: rule.notificationChannelId ?? ""
+    });
+  }
+
+  function cancelRuleEdit() {
+    setEditingRuleId(null);
+    setRuleForm(defaultRuleForm);
+    setError(null);
   }
 
   async function archiveRule(rule: AlertRuleResponse) {
@@ -482,6 +517,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                   </div>
                   <div className="alerts-row__actions">
                     <span className={statusClass(rule.enabled ? "success" : "neutral")}>{rule.enabled ? "enabled" : "disabled"}</span>
+                    <button className="secondary-button" aria-label={`Edit ${rule.name}`} onClick={() => editRule(rule)} type="button">
+                      Edit
+                    </button>
                     <button
                       aria-label={`Archive ${rule.name}`}
                       className="icon-button icon-button--danger"
@@ -638,9 +676,16 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
           </form>
         </section>
 
-        <section aria-label="Create alert rule" className="alerts-card">
-          <h3>Create alert rule</h3>
-          <form className="alerts-form" noValidate onSubmit={createRule}>
+        <section aria-label={editingRuleId ? "Edit alert rule" : "Create alert rule"} className="alerts-card">
+          <div className="alerts-card__header">
+            <h3>{editingRuleId ? "Edit alert rule" : "Create alert rule"}</h3>
+            {editingRuleId ? (
+              <button className="secondary-button" onClick={cancelRuleEdit} type="button">
+                Cancel
+              </button>
+            ) : null}
+          </div>
+          <form className="alerts-form" noValidate onSubmit={saveRule}>
             <label>
               Rule name
               <input
@@ -726,8 +771,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 ))}
               </select>
             </label>
-            <button disabled={isLoading || isCreatingRule} type="submit">
-              Create rule
+            <button disabled={isLoading || isCreatingRule || isUpdatingRule} type="submit">
+              {editingRuleId ? (isUpdatingRule ? "Saving rule" : "Save rule") : "Create rule"}
             </button>
           </form>
         </section>
