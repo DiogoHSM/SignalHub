@@ -94,6 +94,7 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof ProjectSetting
       activeEnvironment={environment}
       activeProjectId="prj_1"
       apiEndpoint="https://sigmon.example.com"
+      browserCorsOrigins={["https://app.controledaempresa.com"]}
       client={client()}
       environments={[environment]}
       isEnvironmentCreationDisabled={false}
@@ -118,6 +119,8 @@ describe("ProjectSettingsWorkspace", () => {
 
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
     expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument();
+    expect(screen.getByText("4 of 4 ready")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Project settings sections" })).toBeInTheDocument();
 
     for (const label of ["Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
@@ -154,6 +157,7 @@ describe("ProjectSettingsWorkspace", () => {
     expect(
       screen.getByText("Browser origins must include protocol, for example https://app.example.com.")
     ).toBeInTheDocument();
+    expect(screen.getByText("https://app.controledaempresa.com")).toBeInTheDocument();
     expect(screen.getByText(/BROWSER_CORS_ORIGINS is currently configured globally/i)).toBeInTheDocument();
   });
 

@@ -4,6 +4,7 @@ import type { Environment } from "../api/types";
 import { ApiKeyPanel } from "./ApiKeyPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { EnvironmentSelector } from "./EnvironmentSelector";
+import { ProjectOnboardingChecklist } from "./ProjectOnboardingChecklist";
 import { SettingsSectionNav, type SettingsSection } from "./SettingsSectionNav";
 import { SnippetPanel } from "./SnippetPanel";
 import { EmptyState } from "./ui/EmptyState";
@@ -14,6 +15,7 @@ type Props = {
   activeEnvironment?: Environment;
   activeProjectId?: string;
   apiEndpoint?: string;
+  browserCorsOrigins?: string[];
   environments: Environment[];
   isEnvironmentCreationDisabled: boolean;
   latestSecret?: string;
@@ -63,6 +65,7 @@ export function ProjectSettingsWorkspace({
   activeEnvironment,
   activeProjectId,
   apiEndpoint,
+  browserCorsOrigins = [],
   client,
   environments,
   isEnvironmentCreationDisabled,
@@ -103,6 +106,17 @@ export function ProjectSettingsWorkspace({
               <h2>Browser origins</h2>
             </div>
             <p>Browser origins must include protocol, for example https://app.example.com.</p>
+            {browserCorsOrigins.length > 0 ? (
+              <ul className="origin-list" aria-label="Configured browser origins">
+                {browserCorsOrigins.map((origin) => (
+                  <li key={origin}>
+                    <code>{origin}</code>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted-text">No browser origins are configured for cross-origin browser ingestion.</p>
+            )}
             <p className="muted-text">
               BROWSER_CORS_ORIGINS is currently configured globally, so browser origin changes apply across the console instead of this
               selected project or environment. Per-project origin CRUD will be added later.
@@ -149,6 +163,14 @@ export function ProjectSettingsWorkspace({
         <h1>Project Settings</h1>
         <p>Recurring configuration for the selected project and environment.</p>
       </header>
+      {activeProjectId ? (
+        <ProjectOnboardingChecklist
+          activeEnvironment={activeEnvironment}
+          activeProjectId={activeProjectId}
+          apiEndpoint={apiEndpoint}
+          latestSecret={latestSecret}
+        />
+      ) : null}
       <div className="settings-workspace__body">
         <SettingsSectionNav
           activeSectionId={activeSectionId}
