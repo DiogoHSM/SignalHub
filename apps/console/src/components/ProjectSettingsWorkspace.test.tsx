@@ -3,13 +3,21 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { Environment } from "../api/types";
+import type { Environment, Project } from "../api/types";
 import { ProjectSettingsWorkspace } from "./ProjectSettingsWorkspace";
 
 const environment: Environment = {
   id: "env_1",
   projectId: "prj_1",
   name: "Production",
+  createdAt: "2026-05-01T00:00:00.000Z",
+  updatedAt: "2026-05-01T00:00:00.000Z",
+  archivedAt: null
+};
+
+const project: Project = {
+  id: "prj_1",
+  name: "MicroERP",
   createdAt: "2026-05-01T00:00:00.000Z",
   updatedAt: "2026-05-01T00:00:00.000Z",
   archivedAt: null
@@ -92,6 +100,7 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof ProjectSetting
   return render(
     <ProjectSettingsWorkspace
       activeEnvironment={environment}
+      activeProject={project}
       activeProjectId="prj_1"
       apiEndpoint="https://sigmon.example.com"
       browserCorsOrigins={["https://app.controledaempresa.com"]}
@@ -101,8 +110,10 @@ function renderWorkspace(overrides: Partial<ComponentProps<typeof ProjectSetting
       latestSecret="sh_secret_value"
       onArchiveEnvironment={vi.fn()}
       onCreateEnvironment={vi.fn()}
+      onArchiveProject={vi.fn()}
       onSecretCreated={vi.fn()}
       onSelectEnvironment={vi.fn()}
+      onUpdateProject={vi.fn()}
       onUpdateEnvironment={vi.fn()}
       {...overrides}
     />
@@ -114,7 +125,7 @@ afterEach(() => {
 });
 
 describe("ProjectSettingsWorkspace", () => {
-  it("renders the project settings heading, description, section buttons, and default environments section", () => {
+  it("renders the project settings heading, description, section buttons, and environment section", async () => {
     renderWorkspace();
 
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
@@ -123,16 +134,43 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByText("4 of 4 ready")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Project settings sections" })).toBeInTheDocument();
 
-    for (const label of ["Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
+    for (const label of ["Project", "Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Console users" })).toHaveAccessibleDescription(
       "Installation-level console access."
     );
 
+    expect(screen.getByRole("heading", { name: "Project" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Project name")).toHaveValue("MicroERP");
+
+    await userEvent.click(screen.getByRole("button", { name: "Environments" }));
+
     expect(screen.getByText("Create and select deployment environments for this project.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Production" })).toBeInTheDocument();
+  });
+
+  it("updates and archives the selected project", async () => {
+    const onUpdateProject = vi.fn().mockResolvedValue(undefined);
+    const onArchiveProject = vi.fn().mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWorkspace({ onArchiveProject, onUpdateProject });
+
+    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+    await userEvent.clear(screen.getByLabelText("Project name"));
+    await userEvent.type(screen.getByLabelText("Project name"), "Signal Monitor");
+    await userEvent.click(screen.getByRole("button", { name: "Save project" }));
+
+    expect(onUpdateProject).toHaveBeenCalledWith("prj_1", { name: "Signal Monitor" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Archive MicroERP" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("Archive project MicroERP? This hides it from the project switcher.");
+    expect(onArchiveProject).toHaveBeenCalledWith("prj_1");
+
+    confirmSpy.mockRestore();
   });
 
   it("exposes environment management actions from the environments section", async () => {
@@ -140,6 +178,8 @@ describe("ProjectSettingsWorkspace", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
     renderWorkspace({ onArchiveEnvironment });
+
+    await userEvent.click(screen.getByRole("button", { name: "Environments" }));
 
     expect(screen.getByRole("button", { name: "Edit Production" })).toBeInTheDocument();
 

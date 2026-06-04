@@ -423,6 +423,31 @@ export function ConsoleShell({
     setActiveEnvironment(undefined);
   }
 
+  async function updateProject(projectId: string, input: { name?: string }) {
+    const { project } = await client.updateProject(projectId, input);
+
+    setProjects((current) => current.map((candidate) => (candidate.id === project.id ? project : candidate)));
+    setActiveProject((current) => (current?.id === project.id ? project : current));
+  }
+
+  async function archiveProject(projectId: string) {
+    await client.archiveProject(projectId);
+
+    const remainingProjects = projects.filter((project) => project.id !== projectId);
+    setProjects(remainingProjects);
+
+    if (activeProject?.id !== projectId) return;
+
+    const nextProject = remainingProjects[0];
+    activeProjectIdRef.current = nextProject?.id;
+    setActiveProject(nextProject);
+    environmentsRef.current = [];
+    activeEnvironmentRef.current = undefined;
+    setEnvironments([]);
+    setActiveEnvironment(undefined);
+    setLoadedEnvironmentProjectId(undefined);
+  }
+
   async function createEnvironment(name: string) {
     if (isEnvironmentCreationDisabled) return;
 
@@ -750,6 +775,7 @@ export function ConsoleShell({
                 {activeMode === "project-settings" ? (
                   <ProjectSettingsWorkspace
                     activeEnvironment={activeEnvironment}
+                    activeProject={activeProject}
                     activeProjectId={activeProject?.id}
                     apiEndpoint={apiEndpoint}
                     browserCorsOrigins={browserCorsOrigins}
@@ -759,8 +785,10 @@ export function ConsoleShell({
                     latestSecret={scopedLatestSecret}
                     onArchiveEnvironment={archiveEnvironment}
                     onCreateEnvironment={createEnvironment}
+                    onArchiveProject={archiveProject}
                     onSecretCreated={storeLatestSecret}
                     onSelectEnvironment={setActiveEnvironment}
+                    onUpdateProject={updateProject}
                     onUpdateEnvironment={updateEnvironment}
                   />
                 ) : null}

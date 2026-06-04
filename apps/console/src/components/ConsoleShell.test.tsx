@@ -911,6 +911,7 @@ describe("ConsoleShell", () => {
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Environments" }));
     await userEvent.click(screen.getByRole("button", { name: "Edit Production" }));
     await userEvent.clear(screen.getByLabelText("Environment name"));
     await userEvent.type(screen.getByLabelText("Environment name"), "Prod");

@@ -3415,6 +3415,49 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+.project-management-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid color-mix(in srgb, var(--critical) 36%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--critical-bg) 54%, transparent);
+  padding: 14px;
+}
+
+.danger-zone h3 {
+  margin: 0 0 4px;
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.danger-zone button {
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--critical) 48%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--critical-bg) 70%, var(--bg-surface-2));
+  color: var(--critical-strong);
+  cursor: pointer;
+  font-weight: 750;
+  padding: 7px 10px;
+}
+
+.danger-zone button:hover:not(:disabled) {
+  border-color: var(--critical);
+  background: color-mix(in srgb, var(--critical-bg) 88%, transparent);
+}
+
+.danger-zone button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .settings-section-nav {
   display: grid;
   gap: 8px;
