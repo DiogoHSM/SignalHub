@@ -30,6 +30,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
 - Keep `Project Settings` as a project-scoped configuration mode for environments, API keys, browser origins, SDK snippets, source maps, and the current console user administration surface.
+- Project Settings environment rows expose compact edit and archive actions. Onboarding keeps the lighter create/select flow, while recurring configuration lives in Project Settings.
 - Project Settings starts with a compact setup checklist for the selected project/environment so operators can see whether project scope, environment, endpoint, and one-time API key setup are ready before handing integration details to another developer.
 - Keep `System Health` inside Sigmon Admin as a quiet global operational mode for Sigmon service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
 - Browser origin panels should show the currently configured global `BROWSER_CORS_ORIGINS` values so operators can validate browser SDK readiness without checking server env vars.

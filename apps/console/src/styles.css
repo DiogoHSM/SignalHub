@@ -3459,6 +3459,101 @@ textarea:focus-visible {
   line-height: 1.35;
 }
 
+.environment-list {
+  display: grid;
+  gap: 8px;
+}
+
+.environment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 8px;
+}
+
+.environment-row.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent-bg) 52%, var(--bg-surface-2));
+}
+
+.environment-row__select {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.environment-row__select strong,
+.environment-row__select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-row__select span {
+  color: var(--fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+}
+
+.environment-row__actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.environment-row__actions button,
+.environment-row__edit button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.environment-row__actions button:hover,
+.environment-row__edit button:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--fg);
+}
+
+.environment-row__actions button:last-child:hover {
+  border-color: color-mix(in srgb, var(--critical) 45%, var(--border));
+  color: var(--critical);
+}
+
+.environment-row__edit {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.environment-row__edit label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .browser-origins-panel {
   display: grid;
   gap: 10px;
