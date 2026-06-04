@@ -872,6 +872,19 @@ select {
   flex: 0 0 auto;
 }
 
+.alerts-row__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.alerts-row__actions .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
 .alerts-form {
   display: grid;
   gap: 8px;
