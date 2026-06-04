@@ -19,10 +19,12 @@ type LatestSecret = {
 export function ApiKeyPanel({ client, projectId, environmentId, onSecretCreated }: Props) {
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [name, setName] = useState("");
+  const [editingKey, setEditingKey] = useState<ApiKey | undefined>();
   const [latestSecret, setLatestSecret] = useState<LatestSecret | undefined>();
   const projectIdRef = useRef<string | undefined>(projectId);
   const environmentIdRef = useRef<string | undefined>(environmentId);
-  const isCreateDisabled = !projectId || !environmentId;
+  const isEditing = editingKey !== undefined;
+  const isSubmitDisabled = isEditing ? !editingKey || !client.updateApiKey : !projectId || !environmentId;
   const scopedLatestSecret =
     latestSecret && latestSecret.projectId === projectId && latestSecret.environmentId === environmentId
       ? latestSecret.secret
@@ -54,12 +56,27 @@ export function ApiKeyPanel({ client, projectId, environmentId, onSecretCreated 
 
   useEffect(() => {
     setLatestSecret(undefined);
+    setEditingKey(undefined);
+    setName("");
   }, [environmentId]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = name.trim();
-    if (!projectId || !environmentId || !trimmed) return;
+    if (!trimmed) return;
+
+    if (editingKey) {
+      if (!client.updateApiKey) return;
+
+      const editingId = editingKey.id;
+      const { apiKey } = await client.updateApiKey(editingId, { name: trimmed });
+      setApiKeys((current) => current.map((currentKey) => (currentKey.id === editingId ? apiKey : currentKey)));
+      setEditingKey(undefined);
+      setName("");
+      return;
+    }
+
+    if (!projectId || !environmentId) return;
 
     const createProjectId = projectId;
     const createEnvironmentId = environmentId;
@@ -74,6 +91,17 @@ export function ApiKeyPanel({ client, projectId, environmentId, onSecretCreated 
       environmentId: createEnvironmentId
     });
     onSecretCreated(secret);
+    setName("");
+  }
+
+  function startEditing(apiKey: ApiKey) {
+    setLatestSecret(undefined);
+    setEditingKey(apiKey);
+    setName(apiKey.name);
+  }
+
+  function cancelEditing() {
+    setEditingKey(undefined);
     setName("");
   }
 
@@ -105,15 +133,20 @@ export function ApiKeyPanel({ client, projectId, environmentId, onSecretCreated 
               <div className="key-list-item__actions">
                 <code>{apiKey.prefix}</code>
                 {apiKey.revokedAt ? null : (
-                  <button
-                    aria-label={`Revoke ${apiKey.name}`}
-                    className="icon-button icon-button--danger"
-                    onClick={() => void revoke(apiKey)}
-                    title="Revoke API key"
-                    type="button"
-                  >
-                    <Trash2 aria-hidden="true" size={16} />
-                  </button>
+                  <>
+                    <button onClick={() => startEditing(apiKey)} type="button">
+                      Edit {apiKey.name}
+                    </button>
+                    <button
+                      aria-label={`Revoke ${apiKey.name}`}
+                      className="icon-button icon-button--danger"
+                      onClick={() => void revoke(apiKey)}
+                      title="Revoke API key"
+                      type="button"
+                    >
+                      <Trash2 aria-hidden="true" size={16} />
+                    </button>
+                  </>
                 )}
               </div>
             </li>
@@ -128,12 +161,17 @@ export function ApiKeyPanel({ client, projectId, environmentId, onSecretCreated 
       ) : null}
       <form className="inline-form" onSubmit={submit}>
         <label>
-          New API key name
-          <input disabled={isCreateDisabled} onChange={(event) => setName(event.target.value)} value={name} />
+          {isEditing ? "API key name" : "New API key name"}
+          <input disabled={isSubmitDisabled} onChange={(event) => setName(event.target.value)} value={name} />
         </label>
-        <button disabled={isCreateDisabled} type="submit">
-          Create key
+        <button disabled={isSubmitDisabled} type="submit">
+          {isEditing ? "Save key" : "Create key"}
         </button>
+        {isEditing ? (
+          <button onClick={cancelEditing} type="button">
+            Cancel
+          </button>
+        ) : null}
       </form>
     </section>
   );

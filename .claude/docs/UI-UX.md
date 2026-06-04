@@ -116,6 +116,10 @@ SignalMonitor includes an admin-only Integration Console.
 - Heartbeat secrets are shown only immediately after monitor creation, paired with the check-in URL, and should not be stored in browser storage.
 - Recent monitor checks should stay compact and show status, response or heartbeat marker, latency, and sanitized error text.
 
+## Project Settings UX
+
+- API key rows expose edit actions for renaming keys without rotating secrets; one-time key secrets remain visible only immediately after creation.
+
 ## Artifacts UX
 
 - Artifacts should stay operational: release filter, single-map upload, bundle upload, uploaded artifact list, and delete actions should fit the active project/environment workspace.

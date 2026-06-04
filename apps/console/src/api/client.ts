@@ -163,6 +163,7 @@ export type ApiClient = {
   archiveEnvironment: (id: string) => Promise<void>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
+  updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
   revokeApiKey: (id: string) => Promise<void>;
   listBrowserOrigins?: (projectId: string) => Promise<{ origins: BrowserOrigin[] }>;
   createBrowserOrigin?: (projectId: string, input: { origin: string }) => Promise<{ origin: BrowserOrigin }>;
@@ -566,6 +567,11 @@ export function createApiClient(
     createApiKey: (projectId, input) =>
       request<{ apiKey: CreatedApiKey }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/api-keys`), {
         method: "POST",
+        body: input
+      }),
+    updateApiKey: (id, input) =>
+      request<{ apiKey: ApiKey }>(path(apiBasePath, `/admin/api-keys/${encodePathSegment(id)}`), {
+        method: "PATCH",
         body: input
       }),
     revokeApiKey: (id) => request<void>(path(apiBasePath, `/admin/api-keys/${encodePathSegment(id)}`), { method: "DELETE" }),

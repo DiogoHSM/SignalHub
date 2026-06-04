@@ -425,6 +425,48 @@ describe("admin routes", () => {
     expect(response.json().apiKey.hash).toBeUndefined();
   });
 
+  it("renames an API key without exposing its hash", async () => {
+    const updates: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("not used");
+          },
+          update: async (id, input) => {
+            updates.push({ id, input });
+            return {
+              id,
+              projectId: "prj_1",
+              environmentId: "env_1",
+              name: input.name ?? "Production ingest",
+              prefix: "sh_live_1234",
+              hash: "stored-hash",
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              revokedAt: null
+            };
+          },
+          revoke: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/api-keys/key_1",
+      payload: { name: "Browser production" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().apiKey).toMatchObject({ id: "key_1", name: "Browser production" });
+    expect(response.json().apiKey.hash).toBeUndefined();
+    expect(updates).toEqual([{ id: "key_1", input: { name: "Browser production" } }]);
+  });
+
   it("returns 404 when API key creation targets an inactive project or environment scope", async () => {
     app = await buildApp({
       readiness,

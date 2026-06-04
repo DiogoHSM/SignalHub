@@ -23,6 +23,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     archiveEnvironment: vi.fn(),
     listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [] }),
     createApiKey: vi.fn(),
+    updateApiKey: vi.fn(),
     revokeApiKey: vi.fn(),
     listEvents: vi.fn(),
     listErrors: vi.fn(),
@@ -141,6 +142,40 @@ describe("ApiKeyPanel", () => {
     expect(screen.getByText("Browser key")).toBeInTheDocument();
     expect(onSecretCreated).toHaveBeenCalledWith("sh_secret_value");
     expect(screen.getByLabelText("New API key name")).toHaveValue("");
+  });
+
+  it("renames an existing key", async () => {
+    const api = client({
+      listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [existingKey] }),
+      updateApiKey: vi.fn().mockResolvedValue({
+        apiKey: {
+          ...existingKey,
+          name: "Browser production"
+        }
+      })
+    });
+
+    render(
+      <ApiKeyPanel
+        client={api}
+        environmentId="env_1"
+        onSecretCreated={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Production ingest" }));
+    await userEvent.clear(screen.getByLabelText("API key name"));
+    await userEvent.type(screen.getByLabelText("API key name"), "Browser production");
+    await userEvent.click(screen.getByRole("button", { name: "Save key" }));
+
+    await waitFor(() =>
+      expect(api.updateApiKey).toHaveBeenCalledWith("key_1", {
+        name: "Browser production"
+      })
+    );
+    expect(await screen.findByText("Browser production")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create key" })).toBeInTheDocument();
   });
 
   it("hides an already displayed one-time secret immediately when the environment changes", async () => {

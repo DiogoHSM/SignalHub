@@ -80,6 +80,7 @@ export type EnvironmentAdministrationDependencies = {
 export type ApiKeyAdministrationDependencies = {
   list: (projectId: string) => Promise<AdminApiKey[]>;
   create: (input: CreateApiKeyRecordInput) => Promise<AdminApiKey>;
+  update?: (id: string, input: UpdateApiKeyInput) => Promise<AdminApiKey | null | undefined>;
   revoke: (id: string) => Promise<void>;
 };
 
@@ -258,6 +259,14 @@ const createApiKeySchema = z.object({
   environmentId: z.string().min(1),
   name: z.string().trim().min(1).max(256)
 });
+
+const updateApiKeySchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, {
+    message: "at_least_one_field_required"
+  });
 
 function isValidBrowserOrigin(origin: string): boolean {
   try {
@@ -438,6 +447,7 @@ type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 type CreateEnvironmentBody = z.infer<typeof createEnvironmentSchema>;
 type UpdateEnvironmentInput = z.infer<typeof updateEnvironmentSchema>;
 type CreateApiKeyBody = z.infer<typeof createApiKeySchema>;
+type UpdateApiKeyInput = z.infer<typeof updateApiKeySchema>;
 type CreateBrowserOriginBody = z.infer<typeof createBrowserOriginSchema>;
 type CreateNotificationChannelInput = z.infer<typeof notificationChannelSchema>;
 type UpdateNotificationChannelInput = z.infer<typeof updateNotificationChannelSchema>;
@@ -1239,6 +1249,34 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         secret: generatedApiKey.secret
       }
     });
+  });
+
+  app.patch("/admin/api-keys/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.apiKeys?.update) {
+      return reply.status(501).send({ error: "api_keys_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_api_key_request" });
+    }
+
+    const parsed = updateApiKeySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_api_key_request" });
+    }
+
+    const apiKey = await options.adminResources.apiKeys.update(params.data.id, parsed.data);
+    if (!apiKey) {
+      return reply.status(404).send({ error: "api_key_not_found" });
+    }
+
+    return reply.send({ apiKey: redactApiKeyHash(apiKey) });
   });
 
   app.delete("/admin/api-keys/:id", async (request, reply) => {
