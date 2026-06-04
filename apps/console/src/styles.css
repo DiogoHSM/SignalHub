@@ -3247,6 +3247,100 @@ textarea:focus-visible {
   max-width: 760px;
 }
 
+.project-onboarding-checklist {
+  display: grid;
+  gap: 14px;
+}
+
+.project-onboarding-checklist .panel-header {
+  margin-bottom: 0;
+}
+
+.project-onboarding-checklist .panel-header > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-onboarding-checklist .panel-header p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.project-onboarding-checklist__steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-onboarding-checklist__steps li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 12px;
+}
+
+.project-onboarding-checklist__steps li.is-ready {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-bg) 42%, var(--bg-surface-2));
+}
+
+.project-onboarding-checklist__steps li.is-pending {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border-subtle));
+  background: color-mix(in srgb, var(--warning-bg) 38%, var(--bg-surface-2));
+}
+
+.project-onboarding-checklist__marker {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.project-onboarding-checklist__steps li.is-ready .project-onboarding-checklist__marker {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border));
+  color: var(--accent-strong);
+}
+
+.project-onboarding-checklist__steps li.is-pending .project-onboarding-checklist__marker {
+  border-color: color-mix(in srgb, var(--warning) 56%, var(--border));
+  color: var(--warning);
+}
+
+.project-onboarding-checklist__steps strong,
+.project-onboarding-checklist__steps p {
+  overflow-wrap: anywhere;
+}
+
+.project-onboarding-checklist__steps strong {
+  display: block;
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.project-onboarding-checklist__steps p {
+  margin: 4px 0 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .settings-workspace__body {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
@@ -4567,6 +4661,7 @@ input[type="file"]::file-selector-button {
 
   .setup-shell,
   .settings-workspace__body,
+  .project-onboarding-checklist__steps,
   .workspace-grid,
   .overview-kpis,
   .overview-lists,

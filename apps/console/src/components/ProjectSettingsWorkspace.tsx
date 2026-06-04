@@ -4,6 +4,7 @@ import type { Environment } from "../api/types";
 import { ApiKeyPanel } from "./ApiKeyPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { EnvironmentSelector } from "./EnvironmentSelector";
+import { ProjectOnboardingChecklist } from "./ProjectOnboardingChecklist";
 import { SettingsSectionNav, type SettingsSection } from "./SettingsSectionNav";
 import { SnippetPanel } from "./SnippetPanel";
 import { EmptyState } from "./ui/EmptyState";
@@ -143,6 +144,14 @@ export function ProjectSettingsWorkspace({
         <h1>Project Settings</h1>
         <p>Recurring configuration for the selected project and environment.</p>
       </header>
+      {activeProjectId ? (
+        <ProjectOnboardingChecklist
+          activeEnvironment={activeEnvironment}
+          activeProjectId={activeProjectId}
+          apiEndpoint={apiEndpoint}
+          latestSecret={latestSecret}
+        />
+      ) : null}
       <div className="settings-workspace__body">
         <SettingsSectionNav
           activeSectionId={activeSectionId}
