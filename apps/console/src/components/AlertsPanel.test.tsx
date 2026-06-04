@@ -300,6 +300,65 @@ describe("AlertsPanel", () => {
     expect(within(screen.getByLabelText("Notification channels")).getByText("Secret saved")).toBeInTheDocument();
   });
 
+  it("edits an existing webhook notification channel", async () => {
+    const updateNotificationChannel = vi.fn().mockResolvedValue({
+      channel: {
+        id: "chn_1",
+        name: "Ops updated",
+        type: "webhook",
+        url: "https://hooks.example.com/updated",
+        emailRecipients: [],
+        secretHeaderName: "X-SignalMonitor-Secret",
+        hasSecret: true,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+        archivedAt: null
+      }
+    });
+    const api = client({
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_1",
+            name: "Ops",
+            type: "webhook",
+            url: "https://hooks.example.com",
+            emailRecipients: [],
+            secretHeaderName: "X-SignalMonitor-Secret",
+            hasSecret: true,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      }),
+      updateNotificationChannel
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Ops" }));
+    await userEvent.clear(screen.getByLabelText("Channel name"));
+    await userEvent.type(screen.getByLabelText("Channel name"), "Ops updated");
+    await userEvent.clear(screen.getByLabelText("Webhook URL"));
+    await userEvent.type(screen.getByLabelText("Webhook URL"), "https://hooks.example.com/updated");
+    await userEvent.click(screen.getByRole("button", { name: "Save channel" }));
+
+    await waitFor(() =>
+      expect(updateNotificationChannel).toHaveBeenCalledWith("chn_1", {
+        name: "Ops updated",
+        type: "webhook",
+        url: "https://hooks.example.com/updated",
+        secretHeaderName: "X-SignalMonitor-Secret",
+        enabled: true
+      })
+    );
+    expect(within(screen.getByLabelText("Notification channels")).getByText("Ops updated")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create channel" })).toBeInTheDocument();
+  });
+
   it("requires a secret header name before submitting a secret value", async () => {
     const createNotificationChannel = vi.fn();
 

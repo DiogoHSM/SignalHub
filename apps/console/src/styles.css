@@ -881,6 +881,18 @@ select {
   gap: 8px;
 }
 
+.alerts-row__actions .secondary-button {
+  min-height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
 .alerts-row__actions .icon-button {
   width: 30px;
   height: 30px;
@@ -4400,6 +4412,18 @@ input[type="file"]::file-selector-button {
 .artifact-row span,
 .artifact-token-list__item p {
   color: var(--fg-muted);
+}
+
+.alerts-row__actions button {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+}
+
+.alerts-row__actions button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: var(--accent-bg);
+  color: var(--accent-strong);
 }
 
 .monitors-row {

@@ -98,6 +98,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Alert rule rows expose compact destructive actions; archiving requires confirmation and removes the rule from the active rule list.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
+- Notification channel rows expose compact edit actions. Editing reuses the channel form, keeps saved webhook secrets write-only, and should update the channel row without forcing a full page refresh.
 - Notification channel rows expose compact destructive actions; archiving requires confirmation and removes the channel from active rule configuration lists.
 
 ## Monitors UX
