@@ -504,6 +504,46 @@ select {
   cursor: not-allowed;
 }
 
+.compact-form__actions,
+.key-list-item__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.key-list-item__actions button {
+  min-height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.key-list-item__actions button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.checkbox-field {
+  display: flex !important;
+  align-items: center;
+  grid-template-columns: none !important;
+  gap: 8px !important;
+}
+
+.checkbox-field input {
+  min-width: auto !important;
+  min-height: auto !important;
+}
+
+.button-danger {
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+}
+
 .key-list {
   display: grid;
   gap: 8px;
@@ -4257,6 +4297,24 @@ input[type="file"]::file-selector-button {
   background: var(--bg-surface-2);
   color: var(--fg);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.key-list-item__actions button {
+  border-color: var(--border);
+  background: var(--bg-surface-2);
+  color: var(--fg);
+}
+
+.key-list-item__actions button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: var(--accent-bg);
+  color: var(--accent-strong);
+}
+
+.key-list-item__actions .button-danger {
+  border-color: color-mix(in srgb, var(--critical) 50%, var(--border)) !important;
+  background: color-mix(in srgb, var(--critical-bg) 68%, transparent);
+  color: var(--critical) !important;
 }
 
 .alerts-form button:hover:not(:disabled),

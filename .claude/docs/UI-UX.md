@@ -33,6 +33,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Project Settings opens on the `Project` section, where operators can rename or archive the selected project. Archive is a destructive action with confirmation and should stay visually separated from routine setup fields.
 - Project Settings environment rows expose compact edit and archive actions. Onboarding keeps the lighter create/select flow, while recurring configuration lives in Project Settings.
 - Project Settings starts with a compact setup checklist for the selected project/environment so operators can see whether project scope, environment, endpoint, and one-time API key setup are ready before handing integration details to another developer.
+- Console user rows expose edit and archive actions. Editing supports email/admin role changes and optional temporary password rotation; archived users are removed from the active console user list after confirmation.
 - Keep `System Health` inside Sigmon Admin as a quiet global operational mode for Sigmon service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
 - Browser origin panels should show the currently configured global `BROWSER_CORS_ORIGINS` values so operators can validate browser SDK readiness without checking server env vars.
 - System Health shows source-map retention policy and deleted counts inside the existing Retention card.
