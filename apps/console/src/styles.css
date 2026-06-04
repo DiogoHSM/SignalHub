@@ -1172,7 +1172,7 @@ select {
   border-radius: 6px;
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   padding: 0.75rem;
 }
 

@@ -1267,6 +1267,42 @@ describe("createApiClient", () => {
     });
   });
 
+  it("renames source map upload tokens with scoped query filters", async () => {
+    const token = {
+      id: "smtok_1",
+      projectId: "prj/1",
+      environmentId: "env 1",
+      name: "Production sourcemaps",
+      prefix: "shsmap_test",
+      createdAt: "2026-05-11T12:00:00.000Z",
+      lastUsedAt: null,
+      revokedAt: null
+    } satisfies SourceMapUploadToken;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { token }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createApiClient("/api").updateSourceMapUploadToken(
+        "smtok/1",
+        { projectId: "prj/1", environmentId: "env 1" },
+        { name: "Production sourcemaps" }
+      )
+    ).resolves.toEqual({ token });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/source-map-upload-tokens/smtok%2F1?project_id=prj%2F1&environment_id=env+1",
+      {
+        method: "PATCH",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ name: "Production sourcemaps" })
+      }
+    );
+  });
+
   it("revokes source map upload tokens", async () => {
     const fetchMock = vi.fn().mockResolvedValue(emptyResponse(204));
     vi.stubGlobal("fetch", fetchMock);
