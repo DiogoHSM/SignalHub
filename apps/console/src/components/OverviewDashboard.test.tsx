@@ -248,6 +248,22 @@ describe("OverviewDashboard", () => {
     expect(within(errorTrend!).getByText("Severe")).toBeInTheDocument();
   });
 
+  it("labels trend axes with metric units", async () => {
+    const api = client({
+      getOverview: vi.fn().mockResolvedValue({ data: overviewResponse() })
+    });
+
+    render(<OverviewDashboard client={api} environmentId="env_1" onDrilldown={vi.fn()} projectId="prj_1" />);
+
+    await screen.findByText("Usage trend");
+
+    expect(screen.getByText("Count axis")).toBeInTheDocument();
+    expect(screen.getByText("Errors axis")).toBeInTheDocument();
+    expect(screen.getByText("Latency (ms) axis")).toBeInTheDocument();
+    expect(screen.getByText("Cost / calls axis")).toBeInTheDocument();
+    expect(screen.getByText("400 ms")).toBeInTheDocument();
+  });
+
   it("reloads when the window changes", async () => {
     const getOverview = vi
       .fn()
