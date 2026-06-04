@@ -174,6 +174,9 @@ export type SourceMapUploadTokenAdministrationDependencies = {
     prefix: string;
     hash: string;
   }) => Promise<SourceMapUploadTokenResponse>;
+  update?: (
+    input: { id: string; projectId: string; environmentId: string } & UpdateSourceMapUploadTokenInput
+  ) => Promise<SourceMapUploadTokenResponse | null | undefined>;
   revoke?: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
@@ -394,6 +397,12 @@ const createSourceMapUploadTokenSchema = z.object({
   name: z.string().trim().min(1).max(256)
 });
 
+const updateSourceMapUploadTokenSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
 type CreateUserInput = z.infer<typeof createUserSchema>;
 type UpdateUserInput = z.infer<typeof updateUserSchema>;
 type CreateProjectInput = z.infer<typeof createProjectSchema>;
@@ -414,6 +423,7 @@ type MonitorListFilters = {
   environmentId: string;
   kind?: MonitorKind;
 };
+type UpdateSourceMapUploadTokenInput = z.infer<typeof updateSourceMapUploadTokenSchema>;
 type CreateEnvironmentInput = CreateEnvironmentBody & { projectId: string };
 type CreateApiKeyRecordInput = CreateApiKeyBody & { projectId: string; prefix: string; hash: string };
 
@@ -1209,6 +1219,36 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         secret: generatedToken.secret
       }
     });
+  });
+
+  app.patch("/admin/source-map-upload-tokens/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.sourceMapUploadTokens?.update) {
+      return reply.status(501).send({ error: "source_map_upload_tokens_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = sourceMapUploadTokenScopeQuerySchema.safeParse(request.query);
+    const parsed = updateSourceMapUploadTokenSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_source_map_upload_token_request" });
+    }
+
+    const token = await options.sourceMapUploadTokens.update({
+      id: params.data.id,
+      projectId: query.data.project_id,
+      environmentId: query.data.environment_id,
+      ...parsed.data
+    });
+    if (!token) {
+      return reply.status(404).send({ error: "source_map_upload_token_not_found" });
+    }
+
+    return reply.send({ token: redactSourceMapUploadToken(token) });
   });
 
   app.delete("/admin/source-map-upload-tokens/:id", async (request, reply) => {

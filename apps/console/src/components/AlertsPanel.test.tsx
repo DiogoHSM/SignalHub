@@ -224,6 +224,43 @@ describe("AlertsPanel", () => {
     confirm.mockRestore();
   });
 
+  it("archives a notification channel after confirmation and removes it from the channel list", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const archiveNotificationChannel = vi.fn().mockResolvedValue(undefined);
+    const api = client({
+      archiveNotificationChannel,
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_1",
+            name: "Ops",
+            type: "webhook",
+            url: "https://hooks.example.com",
+            emailRecipients: [],
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "2026-05-06T11:00:00.000Z",
+            updatedAt: "2026-05-06T11:00:00.000Z",
+            archivedAt: null
+          }
+        ]
+      })
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    expect(await within(screen.getByLabelText("Notification channels")).findByText("Ops")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Archive Ops" }));
+
+    expect(confirm).toHaveBeenCalledWith("Archive notification channel Ops?");
+    expect(archiveNotificationChannel).toHaveBeenCalledWith("chn_1");
+    await waitFor(() => expect(within(screen.getByLabelText("Notification channels")).queryByText("Ops")).not.toBeInTheDocument());
+    expect(within(screen.getByLabelText("Notification channels")).getByText("No notification channels.")).toBeInTheDocument();
+
+    confirm.mockRestore();
+  });
+
   it("creates a webhook channel without displaying the saved secret", async () => {
     const createNotificationChannel = vi.fn().mockResolvedValue({
       channel: {

@@ -113,6 +113,7 @@ import {
   findSourceMapUploadTokenByPrefix,
   listSourceMapUploadTokens,
   revokeSourceMapUploadToken,
+  updateSourceMapUploadToken,
   updateSourceMapUploadTokenLastUsed
 } from "../src/repositories/source-map-upload-tokens.js";
 import {
@@ -508,6 +509,18 @@ describe("repositories", () => {
 
       const found = await findSourceMapUploadTokenByPrefix(db, "shsmap_lifecycle_b");
       expect(found?.id).toBe(token.id);
+
+      const renamed = await updateSourceMapUploadToken(db, {
+        id: token.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Production sourcemaps"
+      });
+      expect(renamed).toMatchObject({
+        id: token.id,
+        name: "Production sourcemaps",
+        hash: "hash_lifecycle_b"
+      });
 
       await updateSourceMapUploadTokenLastUsed(db, token.id);
       const used = await findSourceMapUploadTokenByPrefix(db, "shsmap_lifecycle_b");

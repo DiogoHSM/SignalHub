@@ -557,6 +557,37 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("switches environments from the global header without opening setup", async () => {
+    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
+    const api = client({
+      getOverview,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [
+          { id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null },
+          { id: "env_2", projectId: "prj_1", name: "Preview", createdAt: "", updatedAt: "", archivedAt: null }
+        ]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
+    );
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Current environment" }), "env_2");
+
+    expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Current environment" })).toHaveValue("env_2");
+    await waitFor(() =>
+      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_2", window: "24h" })
+    );
+  });
+
   it("creates a project and selects it", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
@@ -857,6 +888,42 @@ describe("ConsoleShell", () => {
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
     expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Browser origins" })).toBeInTheDocument();
+  });
+
+  it("updates and archives environments from Project Settings", async () => {
+    const production: Environment = { id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null };
+    const preview: Environment = { id: "env_2", projectId: "prj_1", name: "Preview", createdAt: "", updatedAt: "", archivedAt: null };
+    const renamed: Environment = { ...production, name: "Prod" };
+    const updateEnvironment = vi.fn().mockResolvedValue({ environment: renamed });
+    const archiveEnvironment = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const api = client({
+      archiveEnvironment,
+      updateEnvironment,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [production, preview] })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Edit Production" }));
+    await userEvent.clear(screen.getByLabelText("Environment name"));
+    await userEvent.type(screen.getByLabelText("Environment name"), "Prod");
+    await userEvent.click(screen.getByRole("button", { name: "Save environment" }));
+
+    await waitFor(() => expect(updateEnvironment).toHaveBeenCalledWith("env_1", { name: "Prod" }));
+    expect(await screen.findByText("Environment: Prod")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Archive Prod" }));
+
+    expect(window.confirm).toHaveBeenCalledWith("Archive environment Prod?");
+    await waitFor(() => expect(archiveEnvironment).toHaveBeenCalledWith("env_1"));
+    expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
   });
 
   it("renders the Sigmon admin workspace and lazy-loads system health when System mode is opened", async () => {
