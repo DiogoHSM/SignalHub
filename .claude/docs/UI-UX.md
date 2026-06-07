@@ -2,6 +2,22 @@
 
 SignalMonitor includes an admin-only Integration Console.
 
+## Product Console Architecture
+
+- The console is evolving from an MVP telemetry console into a product shell with two primary contexts: a global executive risk Home and project-scoped workspaces.
+- `Home` is the first screen after login and should behave like an executive risk dashboard for infra/devops: it ranks monitored projects by operational attention needed rather than acting as a generic BI dashboard.
+- Global Home should surface projects in risk state, open incidents, degraded monitors, recent alert firings, p95/p99 outliers, error-rate outliers, ingestion freshness issues, LLM cost outliers, and configuration gaps.
+- Clicking a project from Global Home opens that project's workspace and defaults to `Operations`.
+- Project Workspace destinations are `Operations`, `Analyze`, `Traces`, `Errors`, `Experiments`, and `Configure`.
+- `Operations` is the default project dashboard and should summarize active incidents, monitors, alert state, error rate, p95/p99 latency, ingestion freshness, current release/deploy, and recommended drilldowns.
+- `Analyze` owns event, tenant, user, funnel, retention, cohort, dashboard, and export workflows.
+- `Traces` owns route grouping, p50/p95/p99, trace waterfall, span attributes, related errors/events, and release comparison.
+- `Errors` owns issue inbox, error groups, raw occurrences, Incident view, source-map state, triage, resolve/ignore, and reopen workflows.
+- `Experiments` is the future home for feature flags, A/B tests, prompt variants, model comparison, and quality/cost/latency analysis.
+- `Configure` owns project-specific settings: environments, API keys, browser origins/CORS allowlist, SDK setup, source maps, alert rules/channels, and future project retention overrides.
+- `Sigmon Admin` remains separate from project workspaces and is reserved for the SignalMonitor installation itself: system health, notifications, storage, security, deploy readiness, docs, SDK, and configuration health.
+- The approved design spec for this architecture lives at `docs/superpowers/specs/2026-06-06-product-console-architecture-design.md`.
+
 ## Console Principles
 
 - The console is an operational workspace, not a marketing page.
