@@ -179,9 +179,21 @@ describe("SystemHealthPanel", () => {
     expect(screen.getByText("Queue worker")).toBeInTheDocument();
     expect(screen.getByText("Scheduler")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Deploy config" })).toBeInTheDocument();
-    expect(screen.getByText("WORKER_ROLE=queue")).toBeInTheDocument();
-    expect(screen.getByText("WORKER_ROLE=scheduler")).toBeInTheDocument();
-    expect(screen.getByText("SMTP configured")).toBeInTheDocument();
+    const readiness = screen.getByRole("region", { name: "Installation readiness" });
+    expect(readiness).toBeInTheDocument();
+    expect(within(readiness).getByText("Public endpoint ready")).toBeInTheDocument();
+    expect(within(readiness).getByText("Queue worker running")).toBeInTheDocument();
+    expect(within(readiness).getByText("Scheduler running")).toBeInTheDocument();
+    expect(within(readiness).getByText("SMTP configured")).toBeInTheDocument();
+    const queueWorkerCard = screen.getByRole("heading", { name: "Queue worker" }).closest("article");
+    expect(queueWorkerCard).not.toBeNull();
+    expect(within(queueWorkerCard as HTMLElement).getByText("WORKER_ROLE=queue")).toBeInTheDocument();
+    const schedulerCard = screen.getByRole("heading", { name: "Scheduler" }).closest("article");
+    expect(schedulerCard).not.toBeNull();
+    expect(within(schedulerCard as HTMLElement).getByText("WORKER_ROLE=scheduler")).toBeInTheDocument();
+    const deployCard = screen.getByRole("heading", { name: "Deploy config" }).closest("article");
+    expect(deployCard).not.toBeNull();
+    expect(within(deployCard as HTMLElement).getByText("SMTP configured")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Retention" })).toBeInTheDocument();
     expect(screen.getByText(/^Generated /)).toBeInTheDocument();
     expect(screen.getByText("Waiting")).toBeInTheDocument();
@@ -198,6 +210,59 @@ describe("SystemHealthPanel", () => {
     expect(within(retentionCard as HTMLElement).getByText("success")).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText(/breadcrumbs 4/)).toBeInTheDocument();
     expect(within(retentionCard as HTMLElement).getByText(/source maps 2 artifacts, 2 files/i)).toBeInTheDocument();
+  });
+
+  it("surfaces missing installation configuration without exposing secrets", async () => {
+    const api = client(
+      vi.fn().mockResolvedValue({
+        data: healthyResponse({
+          status: "degraded",
+          services: {
+            api: { status: "healthy", uptimeSeconds: 120 },
+            postgres: { status: "healthy", latencyMs: 4 },
+            redis: { status: "healthy", latencyMs: 2 },
+            worker: { status: "degraded", expected: true, role: "queue", lastHeartbeatAt: null },
+            scheduler: { status: "degraded", expected: true, role: "scheduler", lastHeartbeatAt: null }
+          },
+          deployment: {
+            api: {
+              nodeEnv: "production",
+              consoleEnabled: true,
+              publicEndpointConfigured: false,
+              googleOAuthEnabled: true,
+              smtpConfigured: false
+            },
+            background: {
+              queueExpected: true,
+              schedulerExpected: true,
+              alertsEnabled: true,
+              alertsIntervalMinutes: 1,
+              monitorsEnabled: true,
+              monitorsIntervalMinutes: 1,
+              retentionEnabled: false,
+              retentionIntervalMinutes: 60,
+              backupsEnabled: false,
+              backupsIntervalHours: 24
+            },
+            storage: {
+              backupS3Enabled: false,
+              sourceMapRetentionEnabled: false
+            }
+          }
+        })
+      })
+    );
+
+    render(<SystemHealthPanel client={api} />);
+
+    const readiness = await screen.findByRole("region", { name: "Installation readiness" });
+    expect(within(readiness).getByText("Public endpoint missing")).toBeInTheDocument();
+    expect(within(readiness).getByText("Queue worker stale")).toBeInTheDocument();
+    expect(within(readiness).getByText("Scheduler stale")).toBeInTheDocument();
+    expect(within(readiness).getByText("SMTP missing")).toBeInTheDocument();
+    expect(within(readiness).getByText("Backups disabled")).toBeInTheDocument();
+    expect(within(readiness).getByText("Retention disabled")).toBeInTheDocument();
+    expect(screen.queryByText(/password|secret|token/i)).not.toBeInTheDocument();
   });
 
   it("renders disabled source-map retention policy clearly", async () => {
