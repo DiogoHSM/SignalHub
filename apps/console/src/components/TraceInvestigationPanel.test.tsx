@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -171,7 +171,7 @@ describe("TraceInvestigationPanel", () => {
     render(<TraceInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
     await userEvent.click(await screen.findByRole("button", { name: /checkout flow/ }));
-    expect(await screen.findByText("load cart")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /load cart/ })).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText("Trace"), "trace_2");
     expect(api.listTraces).toHaveBeenCalledTimes(1);
@@ -194,8 +194,64 @@ describe("TraceInvestigationPanel", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: /checkout flow/ }));
 
-    expect(await screen.findByText("load cart")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /load cart/ })).toBeInTheDocument();
     expect(api.listTraceSpans).toHaveBeenCalledWith("trace_1", { projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("renders a trace waterfall and selected span detail panel", async () => {
+    const api = client({
+      listTraces: vi.fn().mockResolvedValue({ data: [trace({ traceId: "trace_1", status: "error", durationMs: 2000 })] }),
+      listTraceSpans: vi.fn().mockResolvedValue({
+        data: [
+          span({
+            id: "spn_root",
+            name: "GET /checkout",
+            status: "success",
+            startedAt: "2026-05-04T12:00:00.000Z",
+            durationMs: 2000,
+            metadata: { route: "/checkout" }
+          }),
+          span({
+            id: "spn_db",
+            parentSpanId: "spn_root",
+            name: "db.orders.insert.with.a.very.long.span.name.that.should.not.break.the.panel",
+            status: "error",
+            startedAt: "2026-05-04T12:00:01.000Z",
+            durationMs: 750,
+            input: { table: "orders" },
+            output: { rows: 0 },
+            error: { message: "duplicate key" },
+            metadata: { db: "postgres" },
+            costUsd: "0.010000"
+          })
+        ]
+      })
+    });
+
+    render(<TraceInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /checkout flow/ }));
+
+    const summary = await screen.findByRole("region", { name: "Trace summary" });
+    expect(within(summary).getByText("error")).toBeInTheDocument();
+    expect(within(summary).getByText("2 spans")).toBeInTheDocument();
+    expect(within(summary).getByText("2000 ms")).toBeInTheDocument();
+    expect(within(summary).getByText("Tenant tenant_1")).toBeInTheDocument();
+    expect(within(summary).getByText("User user_1")).toBeInTheDocument();
+
+    const waterfall = screen.getByRole("region", { name: "Trace waterfall" });
+    expect(within(waterfall).getByRole("button", { name: /GET \/checkout/ })).toBeInTheDocument();
+    expect(within(waterfall).getByRole("button", { name: /db\.orders\.insert/ })).toBeInTheDocument();
+
+    await userEvent.click(within(waterfall).getByRole("button", { name: /db\.orders\.insert/ }));
+
+    const spanDetail = screen.getByRole("region", { name: "Selected span details" });
+    expect(within(spanDetail).getByText("db.orders.insert.with.a.very.long.span.name.that.should.not.break.the.panel")).toBeInTheDocument();
+    expect(within(spanDetail).getByText("Parent spn_root")).toBeInTheDocument();
+    expect(within(spanDetail).getByText("Cost $0.010000")).toBeInTheDocument();
+    expect(within(spanDetail).getByText(/duplicate key/)).toBeInTheDocument();
+    expect(within(spanDetail).getByText(/"table": "orders"/)).toBeInTheDocument();
+    expect(within(spanDetail).getByText(/"db": "postgres"/)).toBeInTheDocument();
   });
 
   it("shows independent unavailable states and retries", async () => {
@@ -250,7 +306,7 @@ describe("TraceInvestigationPanel", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: /old trace/ }));
     await userEvent.click(await screen.findByRole("button", { name: /new trace/ }));
-    expect(await screen.findByText("new span")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /new span/ })).toBeInTheDocument();
 
     await act(async () => {
       firstSpans.resolve({ data: [span({ name: "old span" })] });
@@ -258,6 +314,6 @@ describe("TraceInvestigationPanel", () => {
     });
 
     expect(screen.queryByText("old span")).not.toBeInTheDocument();
-    expect(screen.getByText("new span")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new span/ })).toBeInTheDocument();
   });
 });

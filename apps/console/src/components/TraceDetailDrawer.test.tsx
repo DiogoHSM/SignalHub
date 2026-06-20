@@ -1,4 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SpanRecord, TraceRecord } from "../api/types";
 import { TraceDetailDrawer } from "./TraceDetailDrawer";
@@ -77,7 +78,7 @@ const spans: SpanRecord[] = [
 afterEach(() => cleanup());
 
 describe("TraceDetailDrawer", () => {
-  it("renders selected trace details and ordered spans", () => {
+  it("renders selected trace details and ordered spans", async () => {
     render(<TraceDetailDrawer spanState="ready" spans={spans} trace={trace} onRetrySpans={() => undefined} />);
 
     expect(screen.getByRole("heading", { name: "checkout flow" })).toBeInTheDocument();
@@ -85,10 +86,18 @@ describe("TraceDetailDrawer", () => {
     expect(screen.getAllByText("success").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("2000 ms")).toBeInTheDocument();
     expect(screen.getByText(/"workflow": "checkout"/)).toBeInTheDocument();
-    expect(screen.getAllByText(/load cart|charge card/).map((node) => node.textContent)).toEqual(["load cart", "charge card"]);
-    expect(screen.getByText("spn_1")).toBeInTheDocument();
-    expect(screen.getByText(/"approved": true/)).toBeInTheDocument();
-    expect(screen.getByText("0.0100")).toBeInTheDocument();
+    const waterfall = screen.getByRole("region", { name: "Trace waterfall" });
+    expect(within(waterfall).getAllByRole("button").map((node) => node.textContent)).toEqual([
+      "load cartapp1000 mssuccess",
+      "charge cardapp1000 mssuccess"
+    ]);
+    expect(screen.getByText("ID spn_1")).toBeInTheDocument();
+
+    await userEvent.click(within(waterfall).getByRole("button", { name: /charge card/ }));
+
+    const spanDetail = screen.getByRole("region", { name: "Selected span details" });
+    expect(within(spanDetail).getByText(/"approved": true/)).toBeInTheDocument();
+    expect(within(spanDetail).getByText("Cost $0.0100")).toBeInTheDocument();
   });
 
   it("renders empty selection state", () => {
