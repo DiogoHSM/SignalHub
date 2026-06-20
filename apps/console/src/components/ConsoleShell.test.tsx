@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { CreatedApiKey, Environment, OverviewResponse, SystemHealthResponse } from "../api/types";
+import type { CreatedApiKey, Environment, OperationsResponse, OverviewResponse, SystemHealthResponse } from "../api/types";
 import { ConsoleShell } from "./ConsoleShell";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -163,8 +163,8 @@ function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewRe
   };
 }
 
-function operationsResponse() {
-  return {
+function operationsResponse(overrides: Partial<OperationsResponse> = {}): OperationsResponse {
+  const response: OperationsResponse = {
     window: "24h",
     generatedAt: "2026-05-25T12:00:00.000Z",
     scope: { projectId: "prj_1", environmentId: "env_1" },
@@ -197,6 +197,7 @@ function operationsResponse() {
     topLatency: [],
     setupGaps: []
   };
+  return { ...response, ...overrides };
 }
 
 function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): SystemHealthResponse {
@@ -383,6 +384,67 @@ describe("ConsoleShell", () => {
     expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "true");
     expect(api.getOverview).not.toHaveBeenCalled();
+  });
+
+  it("loads project operations rollups into the Global Home attention queue", async () => {
+    const critical = operationsResponse({
+      scope: { projectId: "prj_dissip", environmentId: "env_dissip" },
+      status: "unhealthy",
+      summary: {
+        ...operationsResponse().summary,
+        monitors: {
+          total: 2,
+          http: { total: 1, up: 0, degraded: 0, down: 1, paused: 0, unknown: 0 },
+          heartbeat: { total: 1, up: 1, degraded: 0, down: 0, paused: 0, unknown: 0 }
+        },
+        alerts: {
+          rules: { total: 2, enabled: 2 },
+          events: { total: 3, critical: 1, warning: 2, deliveryFailed: 0, deliveryPending: 0 }
+        },
+        telemetry: {
+          events: 20,
+          errors: 4,
+          traces: 12,
+          failedTraces: 1,
+          errorRatePercent: 7.5,
+          p95TraceDurationMs: 1320,
+          lastEventAt: "2026-05-25T11:58:00.000Z",
+          lastErrorAt: "2026-05-25T11:57:00.000Z",
+          lastTraceAt: "2026-05-25T11:58:00.000Z"
+        },
+        incidents: { open: 2, investigating: 1, urgent: 1, high: 1, regressed: 0 }
+      }
+    });
+    const healthy = operationsResponse({
+      scope: { projectId: "prj_microerp", environmentId: "env_microerp" },
+      status: "healthy"
+    });
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [
+          { id: "prj_microerp", name: "MicroERP", createdAt: "", updatedAt: "", archivedAt: null },
+          { id: "prj_dissip", name: "dissip", createdAt: "", updatedAt: "", archivedAt: null }
+        ]
+      }),
+      listEnvironments: vi.fn((projectId: string) =>
+        Promise.resolve({
+          environments: [{ id: projectId === "prj_dissip" ? "env_dissip" : "env_microerp", projectId, name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+        })
+      ),
+      getOperations: vi.fn(({ projectId }) => Promise.resolve({ data: projectId === "prj_dissip" ? critical : healthy }))
+    });
+
+    render(<ConsoleShell apiEndpoint="https://sigmon.example.com" client={api} />);
+
+    const rows = await screen.findAllByRole("button", { name: /Open .* operations/i });
+
+    expect(api.getOperations).toHaveBeenCalledWith({ projectId: "prj_microerp", environmentId: "env_microerp", window: "24h" });
+    expect(api.getOperations).toHaveBeenCalledWith({ projectId: "prj_dissip", environmentId: "env_dissip", window: "24h" });
+    await waitFor(() => expect(rows[0]).toHaveAccessibleName(/Open dissip operations/i));
+    expect(rows[0]).toHaveTextContent("Critical");
+    expect(rows[0]).toHaveTextContent("3 incidents");
+    expect(rows[0]).toHaveTextContent("1 monitor down");
+    expect(rows[0]).toHaveTextContent("p95 1.32s");
   });
 
   it("opens an incident route from the browser URL", async () => {
@@ -1063,12 +1125,16 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
+    expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
+    await waitFor(() => expect(getOperations).toHaveBeenCalledTimes(1));
+    getOperations.mockClear();
+
     await openProjectWorkspace();
     await waitFor(() => expect(getOperations).toHaveBeenCalledTimes(1));
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh current view" }));
 
-    await waitFor(() => expect(getOperations).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getOperations).toHaveBeenCalledTimes(3));
     expect(screen.getByRole("combobox", { name: "Auto refresh interval" })).toHaveDisplayValue("Off");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Auto refresh interval" }), "120000");
     expect(screen.getByRole("combobox", { name: "Auto refresh interval" })).toHaveDisplayValue("2 min");

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Bell, ChevronDown, Command, LogOut, RefreshCw } from "lucide-react";
 import type { ApiClient } from "../api/client";
-import type { Environment, Project, User } from "../api/types";
+import type { Environment, OperationsResponse, Project, User } from "../api/types";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
-import { GlobalHomeDashboard } from "./GlobalHomeDashboard";
+import { GlobalHomeDashboard, type GlobalProjectSignal, type GlobalProjectStatus } from "./GlobalHomeDashboard";
 import { IncidentView } from "./IncidentView";
 import { AlertsPanel } from "./AlertsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
@@ -155,6 +155,28 @@ function parseIncidentRoute(location: Location): IncidentRoute {
   };
 }
 
+function operationsToGlobalSignal(data: OperationsResponse): GlobalProjectSignal {
+  const downMonitors = data.summary.monitors.http.down + data.summary.monitors.heartbeat.down;
+  const setupGaps = data.setupGaps.filter((gap) => gap.severity === "warning").length;
+
+  return {
+    criticalAlerts: data.summary.alerts.events.critical,
+    downMonitors,
+    errorRatePercent: data.summary.telemetry.errorRatePercent,
+    openIncidents: data.summary.incidents.open + data.summary.incidents.investigating,
+    p95LatencyMs: data.summary.telemetry.p95TraceDurationMs,
+    setupGaps,
+    status: operationsStatusToGlobalStatus(data.status)
+  };
+}
+
+function operationsStatusToGlobalStatus(status: OperationsResponse["status"]): GlobalProjectStatus {
+  if (status === "unhealthy") return "critical";
+  if (status === "degraded") return "degraded";
+  if (status === "not_configured") return "attention";
+  return "healthy";
+}
+
 export function ConsoleShell({
   browserCorsOrigins = [],
   client,
@@ -184,6 +206,7 @@ export function ConsoleShell({
   const [latestSecret, setLatestSecret] = useState<LatestSecret | undefined>();
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [loadedEnvironmentProjectId, setLoadedEnvironmentProjectId] = useState<string | undefined>();
+  const [globalProjectSignals, setGlobalProjectSignals] = useState<Record<string, GlobalProjectSignal | undefined>>({});
   const [refreshToken, setRefreshToken] = useState(0);
   const [autoRefreshMs, setAutoRefreshMs] = useState(0);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -274,6 +297,43 @@ export function ConsoleShell({
       cancelled = true;
     };
   }, [client]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (projects.length === 0 || !client.getOperations) {
+      setGlobalProjectSignals({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const getOperations = client.getOperations;
+
+    void Promise.all(
+      projects.map(async (project) => {
+        try {
+          const { environments } = await client.listEnvironments(project.id);
+          const environment = environments[0];
+          if (!environment) {
+            return [project.id, { status: "attention", setupGaps: 1 } satisfies GlobalProjectSignal] as const;
+          }
+          const { data } = await getOperations({ projectId: project.id, environmentId: environment.id, window: "24h" });
+          if (!data) return [project.id, undefined] as const;
+          return [project.id, operationsToGlobalSignal(data)] as const;
+        } catch {
+          return [project.id, undefined] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setGlobalProjectSignals(Object.fromEntries(entries));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, projects, refreshToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -727,7 +787,12 @@ export function ConsoleShell({
             <>
               <div hidden={activeMode !== "home"}>
                 {activeMode === "home" ? (
-                  <GlobalHomeDashboard isLoading={isLoadingProjects} onOpenProject={openProjectWorkspace} projects={projects} />
+                  <GlobalHomeDashboard
+                    isLoading={isLoadingProjects}
+                    onOpenProject={openProjectWorkspace}
+                    projectSignals={globalProjectSignals}
+                    projects={projects}
+                  />
                 ) : null}
               </div>
               <div className="setup-shell" hidden={activeMode !== "setup"}>
