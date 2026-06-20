@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { flushSync } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -168,6 +168,44 @@ describe("ErrorInvestigationPanel", () => {
     expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
     expect(api.listErrorGroups).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
     expect(api.listErrors).not.toHaveBeenCalled();
+  });
+
+  it("renders grouped errors as a dense incident queue table", async () => {
+    const onOpenIncident = vi.fn();
+    const api = client({
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [
+          errorGroup({
+            id: "egrp_checkout",
+            message: "Checkout fetch failed",
+            occurrenceCount: 12,
+            affectedUsersCount: 4,
+            affectedTenantsCount: 2,
+            latestRelease: "web@1.0.0",
+            priority: "high"
+          })
+        ]
+      })
+    });
+
+    render(<ErrorInvestigationPanel client={api} environmentId="env_1" onOpenIncident={onOpenIncident} projectId="prj_1" />);
+
+    const queue = await screen.findByRole("table", { name: "Grouped error incident queue" });
+
+    for (const heading of ["Issue", "Severity", "Status", "Priority", "Events", "Users", "Tenants", "Release", "Last seen", "Action"]) {
+      expect(within(queue).getByRole("columnheader", { name: heading })).toBeInTheDocument();
+    }
+
+    const row = within(queue).getByRole("row", { name: /Checkout fetch failed/ });
+    expect(row).toHaveTextContent("egrp_checkout");
+    expect(row).toHaveTextContent("critical");
+    expect(row).toHaveTextContent("open");
+    expect(row).toHaveTextContent("high");
+    expect(row).toHaveTextContent("12");
+    expect(row).toHaveTextContent("4");
+    expect(row).toHaveTextContent("2");
+    expect(row).toHaveTextContent("web@1.0.0");
+    expect(within(row).getByRole("button", { name: "Open incident" })).toBeInTheDocument();
   });
 
   it("opens an incident from a grouped error", async () => {

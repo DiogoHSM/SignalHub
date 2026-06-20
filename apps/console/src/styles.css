@@ -1475,6 +1475,99 @@ select {
   gap: 10px;
 }
 
+.incident-queue-table-shell {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface-2);
+}
+
+.incident-queue-table {
+  width: 100%;
+  min-width: 1080px;
+  border-collapse: collapse;
+  color: var(--fg-secondary);
+  font-size: 13px;
+}
+
+.incident-queue-table th,
+.incident-queue-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.incident-queue-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-surface-2);
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.incident-queue-table tbody tr:last-child th,
+.incident-queue-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.incident-queue-table__row {
+  background: var(--bg-surface);
+}
+
+.incident-queue-table__row:hover,
+.incident-queue-table__row[data-selected="true"] {
+  background: var(--accent-bg);
+}
+
+.incident-queue-table__row[data-selected="true"] th,
+.incident-queue-table__row[data-selected="true"] td {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 55%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.incident-queue-table__issue {
+  display: grid;
+  max-width: 360px;
+  min-width: 0;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.incident-queue-table__issue strong {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-queue-table__issue code {
+  color: var(--fg-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.incident-queue-table__issue:hover strong {
+  color: var(--accent);
+}
+
+.numeric-cell {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
 .trace-row {
   grid-template-columns:
     minmax(220px, 1.5fr)
