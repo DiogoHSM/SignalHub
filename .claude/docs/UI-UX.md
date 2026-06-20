@@ -111,6 +111,7 @@ SignalMonitor includes an admin-only Integration Console.
 - `Operations` summarizes monitored health, alert state, p95 latency, error rate, ingestion freshness, and open incidents for the selected project/environment.
 - `System Health` remains global Sigmon install health: API, Postgres, Redis, queue worker, scheduler, SMTP, retention, and backups.
 - Operations is read-only in this slice. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views for action.
+- Operations opens with recommended next actions ranked from incidents, monitor gaps, alert delivery, slow traces, and error-rate outliers so the operator has an immediate response path.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
 
 ## Alerts UX

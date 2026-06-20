@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -137,9 +137,10 @@ describe("OperationsDashboard", () => {
     render(<OperationsDashboard client={client(getOperations)} environmentId="env_1" projectId="prj_1" {...handlers} />);
 
     await waitFor(() => expect(screen.getByText("Project status")).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: /Open monitors/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Open alerts/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Open issues/i }));
+    const commandCards = screen.getByRole("region", { name: "Operations command cards" });
+    await userEvent.click(within(commandCards).getByRole("button", { name: /Open monitors/i }));
+    await userEvent.click(within(commandCards).getByRole("button", { name: /Open alerts/i }));
+    await userEvent.click(within(commandCards).getByRole("button", { name: /Open issues/i }));
     await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
     await userEvent.click(screen.getByRole("button", { name: "Checkout failed" }));
 
@@ -149,5 +150,66 @@ describe("OperationsDashboard", () => {
     expect(handlers.onOpenTraces).toHaveBeenCalledWith({ traceName: "checkout" });
     expect(handlers.onOpenIncident).toHaveBeenCalledWith("egrp_1", { errorId: "err_1" });
   });
-});
 
+  it("surfaces prioritized next actions for degraded operations", async () => {
+    const getOperations = vi.fn().mockResolvedValue({ data: operationsResponse() });
+    const handlers = callbacks();
+
+    render(<OperationsDashboard client={client(getOperations)} environmentId="env_1" projectId="prj_1" {...handlers} />);
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Recommended next actions" })).toBeInTheDocument());
+    expect(screen.getByText("Investigate active incidents")).toBeInTheDocument();
+    expect(screen.getByText("Fix monitor coverage gaps")).toBeInTheDocument();
+    expect(screen.getByText("Review failed alert deliveries")).toBeInTheDocument();
+    expect(screen.getByText("Inspect slow traces")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Investigate active incidents/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Fix monitor coverage gaps/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Review failed alert deliveries/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Inspect slow traces/i }));
+
+    expect(handlers.onOpenErrors).toHaveBeenCalledWith({ status: "open" });
+    expect(handlers.onOpenMonitors).toHaveBeenCalled();
+    expect(handlers.onOpenAlerts).toHaveBeenCalled();
+    expect(handlers.onOpenTraces).toHaveBeenCalledWith({ traceName: "checkout" });
+  });
+
+  it("explains a healthy operations state without urgent actions", async () => {
+    const getOperations = vi.fn().mockResolvedValue({
+      data: operationsResponse({
+        status: "healthy",
+        summary: {
+          monitors: {
+            total: 2,
+            http: { total: 1, up: 1, degraded: 0, down: 0, paused: 0, unknown: 0 },
+            heartbeat: { total: 1, up: 1, degraded: 0, down: 0, paused: 0, unknown: 0 }
+          },
+          alerts: {
+            rules: { total: 2, enabled: 2 },
+            events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 }
+          },
+          telemetry: {
+            events: 18,
+            errors: 0,
+            traces: 10,
+            failedTraces: 0,
+            errorRatePercent: 0,
+            p95TraceDurationMs: 180,
+            lastEventAt: "2026-05-25T11:58:00.000Z",
+            lastErrorAt: null,
+            lastTraceAt: "2026-05-25T11:57:00.000Z"
+          },
+          incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 }
+        },
+        recent: { monitors: [], alerts: [], incidents: [] },
+        topLatency: [],
+        setupGaps: []
+      })
+    });
+
+    render(<OperationsDashboard client={client(getOperations)} environmentId="env_1" projectId="prj_1" {...callbacks()} />);
+
+    await waitFor(() => expect(screen.getByText("No urgent actions")).toBeInTheDocument());
+    expect(screen.getByText("Signals look stable for this window. Keep this open and watch for drift.")).toBeInTheDocument();
+  });
+});

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Bell, ExternalLink, HeartPulse, SearchCode, ShieldCheck, Timer } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, ExternalLink, HeartPulse, SearchCode, ShieldCheck, Timer } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type { OperationsResponse, OperationsStatus, OperationsWindow } from "../api/types";
 
@@ -18,6 +18,15 @@ type OperationsDashboardProps = {
 type LoadState = "loading" | "ready" | "unavailable";
 
 const windows: OperationsWindow[] = ["24h", "7d", "30d"];
+
+type RecommendedAction = {
+  key: string;
+  title: string;
+  description: string;
+  action: string;
+  tone: "success" | "warning" | "failed" | "neutral";
+  onClick: () => void;
+};
 
 function statusClass(status: OperationsStatus | "success" | "failed" | "warning" | "info" | "neutral"): string {
   if (status === "healthy" || status === "success") return "status-pill status-pill--success";
@@ -67,6 +76,83 @@ function OperationsLoadingLayout() {
       </section>
     </>
   );
+}
+
+function buildRecommendedActions(
+  data: OperationsResponse,
+  handlers: {
+    onOpenAlerts: () => void;
+    onOpenErrors: (filters?: { status?: "open" | "investigating"; severity?: string }) => void;
+    onOpenMonitors: () => void;
+    onOpenTraces: (filters?: { traceName?: string }) => void;
+  }
+): RecommendedAction[] {
+  const downMonitors = data.summary.monitors.http.down + data.summary.monitors.heartbeat.down;
+  const degradedMonitors = data.summary.monitors.http.degraded + data.summary.monitors.heartbeat.degraded;
+  const activeIncidents = data.summary.incidents.open + data.summary.incidents.investigating;
+  const setupMonitorGaps = data.setupGaps.filter((gap) => gap.action === "monitors").length;
+  const slowestTrace = data.topLatency[0];
+  const actions: RecommendedAction[] = [];
+
+  if (activeIncidents > 0) {
+    actions.push({
+      key: "incidents",
+      title: "Investigate active incidents",
+      description: `${activeIncidents} active incidents, including ${data.summary.incidents.high} high priority.`,
+      action: "Open incidents",
+      tone: data.summary.incidents.urgent > 0 ? "failed" : "warning",
+      onClick: () => handlers.onOpenErrors({ status: "open" })
+    });
+  }
+
+  if (downMonitors > 0 || degradedMonitors > 0 || setupMonitorGaps > 0) {
+    actions.push({
+      key: "monitors",
+      title: downMonitors > 0 ? "Recover down monitors" : "Fix monitor coverage gaps",
+      description:
+        downMonitors > 0
+          ? `${downMonitors} monitors are down and ${degradedMonitors} are degraded.`
+          : `${setupMonitorGaps} monitor setup gaps are still open.`,
+      action: "Open monitors",
+      tone: downMonitors > 0 ? "failed" : "warning",
+      onClick: handlers.onOpenMonitors
+    });
+  }
+
+  if (data.summary.alerts.events.critical > 0 || data.summary.alerts.events.deliveryFailed > 0) {
+    actions.push({
+      key: "alerts",
+      title: data.summary.alerts.events.critical > 0 ? "Review critical alert firings" : "Review failed alert deliveries",
+      description: `${data.summary.alerts.events.critical} critical alerts and ${data.summary.alerts.events.deliveryFailed} failed deliveries in this window.`,
+      action: "Open alerts",
+      tone: data.summary.alerts.events.critical > 0 ? "failed" : "warning",
+      onClick: handlers.onOpenAlerts
+    });
+  }
+
+  if (slowestTrace && slowestTrace.p95TraceDurationMs >= 500) {
+    actions.push({
+      key: "latency",
+      title: "Inspect slow traces",
+      description: `${slowestTrace.name} is the slowest route at p95 ${formatMs(slowestTrace.p95TraceDurationMs)} across ${slowestTrace.traces} traces.`,
+      action: "Open trace",
+      tone: slowestTrace.failedTraces > 0 ? "warning" : "neutral",
+      onClick: () => handlers.onOpenTraces({ traceName: slowestTrace.name })
+    });
+  }
+
+  if (data.summary.telemetry.errorRatePercent !== null && data.summary.telemetry.errorRatePercent >= 5) {
+    actions.push({
+      key: "error-rate",
+      title: "Check error-rate outlier",
+      description: `Error rate is ${formatPercent(data.summary.telemetry.errorRatePercent)} for this window.`,
+      action: "Open errors",
+      tone: data.summary.telemetry.errorRatePercent >= 10 ? "failed" : "warning",
+      onClick: () => handlers.onOpenErrors({ status: "open" })
+    });
+  }
+
+  return actions.slice(0, 4);
 }
 
 function CommandCard({
@@ -154,6 +240,10 @@ export function OperationsDashboard({
     setReloadToken((current) => current + 1);
   }
 
+  const recommendedActions = data
+    ? buildRecommendedActions(data, { onOpenAlerts, onOpenErrors, onOpenMonitors, onOpenTraces })
+    : [];
+
   if (!projectId || !environmentId) {
     return (
       <section className="panel">
@@ -205,6 +295,42 @@ export function OperationsDashboard({
 
       {state === "ready" && data ? (
         <>
+          <section aria-label="Recommended next actions" className="operations-next-actions">
+            <div className="panel-header">
+              <div>
+                <h3>Recommended next actions</h3>
+                <p className="muted-text">Prioritized from incidents, monitors, alerts, latency, and telemetry drift.</p>
+              </div>
+            </div>
+            {recommendedActions.length > 0 ? (
+              <div className="operations-next-actions__list">
+                {recommendedActions.map((item) => (
+                  <button className={`operations-next-action operations-next-action--${item.tone}`} key={item.key} onClick={item.onClick} type="button">
+                    <span className={`operations-command-card__icon operations-command-card__icon--${item.tone}`}>
+                      {item.tone === "success" ? <CheckCircle2 aria-hidden="true" size={18} /> : <AlertTriangle aria-hidden="true" size={18} />}
+                    </span>
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                    <span className="operations-next-action__cta">
+                      {item.action}
+                      <ExternalLink aria-hidden="true" size={13} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="operations-next-actions__empty">
+                <CheckCircle2 aria-hidden="true" size={20} />
+                <div>
+                  <strong>No urgent actions</strong>
+                  <p className="muted-text">Signals look stable for this window. Keep this open and watch for drift.</p>
+                </div>
+              </div>
+            )}
+          </section>
+
           <section className="operations-status-grid" aria-label="Operations command cards">
             <CommandCard icon={ShieldCheck} label="Project status" metric={statusLabel(data.status)} tone={data.status === "healthy" ? "success" : data.status === "unhealthy" ? "failed" : "warning"}>
               {data.setupGaps.length === 0 ? "Configured signals are reporting normally." : `${data.setupGaps.length} setup gaps need attention.`}
