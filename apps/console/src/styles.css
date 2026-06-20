@@ -1782,10 +1782,42 @@ select {
   gap: 12px;
 }
 
-.incident-summary > div:first-child {
+.incident-hero-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.incident-hero-main h2 {
+  margin: 2px 0 8px;
+  color: #111827;
+  font-size: 24px;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.incident-hero-tags,
+.incident-hero-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.incident-hero-actions {
+  justify-content: flex-end;
+}
+
+.incident-hero-actions button {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 7px 10px;
 }
 
 .incident-summary-grid {
@@ -1808,6 +1840,26 @@ select {
   font-size: 12px;
   font-weight: 700;
   padding: 8px 10px;
+}
+
+.incident-hero-metric {
+  display: grid;
+  gap: 3px;
+}
+
+.incident-hero-metric strong {
+  color: inherit;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.incident-hero-metric small {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .incident-split {
@@ -2770,8 +2822,14 @@ select {
 }
 
 @media (max-width: 1080px) {
-  .incident-header {
+  .incident-header,
+  .incident-hero-main {
     flex-direction: column;
+    grid-template-columns: 1fr;
+  }
+
+  .incident-hero-actions {
+    justify-content: flex-start;
   }
 
   .incident-summary-grid,
@@ -5211,6 +5269,10 @@ input[type="file"]::file-selector-button {
   color: var(--fg);
 }
 
+.incident-hero-main h2 {
+  color: var(--fg);
+}
+
 .incident-summary,
 .incident-technical-panel,
 .incident-triage-panel,
@@ -5229,6 +5291,30 @@ input[type="file"]::file-selector-button {
   border: 1px solid var(--border-subtle);
   background: var(--bg-surface-2);
   color: var(--fg-muted);
+}
+
+.incident-hero-metric strong {
+  color: var(--fg);
+}
+
+.incident-hero-actions button {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: var(--bg-surface-2);
+  color: var(--fg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.incident-hero-actions button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: var(--accent-bg);
+  color: var(--accent-strong);
+}
+
+.incident-hero-actions button:disabled {
+  border-color: var(--border-subtle);
+  background: #242c36;
+  color: var(--fg-faint);
+  cursor: not-allowed;
 }
 
 .incident-technical-panel h3,
