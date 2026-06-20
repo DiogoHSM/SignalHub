@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const consoleRoot = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
+const css = readFileSync(join(consoleRoot, "src", "styles.css"), "utf8");
 
 describe("console CSS shell contract", () => {
   it("keeps viewport scrolling inside the console workspace with dark native chrome", () => {

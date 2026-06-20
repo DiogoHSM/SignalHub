@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./api/client";
 import { App } from "./App";
@@ -137,11 +138,20 @@ describe("App", () => {
   it("renders the authenticated console workspace", async () => {
     render(<App />);
 
+    expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Current project" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Operations" }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Current project" })).toHaveValue("prj_1"));
     expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
     expect(createApiClient).toHaveBeenNthCalledWith(1);
     expect(createApiClient).toHaveBeenNthCalledWith(2, "/api");
     expect(operationalClient.getMe).toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+    const commandPalette = screen.getByRole("dialog", { name: "Command palette" });
+    await userEvent.type(within(commandPalette).getByRole("textbox", { name: "Search commands" }), "onboarding");
+    await userEvent.click(within(commandPalette).getByRole("button", { name: "Open Onboarding" }));
     expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(4);
   });
 });

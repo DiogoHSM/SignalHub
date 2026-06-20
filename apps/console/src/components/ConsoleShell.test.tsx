@@ -352,8 +352,25 @@ afterEach(() => {
   window.history.pushState({}, "", "/");
 });
 
+async function openProjectWorkspace() {
+  await userEvent.click(await screen.findByRole("button", { name: "Operations" }));
+  expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+}
+
+async function openCommand(title: string, query = title) {
+  await userEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+  const dialog = screen.getByRole("dialog", { name: "Command palette" });
+  await userEvent.type(within(dialog).getByRole("textbox", { name: "Search commands" }), query);
+  await userEvent.click(within(dialog).getByRole("button", { name: `Open ${title}` }));
+}
+
+async function clickShellMode(name: string) {
+  const navigation = screen.getByRole("complementary", { name: "Console navigation" });
+  await userEvent.click(within(navigation).getByRole("button", { name }));
+}
+
 describe("ConsoleShell", () => {
-  it("starts on Overview and exposes the heartbeat brand mark", async () => {
+  it("starts on Global Home and exposes the heartbeat brand mark", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({ projects: [{ id: "prj_1", name: "Acme Platform" }] }),
       listEnvironments: vi.fn().mockResolvedValue({ environments: [{ id: "env_1", projectId: "prj_1", name: "production" }] }),
@@ -363,8 +380,9 @@ describe("ConsoleShell", () => {
     render(<ConsoleShell apiEndpoint="https://sigmon.example.com" client={api} />);
 
     expect(await screen.findByRole("img", { name: "sigmon heartbeat logo" })).toBeInTheDocument();
-    await waitFor(() => expect(api.getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" }));
-    expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "true");
+    expect(api.getOverview).not.toHaveBeenCalled();
   });
 
   it("opens an incident route from the browser URL", async () => {
@@ -384,7 +402,7 @@ describe("ConsoleShell", () => {
     });
   });
 
-  it("opens System Health instead of showing an incident under installation-wide chrome", async () => {
+  it("opens Sigmon Admin instead of showing an incident under installation-wide chrome", async () => {
     window.history.pushState({}, "", "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1");
     const getSystemHealth = vi.fn().mockResolvedValue({ data: systemHealthResponse() });
     const api = client({
@@ -404,7 +422,7 @@ describe("ConsoleShell", () => {
 
     expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "System Health" }));
+    await clickShellMode("Admin");
 
     expect(getSystemHealth).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Checkout failed")).not.toBeInTheDocument();
@@ -426,7 +444,7 @@ describe("ConsoleShell", () => {
 
     expect(window.location.pathname).toBe("/console");
     expect(screen.queryByText("Incident unavailable")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
@@ -476,9 +494,9 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
-    await userEvent.click(screen.getByRole("button", { name: "Errors" }));
+    await openProjectWorkspace();
+    await clickShellMode("Analyze");
+    await clickShellMode("Errors");
     await userEvent.click(await screen.findByRole("button", { name: "Open incident" }));
 
     expect(await screen.findByText("Checkout failed")).toBeInTheDocument();
@@ -492,7 +510,8 @@ describe("ConsoleShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Back to errors" }));
 
     expect(window.location.pathname).toBe("/console");
-    expect(screen.queryByText("Checkout failed")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back to errors" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open incident" })).toBeInTheDocument();
     expect(replaceStateSpy).toHaveBeenCalledWith({}, "", "/console");
     expect(pushStateSpy).not.toHaveBeenCalledWith({}, "", "/console");
     expect(getErrorGroupIncident).toHaveBeenCalledTimes(1);
@@ -506,7 +525,7 @@ describe("ConsoleShell", () => {
 
     expect(() => render(<ConsoleShell apiEndpoint="https://my.sigmon.app" client={api} />)).not.toThrow();
     expect(api.getErrorGroupIncident).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
     expect(screen.getByText("Projects")).toBeInTheDocument();
   });
 
@@ -522,7 +541,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
     expect(await screen.findByRole("button", { name: "Acme App" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Production" })).toBeInTheDocument();
     expect(api.listEnvironments).toHaveBeenCalledWith("prj_1");
@@ -548,19 +567,20 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Current project" }), "prj_2");
 
     expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Current project" })).toHaveValue("prj_2");
-    expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("complementary", { name: "Console navigation" })).getByRole("button", { name: "Operations" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
   });
 
   it("switches environments from the global header without opening setup", async () => {
-    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
     const api = client({
-      getOverview,
       listProjects: vi.fn().mockResolvedValue({
         projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
       }),
@@ -574,18 +594,12 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
-    );
+    await openProjectWorkspace();
 
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Current environment" }), "env_2");
 
     expect(await screen.findByText("Environment: Preview")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Current environment" })).toHaveValue("env_2");
-    await waitFor(() =>
-      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_2", window: "24h" })
-    );
   });
 
   it("creates a project and selects it", async () => {
@@ -608,8 +622,8 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openProjectWorkspace();
+    await openCommand("Onboarding");
 
     await userEvent.type(screen.getByLabelText("New project name"), "New Project");
     await userEvent.click(screen.getByRole("button", { name: "Create project" }));
@@ -631,7 +645,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
     expect(await screen.findByRole("combobox", { name: "Current project" })).toHaveValue("prj_1");
     expect(screen.getByLabelText("New environment name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create environment" })).toBeDisabled();
@@ -657,7 +671,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
     await waitFor(() => expect(screen.getByLabelText("New environment name")).toBeEnabled());
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -704,8 +718,8 @@ describe("ConsoleShell", () => {
       });
 
       await act(async () => {});
-      expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-      await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+      await openProjectWorkspace();
+      await openCommand("Onboarding");
 
       await userEvent.type(screen.getByLabelText("New API key name"), "Browser key");
       await userEvent.click(screen.getByRole("button", { name: "Create key" }));
@@ -746,8 +760,8 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openProjectWorkspace();
+    await openCommand("Onboarding");
 
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -795,8 +809,8 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openProjectWorkspace();
+    await openCommand("Onboarding");
 
     await userEvent.type(screen.getByLabelText("New environment name"), "Staging");
     await userEvent.click(screen.getByRole("button", { name: "Create environment" }));
@@ -834,7 +848,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
     expect(screen.getByLabelText("New project name")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled();
 
@@ -859,12 +873,12 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
 
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await clickShellMode("Analyze");
     expect(screen.getByRole("heading", { name: "Investigate" })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
     expect(screen.getByText("Environment: Production")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
   });
@@ -881,9 +895,9 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
 
-    await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
+    await clickShellMode("Configure");
 
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
     expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
@@ -908,9 +922,9 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
 
-    await userEvent.click(screen.getByRole("button", { name: "Project Settings" }));
+    await clickShellMode("Configure");
     await userEvent.click(screen.getByRole("button", { name: "Environments" }));
     await userEvent.click(screen.getByRole("button", { name: "Edit Production" }));
     await userEvent.clear(screen.getByLabelText("Environment name"));
@@ -942,10 +956,10 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
     expect(getSystemHealth).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "System Health" }));
+    await clickShellMode("Admin");
 
     expect(getSystemHealth).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText("Current project")).not.toBeInTheDocument();
@@ -960,7 +974,10 @@ describe("ConsoleShell", () => {
       await health.promise;
     });
 
-    expect(screen.getByRole("button", { name: "System Health" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("complementary", { name: "Console navigation" })).getByRole("button", { name: "Admin" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
     expect(await screen.findByRole("heading", { name: "System health" })).toBeInTheDocument();
     expect(screen.getByText("Postgres")).toBeInTheDocument();
   });
@@ -979,10 +996,10 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
     expect(listSourceMapArtifacts).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Artifacts" }));
+    await openCommand("Artifacts");
 
     expect(await screen.findByText("No source maps uploaded.")).toBeInTheDocument();
     expect(listSourceMapArtifacts).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
@@ -1000,21 +1017,21 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openProjectWorkspace();
+    await openCommand("Onboarding");
 
     await userEvent.type(screen.getByRole("textbox", { name: "New environment name" }), "Staging");
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await clickShellMode("Analyze");
 
     expect(screen.queryByRole("textbox", { name: "New environment name" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "New environment name", hidden: true })).toHaveValue("Staging");
 
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openCommand("Onboarding");
 
     expect(screen.getByRole("textbox", { name: "New environment name" })).toHaveValue("Staging");
   });
 
-  it("queries overview as the default console home", async () => {
+  it("keeps Global Home as the default console home without querying project overview", async () => {
     const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
     const api = client({
       getOverview,
@@ -1028,16 +1045,14 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
-    );
+    expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
+    expect(getOverview).not.toHaveBeenCalled();
   });
 
   it("refreshes the active console view and exposes auto-refresh intervals", async () => {
-    const getOverview = vi.fn().mockResolvedValue({ data: overviewResponse() });
+    const getOperations = vi.fn().mockResolvedValue({ data: operationsResponse() });
     const api = client({
-      getOverview,
+      getOperations,
       listProjects: vi.fn().mockResolvedValue({
         projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
       }),
@@ -1048,12 +1063,12 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await waitFor(() => expect(getOverview).toHaveBeenCalledTimes(1));
+    await openProjectWorkspace();
+    await waitFor(() => expect(getOperations).toHaveBeenCalledTimes(1));
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh current view" }));
 
-    await waitFor(() => expect(getOverview).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getOperations).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("combobox", { name: "Auto refresh interval" })).toHaveDisplayValue("Off");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Auto refresh interval" }), "120000");
     expect(screen.getByRole("combobox", { name: "Auto refresh interval" })).toHaveDisplayValue("2 min");
@@ -1073,7 +1088,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
     await userEvent.click(screen.getByRole("button", { name: "Open command palette" }));
 
     const dialog = screen.getByRole("dialog", { name: "Command palette" });
@@ -1084,7 +1099,6 @@ describe("ConsoleShell", () => {
 
     expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Monitors" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Monitors" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("opens and closes the command palette from keyboard shortcuts", async () => {
@@ -1099,7 +1113,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
     await userEvent.keyboard("{Meta>}k{/Meta}");
 
     expect(screen.getByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
@@ -1121,7 +1135,7 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} onSignOut={signOut} user={{ id: "usr_1", email: "diogo.hsm@example.com", isAdmin: true }} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
     await userEvent.click(screen.getByRole("button", { name: "Signed in operator menu" }));
 
     expect(screen.getByText("diogo.hsm@example.com")).toBeInTheDocument();
@@ -1144,14 +1158,16 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
     expect(getOperations).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: "Operations" }));
+    await clickShellMode("Operations");
 
     await waitFor(() =>
       expect(getOperations).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" })
     );
-    expect(screen.getByRole("button", { name: "Operations" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("complementary", { name: "Console navigation" })).getByRole("button", { name: "Operations" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
   });
 
   it("opens an operations recent incident in the investigation incident view", async () => {
@@ -1190,11 +1206,13 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Operations" }));
+    await openProjectWorkspace();
     await userEvent.click(await screen.findByRole("button", { name: "Checkout failed" }));
 
-    expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("complementary", { name: "Console navigation" })).getByRole("button", { name: "Errors" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
     expect(getErrorGroupIncident).toHaveBeenCalledWith("egrp_1", {
       projectId: "prj_1",
       environmentId: "env_1",
@@ -1220,10 +1238,14 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
+    await openCommand("Overview");
     await userEvent.click(await screen.findByRole("button", { name: /dashboard_created/ }));
 
-    expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("complementary", { name: "Console navigation" })).getByRole("button", { name: "Analyze" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
     await waitFor(() =>
       expect(listEvents).toHaveBeenLastCalledWith({
         projectId: "prj_1",
@@ -1279,13 +1301,17 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
+    await openCommand("Overview");
     const tenantUsage = (await screen.findByText("Tenant usage")).closest("article");
     expect(tenantUsage).not.toBeNull();
 
     await userEvent.click(within(tenantUsage!).getByRole("button", { name: /tenant_1/ }));
 
-    expect(screen.getByRole("button", { name: "Investigate" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("complementary", { name: "Console navigation" })).getByRole("button", { name: "Analyze" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
     expect(screen.getByRole("button", { name: "Entities" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() =>
       expect(listEntityTenants).toHaveBeenLastCalledWith({
@@ -1312,11 +1338,11 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
     await waitFor(() => expect(listEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" }));
     expect(listEvents.mock.calls.some(([filters]) => filters.limit === 50)).toBe(false);
 
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await clickShellMode("Analyze");
 
     await waitFor(() => expect(listEvents.mock.calls.some(([filters]) => filters.limit === 50)).toBe(true));
   });
@@ -1335,16 +1361,16 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    await openProjectWorkspace();
     await waitFor(() => expect(listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" }));
     expect(listErrors.mock.calls.some(([filters]) => filters.limit === 50)).toBe(false);
     listErrors.mockClear();
 
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await clickShellMode("Analyze");
 
     expect(listErrors).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Errors" }));
+    await clickShellMode("Errors");
 
     await waitFor(() => expect(listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
   });
@@ -1365,12 +1391,12 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await openProjectWorkspace();
+    await clickShellMode("Analyze");
 
     expect(listTraces).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Traces" }));
+    await clickShellMode("Traces");
 
     await waitFor(() => expect(listTraces).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
     expect(listTraceSpans).not.toHaveBeenCalled();
@@ -1394,8 +1420,8 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Investigate" }));
+    await openProjectWorkspace();
+    await clickShellMode("Analyze");
 
     expect(listLlmCalls).not.toHaveBeenCalled();
     expect(getLlmAggregates).not.toHaveBeenCalled();
@@ -1426,8 +1452,8 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Onboarding" }));
+    await openProjectWorkspace();
+    await openCommand("Onboarding");
 
     await userEvent.click(screen.getByRole("button", { name: "Beta App" }));
 
@@ -1468,8 +1494,8 @@ describe("ConsoleShell", () => {
 
     render(<ConsoleShell client={api} />);
 
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Alerts" }));
+    await openProjectWorkspace();
+    await openCommand("Alerts");
 
     expect(await screen.findByRole("heading", { name: "Alerts" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("Alert rules")).getByText("Critical errors")).toBeInTheDocument();

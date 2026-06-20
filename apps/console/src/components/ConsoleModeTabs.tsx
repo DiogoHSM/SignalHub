@@ -1,16 +1,22 @@
-import { Activity, Bell, FileCode2, Gauge, HeartPulse, KeyRound, MonitorCheck, SearchCode, Settings, ShieldCheck } from "lucide-react";
+import { Activity, Bell, Gauge, MonitorCheck, SearchCode, Settings, ShieldCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export type ConsoleMode =
+  | "home"
+  | "operations"
+  | "analyze"
+  | "traces"
+  | "errors"
+  | "experiments"
+  | "configure"
+  | "system"
   | "setup"
   | "overview"
-  | "operations"
   | "investigate"
   | "alerts"
   | "monitors"
   | "artifacts"
-  | "project-settings"
-  | "system";
+  | "project-settings";
 
 type Props = {
   activeMode: ConsoleMode;
@@ -38,31 +44,36 @@ function ModeButton({ activeMode, icon: Icon, label, mode, onChange }: ModeButto
 }
 
 export function ConsoleModeTabs({ activeMode, onChange }: Props) {
+  const globalModes: ModeItem[] = [{ mode: "home", label: "Home", icon: Gauge }];
+
   const projectModes: ModeItem[] = [
-    { mode: "overview", label: "Overview", icon: Gauge },
     { mode: "operations", label: "Operations", icon: Activity },
-    { mode: "investigate", label: "Investigate", icon: SearchCode },
-    { mode: "alerts", label: "Alerts", icon: Bell },
-    { mode: "monitors", label: "Monitors", icon: HeartPulse },
-    { mode: "artifacts", label: "Artifacts", icon: FileCode2 },
-    { mode: "project-settings", label: "Project Settings", icon: Settings }
+    { mode: "analyze", label: "Analyze", icon: SearchCode },
+    { mode: "traces", label: "Traces", icon: Activity },
+    { mode: "errors", label: "Errors", icon: Bell },
+    { mode: "experiments", label: "Experiments", icon: ShieldCheck },
+    { mode: "configure", label: "Configure", icon: Settings }
   ];
 
-  const adminModes: ModeItem[] = [
-    { mode: "system", label: "System Health", icon: MonitorCheck },
-    { mode: "setup", label: "Onboarding", icon: KeyRound }
-  ];
+  const adminModes: ModeItem[] = [{ mode: "system", label: "Admin", icon: MonitorCheck }];
 
   return (
     <div className="mode-tabs" aria-label="Console modes">
-      <span aria-label="Project Workspace" className="mode-tabs__label">
+      <span aria-label="Global" className="mode-tabs__label" role="group">
+        <span aria-hidden="true">Global</span>
+        <span className="sr-only">Global</span>
+      </span>
+      {globalModes.map((item) => (
+        <ModeButton activeMode={activeMode} key={item.mode} onChange={onChange} {...item} />
+      ))}
+      <span aria-label="Project Workspace" className="mode-tabs__label" role="group">
         <span aria-hidden="true">Project</span>
         <span className="sr-only">Project Workspace</span>
       </span>
       {projectModes.map((item) => (
         <ModeButton activeMode={activeMode} key={item.mode} onChange={onChange} {...item} />
       ))}
-      <span aria-label="Sigmon Admin" className="mode-tabs__label">
+      <span aria-label="Sigmon Admin" className="mode-tabs__label" role="group">
         <span aria-hidden="true">Admin</span>
         <span className="sr-only">Sigmon Admin</span>
       </span>

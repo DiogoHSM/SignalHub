@@ -5056,6 +5056,40 @@ input[type="file"]::file-selector-button {
   color: var(--fg);
 }
 
+.experiments-panel {
+  display: grid;
+  gap: 18px;
+  max-width: 1040px;
+}
+
+.experiments-panel h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.experiments-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.experiments-panel__grid article {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface-2);
+  padding: 16px;
+}
+
+.experiments-panel__grid article span {
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 @media (max-width: 920px) {
   .console-layout {
     height: 100dvh;
@@ -5122,6 +5156,7 @@ input[type="file"]::file-selector-button {
   .operations-recent-grid,
   .artifact-upload-grid,
   .artifact-toolbar,
+  .experiments-panel__grid,
   .investigation-layout,
   .system-grid,
   .system-grid[aria-label="System operations"] {

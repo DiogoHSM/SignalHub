@@ -4,6 +4,7 @@ import type { ApiClient } from "../api/client";
 import type { Environment, Project, User } from "../api/types";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
+import { GlobalHomeDashboard } from "./GlobalHomeDashboard";
 import { IncidentView } from "./IncidentView";
 import { AlertsPanel } from "./AlertsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
@@ -35,16 +36,16 @@ const autoRefreshOptions = [
 const commandDestinations: Array<{
   mode: ConsoleMode;
   title: string;
-  scope: "Project workspace" | "Sigmon admin";
+  scope: "Global" | "Project workspace" | "Sigmon admin";
   description: string;
   keywords: string[];
 }> = [
   {
-    mode: "overview",
-    title: "Overview",
-    scope: "Project workspace",
-    description: "Telemetry summary, KPIs, trends, and top activity.",
-    keywords: ["home", "dashboard", "kpi", "trend"]
+    mode: "home",
+    title: "Home",
+    scope: "Global",
+    description: "All monitored projects and global operational risk.",
+    keywords: ["home", "global", "dashboard", "risk", "projects"]
   },
   {
     mode: "operations",
@@ -54,11 +55,46 @@ const commandDestinations: Array<{
     keywords: ["health", "status", "latency", "error rate"]
   },
   {
-    mode: "investigate",
-    title: "Investigate",
+    mode: "overview",
+    title: "Overview",
+    scope: "Project workspace",
+    description: "Legacy telemetry summary, KPI trends, and top activity.",
+    keywords: ["dashboard", "kpi", "trend", "legacy"]
+  },
+  {
+    mode: "analyze",
+    title: "Analyze",
     scope: "Project workspace",
     description: "Events, errors, traces, LLM calls, tenants, and users.",
     keywords: ["event", "error", "trace", "llm", "tenant", "user"]
+  },
+  {
+    mode: "traces",
+    title: "Traces",
+    scope: "Project workspace",
+    description: "Request timelines, route latency, and span-level investigation.",
+    keywords: ["trace", "span", "latency", "route", "p95"]
+  },
+  {
+    mode: "errors",
+    title: "Errors",
+    scope: "Project workspace",
+    description: "Grouped incidents, raw occurrences, severity, and triage.",
+    keywords: ["error", "incident", "fingerprint", "severity", "triage"]
+  },
+  {
+    mode: "experiments",
+    title: "Experiments",
+    scope: "Project workspace",
+    description: "Feature flags, A/B tests, prompt variants, and model comparisons.",
+    keywords: ["experiment", "ab test", "feature flag", "prompt", "model"]
+  },
+  {
+    mode: "configure",
+    title: "Configure",
+    scope: "Project workspace",
+    description: "Environments, API keys, browser origins, snippets, and users.",
+    keywords: ["settings", "api key", "origin", "sdk", "user"]
   },
   {
     mode: "alerts",
@@ -82,13 +118,6 @@ const commandDestinations: Array<{
     keywords: ["source map", "sourcemap", "release", "token"]
   },
   {
-    mode: "project-settings",
-    title: "Project Settings",
-    scope: "Project workspace",
-    description: "Environments, API keys, browser origins, snippets, and users.",
-    keywords: ["settings", "api key", "origin", "sdk", "user"]
-  },
-  {
     mode: "setup",
     title: "Onboarding",
     scope: "Project workspace",
@@ -97,7 +126,7 @@ const commandDestinations: Array<{
   },
   {
     mode: "system",
-    title: "System Health",
+    title: "Admin",
     scope: "Sigmon admin",
     description: "Sigmon server health, workers, scheduler, retention, and backups.",
     keywords: ["admin", "server", "worker", "scheduler", "backup", "retention"]
@@ -145,7 +174,7 @@ export function ConsoleShell({
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
   const [incidentRoute, setIncidentRoute] = useState<IncidentRoute>(() => parseIncidentRoute(window.location));
   const [activeMode, setActiveMode] = useState<ConsoleMode>(() =>
-    parseIncidentRoute(window.location).kind === "error-group" ? "investigate" : "overview"
+    parseIncidentRoute(window.location).kind === "error-group" ? "errors" : "home"
   );
   const [investigationDrilldown, setInvestigationDrilldown] = useState<{
     nonce: number;
@@ -175,7 +204,7 @@ export function ConsoleShell({
       const nextRoute = parseIncidentRoute(window.location);
       setIncidentRoute(nextRoute);
       if (nextRoute.kind === "error-group") {
-        setActiveMode("investigate");
+        setActiveMode("errors");
       }
     }
     window.addEventListener("popstate", handlePopState);
@@ -306,6 +335,11 @@ export function ConsoleShell({
     selectProject(project);
   }
 
+  function openProjectWorkspace(projectId: string) {
+    selectProjectById(projectId);
+    setActiveMode("operations");
+  }
+
   function selectEnvironmentById(environmentId: string) {
     const environment = environments.find((candidate) => candidate.id === environmentId);
     if (!environment) return;
@@ -338,7 +372,7 @@ export function ConsoleShell({
       tab: drilldown.tab,
       filters
     }));
-    setActiveMode("investigate");
+    setActiveMode(drilldown.tab === "errors" ? "errors" : "analyze");
   }
 
   function openOperationsErrors(filters: { status?: "open" | "investigating"; severity?: string } = {}) {
@@ -347,7 +381,7 @@ export function ConsoleShell({
       tab: "errors",
       filters: { errors: filters }
     }));
-    setActiveMode("investigate");
+    setActiveMode("errors");
   }
 
   function openOperationsTraces() {
@@ -356,13 +390,13 @@ export function ConsoleShell({
       tab: "traces",
       filters: { traces: {} }
     }));
-    setActiveMode("investigate");
+    setActiveMode("traces");
   }
 
   function closeIncidentView() {
     window.history.replaceState({}, "", "/console");
     setIncidentRoute({ kind: "none" });
-    setActiveMode("investigate");
+    setActiveMode("errors");
   }
 
   function navigateToMode(mode: ConsoleMode) {
@@ -393,7 +427,7 @@ export function ConsoleShell({
       environmentId: activeEnvironment.id,
       errorId: options?.errorId
     });
-    setActiveMode("investigate");
+    setActiveMode("errors");
   }
 
   function refreshWorkspace() {
@@ -501,8 +535,10 @@ export function ConsoleShell({
     });
   }
 
+  const isGlobalHomeMode = activeMode === "home";
   const isSigmonAdminMode = activeMode === "system";
-  const isIncidentViewActive = activeMode === "investigate" && incidentRoute.kind === "error-group";
+  const isProjectWorkspaceMode = !isGlobalHomeMode && !isSigmonAdminMode;
+  const isIncidentViewActive = activeMode === "errors" && incidentRoute.kind === "error-group";
   const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
   const userInitials = initials(user?.email);
   const normalizedCommandQuery = commandQuery.trim().toLowerCase();
@@ -528,7 +564,9 @@ export function ConsoleShell({
       <section className="console-main">
         <header className="workspace-header">
           <div className="workspace-crumb">
-            {isSigmonAdminMode ? (
+            {isGlobalHomeMode ? (
+              <strong>Global</strong>
+            ) : isSigmonAdminMode ? (
               <strong>Sigmon</strong>
             ) : (
               <label className="project-scope-control">
@@ -552,7 +590,7 @@ export function ConsoleShell({
             <strong>{activeModeLabel}</strong>
           </div>
           <div className="workspace-scope">
-            {!isSigmonAdminMode ? (
+            {isProjectWorkspaceMode ? (
               <label className="environment-scope-control">
                 <span>Environment</span>
                 <select
@@ -572,7 +610,9 @@ export function ConsoleShell({
             ) : null}
             <span className="scope-pill">
               <span className="scope-pill__dot" />
-              {isSigmonAdminMode
+              {isGlobalHomeMode
+                ? "All monitored projects"
+                : isSigmonAdminMode
                 ? "Installation-wide"
                 : activeEnvironment
                   ? `Environment: ${activeEnvironment.name}`
@@ -685,6 +725,11 @@ export function ConsoleShell({
             />
           ) : (
             <>
+              <div hidden={activeMode !== "home"}>
+                {activeMode === "home" ? (
+                  <GlobalHomeDashboard isLoading={isLoadingProjects} onOpenProject={openProjectWorkspace} projects={projects} />
+                ) : null}
+              </div>
               <div className="setup-shell" hidden={activeMode !== "setup"}>
                 <ProjectSwitcher
                   activeProjectId={activeProject?.id}
@@ -745,6 +790,70 @@ export function ConsoleShell({
                   />
                 ) : null}
               </div>
+              <div hidden={activeMode !== "analyze"}>
+                {activeMode === "analyze" ? (
+                  <InvestigationWorkspace
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    initialFilters={investigationDrilldown?.filters}
+                    initialTab={investigationDrilldown?.tab ?? "events"}
+                    key={`${investigationDrilldown?.nonce ?? "analyze"}:${refreshToken}`}
+                    onOpenIncident={openErrorGroupIncident}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "traces"}>
+                {activeMode === "traces" ? (
+                  <InvestigationWorkspace
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    initialFilters={investigationDrilldown?.filters}
+                    initialTab="traces"
+                    key={`${investigationDrilldown?.nonce ?? "traces"}:${refreshToken}`}
+                    onOpenIncident={openErrorGroupIncident}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "errors"}>
+                {activeMode === "errors" ? (
+                  <InvestigationWorkspace
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    initialFilters={investigationDrilldown?.filters}
+                    initialTab="errors"
+                    key={`${investigationDrilldown?.nonce ?? "errors"}:${refreshToken}`}
+                    onOpenIncident={openErrorGroupIncident}
+                    projectId={activeProject?.id}
+                  />
+                ) : null}
+              </div>
+              <div hidden={activeMode !== "experiments"}>
+                {activeMode === "experiments" ? (
+                  <section className="panel experiments-panel" aria-labelledby="experiments-title">
+                    <p className="eyebrow">Project Workspace</p>
+                    <h1 id="experiments-title">Experiments</h1>
+                    <p className="muted-text">
+                      Feature flags, A/B tests, prompt variants, and model comparisons will land as a dedicated product slice.
+                    </p>
+                    <div className="experiments-panel__grid">
+                      <article>
+                        <strong>Feature flags</strong>
+                        <span>Rollout controls and operational guardrails.</span>
+                      </article>
+                      <article>
+                        <strong>A/B tests</strong>
+                        <span>Variant performance by conversion, latency, and error impact.</span>
+                      </article>
+                      <article>
+                        <strong>Prompt comparisons</strong>
+                        <span>Cost, success rate, model behavior, and regression checks.</span>
+                      </article>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
               <div hidden={activeMode !== "alerts"}>
                 {activeMode === "alerts" ? (
                   <AlertsPanel client={client} environmentId={activeEnvironment?.id} key={`alerts:${refreshToken}`} projectId={activeProject?.id} />
@@ -771,8 +880,8 @@ export function ConsoleShell({
                   />
                 ) : null}
               </div>
-              <div hidden={activeMode !== "project-settings"}>
-                {activeMode === "project-settings" ? (
+              <div hidden={activeMode !== "project-settings" && activeMode !== "configure"}>
+                {activeMode === "project-settings" || activeMode === "configure" ? (
                   <ProjectSettingsWorkspace
                     activeEnvironment={activeEnvironment}
                     activeProject={activeProject}
@@ -816,15 +925,21 @@ function initials(email: string | undefined): string {
 
 function modeLabel(mode: ConsoleMode): string {
   const labels: Record<ConsoleMode, string> = {
+    analyze: "Analyze",
     alerts: "Alerts",
     artifacts: "Artifacts",
+    configure: "Configure",
+    errors: "Errors",
+    experiments: "Experiments",
+    home: "Home",
     investigate: "Investigate",
     monitors: "Monitors",
     operations: "Operations",
     overview: "Overview",
     "project-settings": "Project Settings",
     setup: "Setup",
-    system: "Sigmon Admin"
+    system: "Sigmon Admin",
+    traces: "Traces"
   };
   return labels[mode];
 }

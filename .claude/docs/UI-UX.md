@@ -100,6 +100,11 @@ SignalMonitor includes an admin-only Integration Console.
 
 ## Operations UX
 
+- `Global Home` is now the default console entry point. It is installation-wide and should not show project or environment selectors.
+- The primary lateral IA is split into `Global`, `Project Workspace`, and `Sigmon Admin`.
+- `Project Workspace` keeps the operator path compact: Operations, Analyze, Traces, Errors, Experiments, and Configure.
+- Legacy surfaces that are still useful but no longer primary, including Overview, Alerts, Monitors, Artifacts, and Onboarding, remain reachable through command palette compatibility while later product slices decide their permanent homes.
+- Opening a project from Global Home should enter `Operations`, because this is the day-to-day operational cockpit for a monitored app.
 - `Operations` is the project/environment cockpit for monitored application health. It is distinct from global `System` health.
 - `Overview` remains the product and telemetry summary for the selected project/environment.
 - `Operations` summarizes monitored health, alert state, p95 latency, error rate, ingestion freshness, and open incidents for the selected project/environment.
