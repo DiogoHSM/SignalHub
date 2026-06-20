@@ -4312,6 +4312,29 @@ pre {
   font-weight: 800;
 }
 
+.global-project-row--failed {
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+  background: color-mix(in srgb, var(--danger-bg) 44%, var(--bg-surface-2));
+}
+
+.global-project-row--degraded {
+  border-color: color-mix(in srgb, var(--warning) 58%, var(--border));
+  background: color-mix(in srgb, var(--warning-bg) 36%, var(--bg-surface-2));
+}
+
+.global-project-row--attention {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent-bg) 24%, var(--bg-surface-2));
+}
+
+.global-project-row--failed em {
+  color: var(--danger-strong);
+}
+
+.global-project-row--degraded em {
+  color: var(--warning-strong);
+}
+
 .empty-state-inline {
   display: grid;
   justify-items: start;
