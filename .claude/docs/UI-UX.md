@@ -65,8 +65,8 @@ SignalMonitor includes an admin-only Integration Console.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.
 - Missing project/environment state should point operators back to Setup.
 - Keep Events and Errors as peer tabs inside `Investigate`.
-- Errors default to raw occurrences when opened from the top-level Investigate tab, and the error workspace also exposes grouped triage as a peer `Groups` view.
-- Grouped Errors use a list/detail layout with filters above the group list, operator-editable group status, occurrence/user/tenant counts, fingerprint context, and a direct raw occurrence drilldown for the selected group.
+- Errors default to grouped triage when opened from the top-level Investigate tab, making the error workspace an incident-response entry point before raw log inspection.
+- Grouped Errors use a dense incident queue table with filters above the group list, operator-editable group status, occurrence/user/tenant counts, fingerprint context, release context, and a direct raw occurrence drilldown for the selected group.
 - Grouped and raw error rows expose `Open incident` actions that navigate to a shareable incident URL for the selected error group and, when opened from a raw occurrence, preserve the raw error id as context.
 - Incident view uses a split investigation layout: technical primary occurrence details, stack, source-map status, context, and metadata on the left; operational triage, related identifiers, strongly related activity, and nearby context on the right. It stacks before the console layout becomes cramped.
 - Incident view uses the same dark operational surface system as the console shell; it should not introduce light cards or browser-default controls inside the dark app.

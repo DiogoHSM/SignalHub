@@ -113,7 +113,6 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
         <ErrorInvestigationPanel
           client={client}
           environmentId={environmentId}
-          initialTab="raw"
           initialFilters={mergedInitialFilters.errors}
           onOpenIncident={onOpenIncident}
           projectId={projectId}

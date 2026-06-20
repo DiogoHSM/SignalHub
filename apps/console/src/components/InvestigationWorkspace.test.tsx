@@ -213,6 +213,50 @@ describe("InvestigationWorkspace", () => {
     expect(api.getLlmAggregates).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
   });
 
+  it("opens Errors as the grouped incident queue", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [] }),
+      listErrors: vi.fn().mockResolvedValue({ data: [] }),
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "egrp_checkout",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            groupingFingerprint: "fp_checkout_fetch",
+            message: "Checkout fetch failed",
+            type: "TypeError",
+            topStackFrame: "checkout.ts:12:3",
+            severity: "critical",
+            status: "open",
+            priority: "high",
+            firstSeenAt: "2026-05-04T11:00:00.000Z",
+            lastSeenAt: "2026-05-04T12:00:00.000Z",
+            lastRegressedAt: null,
+            occurrenceCount: 12,
+            affectedUsersCount: 4,
+            affectedTenantsCount: 2,
+            latestErrorId: "err_1",
+            latestRelease: "web@1.0.0",
+            resolvedAt: null,
+            ignoredAt: null,
+            createdAt: "2026-05-04T11:00:00.000Z",
+            updatedAt: "2026-05-04T12:00:00.000Z"
+          }
+        ]
+      })
+    });
+
+    render(<InvestigationWorkspace client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Errors" }));
+
+    expect(await screen.findByRole("table", { name: "Grouped error incident queue" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Groups" })).toHaveAttribute("aria-selected", "true");
+    expect(api.listErrorGroups).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+    expect(api.listErrors).not.toHaveBeenCalled();
+  });
+
   it("shows the entities tab and loads it lazily", async () => {
     const listEntityTenants = vi.fn().mockResolvedValue({ data: { tenants: [] } });
     const api = client({ listEntityTenants });
@@ -244,9 +288,9 @@ describe("InvestigationWorkspace", () => {
   });
 
   it("opens the requested investigation tab with initial filters", async () => {
-    const listErrors = vi.fn().mockResolvedValue({ data: [] });
+    const listErrorGroups = vi.fn().mockResolvedValue({ data: [] });
     const api = client({
-      listErrors
+      listErrorGroups
     });
 
     render(
@@ -260,9 +304,9 @@ describe("InvestigationWorkspace", () => {
     );
 
     expect(screen.getByRole("button", { name: "Errors" })).toHaveAttribute("aria-pressed", "true");
-    expect(await screen.findByText("No errors found")).toBeInTheDocument();
+    expect(await screen.findByText("No error groups found")).toBeInTheDocument();
     expect(screen.getByLabelText("Severity")).toHaveValue("critical");
-    expect(listErrors).toHaveBeenCalledWith({
+    expect(listErrorGroups).toHaveBeenCalledWith({
       projectId: "prj_1",
       environmentId: "env_1",
       severity: "critical",

@@ -519,6 +519,9 @@ describe("ConsoleShell", () => {
     });
     const api = client({
       getErrorGroupIncident,
+      listErrorGroups: vi.fn().mockResolvedValue({
+        data: [incidentFixture({ groupId: "egrp_1" }).group]
+      }),
       listErrors: vi.fn().mockResolvedValue({
         data: [
           {
@@ -566,7 +569,7 @@ describe("ConsoleShell", () => {
     expect(pushStateSpy).toHaveBeenCalledWith(
       {},
       "",
-      "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1&error_id=err_1"
+      "/console/incidents/error-groups/egrp_1?project_id=prj_1&environment_id=env_1"
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Back to errors" }));
@@ -1415,8 +1418,10 @@ describe("ConsoleShell", () => {
 
   it("does not query investigation errors until the errors tab is opened", async () => {
     const listErrors = vi.fn().mockResolvedValue({ data: [] });
+    const listErrorGroups = vi.fn().mockResolvedValue({ data: [] });
     const api = client({
       listErrors,
+      listErrorGroups,
       listProjects: vi.fn().mockResolvedValue({
         projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
       }),
@@ -1435,10 +1440,12 @@ describe("ConsoleShell", () => {
     await clickShellMode("Analyze");
 
     expect(listErrors).not.toHaveBeenCalled();
+    expect(listErrorGroups).not.toHaveBeenCalled();
 
     await clickShellMode("Errors");
 
-    await waitFor(() => expect(listErrors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
+    await waitFor(() => expect(listErrorGroups).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 }));
+    expect(listErrors).not.toHaveBeenCalled();
   });
 
   it("does not query investigation traces until the traces tab is opened", async () => {
