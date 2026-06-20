@@ -58,6 +58,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.
 - Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency. Trend charts should include grid context, metric-unit axis labels, stable empty states, color-consistent series, and legend values so sparse data does not read as broken.
+- Overview shows a critical incident banner above KPIs when the selected environment has an open severe error, with a direct drilldown into the grouped Errors incident queue.
 - Overview top-list rows can drill into Investigate with seeded exact filters; recent signals stay read-only.
 - Investigation views are operational, dense, and read-only by default.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.

@@ -208,7 +208,7 @@ describe("OverviewDashboard", () => {
     expect(screen.getByText("$1.75")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /openai 5 \/ \$1.25/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /dashboard_created/ })).toBeInTheDocument();
-    expect(screen.getByText("Checkout fetch failed")).toBeInTheDocument();
+    expect(screen.getAllByText("Checkout fetch failed").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("checkout")).toBeInTheDocument();
     expect(api.getOverview).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" });
   });
@@ -325,6 +325,23 @@ describe("OverviewDashboard", () => {
     expect(onDrilldown).toHaveBeenCalledWith({ tab: "events", filters: { eventName: "dashboard_created" } });
     expect(onDrilldown).toHaveBeenCalledWith({ tab: "errors", filters: { severity: "critical" } });
     expect(onDrilldown).toHaveBeenCalledWith({ tab: "llm", filters: { model: "gpt-5" } });
+  });
+
+  it("surfaces a critical incident banner with an errors drilldown", async () => {
+    const onDrilldown = vi.fn();
+
+    render(<OverviewDashboard client={client({})} environmentId="env_1" onDrilldown={onDrilldown} projectId="prj_1" />);
+
+    const banner = await screen.findByRole("region", { name: "Critical incident" });
+
+    expect(within(banner).getByText("Critical incident active")).toBeInTheDocument();
+    expect(within(banner).getByText("Checkout fetch failed")).toBeInTheDocument();
+    expect(within(banner).getByText("critical")).toBeInTheDocument();
+    expect(within(banner).getByText("open")).toBeInTheDocument();
+
+    await userEvent.click(within(banner).getByRole("button", { name: "Open incident queue" }));
+
+    expect(onDrilldown).toHaveBeenCalledWith({ tab: "errors", filters: { severity: "critical", status: "open" } });
   });
 
   it("dispatches tenant top-list rows to entity investigation", async () => {
