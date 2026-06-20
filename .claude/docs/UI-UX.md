@@ -80,7 +80,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep Traces as a peer tab with Events and Errors inside `Investigate`.
 - Traces use the same filter/list/detail pattern, with spans loaded only after trace selection.
 - Trace rows should prioritize name, status, duration, started time, user, tenant, and trace id.
-- Span details should remain a dense ordered list before adding graphical timelines.
+- Trace detail uses a dense waterfall layout: selected trace summary, lazily loaded span timing rows, selected/error highlighting, and a selected-span detail panel for timing, parent, cost, input/output/error, and metadata JSON without adding a chart dependency.
 - Keep LLM as a peer tab with Events, Errors, and Traces inside `Investigate`.
 - LLM uses the same filter/list/detail pattern, with a compact aggregate strip for calls, tokens, and total cost.
 - LLM rows should prioritize provider/model, prompt, status, cost, tokens, latency, time, user, and tenant.
