@@ -3,7 +3,8 @@ import type { ApiClient } from "../api/client";
 import type { SystemHealthResponse, SystemStatus } from "../api/types";
 
 type LoadState = "loading" | "ready" | "unavailable";
-type ServiceStatus = SystemStatus | "success" | "failed";
+type ServiceStatus = SystemStatus | "success" | "failed" | "neutral";
+type ReadinessTone = "healthy" | "degraded" | "unhealthy" | "neutral";
 
 type Props = {
   client: ApiClient;
@@ -43,6 +44,13 @@ const retentionPolicyLabels: Array<[RetentionPolicyDayKey, string]> = [
   ["breadcrumbsDays", "breadcrumbs"],
   ["sourceMapsDays", "source maps"]
 ];
+
+type ReadinessItem = {
+  key: string;
+  label: string;
+  detail: string;
+  tone: ReadinessTone;
+};
 
 function statusClass(status: ServiceStatus): string {
   return `status-pill status-pill--${status}`;
@@ -89,6 +97,50 @@ function backupStaleLabel(backups: SystemHealthResponse["backups"]): string {
   if (!backups.enabled) return "Not applicable";
   if (backups.stale === null) return "Unknown";
   return backups.stale ? "Yes" : "No";
+}
+
+function buildReadinessItems(health: SystemHealthResponse): ReadinessItem[] {
+  const queueExpected = health.deployment.background.queueExpected;
+  const schedulerExpected = health.deployment.background.schedulerExpected;
+
+  return [
+    {
+      key: "public-endpoint",
+      label: health.deployment.api.publicEndpointConfigured ? "Public endpoint ready" : "Public endpoint missing",
+      detail: health.deployment.api.publicEndpointConfigured ? "External SDK and docs links can resolve." : "Set the public API endpoint before handing SDK setup to teams.",
+      tone: health.deployment.api.publicEndpointConfigured ? "healthy" : "degraded"
+    },
+    {
+      key: "queue-worker",
+      label: !queueExpected ? "Queue worker optional" : health.services.worker.status === "healthy" ? "Queue worker running" : "Queue worker stale",
+      detail: !queueExpected ? "This installation does not expect a queue worker." : formatRole(health.services.worker.role),
+      tone: !queueExpected ? "neutral" : health.services.worker.status === "healthy" ? "healthy" : "degraded"
+    },
+    {
+      key: "scheduler",
+      label: !schedulerExpected ? "Scheduler optional" : health.services.scheduler.status === "healthy" ? "Scheduler running" : "Scheduler stale",
+      detail: !schedulerExpected ? "This installation does not expect a scheduler." : formatRole(health.services.scheduler.role),
+      tone: !schedulerExpected ? "neutral" : health.services.scheduler.status === "healthy" ? "healthy" : "degraded"
+    },
+    {
+      key: "smtp",
+      label: health.deployment.api.smtpConfigured ? "SMTP configured" : "SMTP missing",
+      detail: health.deployment.api.smtpConfigured ? "Email-capable notification channels can send." : "Configure SMTP before relying on email alerts.",
+      tone: health.deployment.api.smtpConfigured ? "healthy" : "degraded"
+    },
+    {
+      key: "backups",
+      label: !health.deployment.background.backupsEnabled ? "Backups disabled" : health.backups.stale ? "Backups stale" : "Backups scheduled",
+      detail: health.deployment.storage.backupS3Enabled ? "Offsite backup storage enabled." : "Offsite backup storage disabled.",
+      tone: !health.deployment.background.backupsEnabled || health.backups.stale ? "degraded" : "healthy"
+    },
+    {
+      key: "retention",
+      label: health.deployment.background.retentionEnabled ? "Retention enabled" : "Retention disabled",
+      detail: health.deployment.storage.sourceMapRetentionEnabled ? "Source-map retention cleanup enabled." : "Source-map retention cleanup disabled.",
+      tone: health.deployment.background.retentionEnabled ? "healthy" : "degraded"
+    }
+  ];
 }
 
 function formatDuration(seconds: number): string {
@@ -180,6 +232,16 @@ export function SystemHealthPanel({ client }: Props) {
 
       {state === "ready" && health ? (
         <>
+          <section aria-label="Installation readiness" className="system-readiness">
+            {buildReadinessItems(health).map((item) => (
+              <article className={`system-readiness__item system-readiness__item--${item.tone}`} key={item.key}>
+                <span className={statusClass(item.tone)}>{item.tone === "healthy" ? "ready" : item.tone}</span>
+                <strong>{item.label}</strong>
+                <small>{item.detail}</small>
+              </article>
+            ))}
+          </section>
+
           <section className="system-grid" aria-label="System services">
             <ServiceCard name="API" status={health.services.api.status}>
               <dt>Uptime</dt>

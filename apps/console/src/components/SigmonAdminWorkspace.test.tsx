@@ -160,7 +160,7 @@ describe("SigmonAdminWorkspace", () => {
     expect(screen.getByText("Installation-level status and server configuration.")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sigmon admin sections" })).toBeInTheDocument();
 
-    for (const label of ["System health", "Server settings", "SMTP & delivery", "Retention & backups", "Security & CORS"]) {
+    for (const label of ["System health", "Deploy", "Notifications", "Storage", "Security", "Docs & SDK"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
 
@@ -180,20 +180,24 @@ describe("SigmonAdminWorkspace", () => {
       />
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Server settings" }));
-    expect(screen.getByText("Deployment readiness is read-only here while Sigmon admin editing is still being built.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
+    expect(screen.getByText("Deployment readiness is installation-scoped and read-only here while Sigmon admin editing is still being built.")).toBeInTheDocument();
     expect(screen.getByText(/configured through EasyPanel, Docker, and environment variables/i)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "SMTP & delivery" }));
+    await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
     expect(screen.getByText("SMTP is installation-level configuration for outbound console and alert delivery.")).toBeInTheDocument();
     expect(screen.getByText("Notification channels belong to projects and are managed from project workflows.")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Retention & backups" }));
-    expect(screen.getByText("Retention and backup status is summarized in System health.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Storage" }));
+    expect(screen.getByText("Retention, source-map storage, and backup status are summarized in System health.")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Security & CORS" }));
+    await userEvent.click(screen.getByRole("button", { name: "Security" }));
     expect(screen.getByText("Global browser ingestion origins are currently configured by BROWSER_CORS_ORIGINS.")).toBeInTheDocument();
     expect(screen.getByText("https://app.controledaempresa.com")).toBeInTheDocument();
     expect(screen.getByText("https://microerp.example.com")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Docs & SDK" }));
+    expect(screen.getByText("Public API and SDK documentation are installation-level resources for integrators.")).toBeInTheDocument();
+    expect(screen.getByText("OpenAPI, Scalar, and SDK docs stay available without requiring an active monitored project.")).toBeInTheDocument();
   });
 });
