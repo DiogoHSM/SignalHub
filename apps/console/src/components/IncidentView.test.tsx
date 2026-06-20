@@ -156,12 +156,61 @@ describe("IncidentView", () => {
 
     expect(await screen.findByRole("heading", { name: "Checkout failed" })).toBeInTheDocument();
     expect(screen.getByText("urgent suggested")).toBeInTheDocument();
-    expect(screen.getByText("5 occurrences")).toBeInTheDocument();
-    expect(screen.getByText("2 users")).toBeInTheDocument();
+    const hero = screen.getByRole("region", { name: "Incident hero" });
+    expect(within(hero).getByText("5")).toBeInTheDocument();
+    expect(within(hero).getByText("Occurrences")).toBeInTheDocument();
+    expect(within(hero).getByText("2")).toBeInTheDocument();
+    expect(within(hero).getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Source map: 2 frames")).toBeInTheDocument();
     expect(screen.getByText(/Error: Checkout failed/)).toBeInTheDocument();
     expect(within(screen.getByLabelText("Strongly related timeline")).getByText("checkout.started")).toBeInTheDocument();
     expect(within(screen.getByLabelText("Nearby context timeline")).getByText("openai gpt-4.1-mini")).toBeInTheDocument();
+  });
+
+  it("renders a hero triage workflow with supported primary actions", async () => {
+    const api = clientWithIncident();
+
+    render(
+      <IncidentView
+        client={api}
+        environmentId="env_1"
+        groupId="egrp_checkout"
+        onBack={vi.fn()}
+        projectId="prj_1"
+      />
+    );
+
+    const hero = await screen.findByRole("region", { name: "Incident hero" });
+    expect(within(hero).getByRole("heading", { name: "Checkout failed" })).toBeInTheDocument();
+    expect(within(hero).getByText("critical")).toBeInTheDocument();
+    expect(within(hero).getByText("open")).toBeInTheDocument();
+    expect(within(hero).getByText("urgent suggested")).toBeInTheDocument();
+    expect(within(hero).getByText("Group egrp_checkout")).toBeInTheDocument();
+    expect(within(hero).getByText("Release web@1")).toBeInTheDocument();
+    expect(within(hero).getByText("Observed 5m")).toBeInTheDocument();
+    expect(within(hero).getByText("Assignee unassigned")).toBeInTheDocument();
+    expect(within(hero).getByText("5")).toBeInTheDocument();
+    expect(within(hero).getByText("Occurrences")).toBeInTheDocument();
+    expect(within(hero).getByText("2")).toBeInTheDocument();
+    expect(within(hero).getByText("Users")).toBeInTheDocument();
+    expect(within(hero).getByText("1")).toBeInTheDocument();
+    expect(within(hero).getByText("Tenants")).toBeInTheDocument();
+    expect(within(hero).getByRole("button", { name: "Resolve incident" })).toBeInTheDocument();
+    expect(within(hero).getByRole("button", { name: "Ignore incident" })).toBeInTheDocument();
+    expect(within(hero).getByRole("button", { name: "Copy link" })).toBeInTheDocument();
+    expect(within(hero).queryByRole("button", { name: /Reassign/i })).not.toBeInTheDocument();
+    expect(within(hero).queryByRole("button", { name: /Create issue/i })).not.toBeInTheDocument();
+
+    await userEvent.click(within(hero).getByRole("button", { name: "Resolve incident" }));
+
+    await waitFor(() =>
+      expect(api.updateErrorGroupTriage).toHaveBeenCalledWith("egrp_checkout", {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        status: "resolved",
+        priority: null
+      })
+    );
   });
 
   it("exposes the split investigation layout with readable technical and operational areas", async () => {
