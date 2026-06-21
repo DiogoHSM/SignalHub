@@ -94,6 +94,66 @@ function channelSecretLabel(channel: NotificationChannelResponse): string {
   return channel.type === "email" ? "SMTP delivery" : channel.hasSecret ? "Secret saved" : "No secret";
 }
 
+function alertToneClass(value: "healthy" | "warning" | "failed" | "neutral"): string {
+  return `alert-posture-card alert-posture-card--${value}`;
+}
+
+function summarizeAlertPosture(
+  rules: AlertRuleResponse[],
+  channels: NotificationChannelResponse[],
+  events: AlertEventResponse[]
+) {
+  const enabledRules = rules.filter((rule) => rule.enabled);
+  const rulesWithoutChannels = enabledRules.filter((rule) => !rule.notificationChannelId).length;
+  const disabledChannels = channels.filter((channel) => !channel.enabled).length;
+  const firingNow = events.filter((event) => event.status === "triggered").length;
+  const deliveryIssues = events.filter((event) => event.latestDeliveryStatus === "failed").length;
+  const criticalEvents = events.filter((event) => event.severity === "critical").length;
+
+  return {
+    criticalEvents,
+    disabledChannels,
+    deliveryIssues,
+    enabledRules: enabledRules.length,
+    firingNow,
+    rulesWithoutChannels
+  };
+}
+
+function buildAlertSuggestions(summary: ReturnType<typeof summarizeAlertPosture>): Array<{ title: string; body: string }> {
+  const suggestions: Array<{ title: string; body: string }> = [];
+
+  if (summary.rulesWithoutChannels > 0) {
+    suggestions.push({
+      title: "Attach channels to enabled rules",
+      body: `${summary.rulesWithoutChannels} enabled ${summary.rulesWithoutChannels === 1 ? "rule has" : "rules have"} no notification channel.`
+    });
+  }
+
+  if (summary.deliveryIssues > 0) {
+    suggestions.push({
+      title: "Review failed deliveries",
+      body: `${summary.deliveryIssues} recent ${summary.deliveryIssues === 1 ? "alert delivery failed" : "alert deliveries failed"}.`
+    });
+  }
+
+  if (summary.enabledRules === 0) {
+    suggestions.push({
+      title: "Create the first alert rule",
+      body: "Start with error rate or trace p95 so production regressions page you before users do."
+    });
+  }
+
+  if (summary.disabledChannels > 0) {
+    suggestions.push({
+      title: "Re-enable paused channels",
+      body: `${summary.disabledChannels} notification ${summary.disabledChannels === 1 ? "channel is" : "channels are"} disabled.`
+    });
+  }
+
+  return suggestions;
+}
+
 function parsePositiveInteger(value: string): number | null {
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed)) return null;
@@ -152,6 +212,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
   const [isCreatingRule, setIsCreatingRule] = useState(false);
   const [isUpdatingRule, setIsUpdatingRule] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const alertSummary = summarizeAlertPosture(rules, channels, events);
+  const alertSuggestions = buildAlertSuggestions(alertSummary);
+  const heatEvents = events.slice(0, 16);
 
   currentScopeRef.current = { projectId, environmentId };
 
@@ -495,6 +558,59 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
           <strong>{error}</strong>
         </div>
       ) : null}
+
+      <section aria-label="Alert posture" className="alert-posture">
+        <div className="alert-posture__metrics">
+          <div className={alertToneClass(alertSummary.firingNow > 0 ? "failed" : "healthy")}>
+            <span>Firing now</span>
+            <strong>{alertSummary.firingNow}</strong>
+            <small>{alertSummary.criticalEvents} critical</small>
+          </div>
+          <div className={alertToneClass(alertSummary.deliveryIssues > 0 ? "warning" : "healthy")}>
+            <span>Delivery issues</span>
+            <strong>{alertSummary.deliveryIssues}</strong>
+            <small>recent failures</small>
+          </div>
+          <div className={alertToneClass(alertSummary.rulesWithoutChannels > 0 ? "warning" : "healthy")}>
+            <span>Rules without channels</span>
+            <strong>{alertSummary.rulesWithoutChannels}</strong>
+            <small>{alertSummary.enabledRules} enabled rules</small>
+          </div>
+          <div className={alertToneClass(alertSuggestions.length > 0 ? "neutral" : "healthy")}>
+            <span>Suggested fixes</span>
+            <strong>{alertSuggestions.length}</strong>
+            <small>{channels.length} channels configured</small>
+          </div>
+        </div>
+        <div className="alert-posture__side">
+          <section aria-label="Alert history heat strip" className="alert-heat-strip">
+            {heatEvents.length === 0 ? (
+              <span className="alert-heat-strip__empty">No recent alert activity</span>
+            ) : (
+              heatEvents.map((event) => (
+                <span
+                  aria-label={`${event.severity} alert ${displayDeliveryStatus(event.latestDeliveryStatus)} at ${formatTimestamp(event.triggeredAt)}`}
+                  className={`alert-heat-strip__cell alert-heat-strip__cell--${event.latestDeliveryStatus === "failed" ? "failed" : event.severity}`}
+                  key={event.id}
+                  title={`${event.message} - ${formatTimestamp(event.triggeredAt)}`}
+                />
+              ))
+            )}
+          </section>
+          <section aria-label="Alert suggestions" className="alert-suggestions">
+            {alertSuggestions.length === 0 ? (
+              <p>No alert configuration gaps detected.</p>
+            ) : (
+              alertSuggestions.map((suggestion) => (
+                <article key={suggestion.title}>
+                  <strong>{suggestion.title}</strong>
+                  <span>{suggestion.body}</span>
+                </article>
+              ))
+            )}
+          </section>
+        </div>
+      </section>
 
       <div className="alerts-grid">
         <section aria-label="Alert rules" className="alerts-card">

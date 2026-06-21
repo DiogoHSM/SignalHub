@@ -163,6 +163,28 @@ describe("MonitorsPanel", () => {
     expect(api.listMonitorChecks).toHaveBeenCalledWith("mon_1", 20);
   });
 
+  it("summarizes monitor posture and notification coverage", async () => {
+    const api = client({
+      listMonitors: vi.fn().mockResolvedValue({
+        monitors: [
+          monitor({ id: "mon_1", name: "API health", status: "up", notificationChannelId: "chn_1" }),
+          monitor({ id: "mon_2", name: "Worker heartbeat", kind: "heartbeat", status: "down", notificationChannelId: null }),
+          monitor({ id: "mon_3", name: "Partner API", status: "degraded", notificationChannelId: null })
+        ]
+      })
+    });
+
+    render(<MonitorsPanel apiEndpoint="https://my.sigmon.app" client={api} projectId="prj_1" environmentId="env_1" />);
+
+    const posture = await screen.findByRole("region", { name: "Monitor posture" });
+    expect(within(posture).getByText("Total monitors")).toBeInTheDocument();
+    expect(within(posture).getByText("3")).toBeInTheDocument();
+    expect(within(posture).getByText("Down")).toBeInTheDocument();
+    expect(within(posture).getByText("Degraded")).toBeInTheDocument();
+    expect(within(posture).getByText("Without channel")).toBeInTheDocument();
+    expect(screen.getByText("2 monitors have no notification channel.")).toBeInTheDocument();
+  });
+
   it("creates a heartbeat monitor and displays the one-time secret", async () => {
     const api = client();
 

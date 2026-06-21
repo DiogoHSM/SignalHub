@@ -115,6 +115,29 @@ function monitorTarget(monitor: MonitorResponse): string {
   return monitor.kind === "http" ? monitor.url ?? "No URL" : "Heartbeat check-in";
 }
 
+function monitorToneClass(value: "healthy" | "warning" | "failed"): string {
+  return `alert-posture-card alert-posture-card--${value}`;
+}
+
+function summarizeMonitorPosture(monitors: MonitorResponse[]) {
+  const enabled = monitors.filter((monitor) => monitor.enabled);
+  const down = enabled.filter((monitor) => monitor.status === "down").length;
+  const degraded = enabled.filter((monitor) => monitor.status === "degraded").length;
+  const withoutChannel = enabled.filter((monitor) => !monitor.notificationChannelId).length;
+  const http = enabled.filter((monitor) => monitor.kind === "http").length;
+  const heartbeat = enabled.filter((monitor) => monitor.kind === "heartbeat").length;
+
+  return {
+    degraded,
+    down,
+    enabled: enabled.length,
+    heartbeat,
+    http,
+    total: monitors.length,
+    withoutChannel
+  };
+}
+
 function editFormFromMonitor(monitor: MonitorResponse): EditForm {
   return {
     id: monitor.id,
@@ -153,6 +176,7 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
     () => monitors.find((monitor) => monitor.id === selectedMonitorId) ?? monitors[0] ?? null,
     [monitors, selectedMonitorId]
   );
+  const monitorSummary = summarizeMonitorPosture(monitors);
 
   useEffect(() => {
     setHttpForm(defaultHttpForm);
@@ -436,6 +460,52 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
           <strong>{error}</strong>
         </div>
       ) : null}
+      <section aria-label="Monitor posture" className="alert-posture monitor-posture">
+        <div className="alert-posture__metrics">
+          <div className={monitorToneClass(monitorSummary.total > 0 ? "healthy" : "warning")}>
+            <span>Total monitors</span>
+            <strong>{monitorSummary.total}</strong>
+            <small>{monitorSummary.enabled} enabled</small>
+          </div>
+          <div className={monitorToneClass(monitorSummary.down > 0 ? "failed" : "healthy")}>
+            <span>Down</span>
+            <strong>{monitorSummary.down}</strong>
+            <small>needs attention</small>
+          </div>
+          <div className={monitorToneClass(monitorSummary.degraded > 0 ? "warning" : "healthy")}>
+            <span>Degraded</span>
+            <strong>{monitorSummary.degraded}</strong>
+            <small>recovering or unstable</small>
+          </div>
+          <div className={monitorToneClass(monitorSummary.withoutChannel > 0 ? "warning" : "healthy")}>
+            <span>Without channel</span>
+            <strong>{monitorSummary.withoutChannel}</strong>
+            <small>{channels.length} channels configured</small>
+          </div>
+        </div>
+        <section aria-label="Monitor coverage suggestions" className="alert-suggestions">
+          {monitorSummary.total === 0 ? (
+            <article>
+              <strong>Add the first monitor</strong>
+              <span>Create one HTTP monitor for the public API and one heartbeat for each background worker.</span>
+            </article>
+          ) : monitorSummary.withoutChannel > 0 ? (
+            <article>
+              <strong>Connect monitors to channels</strong>
+              <span>
+                {monitorSummary.withoutChannel} {monitorSummary.withoutChannel === 1 ? "monitor has" : "monitors have"} no notification channel.
+              </span>
+            </article>
+          ) : (
+            <article>
+              <strong>Coverage looks wired</strong>
+              <span>
+                {monitorSummary.http} HTTP and {monitorSummary.heartbeat} heartbeat monitors have notification coverage.
+              </span>
+            </article>
+          )}
+        </section>
+      </section>
       {latestSecret ? (
         <section aria-label="New heartbeat secret" className="status-box success monitors-secret">
           <div>

@@ -124,6 +124,7 @@ SignalMonitor includes an admin-only Integration Console.
 ## Alerts UX
 
 - Alerts should stay dense and operational: rules, channels, recent events, and delivery status should be visible without a marketing-style layout.
+- Alerts open with an operational posture strip for firing alerts, delivery issues, enabled rules without channels, recent heat-strip activity, and setup suggestions.
 - Alerts should keep summary counters and creation forms aligned in a compact grid, with dark inputs/selects and subdued empty states.
 - Alert rule controls should remain scoped to the active project and environment.
 - Alert rule fields should expose units in labels or nearby help: windows and cooldowns are minutes, error-rate thresholds are percentages, trace p95 thresholds are milliseconds, critical/error count thresholds are counts, and LLM cost thresholds are USD.
@@ -137,6 +138,7 @@ SignalMonitor includes an admin-only Integration Console.
 ## Monitors UX
 
 - Monitors should stay separate from alert rules so uptime and heartbeat setup does not crowd threshold configuration.
+- Monitors open with a posture strip for total/enabled monitors, down/degraded monitors, notification coverage, and the next coverage suggestion.
 - Monitors uses a full-width monitor list followed by three balanced panels for recent checks, HTTP setup, and heartbeat setup.
 - Monitor list rows use explicit columns for monitor identity, target, schedule, last check, status, and row actions so the full-width list earns its space.
 - HTTP monitor rows should prioritize name, target URL, schedule, status, and last check time.
