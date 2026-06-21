@@ -2546,6 +2546,82 @@ select {
   padding: 5px 8px;
 }
 
+.span-analysis {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface-2);
+  padding: 12px;
+}
+
+.span-analysis__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.span-analysis__metrics > div {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  padding: 10px;
+}
+
+.span-analysis__metrics span,
+.span-analysis__breakdown h3 {
+  display: block;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.span-analysis__metrics strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--fg);
+  font-size: 20px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.span-analysis__breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.span-analysis__breakdown > div {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  padding: 10px;
+}
+
+.span-analysis__breakdown span {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--fg-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.span-analysis__breakdown strong {
+  color: var(--fg);
+  white-space: nowrap;
+}
+
 .span-waterfall-shell {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
@@ -6307,6 +6383,8 @@ input[type="file"]::file-selector-button {
   }
 
   .span-waterfall-shell,
+  .span-analysis__breakdown,
+  .span-analysis__metrics,
   .span-waterfall__row {
     grid-template-columns: 1fr;
   }

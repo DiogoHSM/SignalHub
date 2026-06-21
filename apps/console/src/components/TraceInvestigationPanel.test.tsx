@@ -254,6 +254,33 @@ describe("TraceInvestigationPanel", () => {
     expect(within(spanDetail).getByText(/"db": "postgres"/)).toBeInTheDocument();
   });
 
+  it("summarizes loaded spans by health and operation before the waterfall", async () => {
+    const api = client({
+      listTraces: vi.fn().mockResolvedValue({ data: [trace({ traceId: "trace_1", durationMs: 2500 })] }),
+      listTraceSpans: vi.fn().mockResolvedValue({
+        data: [
+          span({ id: "spn_http", name: "GET /api/orders", status: "success", parentSpanId: null, durationMs: 2500 }),
+          span({ id: "spn_db", name: "postgres orders query", status: "error", parentSpanId: "spn_http", durationMs: 900 }),
+          span({ id: "spn_llm", name: "openai classify intent", status: "success", parentSpanId: "spn_http", durationMs: 1200 })
+        ]
+      })
+    });
+
+    render(<TraceInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /checkout flow/ }));
+
+    const analysis = await screen.findByRole("region", { name: "Span analysis" });
+    expect(within(analysis).getByLabelText("Total spans")).toHaveTextContent("3");
+    expect(within(analysis).getByLabelText("Error spans")).toHaveTextContent("1");
+    expect(within(analysis).getByLabelText("Root spans")).toHaveTextContent("1");
+    expect(within(analysis).getByLabelText("Longest span")).toHaveTextContent("2500 ms");
+    expect(within(analysis).getByText("http")).toBeInTheDocument();
+    expect(within(analysis).getByText("db")).toBeInTheDocument();
+    expect(within(analysis).getByText("llm")).toBeInTheDocument();
+    expect(within(analysis).getByText("error 1")).toBeInTheDocument();
+  });
+
   it("shows independent unavailable states and retries", async () => {
     const api = client({
       listTraces: vi.fn().mockRejectedValueOnce(new Error("trace failed")).mockResolvedValueOnce({ data: [trace({})] }),
