@@ -26,6 +26,9 @@ type LlmPromptRank = {
   errorRate: number;
   lastSeenAt: string;
 };
+type LlmPromptModelComparison = LlmPromptRank & {
+  model: string;
+};
 
 const defaultFilters: LlmFilterValues = {
   provider: "",
@@ -181,12 +184,68 @@ function buildPromptRanking(calls: LlmCallRecord[]): LlmPromptRank[] {
     .slice(0, 6);
 }
 
+function buildPromptModelComparisons(calls: LlmCallRecord[]): LlmPromptModelComparison[] {
+  const byPromptModel = new Map<
+    string,
+    {
+      prompt: string;
+      model: string;
+      calls: number;
+      cost: number;
+      tokens: number;
+      latencies: number[];
+      errors: number;
+      lastSeenAt: string;
+    }
+  >();
+
+  for (const call of calls) {
+    const prompt = call.promptName ?? "Unassigned prompt";
+    const model = `${call.provider} / ${call.model}`;
+    const key = `${prompt}\u0000${model}`;
+    const current = byPromptModel.get(key) ?? {
+      prompt,
+      model,
+      calls: 0,
+      cost: 0,
+      tokens: 0,
+      latencies: [],
+      errors: 0,
+      lastSeenAt: call.timestamp
+    };
+    current.calls += 1;
+    current.cost += parseCost(call.costUsd);
+    current.tokens += call.inputTokens + call.outputTokens;
+    if (call.latencyMs !== null) current.latencies.push(call.latencyMs);
+    if (call.status !== "success") current.errors += 1;
+    if (new Date(call.timestamp).getTime() > new Date(current.lastSeenAt).getTime()) current.lastSeenAt = call.timestamp;
+    byPromptModel.set(key, current);
+  }
+
+  return [...byPromptModel.values()]
+    .map((entry) => ({
+      prompt: entry.prompt,
+      model: entry.model,
+      calls: entry.calls,
+      cost: entry.cost,
+      tokens: entry.tokens,
+      p95LatencyMs: percentile(entry.latencies, 0.95),
+      errorRate: entry.calls === 0 ? 0 : entry.errors / entry.calls,
+      lastSeenAt: entry.lastSeenAt
+    }))
+    .sort((left, right) => right.cost - left.cost || right.calls - left.calls || left.prompt.localeCompare(right.prompt))
+    .slice(0, 8);
+}
+
 function LlmInsights({ calls }: { calls: LlmCallRecord[] }) {
   const modelCosts = buildModelCosts(calls);
   const tenantCosts = buildTenantCosts(calls);
   const promptRanking = buildPromptRanking(calls);
+  const promptModelComparisons = buildPromptModelComparisons(calls);
   const maxModelCost = Math.max(...modelCosts.map((item) => item.cost), 0);
   const maxTenantCost = Math.max(...tenantCosts.map((item) => item.cost), 0);
+  const maxPromptModelCost = Math.max(...promptModelComparisons.map((item) => item.cost), 0);
+  const maxPromptModelLatency = Math.max(...promptModelComparisons.map((item) => item.p95LatencyMs ?? 0), 0);
 
   return (
     <section className="llm-insights-grid" aria-label="LLM analytics">
@@ -225,6 +284,52 @@ function LlmInsights({ calls }: { calls: LlmCallRecord[] }) {
           </div>
         ))}
       </div>
+
+      <section className="llm-insight-card llm-comparison-card" aria-label="Prompt and model comparison">
+        <div className="panel-header">
+          <h3>Prompt and model comparison</h3>
+          <span>{promptModelComparisons.length} combinations</span>
+        </div>
+        {promptModelComparisons.length === 0 ? <p className="muted-text">No prompt/model activity in this result set.</p> : null}
+        {promptModelComparisons.length > 0 ? (
+          <table className="llm-prompt-table">
+            <thead>
+              <tr>
+                <th>Prompt</th>
+                <th>Model</th>
+                <th>Calls</th>
+                <th>Cost</th>
+                <th>P95</th>
+                <th>Error rate</th>
+                <th>Signals</th>
+              </tr>
+            </thead>
+            <tbody>
+              {promptModelComparisons.map((item) => {
+                const isHighestCost = item.cost > 0 && item.cost === maxPromptModelCost;
+                const isSlowest = item.p95LatencyMs !== null && item.p95LatencyMs === maxPromptModelLatency;
+                return (
+                  <tr key={`${item.prompt}:${item.model}`}>
+                    <th scope="row">{item.prompt}</th>
+                    <td>{item.model}</td>
+                    <td>{item.calls} calls</td>
+                    <td>{formatCurrency(item.cost)}</td>
+                    <td>p95 {formatLatency(item.p95LatencyMs)}</td>
+                    <td>{Math.round(item.errorRate * 100)}% errors</td>
+                    <td>
+                      <span className="llm-signal-tags">
+                        {isHighestCost ? <strong>Highest cost</strong> : null}
+                        {isSlowest ? <strong>Slowest</strong> : null}
+                        {!isHighestCost && !isSlowest ? <span>Normal</span> : null}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : null}
+      </section>
 
       <div className="llm-insight-card llm-prompt-card" aria-label="Prompt ranking">
         <div className="panel-header">

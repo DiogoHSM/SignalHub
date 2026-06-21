@@ -438,8 +438,10 @@ describe("ConsoleShell", () => {
 
     const rows = await screen.findAllByRole("button", { name: /Open .* operations/i });
 
-    expect(api.getOperations).toHaveBeenCalledWith({ projectId: "prj_microerp", environmentId: "env_microerp", window: "24h" });
-    expect(api.getOperations).toHaveBeenCalledWith({ projectId: "prj_dissip", environmentId: "env_dissip", window: "24h" });
+    await waitFor(() => {
+      expect(api.getOperations).toHaveBeenCalledWith({ projectId: "prj_microerp", environmentId: "env_microerp", window: "24h" });
+      expect(api.getOperations).toHaveBeenCalledWith({ projectId: "prj_dissip", environmentId: "env_dissip", window: "24h" });
+    });
     await waitFor(() => expect(rows[0]).toHaveAccessibleName(/Open dissip operations/i));
     expect(rows[0]).toHaveTextContent("Critical");
     expect(rows[0]).toHaveTextContent("3 incidents");
