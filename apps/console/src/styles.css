@@ -6290,13 +6290,133 @@ input[type="file"]::file-selector-button {
 .experiments-panel {
   display: grid;
   gap: 18px;
-  max-width: 1040px;
 }
 
 .experiments-panel h1 {
   margin: 0;
   font-size: 28px;
   letter-spacing: 0;
+}
+
+.experiments-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface-2);
+  padding: 14px;
+}
+
+.experiments-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.experiments-form label span {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.experiments-form input {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.experiments-form button {
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-surface-2));
+  color: var(--fg);
+  padding: 0 16px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.experiments-readout {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface-2);
+  padding: 16px;
+}
+
+.experiments-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.experiments-summary div {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  padding: 12px;
+}
+
+.experiments-summary span {
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.experiments-summary strong {
+  color: var(--fg);
+  font-size: 22px;
+}
+
+.experiments-table-wrap {
+  overflow-x: auto;
+}
+
+.experiments-readout table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+.experiments-readout th,
+.experiments-readout td {
+  color: var(--fg-secondary);
+  padding: 12px;
+  text-align: left;
+}
+
+.experiments-readout thead th {
+  color: var(--fg-muted);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.experiments-readout tbody tr {
+  background: var(--bg-elevated);
+}
+
+.experiments-readout tbody th {
+  border-radius: 10px 0 0 10px;
+  color: var(--fg);
+}
+
+.experiments-readout tbody td:last-child {
+  border-radius: 0 10px 10px 0;
 }
 
 .experiments-panel__grid {
@@ -6389,7 +6509,9 @@ input[type="file"]::file-selector-button {
   .artifact-upload-grid,
   .artifact-toolbar,
   .event-analytics,
+  .experiments-form,
   .experiments-panel__grid,
+  .experiments-summary,
   .investigation-layout,
   .llm-insights-grid,
   .system-readiness,

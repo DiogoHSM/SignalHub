@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { CreatedApiKey, Environment, OperationsResponse, OverviewResponse, SystemHealthResponse } from "../api/types";
+import type { CreatedApiKey, Environment, EventRecord, OperationsResponse, OverviewResponse, SystemHealthResponse } from "../api/types";
 import { ConsoleShell } from "./ConsoleShell";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -63,6 +63,26 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     uploadSourceMapBundle: vi.fn(),
     deleteSourceMapArtifact: vi.fn(),
     getErrorSourceMapResolution: vi.fn(),
+    ...overrides
+  };
+}
+
+function eventRecord(overrides: Partial<EventRecord>): EventRecord {
+  return {
+    id: "evt_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    tenantId: "tenant_1",
+    userId: "user_1",
+    sessionId: "session_1",
+    traceId: "trace_1",
+    timestamp: "2026-05-05T12:00:00.000Z",
+    receivedAt: "2026-05-05T12:00:01.000Z",
+    source: "browser",
+    release: "1.0.0",
+    metadata: {},
+    name: "checkout.exposed",
+    properties: {},
     ...overrides
   };
 }
@@ -1416,6 +1436,53 @@ describe("ConsoleShell", () => {
     await clickShellMode("Analyze");
 
     await waitFor(() => expect(listEvents.mock.calls.some(([filters]) => filters.limit === 50)).toBe(true));
+  });
+
+  it("renders an event-based experiment readout from project telemetry", async () => {
+    const listEvents = vi.fn().mockResolvedValue({
+      data: [
+        eventRecord({ id: "evt_a1", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "A" } }),
+        eventRecord({ id: "evt_a2", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "A" } }),
+        eventRecord({ id: "evt_b1", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "B" } }),
+        eventRecord({ id: "evt_b2", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "B" } }),
+        eventRecord({ id: "evt_ac1", name: "checkout.completed", properties: { experiment: "checkout_copy", variant: "A" } }),
+        eventRecord({ id: "evt_bc1", name: "checkout.completed", properties: { experiment: "checkout_copy", variant: "B" } }),
+        eventRecord({ id: "evt_bc2", name: "checkout.completed", properties: { experiment: "checkout_copy", variant: "B" } })
+      ]
+    });
+    const api = client({
+      listEvents,
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    render(<ConsoleShell client={api} />);
+
+    await openProjectWorkspace();
+    await clickShellMode("Experiments");
+
+    const readout = await screen.findByRole("region", { name: "A/B test readout" });
+    await waitFor(() => expect(listEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 500 }));
+    expect(screen.getByLabelText("Experiment property")).toHaveValue("experiment");
+    expect(screen.getByLabelText("Variant property")).toHaveValue("variant");
+    expect(screen.getByLabelText("Exposure event")).toHaveValue("checkout.exposed");
+    expect(screen.getByLabelText("Conversion event")).toHaveValue("checkout.completed");
+
+    const variantA = within(readout).getByRole("row", { name: /Variant A/ });
+    expect(variantA).toHaveTextContent("2 exposures");
+    expect(variantA).toHaveTextContent("1 conversions");
+    expect(variantA).toHaveTextContent("50.0%");
+    expect(variantA).toHaveTextContent("Baseline");
+
+    const variantB = within(readout).getByRole("row", { name: /Variant B/ });
+    expect(variantB).toHaveTextContent("2 exposures");
+    expect(variantB).toHaveTextContent("2 conversions");
+    expect(variantB).toHaveTextContent("100.0%");
+    expect(variantB).toHaveTextContent("+50.0 pp");
   });
 
   it("does not query investigation errors until the errors tab is opened", async () => {

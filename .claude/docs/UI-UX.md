@@ -13,7 +13,7 @@ SignalMonitor includes an admin-only Integration Console.
 - `Analyze` owns event, tenant, user, funnel, retention, cohort, dashboard, and export workflows.
 - `Traces` owns route grouping, p50/p95/p99, trace waterfall, span attributes, related errors/events, and release comparison.
 - `Errors` owns issue inbox, error groups, raw occurrences, Incident view, source-map state, triage, resolve/ignore, and reopen workflows.
-- `Experiments` is the future home for feature flags, A/B tests, prompt variants, model comparison, and quality/cost/latency analysis.
+- `Experiments` is the home for event-based A/B readouts, feature flags, prompt variants, model comparison, and quality/cost/latency analysis.
 - `Configure` owns project-specific settings: environments, API keys, browser origins/CORS allowlist, SDK setup, source maps, alert rules/channels, and future project retention overrides.
 - `Sigmon Admin` remains separate from project workspaces and is reserved for the SignalMonitor installation itself: system health, notifications, storage, security, deploy readiness, docs, SDK, and configuration health.
 - The approved design spec for this architecture lives at `docs/superpowers/specs/2026-06-06-product-console-architecture-design.md`.
@@ -105,6 +105,13 @@ SignalMonitor includes an admin-only Integration Console.
 - User details mirror tenant detail with the same operational profile and timeline signal mix pattern for fast comparison.
 - User timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from user context to source records.
 - Users surfaces should follow the same dark treatment as Entities, including disabled Anonymous rows, selected user cards, metric tiles, filters, sessions, and timeline rows.
+
+## Experiments UX
+
+- Experiments starts with an event-based A/B test readout using existing event telemetry instead of requiring a separate experiment backend.
+- The readout lets operators map experiment, variant, exposure event, and conversion event fields so teams can adapt existing event naming conventions.
+- Variant rows should show exposures, conversions, conversion rate, and lift against the first sorted variant as a lightweight baseline.
+- Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Operations UX
 
