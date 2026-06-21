@@ -110,6 +110,7 @@ SignalMonitor includes an admin-only Integration Console.
 
 - Experiments starts with an event-based A/B test readout using existing event telemetry instead of requiring a separate experiment backend.
 - The readout lets operators map experiment, variant, exposure event, and conversion event fields so teams can adapt existing event naming conventions.
+- When multiple experiments are detected in the sample, operators select one experiment before reading variant metrics so unrelated variants are not mixed.
 - Variant rows should show exposures, conversions, conversion rate, and lift against the first sorted variant as a lightweight baseline.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 

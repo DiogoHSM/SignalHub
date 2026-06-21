@@ -52,6 +52,15 @@ function formatLift(value: number | null): string {
   return `${sign}${(value * 100).toFixed(1)} pp`;
 }
 
+function listExperiments(events: EventRecord[], config: ExperimentConfig): string[] {
+  const experiments = new Set<string>();
+  for (const event of events) {
+    const experiment = propertyValue(event, config.experimentProperty);
+    if (experiment) experiments.add(experiment);
+  }
+  return Array.from(experiments).sort((left, right) => left.localeCompare(right));
+}
+
 function buildVariantRows(events: EventRecord[], config: ExperimentConfig): VariantRow[] {
   const variants = new Map<string, { exposures: number; conversions: number }>();
 
@@ -87,6 +96,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [state, setState] = useState<LoadState>("idle");
   const [reloadToken, setReloadToken] = useState(0);
+  const [selectedExperiment, setSelectedExperiment] = useState("");
 
   useEffect(() => {
     if (!projectId || !environmentId) {
@@ -115,7 +125,21 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
     };
   }, [client, environmentId, projectId, reloadToken]);
 
-  const rows = useMemo(() => buildVariantRows(events, config), [events, config]);
+  const experimentNames = useMemo(() => listExperiments(events, config), [events, config]);
+
+  useEffect(() => {
+    setSelectedExperiment((current) => {
+      if (experimentNames.length === 0) return "";
+      return experimentNames.includes(current) ? current : experimentNames[0];
+    });
+  }, [experimentNames]);
+
+  const experimentEvents = useMemo(() => {
+    if (!selectedExperiment) return events;
+    return events.filter((event) => propertyValue(event, config.experimentProperty) === selectedExperiment);
+  }, [config.experimentProperty, events, selectedExperiment]);
+
+  const rows = useMemo(() => buildVariantRows(experimentEvents, config), [experimentEvents, config]);
   const totalExposures = rows.reduce((sum, row) => sum + row.exposures, 0);
   const totalConversions = rows.reduce((sum, row) => sum + row.conversions, 0);
   const bestVariant = rows.reduce<VariantRow | null>(
@@ -199,10 +223,28 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
         </div>
       ) : null}
 
+      <label className="experiments-picker">
+        Experiment
+        <span>Detected from the configured experiment property.</span>
+        <select
+          aria-label="Experiment"
+          disabled={experimentNames.length === 0}
+          value={selectedExperiment}
+          onChange={(event) => setSelectedExperiment(event.target.value)}
+        >
+          {experimentNames.length === 0 ? <option value="">No experiments found</option> : null}
+          {experimentNames.map((experiment) => (
+            <option key={experiment} value={experiment}>
+              {experiment}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <section className="experiments-readout" aria-label="A/B test readout">
         <div className="panel-header">
           <h2>A/B test readout</h2>
-          <span>{rows.length} variants from {events.length} events</span>
+          <span>{rows.length} variants from {experimentEvents.length} events</span>
         </div>
         {rows.length > 0 ? (
           <div className="experiments-summary" aria-label="Experiment summary">
