@@ -100,9 +100,57 @@ describe("EventInvestigationPanel", () => {
 
     render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
-    expect(await screen.findByText("checkout.started")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /checkout.started/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /checkout.started/ })).toHaveTextContent("trace_1");
     expect(api.listEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+  });
+
+  it("summarizes event analytics and highlights top event names from the current result set", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({
+        data: [
+          event({
+            id: "evt_1",
+            name: "checkout.started",
+            tenantId: "tenant_a",
+            userId: "user_1",
+            source: "browser",
+            properties: { plan: "team", amount: 1200 }
+          }),
+          event({
+            id: "evt_2",
+            name: "checkout.started",
+            tenantId: "tenant_a",
+            userId: "user_2",
+            source: "server",
+            properties: { plan: "team" }
+          }),
+          event({
+            id: "evt_3",
+            name: "invoice.paid",
+            tenantId: "tenant_b",
+            userId: null,
+            source: null,
+            properties: { channel: "pix" }
+          })
+        ]
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(await screen.findByRole("region", { name: "Event analytics summary" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Total events")).toHaveTextContent("3");
+    expect(screen.getByLabelText("Unique event names")).toHaveTextContent("2");
+    expect(screen.getByLabelText("Tenants observed")).toHaveTextContent("2");
+    expect(screen.getByLabelText("Known users")).toHaveTextContent("2");
+    expect(screen.getByRole("region", { name: "Top event names" })).toHaveTextContent("checkout.started");
+    expect(screen.getByRole("region", { name: "Top event names" })).toHaveTextContent("2 events");
+    const checkoutRows = screen.getAllByRole("button", { name: /checkout.started/ });
+    expect(checkoutRows[0]).toHaveTextContent("browser");
+    expect(checkoutRows[0]).toHaveTextContent("plan: team");
+    expect(screen.getByRole("button", { name: /invoice.paid/ })).toHaveTextContent("anonymous");
+    expect(screen.getByRole("button", { name: /invoice.paid/ })).toHaveTextContent("channel: pix");
   });
 
   it("applies initial filters and updates them when they change", async () => {
@@ -217,7 +265,7 @@ describe("EventInvestigationPanel", () => {
 
     rerender(<EventInvestigationPanel client={api} environmentId="env_2" projectId="prj_1" />);
 
-    expect(await screen.findByText("new.scope")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /new.scope/ })).toBeInTheDocument();
 
     await act(async () => {
       first.resolve({ data: [event({ id: "evt_1", name: "old.scope" })] });
@@ -225,6 +273,6 @@ describe("EventInvestigationPanel", () => {
     });
 
     expect(screen.queryByText("old.scope")).not.toBeInTheDocument();
-    expect(screen.getByText("new.scope")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new.scope/ })).toBeInTheDocument();
   });
 });
