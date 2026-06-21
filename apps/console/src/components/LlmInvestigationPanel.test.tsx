@@ -195,6 +195,66 @@ describe("LlmInvestigationPanel", () => {
     expect(generateSql).toHaveTextContent("50% errors");
   });
 
+  it("compares prompt and model combinations with cost latency and error signals", async () => {
+    const api = client({
+      listLlmCalls: vi.fn().mockResolvedValue({
+        data: [
+          llmCall({
+            id: "llm_1",
+            provider: "openai",
+            model: "gpt-5",
+            promptName: "invoice.summary",
+            costUsd: "0.500000",
+            latencyMs: 1800,
+            status: "success"
+          }),
+          llmCall({
+            id: "llm_2",
+            provider: "openai",
+            model: "gpt-5",
+            promptName: "invoice.summary",
+            costUsd: "0.700000",
+            latencyMs: 2600,
+            status: "error"
+          }),
+          llmCall({
+            id: "llm_3",
+            provider: "anthropic",
+            model: "claude-4",
+            promptName: "invoice.summary",
+            costUsd: "0.200000",
+            latencyMs: 900,
+            status: "success"
+          }),
+          llmCall({
+            id: "llm_4",
+            provider: "openai",
+            model: "gpt-5-mini",
+            promptName: "risk.classifier",
+            costUsd: "0.050000",
+            latencyMs: 300,
+            status: "success"
+          })
+        ]
+      }),
+      getLlmAggregates: vi.fn().mockResolvedValue({ data: aggregates({ totalCalls: 4, totalCostUsd: "1.450000" }) })
+    });
+
+    render(<LlmInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const comparison = await screen.findByRole("region", { name: "Prompt and model comparison" });
+    const expensiveRow = within(comparison).getByRole("row", { name: /invoice\.summary openai \/ gpt-5/ });
+    expect(expensiveRow).toHaveTextContent("2 calls");
+    expect(expensiveRow).toHaveTextContent("$1.20");
+    expect(expensiveRow).toHaveTextContent("p95 2600 ms");
+    expect(expensiveRow).toHaveTextContent("50% errors");
+    expect(expensiveRow).toHaveTextContent("Highest cost");
+
+    const fasterRow = within(comparison).getByRole("row", { name: /invoice\.summary anthropic \/ claude-4/ });
+    expect(fasterRow).toHaveTextContent("$0.20");
+    expect(fasterRow).toHaveTextContent("0% errors");
+  });
+
   it("applies initial filters and updates them when they change", async () => {
     const api = client({
       listLlmCalls: vi.fn().mockResolvedValue({ data: [] }),

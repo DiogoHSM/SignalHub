@@ -6183,6 +6183,11 @@ input[type="file"]::file-selector-button {
   overflow-x: auto;
 }
 
+.llm-comparison-card {
+  grid-column: 1 / -1;
+  overflow-x: auto;
+}
+
 .llm-cost-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -6255,6 +6260,31 @@ input[type="file"]::file-selector-button {
   color: var(--fg);
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+.llm-signal-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.llm-signal-tags strong,
+.llm-signal-tags span {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.llm-signal-tags strong {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg-surface-2));
+  color: var(--fg);
 }
 
 .experiments-panel {
