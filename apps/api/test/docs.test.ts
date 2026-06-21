@@ -130,6 +130,8 @@ describe("API docs", () => {
     expect(response.body).toContain("NEXT_PUBLIC_SIGMON_BROWSER_KEY");
     expect(response.body).toContain("withSignalMonitorRoute");
     expect(response.body).toContain("identifyTenant");
+    expect(response.body).toContain("Experiments and A/B tests");
+    expect(response.body).toContain("checkout.exposed");
     expect(response.body).toContain("source-maps:upload");
     expect(response.headers["content-security-policy"]).toContain("script-src 'self'");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");

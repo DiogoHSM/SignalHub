@@ -167,6 +167,49 @@ sigmon.identifyTenant("tenant_123", {
 await sigmon.flush();
 ```
 
+## Experiments and A/B Tests
+
+Sigmon experiments are derived from normal event telemetry. The SDK does not assign variants or change feature-flag behavior in your app; your application should choose a stable variant and send exposure and conversion events with consistent properties.
+
+Minimum event properties:
+
+- `experiment`: stable experiment key, for example `checkout_copy`.
+- `variant`: stable variant key, for example `control` or `short_copy`.
+
+Recommended event names:
+
+- Exposure event: `experiment.exposed` or a product-specific event such as `checkout.exposed`.
+- Conversion event: `experiment.converted` or a product-specific event such as `checkout.completed`.
+
+```ts
+const experiment = "checkout_copy";
+const variant = "short_copy";
+
+sigmon.track("checkout.exposed", {
+  experiment,
+  variant,
+  page: "checkout"
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});
+
+sigmon.track("checkout.completed", {
+  experiment,
+  variant,
+  orderValueCents: 12900
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});
+
+await sigmon.flush();
+```
+
+In the console, open `Experiments` and map the experiment property, variant property, exposure event, and conversion event. If your app already uses different names, keep them consistent and map them there.
+
+Experiment readouts are directional operational views, not a statistical-significance engine. Use them to spot obvious changes in conversion, quality, latency, or cost before drilling into events, users, tenants, traces, errors, or LLM calls.
+
 ## OpenAPI
 
 The API reference remains the source of truth for payloads and non-TypeScript integrations:
