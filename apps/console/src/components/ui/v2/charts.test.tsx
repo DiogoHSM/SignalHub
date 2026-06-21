@@ -22,7 +22,8 @@ describe("charts", () => {
 
   it("Bars highlights the given index with the critical color", () => {
     const { container } = render(<Bars data={[1, 2, 3]} highlight={1} />);
-    const bars = container.querySelectorAll<HTMLElement>("div > div");
+    const wrap = container.querySelector("div") as HTMLElement;
+    const bars = Array.from(wrap.children) as HTMLElement[];
     expect(bars[1].style.background).toContain("--sev-critical");
   });
 

@@ -58,34 +58,22 @@ export function Sparkline({
   );
 }
 
-export function Bars({
-  data,
-  color = "var(--accent)",
-  height = 60,
-  highlight = null,
-}: {
-  data: number[];
-  color?: string;
-  height?: number;
-  highlight?: number | null;
-}) {
+export function Bars({ data, color = "var(--accent)", height = 60, highlight = null }:
+  { data: number[]; color?: string; height?: number; highlight?: number | null }) {
   const max = Math.max(...data, 1);
   return (
-    <>
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height, width: "100%" }} aria-hidden="true">
       {data.map((v, i) => (
-        <div
-          key={i}
-          style={{
-            flex: 1,
-            height: `${(v / max) * height}px`,
-            background: highlight === i ? "var(--sev-critical)" : color,
-            opacity: highlight === i ? 1 : 0.85,
-            borderRadius: 2,
-            minHeight: 2,
-          }}
-        />
+        <div key={i} style={{
+          flex: 1,
+          height: `${(v / max) * 100}%`,
+          background: highlight === i ? "var(--sev-critical)" : color,
+          opacity: highlight === i ? 1 : 0.85,
+          borderRadius: 2,
+          minHeight: 2,
+        }} />
       ))}
-    </>
+    </div>
   );
 }
 
