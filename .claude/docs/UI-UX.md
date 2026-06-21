@@ -86,6 +86,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Trace detail uses a dense waterfall layout: selected trace summary, lazily loaded span timing rows, selected/error highlighting, and a selected-span detail panel for timing, parent, cost, input/output/error, and metadata JSON without adding a chart dependency.
 - Keep LLM as a peer tab with Events, Errors, and Traces inside `Investigate`.
 - LLM uses the same filter/list/detail pattern, with a compact aggregate strip for calls, tokens, and total cost.
+- LLM includes an analytics layer above the raw call list: cost by model, top tenants by LLM cost, and prompt ranking with calls, cost, tokens, p95 latency, error rate, and last seen.
 - LLM rows should prioritize provider/model, prompt, status, cost, tokens, latency, time, user, and tenant.
 - LLM details should show immutable identifiers, cost and token fields, previews, error text, and metadata JSON.
 - Keep Entities as a peer tab with Events, Errors, Traces, and LLM inside `Investigate`.

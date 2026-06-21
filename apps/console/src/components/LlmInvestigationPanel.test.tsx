@@ -120,12 +120,79 @@ describe("LlmInvestigationPanel", () => {
 
     render(<LlmInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
-    expect(await screen.findByText("openai / gpt-5")).toBeInTheDocument();
+    const callList = await screen.findByLabelText("LLM calls");
+    expect(within(callList).getByText("openai / gpt-5")).toBeInTheDocument();
     const totals = screen.getByLabelText("LLM totals");
     expect(within(totals).getByText("3")).toBeInTheDocument();
     expect(within(totals).getByText("0.750000")).toBeInTheDocument();
     expect(api.listLlmCalls).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
     expect(api.getLlmAggregates).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 50 });
+  });
+
+  it("summarizes model cost tenant cost and prompt quality from the current LLM calls", async () => {
+    const api = client({
+      listLlmCalls: vi.fn().mockResolvedValue({
+        data: [
+          llmCall({
+            id: "llm_1",
+            tenantId: "tenant_a",
+            provider: "openai",
+            model: "gpt-5",
+            promptName: "generate_sql",
+            inputTokens: 120,
+            outputTokens: 80,
+            costUsd: "0.250000",
+            latencyMs: 1800,
+            status: "success"
+          }),
+          llmCall({
+            id: "llm_2",
+            tenantId: "tenant_a",
+            provider: "openai",
+            model: "gpt-5",
+            promptName: "generate_sql",
+            inputTokens: 100,
+            outputTokens: 100,
+            costUsd: "0.300000",
+            latencyMs: 2200,
+            status: "error"
+          }),
+          llmCall({
+            id: "llm_3",
+            tenantId: "tenant_b",
+            provider: "anthropic",
+            model: "claude-4",
+            promptName: "classify_ticket",
+            inputTokens: 40,
+            outputTokens: 20,
+            costUsd: "0.050000",
+            latencyMs: 500,
+            status: "success"
+          })
+        ]
+      }),
+      getLlmAggregates: vi.fn().mockResolvedValue({ data: aggregates({ totalCalls: 3, totalCostUsd: "0.600000" }) })
+    });
+
+    render(<LlmInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(await screen.findByText("LLM cost by model")).toBeInTheDocument();
+    const modelCost = screen.getByLabelText("LLM cost by model");
+    expect(within(modelCost).getByText("openai / gpt-5")).toBeInTheDocument();
+    expect(within(modelCost).getByText("$0.55")).toBeInTheDocument();
+    expect(within(modelCost).getByText("anthropic / claude-4")).toBeInTheDocument();
+
+    const tenantCost = screen.getByLabelText("Top tenants by LLM cost");
+    expect(within(tenantCost).getByText("tenant_a")).toBeInTheDocument();
+    expect(within(tenantCost).getByText("$0.55")).toBeInTheDocument();
+
+    const promptRanking = screen.getByLabelText("Prompt ranking");
+    const generateSql = within(promptRanking).getByRole("row", { name: /generate_sql/ });
+    expect(generateSql).toHaveTextContent("2 calls");
+    expect(generateSql).toHaveTextContent("$0.55");
+    expect(generateSql).toHaveTextContent("400 tokens");
+    expect(generateSql).toHaveTextContent("p95 2200 ms");
+    expect(generateSql).toHaveTextContent("50% errors");
   });
 
   it("applies initial filters and updates them when they change", async () => {
@@ -240,7 +307,8 @@ describe("LlmInvestigationPanel", () => {
     const { rerender } = render(<LlmInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
     rerender(<LlmInvestigationPanel client={api} environmentId="env_2" projectId="prj_1" />);
 
-    expect(await screen.findByText("anthropic / claude")).toBeInTheDocument();
+    const callList = await screen.findByLabelText("LLM calls");
+    expect(within(callList).getByText("anthropic / claude")).toBeInTheDocument();
     expect(await screen.findByText("9.000000")).toBeInTheDocument();
 
     await act(async () => {
@@ -251,7 +319,7 @@ describe("LlmInvestigationPanel", () => {
 
     expect(screen.queryByText("old / model")).not.toBeInTheDocument();
     expect(screen.queryByText("1.000000")).not.toBeInTheDocument();
-    expect(screen.getByText("anthropic / claude")).toBeInTheDocument();
+    expect(within(callList).getByText("anthropic / claude")).toBeInTheDocument();
     expect(screen.getByText("9.000000")).toBeInTheDocument();
   });
 });

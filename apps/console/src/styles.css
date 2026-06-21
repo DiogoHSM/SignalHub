@@ -5679,6 +5679,122 @@ input[type="file"]::file-selector-button {
   color: var(--fg);
 }
 
+.llm-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0;
+  min-width: 0;
+}
+
+.llm-insight-card {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 58%),
+    var(--bg-surface);
+  padding: 14px;
+}
+
+.llm-insight-card .panel-header {
+  align-items: start;
+}
+
+.llm-insight-card h3 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.llm-insight-card .panel-header span {
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.llm-prompt-card {
+  grid-column: 1 / -1;
+  overflow-x: auto;
+}
+
+.llm-cost-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.llm-cost-bar > span {
+  min-width: 0;
+  color: var(--fg-secondary);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.llm-cost-bar > strong {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.llm-cost-bar > div {
+  grid-column: 1 / -1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-subtle) 66%, transparent);
+}
+
+.llm-cost-bar > div > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--info) 70%, var(--accent)));
+}
+
+.llm-cost-bar.tenant > div > span {
+  background: linear-gradient(90deg, var(--warning), color-mix(in srgb, var(--accent) 65%, var(--warning)));
+}
+
+.llm-cost-bar small {
+  grid-column: 1 / -1;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.llm-prompt-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  color: var(--fg-secondary);
+  font-size: 13px;
+}
+
+.llm-prompt-table th,
+.llm-prompt-table td {
+  border-top: 1px solid var(--border-subtle);
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.llm-prompt-table thead th {
+  border-top: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.llm-prompt-table tbody th {
+  color: var(--fg);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .experiments-panel {
   display: grid;
   gap: 18px;
@@ -5782,6 +5898,7 @@ input[type="file"]::file-selector-button {
   .artifact-toolbar,
   .experiments-panel__grid,
   .investigation-layout,
+  .llm-insights-grid,
   .system-readiness,
   .system-attention-banner,
   .system-grid,
