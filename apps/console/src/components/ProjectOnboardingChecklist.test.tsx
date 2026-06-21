@@ -28,11 +28,15 @@ describe("ProjectOnboardingChecklist", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument();
-    expect(screen.getByText("3 of 4 ready")).toBeInTheDocument();
+    expect(screen.getByText("3 of 7 ready")).toBeInTheDocument();
     expect(screen.getByText("Project selected")).toBeInTheDocument();
     expect(screen.getByText("production environment selected")).toBeInTheDocument();
     expect(screen.getByText("API endpoint available")).toBeInTheDocument();
     expect(screen.getByText("Create and copy an API key")).toBeInTheDocument();
     expect(screen.getByText("Generate a key and copy the one-time secret before integrating the SDK.")).toBeInTheDocument();
+    expect(screen.getByText("Install SDK package")).toBeInTheDocument();
+    expect(screen.getByText("npm install @sigmon/sdk")).toBeInTheDocument();
+    expect(screen.getByText("Initialize SDK snippet")).toBeInTheDocument();
+    expect(screen.getByText("Send first ping")).toBeInTheDocument();
   });
 });

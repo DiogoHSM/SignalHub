@@ -134,7 +134,10 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByRole("heading", { name: "Project Settings" })).toBeInTheDocument();
     expect(screen.getByText("Recurring configuration for the selected project and environment.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument();
-    expect(screen.getByText("4 of 4 ready")).toBeInTheDocument();
+    expect(screen.getByText("4 of 7 ready")).toBeInTheDocument();
+    expect(screen.getByText("Install SDK package")).toBeInTheDocument();
+    expect(screen.getByText("npm install @sigmon/sdk")).toBeInTheDocument();
+    expect(screen.getByText("Send first ping")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Project settings sections" })).toBeInTheDocument();
 
     for (const label of ["Project", "Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
