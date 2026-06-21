@@ -4276,6 +4276,51 @@ pre {
   padding: 14px;
 }
 
+.overview-incident-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--critical) 42%, var(--border));
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--critical) 15%, transparent), transparent 44%),
+    var(--bg-surface);
+  padding: 16px;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--critical) 72%, var(--accent));
+}
+
+.overview-incident-banner strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--fg);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.overview-incident-banner p {
+  margin: 6px 0 0;
+  max-width: 72ch;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+.overview-incident-banner__meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.overview-incident-banner__meta button {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, var(--border));
+  border-radius: 8px;
+  background: var(--accent-bg);
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
 .overview-kpi-group h3 {
   margin: 0;
   font-size: 12px;
@@ -5675,6 +5720,7 @@ input[type="file"]::file-selector-button {
   .project-onboarding-checklist__steps,
   .workspace-grid,
   .overview-kpis,
+  .overview-incident-banner,
   .overview-lists,
   .operations-status-grid,
   .operations-recent-grid,
@@ -5691,6 +5737,10 @@ input[type="file"]::file-selector-button {
   .alerts-grid,
   .monitors-panel .alerts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .overview-incident-banner__meta {
+    justify-content: flex-start;
   }
 
   .span-waterfall-shell,

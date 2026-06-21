@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { OverviewResponse, OverviewWindow } from "../api/types";
+import type { OverviewRecentError, OverviewResponse, OverviewWindow } from "../api/types";
 import { OverviewKpiGrid } from "./OverviewKpiGrid";
 import { OverviewMiniTrends } from "./OverviewMiniTrends";
 import { OverviewRecentSignals } from "./OverviewRecentSignals";
@@ -25,9 +25,28 @@ const windows: OverviewWindow[] = ["24h", "7d", "30d"];
 const kpiPlaceholderCount = 11;
 const topListPlaceholderCount = 10;
 const recentPlaceholderCount = 3;
+const severeErrorRank = new Map([
+  ["fatal", 5],
+  ["critical", 4],
+  ["error", 3],
+  ["warning", 2],
+  ["warn", 2],
+  ["info", 1],
+  ["debug", 0]
+]);
 
 function isEmptyish(data: OverviewResponse): boolean {
   return data.kpis.events === 0 && data.kpis.errors === 0 && data.kpis.traces === 0 && data.kpis.llmCalls === 0;
+}
+
+function severityRank(severity: string): number {
+  return severeErrorRank.get(severity.toLowerCase()) ?? 0;
+}
+
+function findCriticalIncident(data: OverviewResponse): OverviewRecentError | undefined {
+  return data.recent.errors
+    .filter((error) => error.status !== "resolved" && error.status !== "ignored" && severityRank(error.severity) >= severityRank("error"))
+    .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))[0];
 }
 
 function OverviewLoadingLayout() {
@@ -70,6 +89,38 @@ function OverviewLoadingLayout() {
         ))}
       </section>
     </>
+  );
+}
+
+function OverviewIncidentBanner({
+  error,
+  onDrilldown
+}: {
+  error: OverviewRecentError;
+  onDrilldown: (drilldown: OverviewDrilldown) => void;
+}) {
+  return (
+    <section aria-label="Critical incident" className="overview-incident-banner">
+      <div>
+        <span className="section-label">Critical incident active</span>
+        <strong>{error.message}</strong>
+        <p>
+          Latest severe open error in this environment. Review the grouped incident queue before it becomes background
+          noise.
+        </p>
+      </div>
+      <div className="overview-incident-banner__meta">
+        <span className="pill active">{error.severity}</span>
+        <span className="pill">{error.status}</span>
+        {error.tenantId ? <span className="pill">Tenant {error.tenantId}</span> : null}
+        <button
+          onClick={() => onDrilldown({ tab: "errors", filters: { severity: error.severity, status: error.status } })}
+          type="button"
+        >
+          Open incident queue
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -123,6 +174,8 @@ export function OverviewDashboard({ client, projectId, environmentId, onDrilldow
     );
   }
 
+  const criticalIncident = data ? findCriticalIncident(data) : undefined;
+
   return (
     <section className="overview-dashboard">
       <div className="overview-controls">
@@ -160,6 +213,7 @@ export function OverviewDashboard({ client, projectId, environmentId, onDrilldow
               <strong>No overview activity in this window</strong>
             </div>
           ) : null}
+          {criticalIncident ? <OverviewIncidentBanner error={criticalIncident} onDrilldown={onDrilldown} /> : null}
           <OverviewKpiGrid kpis={data.kpis} />
           <OverviewMiniTrends trends={data.trends} />
           <OverviewTopLists onDrilldown={onDrilldown} top={data.top} />
