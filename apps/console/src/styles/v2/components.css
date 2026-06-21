@@ -1,0 +1,223 @@
+/* ===== TYPOGRAPHY ===== */
+.sh-v2 .sh-eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.sh-v2 .sh-h1 {
+  font-size: 22px; font-weight: 600; letter-spacing: -0.01em;
+  margin: 0; color: var(--fg);
+}
+.sh-v2 .sh-h2 {
+  font-size: 15px; font-weight: 600; letter-spacing: -0.005em;
+  margin: 0; color: var(--fg);
+}
+.sh-v2 .sh-h3 {
+  font-size: 13px; font-weight: 600;
+  margin: 0; color: var(--fg);
+}
+.sh-v2 .sh-muted { color: var(--fg-muted); }
+.sh-v2 .sh-faint { color: var(--fg-faint); }
+.sh-v2 .sh-mono { font-family: var(--font-mono); font-size: 12px; }
+
+/* ===== CARDS ===== */
+.sh-v2 .sh-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.sh-v2 .sh-card__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sh-v2 .sh-card__body { padding: 16px; }
+.sh-v2 .sh-card__body.flush { padding: 0; }
+
+/* ===== BADGES / PILLS ===== */
+.sh-v2 .sh-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  border: 1px solid var(--border-subtle);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.sh-v2 .sh-tag.mono { font-family: var(--font-mono); font-size: 11px; }
+.sh-v2 .sh-tag.critical { background: var(--sev-critical-bg); color: var(--sev-critical); border-color: var(--sev-critical-border); }
+.sh-v2 .sh-tag.warn { background: var(--sev-warning-bg); color: var(--sev-warning); border-color: var(--sev-warning-border); }
+.sh-v2 .sh-tag.info { background: var(--sev-info-bg); color: var(--sev-info); border-color: var(--sev-info-border); }
+.sh-v2 .sh-tag.ok { background: var(--accent-bg-subtle); color: var(--accent); border-color: var(--accent-border); }
+.sh-v2 .sh-tag.violet { background: var(--sev-violet-bg); color: var(--sev-violet); }
+.sh-v2 .sh-tag.solid { background: var(--bg-surface-3); color: var(--fg); }
+
+/* ===== BUTTONS ===== */
+.sh-v2 .sh-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  background: var(--bg-surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.sh-v2 .sh-btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent-strong);
+  font-weight: 600;
+}
+.sh-v2 .sh-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-secondary);
+}
+.sh-v2 .sh-btn.danger {
+  background: var(--sev-critical-bg);
+  color: var(--sev-critical);
+  border-color: var(--sev-critical-border);
+}
+
+/* ===== KPI TILE ===== */
+.sh-v2 .sh-kpi {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  position: relative;
+}
+.sh-v2 .sh-kpi__label {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  font-weight: 500;
+  display: flex; align-items: center; gap: 6px;
+}
+.sh-v2 .sh-kpi__value {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.sh-v2 .sh-kpi__meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+.sh-v2 .sh-delta.up { color: var(--accent); }
+.sh-v2 .sh-delta.down { color: var(--sev-critical); }
+
+/* ===== TABLES / LISTS ===== */
+.sh-v2 .sh-row {
+  display: grid;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
+  font-size: 12.5px;
+}
+.sh-v2 .sh-row:last-child { border-bottom: none; }
+.sh-v2 .sh-row:hover { background: var(--bg-canvas); }
+.sh-v2 .sh-row.is-active { background: var(--bg-surface-2); }
+.sh-v2 .sh-row__head {
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+/* ===== SPARK / CHART ELEMENTS ===== */
+.sh-v2 .sh-bars {
+  display: flex; align-items: flex-end;
+  gap: 2px; height: 28px;
+}
+.sh-v2 .sh-bars > i {
+  flex: 1;
+  background: var(--accent);
+  border-radius: 1px;
+  opacity: 0.85;
+  display: block;
+}
+.sh-v2 .sh-bars.err > i { background: var(--sev-critical); }
+
+/* Severity stripe on card edge */
+.sh-v2 .sh-stripe {
+  position: relative;
+}
+.sh-v2 .sh-stripe::before {
+  content: "";
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px;
+}
+.sh-v2 .sh-stripe.critical::before { background: var(--sev-critical); }
+.sh-v2 .sh-stripe.warn::before { background: var(--sev-warning); }
+.sh-v2 .sh-stripe.info::before { background: var(--sev-info); }
+.sh-v2 .sh-stripe.ok::before { background: var(--accent); }
+
+/* ===== SEGMENTED CONTROL ===== */
+.sh-v2 .sh-segmented {
+  display: inline-flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 3px;
+}
+.sh-v2 .sh-segmented button {
+  background: transparent;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 5px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sh-v2 .sh-segmented button[aria-pressed="true"] {
+  background: var(--bg-surface-2);
+  color: var(--fg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ===== INPUTS ===== */
+.sh-v2 .sh-input {
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 11px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  min-height: 34px;
+  width: 100%;
+}
+.sh-v2 .sh-input:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+/* ===== CODE BLOCK ===== */
+.sh-v2 .sh-code {
+  background: oklch(0.13 0.01 250);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  overflow: auto;
+}
+.sh-v2 .sh-code .tok-key { color: oklch(0.78 0.14 230); }
+.sh-v2 .sh-code .tok-str { color: var(--accent); }
+.sh-v2 .sh-code .tok-com { color: var(--fg-faint); }
+.sh-v2 .sh-code .tok-fn { color: oklch(0.80 0.14 295); }
+.sh-v2 .sh-code .tok-num { color: oklch(0.82 0.16 75); }

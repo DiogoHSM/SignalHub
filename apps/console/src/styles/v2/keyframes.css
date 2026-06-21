@@ -1,0 +1,2 @@
+@keyframes sh-ping { 0% { transform: scale(.6); opacity: .6; } 80%, 100% { transform: scale(2.2); opacity: 0; } }
+@keyframes sh-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
