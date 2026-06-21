@@ -1,4 +1,5 @@
 import type { UserDetailResponse, UserSignalType, UserSummary, UserTimelineRow } from "../api/types";
+import { EntityOperationalProfile, TimelineSignalMix } from "./EntityOperationalSummary";
 
 type Props = {
   user?: UserSummary;
@@ -93,6 +94,7 @@ export function UsersUserDetail({
             </label>
           </div>
           {appliedTenantId ? <p className="muted-text">Filtered to tenant {appliedTenantId}</p> : null}
+          <EntityOperationalProfile label="User operational profile" summary={summary} />
           <div className="entity-summary-grid">
             <div>
               <span>Events</span>
@@ -173,6 +175,7 @@ export function UsersUserDetail({
             </table>
           </div>
           <div className="user-timeline" aria-label="User timeline">
+            <TimelineSignalMix label="User timeline signal mix" rows={detail.timeline} />
             {detail.timeline.length === 0 ? <p className="muted-text">No timeline rows match the current filters.</p> : null}
             {detail.timeline.map((row) => (
               <button className="user-timeline-row" key={`${row.type}:${row.id}`} onClick={() => onTimelineDrilldown(row)} type="button">
