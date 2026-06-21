@@ -49,7 +49,7 @@ Implemented capabilities:
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 - Next.js apps can use App Router route/action wrappers and opt-in browser global error capture through the JavaScript SDK.
 - Browser SDK telemetry can post directly to public ingestion endpoints from project-scoped Browser origins configured in Project Settings, with `BROWSER_CORS_ORIGINS` as an optional global allowlist.
-- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`.
+- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, event-based Experiments/A-B instrumentation, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`.
 - Public npm package metadata, package README, and Trusted Publishing release workflow for publishing `@sigmon/sdk`.
 
 ## Out of Scope for Current Phase

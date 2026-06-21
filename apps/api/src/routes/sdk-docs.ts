@@ -324,6 +324,7 @@ const sdkDocsHtml = `<!doctype html>
           <a href="#nextjs">Next.js App Router</a>
           <a href="#browser">Browser capture</a>
           <a href="#identity">Identify and traits</a>
+          <a href="#experiments">Experiments</a>
           <a href="#traces">Traces and spans</a>
           <a href="#llm">LLM calls</a>
           <a href="#delivery">Delivery behavior</a>
@@ -525,6 +526,76 @@ sigmon.identifyTenant("tenant_123", {
 });
 
 await sigmon.flush();</code></pre>
+          </section>
+
+          <section id="experiments">
+            <h2>Experiments and A/B tests</h2>
+            <p>
+              Sigmon experiments are derived from normal event telemetry. The SDK does not assign
+              variants or change feature-flag behavior in your app; your application should choose a
+              stable variant and send exposure and conversion events with consistent properties.
+            </p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Field</th>
+                    <th>Example</th>
+                    <th>Purpose</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>experiment</code></td>
+                    <td><code>checkout_copy</code></td>
+                    <td>Stable experiment key used to group variants.</td>
+                  </tr>
+                  <tr>
+                    <td><code>variant</code></td>
+                    <td><code>short_copy</code></td>
+                    <td>Stable variant key used for conversion and lift rows.</td>
+                  </tr>
+                  <tr>
+                    <td>Exposure event</td>
+                    <td><code>checkout.exposed</code></td>
+                    <td>Marks when a user or tenant saw the variant.</td>
+                  </tr>
+                  <tr>
+                    <td>Conversion event</td>
+                    <td><code>checkout.completed</code></td>
+                    <td>Marks the outcome the experiment is optimizing.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <pre><code>const experiment = "checkout_copy";
+const variant = "short_copy";
+
+sigmon.track("checkout.exposed", {
+  experiment,
+  variant,
+  page: "checkout"
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});
+
+sigmon.track("checkout.completed", {
+  experiment,
+  variant,
+  orderValueCents: 12900
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});
+
+await sigmon.flush();</code></pre>
+            <div class="callout">
+              Open Experiments in the console and map the experiment property, variant property,
+              exposure event, and conversion event. The readout is directional, not a
+              statistical-significance engine, so use it to spot obvious operational changes before
+              drilling into events, users, tenants, traces, errors, or LLM calls.
+            </div>
           </section>
 
           <section id="traces">

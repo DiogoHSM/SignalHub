@@ -471,6 +471,37 @@ const signalMonitor = createSignalMonitorClient({
 });
 ```
 
+#### Experiments and A/B Tests
+
+Sigmon experiments use normal event telemetry. Your app owns variant assignment, then sends exposure and conversion events with stable properties.
+
+```ts
+const experiment = "checkout_copy";
+const variant = "short_copy";
+
+signalMonitor.track("checkout.exposed", {
+  experiment,
+  variant,
+  page: "checkout"
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});
+
+signalMonitor.track("checkout.completed", {
+  experiment,
+  variant,
+  orderValueCents: 12900
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});
+
+await signalMonitor.flush();
+```
+
+In the console, open `Experiments` and map the experiment property, variant property, exposure event, and conversion event to match your naming convention. The readout is directional, not a statistical-significance engine; use it to spot operational changes before drilling into events, users, tenants, traces, errors, or LLM calls.
+
 #### Next.js App Router
 
 Next.js App Router projects can wrap server route handlers with `@sigmon/sdk/next`. Keep the API key in server-only environment variables.
