@@ -1,17 +1,30 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icon";
 
 export function SecretField({ value, masked = true }: { value: string; masked?: boolean }) {
   const [reveal, setReveal] = useState(!masked);
   const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimer.current !== undefined) {
+        window.clearTimeout(resetTimer.current);
+      }
+    };
+  }, []);
+
   const shown = reveal ? value : value.replace(/.(?=.{4})/g, "•");
   async function copy() {
     const writeText = navigator.clipboard?.writeText;
     if (!writeText) return;
     try {
       await writeText.call(navigator.clipboard, value);
+      if (resetTimer.current !== undefined) {
+        window.clearTimeout(resetTimer.current);
+      }
       setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
+      resetTimer.current = window.setTimeout(() => setCopied(false), 1400);
     } catch { /* clipboard denied — leave state unchanged */ }
   }
   return (

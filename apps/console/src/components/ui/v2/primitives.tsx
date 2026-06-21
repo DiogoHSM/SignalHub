@@ -28,7 +28,10 @@ export function SummaryStat({ label, value, delta, tone, mono }: { label: ReactN
       <div className="sh-kpi__label">{label}</div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 2 }}>
         <div style={{ fontSize: 22, fontWeight: 600, fontVariantNumeric: "tabular-nums", fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)" }}>{value}</div>
-        {delta ? <div className={`sh-delta ${tone === "danger" ? "down" : "up"}`} style={{ fontSize: 11.5 }}>{delta}</div> : null}
+        {delta ? <div className={`sh-delta ${
+          // Intentional 1:1 port of the design quirk: a delta with no tone renders as "up" (positive/green).
+          tone === "danger" ? "down" : "up"
+        }`} style={{ fontSize: 11.5 }}>{delta}</div> : null}
       </div>
     </div>
   );

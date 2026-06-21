@@ -1,3 +1,4 @@
+/* Keep one rule per line: the scoping contract test (styles-v2.test.ts) is line-anchored. */
 .sh-v2 { background: var(--bg-base); color: var(--fg); font-family: var(--font-sans); font-feature-settings: "ss01", "ss02", "cv01"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 .sh-v2 * { box-sizing: border-box; }
 .sh-v2 button { font: inherit; color: inherit; cursor: pointer; }
