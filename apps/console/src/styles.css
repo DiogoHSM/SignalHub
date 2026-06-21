@@ -3998,6 +3998,22 @@ textarea:focus-visible {
   line-height: 1.4;
 }
 
+.project-onboarding-checklist__command {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .settings-workspace__body {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);

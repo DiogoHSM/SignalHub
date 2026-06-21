@@ -9,6 +9,7 @@ type Props = {
 
 export function ProjectOnboardingChecklist(_props: Props) {
   const props = _props;
+  const endpoint = props.apiEndpoint ?? "SIGMON_ENDPOINT";
   const steps = [
     {
       label: "Project selected",
@@ -31,6 +32,24 @@ export function ProjectOnboardingChecklist(_props: Props) {
         ? "Use this one-time secret in the app before leaving setup."
         : "Generate a key and copy the one-time secret before integrating the SDK.",
       ready: Boolean(props.latestSecret)
+    },
+    {
+      label: "Install SDK package",
+      description: "Add the official SDK to the app or service that will emit telemetry.",
+      command: "npm install @sigmon/sdk",
+      ready: false
+    },
+    {
+      label: "Initialize SDK snippet",
+      description: "Copy the SDK or Next.js snippet into the app entry point, route handler, or worker bootstrap.",
+      command: `endpoint: "${endpoint}"`,
+      ready: false
+    },
+    {
+      label: "Send first ping",
+      description: "Run the HTTP snippet or trigger the instrumented app, then confirm the connection check receives telemetry.",
+      command: "POST /v1/events",
+      ready: false
     }
   ];
   const readyCount = steps.filter((step) => step.ready).length;
@@ -53,6 +72,7 @@ export function ProjectOnboardingChecklist(_props: Props) {
             <div>
               <strong>{step.label}</strong>
               <p>{step.description}</p>
+              {step.command ? <code className="project-onboarding-checklist__command">{step.command}</code> : null}
             </div>
           </li>
         ))}
