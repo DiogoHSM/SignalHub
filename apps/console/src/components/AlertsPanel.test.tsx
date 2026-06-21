@@ -182,6 +182,101 @@ describe("AlertsPanel", () => {
     expect(api.listAlertEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 20 });
   });
 
+  it("summarizes alert posture, delivery state, and setup suggestions", async () => {
+    const api = client({
+      listAlertRules: vi.fn().mockResolvedValue({
+        rules: [
+          {
+            id: "rule_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            notificationChannelId: "chn_1",
+            name: "Critical errors",
+            type: "critical_errors",
+            severity: "critical",
+            windowMinutes: 10,
+            threshold: "1",
+            cooldownMinutes: 30,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: "2026-05-06T12:00:00.000Z",
+            createdAt: "2026-05-06T11:00:00.000Z",
+            updatedAt: "2026-05-06T11:00:00.000Z",
+            archivedAt: null
+          },
+          {
+            id: "rule_2",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            notificationChannelId: null,
+            name: "Trace p95",
+            type: "trace_p95_latency",
+            severity: "warning",
+            windowMinutes: 15,
+            threshold: "750",
+            cooldownMinutes: 30,
+            enabled: true,
+            lastEvaluatedAt: null,
+            lastTriggeredAt: null,
+            createdAt: "2026-05-06T11:00:00.000Z",
+            updatedAt: "2026-05-06T11:00:00.000Z",
+            archivedAt: null
+          }
+        ]
+      }),
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_1",
+            name: "Ops",
+            type: "webhook",
+            url: "https://hooks.example.com",
+            emailRecipients: [],
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "2026-05-06T11:00:00.000Z",
+            updatedAt: "2026-05-06T11:00:00.000Z",
+            archivedAt: null
+          }
+        ]
+      }),
+      listAlertEvents: vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "evt_1",
+            ruleId: "rule_1",
+            monitorId: null,
+            projectId: "prj_1",
+            environmentId: "env_1",
+            status: "triggered",
+            severity: "critical",
+            triggeredAt: "2026-05-06T12:00:00.000Z",
+            windowStart: "2026-05-06T11:50:00.000Z",
+            windowEnd: "2026-05-06T12:00:00.000Z",
+            observedValue: "2",
+            threshold: "1",
+            message: "Critical errors threshold reached",
+            metadata: {},
+            createdAt: "2026-05-06T12:00:00.000Z",
+            latestDeliveryStatus: "failed"
+          }
+        ]
+      })
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    const posture = await screen.findByRole("region", { name: "Alert posture" });
+    expect(within(posture).getByText("Firing now")).toBeInTheDocument();
+    expect(within(posture).getAllByText("1").length).toBeGreaterThanOrEqual(3);
+    expect(within(posture).getByText("Delivery issues")).toBeInTheDocument();
+    expect(within(posture).getByText("Rules without channels")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Alert history heat strip" })).toBeInTheDocument();
+    expect(screen.getByText("Attach channels to enabled rules")).toBeInTheDocument();
+    expect(screen.getByText("1 enabled rule has no notification channel.")).toBeInTheDocument();
+  });
+
   it("archives an alert rule after confirmation and removes it from the rule list", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const archiveAlertRule = vi.fn().mockResolvedValue(undefined);
