@@ -112,6 +112,7 @@ SignalMonitor includes an admin-only Integration Console.
 - The readout lets operators map experiment, variant, exposure event, and conversion event fields so teams can adapt existing event naming conventions.
 - When multiple experiments are detected in the sample, operators select one experiment before reading variant metrics so unrelated variants are not mixed.
 - Variant rows should show exposures, conversions, conversion rate, and lift against the first sorted variant as a lightweight baseline.
+- Variant interpretation should stay directional: baseline, needs sample, directional lead/lag, or flat. Do not imply statistical significance until the backend supports it.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Operations UX

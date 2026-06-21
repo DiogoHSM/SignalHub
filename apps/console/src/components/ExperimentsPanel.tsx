@@ -25,6 +25,13 @@ type VariantRow = {
   liftPoints: number | null;
 };
 
+type VariantInterpretation = {
+  label: string;
+  tone: "neutral" | "positive" | "negative" | "warning";
+};
+
+const minimumReadableExposures = 30;
+
 const defaultConfig: ExperimentConfig = {
   experimentProperty: "experiment",
   variantProperty: "variant",
@@ -50,6 +57,15 @@ function formatLift(value: number | null): string {
   if (value === null) return "Baseline";
   const sign = value > 0 ? "+" : "";
   return `${sign}${(value * 100).toFixed(1)} pp`;
+}
+
+function interpretVariant(row: VariantRow, index: number): VariantInterpretation {
+  if (index === 0) return { label: "Baseline", tone: "neutral" };
+  if (row.exposures < minimumReadableExposures) return { label: "Needs sample", tone: "warning" };
+  if (row.liftPoints === null || Math.abs(row.liftPoints) < 0.005) return { label: "Flat", tone: "neutral" };
+  return row.liftPoints > 0
+    ? { label: "Directional lead", tone: "positive" }
+    : { label: "Directional lag", tone: "negative" };
 }
 
 function listExperiments(events: EventRecord[], config: ExperimentConfig): string[] {
@@ -275,18 +291,25 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                   <th>Conversions</th>
                   <th>Conversion rate</th>
                   <th>Lift</th>
+                  <th>Interpretation</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.variant}>
-                    <th scope="row">Variant {row.variant}</th>
-                    <td>{row.exposures} exposures</td>
-                    <td>{row.conversions} conversions</td>
-                    <td>{formatPercent(row.conversionRate)}</td>
-                    <td>{formatLift(row.liftPoints)}</td>
-                  </tr>
-                ))}
+                {rows.map((row, index) => {
+                  const interpretation = interpretVariant(row, index);
+                  return (
+                    <tr key={row.variant}>
+                      <th scope="row">Variant {row.variant}</th>
+                      <td>{row.exposures} exposures</td>
+                      <td>{row.conversions} conversions</td>
+                      <td>{formatPercent(row.conversionRate)}</td>
+                      <td>{formatLift(row.liftPoints)}</td>
+                      <td>
+                        <span className={`experiments-interpretation ${interpretation.tone}`}>{interpretation.label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

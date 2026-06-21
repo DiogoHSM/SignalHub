@@ -6443,6 +6443,38 @@ input[type="file"]::file-selector-button {
   border-radius: 0 10px 10px 0;
 }
 
+.experiments-interpretation {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.experiments-interpretation.positive {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-surface-2));
+  color: color-mix(in srgb, var(--accent) 86%, white);
+}
+
+.experiments-interpretation.negative {
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+  background: color-mix(in srgb, var(--danger) 14%, var(--bg-surface-2));
+  color: color-mix(in srgb, var(--danger) 74%, white);
+}
+
+.experiments-interpretation.warning {
+  border-color: color-mix(in srgb, var(--warning) 56%, var(--border));
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg-surface-2));
+  color: color-mix(in srgb, var(--warning) 72%, white);
+}
+
 .experiments-panel__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

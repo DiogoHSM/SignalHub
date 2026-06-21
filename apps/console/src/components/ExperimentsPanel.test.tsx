@@ -32,6 +32,25 @@ function client(overrides: Partial<ApiClient>): ApiClient {
   } as ApiClient;
 }
 
+function variantEvents(experiment: string, variant: string, exposures: number, conversions: number): EventRecord[] {
+  return [
+    ...Array.from({ length: exposures }, (_, index) =>
+      eventRecord({
+        id: `evt_${experiment}_${variant}_exp_${index}`,
+        name: "checkout.exposed",
+        properties: { experiment, variant }
+      })
+    ),
+    ...Array.from({ length: conversions }, (_, index) =>
+      eventRecord({
+        id: `evt_${experiment}_${variant}_conv_${index}`,
+        name: "checkout.completed",
+        properties: { experiment, variant }
+      })
+    )
+  ];
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -69,5 +88,24 @@ describe("ExperimentsPanel", () => {
     expect(within(readout).getByRole("row", { name: /Variant treatment/ })).toHaveTextContent("100.0%");
     expect(within(readout).getByRole("row", { name: /Variant treatment/ })).toHaveTextContent("+50.0 pp");
     expect(within(readout).queryByRole("row", { name: /Variant A/ })).not.toBeInTheDocument();
+  });
+
+  it("labels variant interpretation without overstating small samples", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({
+        data: [
+          ...variantEvents("pricing_copy", "control", 40, 20),
+          ...variantEvents("pricing_copy", "treatment", 40, 30),
+          ...variantEvents("pricing_copy", "tiny", 2, 2)
+        ]
+      })
+    });
+
+    render(<ExperimentsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const readout = await screen.findByRole("region", { name: "A/B test readout" });
+    expect(within(readout).getByRole("row", { name: /Variant control/ })).toHaveTextContent("Baseline");
+    expect(within(readout).getByRole("row", { name: /Variant treatment/ })).toHaveTextContent("Directional lead");
+    expect(within(readout).getByRole("row", { name: /Variant tiny/ })).toHaveTextContent("Needs sample");
   });
 });
