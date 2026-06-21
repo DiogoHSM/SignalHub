@@ -7,6 +7,7 @@ import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
 import { GlobalHomeDashboard, type GlobalProjectSignal, type GlobalProjectStatus } from "./GlobalHomeDashboard";
 import { IncidentView } from "./IncidentView";
 import { AlertsPanel } from "./AlertsPanel";
+import { ExperimentsPanel } from "./ExperimentsPanel";
 import { InvestigationWorkspace, type InvestigationInitialFilters, type InvestigationTab } from "./InvestigationWorkspace";
 import { MonitorsPanel } from "./MonitorsPanel";
 import { OperationsDashboard } from "./OperationsDashboard";
@@ -896,27 +897,12 @@ export function ConsoleShell({
               </div>
               <div hidden={activeMode !== "experiments"}>
                 {activeMode === "experiments" ? (
-                  <section className="panel experiments-panel" aria-labelledby="experiments-title">
-                    <p className="eyebrow">Project Workspace</p>
-                    <h1 id="experiments-title">Experiments</h1>
-                    <p className="muted-text">
-                      Feature flags, A/B tests, prompt variants, and model comparisons will land as a dedicated product slice.
-                    </p>
-                    <div className="experiments-panel__grid">
-                      <article>
-                        <strong>Feature flags</strong>
-                        <span>Rollout controls and operational guardrails.</span>
-                      </article>
-                      <article>
-                        <strong>A/B tests</strong>
-                        <span>Variant performance by conversion, latency, and error impact.</span>
-                      </article>
-                      <article>
-                        <strong>Prompt comparisons</strong>
-                        <span>Cost, success rate, model behavior, and regression checks.</span>
-                      </article>
-                    </div>
-                  </section>
+                  <ExperimentsPanel
+                    client={client}
+                    environmentId={activeEnvironment?.id}
+                    key={`experiments:${refreshToken}`}
+                    projectId={activeProject?.id}
+                  />
                 ) : null}
               </div>
               <div hidden={activeMode !== "alerts"}>
