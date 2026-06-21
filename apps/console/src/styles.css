@@ -6346,6 +6346,30 @@ input[type="file"]::file-selector-button {
   white-space: nowrap;
 }
 
+.experiments-picker {
+  display: grid;
+  gap: 6px;
+  max-width: 420px;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.experiments-picker span {
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.experiments-picker select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  padding: 10px 12px;
+  font: inherit;
+}
+
 .experiments-readout {
   display: grid;
   gap: 14px;
