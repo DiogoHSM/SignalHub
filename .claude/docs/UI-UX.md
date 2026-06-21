@@ -93,12 +93,14 @@ SignalMonitor includes an admin-only Integration Console.
 - Entities uses a tenant-first layout with a default `7d` window, impact-ranked tenant rows, and a selected-tenant detail panel.
 - The Unassigned tenant bucket should be visible for context but disabled for drill-in.
 - Entity details should show compact summary metrics, top users, and a cross-signal timeline from events, errors, traces, and LLM calls.
+- Entity details include an operational profile for impact score, open/severe errors, and failed LLM calls, plus a timeline signal mix so operators can understand the current context before drilling into rows.
 - Entity timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from tenant context to source records.
 - Entities surfaces should remain dark and scannable: sort buttons, selected tenant cards, metric tiles, filters, top-user tables, and timeline rows all inherit the console theme.
 - Keep Users as a peer tab with Events, Errors, Traces, LLM, and Entities inside `Investigate`.
 - Users uses a user-first layout with a default `7d` window, impact-ranked user rows, tenant/search filters, and a selected-user detail panel.
 - The Anonymous / Unassigned user bucket should be visible for context but disabled for drill-in.
 - User details should show compact summary metrics, recent sessions, and a cross-signal timeline from events, errors, traces, and LLM calls.
+- User details mirror tenant detail with the same operational profile and timeline signal mix pattern for fast comparison.
 - User timeline rows should drill into the raw investigation tabs with seeded exact filters so operators can move from user context to source records.
 - Users surfaces should follow the same dark treatment as Entities, including disabled Anonymous rows, selected user cards, metric tiles, filters, sessions, and timeline rows.
 

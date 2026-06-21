@@ -238,6 +238,45 @@ describe("UsersInvestigationPanel", () => {
     });
   });
 
+  it("shows a user operational profile and timeline signal mix", async () => {
+    const ana = user({
+      label: "Ana Souza",
+      impactScore: 37,
+      openErrors: 4,
+      severeErrors: 2,
+      failedLlmCalls: 3
+    });
+    const api = client({
+      listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [ana] } }),
+      getUserDetail: vi.fn().mockResolvedValue({
+        data: detail({
+          user: ana,
+          timeline: [eventRow(), errorRow(), traceRow(), llmRow()]
+        })
+      })
+    });
+
+    render(<UsersInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /Ana Souza/ }));
+
+    const profile = await screen.findByLabelText("User operational profile");
+    expect(within(profile).getByText("Impact score")).toBeInTheDocument();
+    expect(within(profile).getByText("37")).toBeInTheDocument();
+    expect(within(profile).getByText("Open errors")).toBeInTheDocument();
+    expect(within(profile).getByText("4")).toBeInTheDocument();
+    expect(within(profile).getByText("Severe errors")).toBeInTheDocument();
+    expect(within(profile).getByText("2")).toBeInTheDocument();
+    expect(within(profile).getByText("Failed LLM calls")).toBeInTheDocument();
+    expect(within(profile).getByText("3")).toBeInTheDocument();
+
+    const timelineMix = screen.getByLabelText("User timeline signal mix");
+    expect(within(timelineMix).getByText("Events 1")).toBeInTheDocument();
+    expect(within(timelineMix).getByText("Errors 1")).toBeInTheDocument();
+    expect(within(timelineMix).getByText("Traces 1")).toBeInTheDocument();
+    expect(within(timelineMix).getByText("LLM 1")).toBeInTheDocument();
+  });
+
   it("applies search and tenant list filters only after Apply", async () => {
     const listUsersActivity = vi.fn().mockResolvedValue({ data: { users: [] } });
     const api = client({ listUsersActivity });

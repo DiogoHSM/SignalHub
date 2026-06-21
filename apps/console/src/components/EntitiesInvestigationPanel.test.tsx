@@ -278,6 +278,45 @@ describe("EntitiesInvestigationPanel", () => {
     });
   });
 
+  it("shows a tenant operational profile and timeline signal mix", async () => {
+    const microErp = tenant({
+      label: "MicroERP",
+      impactScore: 42,
+      openErrors: 3,
+      severeErrors: 1,
+      failedLlmCalls: 2
+    });
+    const api = client({
+      listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [microErp] } }),
+      getEntityTenantDetail: vi.fn().mockResolvedValue({
+        data: detail({
+          tenant: microErp,
+          timeline: [timelineRow(), errorTimelineRow(), traceTimelineRow(), llmTimelineRow()]
+        })
+      })
+    });
+
+    render(<EntitiesInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /MicroERP/ }));
+
+    const profile = await screen.findByLabelText("Tenant operational profile");
+    expect(within(profile).getByText("Impact score")).toBeInTheDocument();
+    expect(within(profile).getByText("42")).toBeInTheDocument();
+    expect(within(profile).getByText("Open errors")).toBeInTheDocument();
+    expect(within(profile).getByText("3")).toBeInTheDocument();
+    expect(within(profile).getByText("Severe errors")).toBeInTheDocument();
+    expect(within(profile).getByText("1")).toBeInTheDocument();
+    expect(within(profile).getByText("Failed LLM calls")).toBeInTheDocument();
+    expect(within(profile).getByText("2")).toBeInTheDocument();
+
+    const timelineMix = screen.getByLabelText("Tenant timeline signal mix");
+    expect(within(timelineMix).getByText("Events 1")).toBeInTheDocument();
+    expect(within(timelineMix).getByText("Errors 1")).toBeInTheDocument();
+    expect(within(timelineMix).getByText("Traces 1")).toBeInTheDocument();
+    expect(within(timelineMix).getByText("LLM 1")).toBeInTheDocument();
+  });
+
   it("loads more timeline rows with the returned cursor", async () => {
     const getEntityTenantDetail = vi
       .fn()
