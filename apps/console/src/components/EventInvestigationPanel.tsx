@@ -67,6 +67,70 @@ function filtersWithDefaults(initialFilters?: Partial<EventFilterValues>): Event
   return { ...defaultFilters, ...initialFilters };
 }
 
+function countKnown(values: Array<string | null>): number {
+  return new Set(values.filter((value): value is string => Boolean(value))).size;
+}
+
+function topEvents(events: EventRecord[]): Array<{ name: string; count: number; percent: number }> {
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    counts.set(event.name, (counts.get(event.name) ?? 0) + 1);
+  }
+
+  return Array.from(counts, ([name, count]) => ({
+    name,
+    count,
+    percent: events.length === 0 ? 0 : Math.round((count / events.length) * 100)
+  }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
+    .slice(0, 5);
+}
+
+function EventAnalyticsSummary({ events }: { events: EventRecord[] }) {
+  const names = countKnown(events.map((event) => event.name));
+  const tenants = countKnown(events.map((event) => event.tenantId));
+  const users = countKnown(events.map((event) => event.userId));
+  const top = topEvents(events);
+
+  return (
+    <div className="event-analytics">
+      <section aria-label="Event analytics summary" className="event-analytics__summary">
+        <div aria-label="Total events">
+          <span>Total events</span>
+          <strong>{events.length}</strong>
+        </div>
+        <div aria-label="Unique event names">
+          <span>Event names</span>
+          <strong>{names}</strong>
+        </div>
+        <div aria-label="Tenants observed">
+          <span>Tenants</span>
+          <strong>{tenants}</strong>
+        </div>
+        <div aria-label="Known users">
+          <span>Known users</span>
+          <strong>{users}</strong>
+        </div>
+      </section>
+      <section aria-label="Top event names" className="event-analytics__top">
+        <div className="event-analytics__top-header">
+          <h3>Top event names</h3>
+          <span>{top.length} tracked</span>
+        </div>
+        <div className="event-analytics__top-list">
+          {top.map((item) => (
+            <div key={item.name}>
+              <span>{item.name}</span>
+              <strong>{item.count} {item.count === 1 ? "event" : "events"}</strong>
+              <small>{item.percent}% of current results</small>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function EventInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
@@ -146,7 +210,12 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
           </div>
         ) : null}
         {state === "empty" ? <p className="muted-text">No events found</p> : null}
-        {state === "ready" ? <EventList events={events} onSelect={setSelectedEvent} selectedEventId={selectedEvent?.id} /> : null}
+        {state === "ready" ? (
+          <>
+            <EventAnalyticsSummary events={events} />
+            <EventList events={events} onSelect={setSelectedEvent} selectedEventId={selectedEvent?.id} />
+          </>
+        ) : null}
       </div>
       <EventDetailDrawer event={selectedEvent} />
     </section>
