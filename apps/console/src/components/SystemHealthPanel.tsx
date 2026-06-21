@@ -52,6 +52,12 @@ type ReadinessItem = {
   tone: ReadinessTone;
 };
 
+type AttentionItem = {
+  key: string;
+  label: string;
+  detail: string;
+};
+
 function statusClass(status: ServiceStatus): string {
   return `status-pill status-pill--${status}`;
 }
@@ -143,6 +149,52 @@ function buildReadinessItems(health: SystemHealthResponse): ReadinessItem[] {
   ];
 }
 
+function buildAttentionItems(health: SystemHealthResponse): AttentionItem[] {
+  const items: AttentionItem[] = [];
+
+  if (health.queues.telemetry.status !== "healthy") {
+    items.push({
+      key: "queue",
+      label: "Queue telemetry unhealthy",
+      detail: health.queues.telemetry.errorMessage ?? "Queue counts are unavailable."
+    });
+  }
+
+  if (!health.retention.enabled) {
+    items.push({
+      key: "retention-disabled",
+      label: "Retention disabled",
+      detail: "Old telemetry will not be pruned until retention is enabled."
+    });
+  }
+
+  if (health.retention.lastRun?.status === "failed") {
+    items.push({
+      key: "retention-failed",
+      label: "Last retention run failed",
+      detail: health.retention.lastRun.errorMessage ?? "Review worker logs for the retention job failure."
+    });
+  }
+
+  if (health.backups.enabled && health.backups.stale) {
+    items.push({
+      key: "backups-stale",
+      label: "Backups stale",
+      detail: "No fresh successful backup has been recorded inside the expected interval."
+    });
+  }
+
+  if (health.backups.latestFailure) {
+    items.push({
+      key: "backup-failed",
+      label: "Latest backup failed",
+      detail: health.backups.latestFailure.errorMessage ?? "Review worker logs for the backup failure."
+    });
+  }
+
+  return items;
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -171,6 +223,28 @@ function ServiceCard({
       </div>
       <dl>{children}</dl>
     </article>
+  );
+}
+
+function SystemAttentionBanner({ items }: { items: AttentionItem[] }) {
+  if (items.length === 0) return null;
+
+  return (
+    <section aria-label="System needs attention" className="system-attention-banner" role="alert">
+      <div>
+        <span className="section-label">Installation warning</span>
+        <strong>System needs attention</strong>
+        <p>These checks are read-only. Use server logs, EasyPanel, or the doctor CLI to repair the underlying service.</p>
+      </div>
+      <ul>
+        {items.map((item) => (
+          <li key={item.key}>
+            <strong>{item.label}</strong>
+            <span>{item.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -232,6 +306,8 @@ export function SystemHealthPanel({ client }: Props) {
 
       {state === "ready" && health ? (
         <>
+          <SystemAttentionBanner items={buildAttentionItems(health)} />
+
           <section aria-label="Installation readiness" className="system-readiness">
             {buildReadinessItems(health).map((item) => (
               <article className={`system-readiness__item system-readiness__item--${item.tone}`} key={item.key}>

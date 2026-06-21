@@ -265,6 +265,64 @@ describe("SystemHealthPanel", () => {
     expect(screen.queryByText(/password|secret|token/i)).not.toBeInTheDocument();
   });
 
+  it("summarizes degraded queues retention and backups in a warning banner", async () => {
+    const api = client(
+      vi.fn().mockResolvedValue({
+        data: healthyResponse({
+          status: "degraded",
+          queues: {
+            telemetry: {
+              status: "unhealthy",
+              errorMessage: "Queue counts unavailable",
+              waiting: 0,
+              active: 0,
+              completed: 0,
+              failed: 0,
+              delayed: 0
+            }
+          },
+          retention: {
+            ...healthyResponse().retention,
+            enabled: false,
+            lastRun: {
+              ...healthyResponse().retention.lastRun!,
+              status: "failed",
+              errorMessage: "Retention job failed"
+            }
+          },
+          backups: {
+            ...healthyResponse().backups,
+            stale: true,
+            latestFailure: {
+              id: "bkp_failure",
+              status: "failed",
+              trigger: "scheduled",
+              startedAt: "2026-05-06T11:00:00.000Z",
+              finishedAt: null,
+              filename: "sigmon-20260506T110000Z.dump",
+              sizeBytes: null,
+              s3Bucket: null,
+              s3Key: null,
+              errorMessage: "Backup upload failed"
+            }
+          }
+        })
+      })
+    );
+
+    render(<SystemHealthPanel client={api} />);
+
+    const banner = await screen.findByRole("alert", { name: "System needs attention" });
+
+    expect(within(banner).getByText("System needs attention")).toBeInTheDocument();
+    expect(within(banner).getByText("Queue telemetry unhealthy")).toBeInTheDocument();
+    expect(within(banner).getByText("Retention disabled")).toBeInTheDocument();
+    expect(within(banner).getByText("Last retention run failed")).toBeInTheDocument();
+    expect(within(banner).getByText("Backups stale")).toBeInTheDocument();
+    expect(within(banner).getByText("Latest backup failed")).toBeInTheDocument();
+    expect(screen.queryByText(/var\/lib\/sigmon|password|secret|token/i)).not.toBeInTheDocument();
+  });
+
   it("renders disabled source-map retention policy clearly", async () => {
     const health = healthyResponse();
     health.retention.policy.sourceMapsEnabled = false;
@@ -430,7 +488,8 @@ describe("SystemHealthPanel", () => {
 
     render(<SystemHealthPanel client={api} />);
 
-    expect(await screen.findByText("Queue counts unavailable")).toBeInTheDocument();
+    await screen.findByText("Queue telemetry unhealthy");
+    expect(screen.getAllByText("Queue counts unavailable").length).toBeGreaterThanOrEqual(1);
     const queuesCard = screen.getByRole("heading", { name: "Queues" }).closest("article");
     expect(queuesCard).not.toBeNull();
     expect(within(queuesCard as HTMLElement).getByText("unhealthy")).toBeInTheDocument();

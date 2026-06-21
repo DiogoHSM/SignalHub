@@ -5494,6 +5494,60 @@ input[type="file"]::file-selector-button {
   line-height: 1.35;
 }
 
+.system-attention-banner {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.55fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--warning) 14%, transparent), transparent 48%),
+    var(--bg-surface);
+  padding: 16px;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--warning) 72%, var(--critical));
+}
+
+.system-attention-banner strong {
+  color: var(--fg);
+}
+
+.system-attention-banner > div > strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+.system-attention-banner p {
+  margin: 6px 0 0;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
+
+.system-attention-banner ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.system-attention-banner li {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 10px 12px;
+}
+
+.system-attention-banner li span {
+  color: var(--fg-muted);
+  line-height: 1.35;
+}
+
 .system-card {
   border-radius: 12px;
   background:
@@ -5729,8 +5783,13 @@ input[type="file"]::file-selector-button {
   .experiments-panel__grid,
   .investigation-layout,
   .system-readiness,
+  .system-attention-banner,
   .system-grid,
   .system-grid[aria-label="System operations"] {
+    grid-template-columns: 1fr;
+  }
+
+  .system-attention-banner li {
     grid-template-columns: 1fr;
   }
 

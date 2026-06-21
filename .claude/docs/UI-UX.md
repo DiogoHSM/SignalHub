@@ -54,6 +54,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep `System Health` inside Sigmon Admin as a quiet global operational mode for Sigmon service health, queue worker and scheduler liveness, deploy config readiness, queue depth, ingestion freshness, retention status, and backup status.
 - Browser origin panels should show the currently configured global `BROWSER_CORS_ORIGINS` values so operators can validate browser SDK readiness without checking server env vars.
 - System Health shows source-map retention policy and deleted counts inside the existing Retention card.
+- System Health surfaces a read-only "System needs attention" banner for degraded queue probes, disabled/failed retention, and stale or failed backups; the banner points operators back to logs, EasyPanel, and the doctor CLI rather than exposing secrets or local paths.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.
