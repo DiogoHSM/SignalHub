@@ -11,7 +11,7 @@ export function EmptyHint({
   title: ReactNode;
   sub?: ReactNode;
   cta?: ReactNode;
-}): JSX.Element {
+}) {
   return (
     <div style={{ display: "grid", placeItems: "center", textAlign: "center", padding: "48px 24px", gap: 10 }}>
       <span style={{ width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", background: "var(--bg-surface-2)", color: "var(--fg-muted)" }}>
