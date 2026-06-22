@@ -198,19 +198,19 @@ export function TopBar({
       <Breadcrumb items={crumb} />
       <div className="tb-search" onClick={onOpenSearch} style={{ cursor: "pointer" }}>
         <Icon name="search" size={14} />
-        <span>Buscar evento, erro, tenant, trace…</span>
+        <span>Search events, errors, tenants, traces…</span>
         <kbd>⌘K</kbd>
       </div>
       <div className="tb-actions">
-        <button className="tb-icon" title="Atualizar agora" onClick={onRefresh}>
+        <button className="tb-icon" title="Refresh now" onClick={onRefresh}>
           <Icon name="refresh" size={15} />
         </button>
-        <button className="tb-icon" title="Notificações">
+        <button className="tb-icon" title="Notifications">
           <Icon name="bell" size={15} />
           <span className="tb-icon__dot" />
         </button>
         {railCollapsed ? (
-          <button className="tb-icon" title="Mostrar radar de projetos" onClick={onToggleRail}>
+          <button className="tb-icon" title="Show project radar" onClick={onToggleRail}>
             <Icon name="panelExpand" size={15} />
           </button>
         ) : null}

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "./icon";
 
-export function ConfirmButton({ label, confirmLabel = "Confirmar?", icon = "check", kind = "primary", onConfirm }:
+export function ConfirmButton({ label, confirmLabel = "Confirm?", icon = "check", kind = "primary", onConfirm }:
   { label: ReactNode; confirmLabel?: ReactNode; icon?: IconName; kind?: string; onConfirm: () => void }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {

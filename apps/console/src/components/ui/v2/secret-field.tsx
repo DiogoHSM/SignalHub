@@ -32,11 +32,11 @@ export function SecretField({ value, masked = true }: { value: string; masked?: 
       <div className="sh-code" style={{ flex: 1, padding: "9px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", minWidth: 0 }}>
         <span className="tok-str" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shown}</span>
       </div>
-      <button className="sh-btn" onClick={() => setReveal((r) => !r)} title={reveal ? "Ocultar" : "Revelar"} type="button">
+      <button className="sh-btn" onClick={() => setReveal((r) => !r)} title={reveal ? "Hide" : "Reveal"} type="button">
         <Icon name={reveal ? "eyeoff" : "eye"} size={13} />
       </button>
       <button className="sh-btn" onClick={() => void copy()} type="button">
-        <Icon name={copied ? "check" : "copy"} size={13} />{copied ? "Copiado" : "Copy"}
+        <Icon name={copied ? "check" : "copy"} size={13} />{copied ? "Copied" : "Copy"}
       </button>
     </div>
   );

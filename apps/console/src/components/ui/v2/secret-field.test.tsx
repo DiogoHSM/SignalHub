@@ -13,7 +13,7 @@ describe("SecretField", () => {
 
   it("reveals the value when the eye is toggled", async () => {
     render(<SecretField value="sh_live_abcd1234" />);
-    await userEvent.click(screen.getByTitle("Revelar"));
+    await userEvent.click(screen.getByTitle("Reveal"));
     expect(screen.getByText("sh_live_abcd1234")).toBeInTheDocument();
   });
 
@@ -23,6 +23,6 @@ describe("SecretField", () => {
     render(<SecretField value="sh_live_abcd1234" />);
     await userEvent.click(screen.getByRole("button", { name: /Copy/ }));
     expect(writeText).toHaveBeenCalledWith("sh_live_abcd1234");
-    expect(await screen.findByText("Copiado")).toBeInTheDocument();
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
   });
 });

@@ -34,7 +34,7 @@ describe("ToastStack", () => {
     const user = userEvent.setup();
     const { container } = render(<ToastStack toasts={toasts} onDismiss={onDismiss} />);
 
-    const dismissButtons = container.querySelectorAll('[aria-label="Dispensar"]');
+    const dismissButtons = container.querySelectorAll('[aria-label="Dismiss"]');
     const dismissButton = dismissButtons[dismissButtons.length - 1]; // Get last one rendered
     await user.click(dismissButton);
 

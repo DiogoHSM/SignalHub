@@ -11,7 +11,7 @@ export function ToastView({ toast, onDismiss }: { toast: Toast; onDismiss: (id: 
         <div className="toast__title">{toast.title}</div>
         {toast.sub ? <div className="toast__sub">{toast.sub}</div> : null}
       </div>
-      <button className="toast__x" onClick={() => onDismiss(toast.id)} aria-label="Dispensar" type="button">
+      <button className="toast__x" onClick={() => onDismiss(toast.id)} aria-label="Dismiss" type="button">
         <Icon name="x" size={13} />
       </button>
     </div>
