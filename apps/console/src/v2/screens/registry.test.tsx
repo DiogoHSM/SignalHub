@@ -1,16 +1,103 @@
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { renderSection, SCREENS } from "./registry";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ApiClient } from "../../api/client";
+import type { Environment, Project } from "../../api/types";
+import { renderSection, SCREENS, type ScreenCtx } from "./registry";
 
 afterEach(cleanup);
+
+// Minimal ApiClient stub — only the methods registry.tsx components call are needed
+function makeClient(): ApiClient {
+  return {
+    getConsoleConfig: vi.fn(),
+    getMe: vi.fn(),
+    login: vi.fn(),
+    listProjects: vi.fn().mockResolvedValue({ projects: [] }),
+    createProject: vi.fn(),
+    updateProject: vi.fn(),
+    archiveProject: vi.fn(),
+    listEnvironments: vi.fn().mockResolvedValue({ environments: [] }),
+    createEnvironment: vi.fn(),
+    updateEnvironment: vi.fn(),
+    archiveEnvironment: vi.fn(),
+    listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [] }),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
+    listBrowserOrigins: vi.fn().mockResolvedValue({ origins: [] }),
+    createBrowserOrigin: vi.fn(),
+    archiveBrowserOrigin: vi.fn(),
+    getOverview: vi.fn(),
+    getOperations: vi.fn(),
+    listEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
+    getEvent: vi.fn(),
+    listErrorGroups: vi.fn().mockResolvedValue({ groups: [], total: 0 }),
+    getErrorGroup: vi.fn(),
+    listErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
+    listTraces: vi.fn().mockResolvedValue({ traces: [], total: 0 }),
+    getTrace: vi.fn(),
+    listLlmCalls: vi.fn().mockResolvedValue({ calls: [], total: 0 }),
+    listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
+    createAlertRule: vi.fn(),
+    updateAlertRule: vi.fn(),
+    deleteAlertRule: vi.fn(),
+    listAlertEvents: vi.fn().mockResolvedValue({ events: [] }),
+    listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
+    createNotificationChannel: vi.fn(),
+    deleteNotificationChannel: vi.fn(),
+    fetchFleet: vi.fn().mockResolvedValue({ projects: [] }),
+  } as unknown as ApiClient;
+}
+
+const project: Project = {
+  id: "prj_1",
+  name: "Demo",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null,
+};
+
+const environment: Environment = {
+  id: "env_1",
+  projectId: "prj_1",
+  name: "production",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null,
+};
+
+function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
+  return {
+    client: makeClient(),
+    project,
+    environment,
+    environments: [environment],
+    onCreateEnvironment: vi.fn().mockResolvedValue(undefined),
+    onArchiveEnvironment: vi.fn().mockResolvedValue(undefined),
+    onArchiveProject: vi.fn().mockResolvedValue(undefined),
+    onSecretCreated: vi.fn(),
+    onSelectEnvironment: vi.fn(),
+    onUpdateProject: vi.fn().mockResolvedValue(undefined),
+    onUpdateEnvironment: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
 
 describe("screen registry", () => {
   it("has an entry for every nav section", () => {
     for (const s of ["overview","investigate","incidents","llm","traces","alerts","system","settings"] as const)
       expect(SCREENS[s]).toBeDefined();
   });
+
   it("wraps legacy entries in the legacy island", () => {
-    const { container } = render(<>{renderSection("overview", {} as any)}</>);
+    const { container } = render(<>{renderSection("overview", makeCtx())}</>);
     expect(container.querySelector(".console-legacy-island")).not.toBeNull();
+  });
+
+  it("settings section renders ProjectSettingsWorkspace inside the legacy island", () => {
+    const { container } = render(<>{renderSection("settings", makeCtx())}</>);
+    // LegacyIsland wrapper
+    expect(container.querySelector(".console-legacy-island")).not.toBeNull();
+    // ProjectSettingsWorkspace renders a SettingsSectionNav with aria-label="Project settings sections"
+    expect(container.querySelector("[aria-label='Project settings sections']")).not.toBeNull();
   });
 });

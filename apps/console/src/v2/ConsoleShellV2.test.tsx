@@ -111,17 +111,19 @@ describe("ConsoleShellV2", () => {
     const user = userEvent.setup();
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    // Default section should be overview — stub renders data-stub="Overview"
-    expect(document.querySelector("[data-stub='Overview']")).toBeInTheDocument();
-
-    // Click the Incidents nav item
-    const incidentsBtn = screen.getByTitle("Incidents");
-    await user.click(incidentsBtn);
-
+    // Default section is overview — OverviewDashboard renders inside .console-legacy-island
     await waitFor(() => {
-      expect(document.querySelector("[data-stub='Incidents']")).toBeInTheDocument();
+      expect(document.querySelector(".console-legacy-island")).toBeInTheDocument();
     });
-    expect(document.querySelector("[data-stub='Overview']")).not.toBeInTheDocument();
+
+    // Click the Settings nav item
+    const settingsBtn = screen.getByTitle("Settings");
+    await user.click(settingsBtn);
+
+    // After navigation, ProjectSettingsWorkspace renders a SettingsSectionNav
+    await waitFor(() => {
+      expect(document.querySelector("[aria-label='Project settings sections']")).toBeInTheDocument();
+    });
   });
 
   it("persists nav to localStorage on section change", async () => {
@@ -137,11 +139,13 @@ describe("ConsoleShellV2", () => {
   });
 
   it("restores nav from localStorage on mount", async () => {
-    localStorage.setItem("sh_v2_state", JSON.stringify({ nav: "traces" }));
+    localStorage.setItem("sh_v2_state", JSON.stringify({ nav: "settings" }));
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    // Should show the Traces stub immediately
-    expect(document.querySelector("[data-stub='Traces']")).toBeInTheDocument();
+    // Should restore to settings — ProjectSettingsWorkspace renders a SettingsSectionNav immediately
+    await waitFor(() => {
+      expect(document.querySelector("[aria-label='Project settings sections']")).toBeInTheDocument();
+    });
   });
 
   it("toggling the rail updates data-rail and persists railCollapsed", async () => {

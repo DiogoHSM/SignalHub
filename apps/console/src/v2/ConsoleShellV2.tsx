@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Command } from "lucide-react";
 import type { ApiClient } from "../api/client";
-import type { User } from "../api/types";
+import type { Environment, User } from "../api/types";
 import { NavRail } from "./shell/NavRail";
 import { TopBar } from "./shell/TopBar";
 import { HealthRail } from "./shell/HealthRail";
@@ -10,6 +10,7 @@ import { useConsoleProjects } from "./useConsoleProjects";
 import { useToasts } from "./useToasts";
 import { useFleet } from "./useFleet";
 import { renderSection } from "./screens/registry";
+import type { ScreenCtx } from "./screens/registry";
 import type { NavSection } from "./nav";
 import type { BreadcrumbItem } from "./shell/TopBar";
 
@@ -206,8 +207,68 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   // ─── fleet critical count (for nav badge) ────────────────────────────────
   const fleetCritical = fleet.rollup.counts.critical;
 
-  // ─── render section context (Task 10 will expand this) ───────────────────
-  const screenCtx = {};
+  // ─── screen context callbacks ─────────────────────────────────────────────
+
+  const handleCreateEnvironment = useCallback(
+    async (name: string) => {
+      if (!activeProject) return;
+      const { environment: created } = await client.createEnvironment(activeProject.id, { name });
+      selectEnvironment(created.name);
+    },
+    [client, activeProject, selectEnvironment]
+  );
+
+  const handleArchiveEnvironment = useCallback(
+    async (env: Environment) => {
+      await client.archiveEnvironment(env.id);
+    },
+    [client]
+  );
+
+  const handleArchiveProject = useCallback(
+    async (projectId: string) => {
+      await client.archiveProject(projectId);
+    },
+    [client]
+  );
+
+  const handleSecretCreated = useCallback(() => undefined, []);
+
+  const handleSelectEnvironmentObj = useCallback(
+    (env: Environment) => {
+      selectEnvironment(env.name);
+    },
+    [selectEnvironment]
+  );
+
+  const handleUpdateProject = useCallback(
+    async (projectId: string, input: { name?: string }) => {
+      await client.updateProject(projectId, input);
+    },
+    [client]
+  );
+
+  const handleUpdateEnvironment = useCallback(
+    async (env: Environment, name: string) => {
+      await client.updateEnvironment(env.id, { name });
+    },
+    [client]
+  );
+
+  // ─── render section context ───────────────────────────────────────────────
+  const screenCtx: ScreenCtx = {
+    client,
+    project: activeProject,
+    environment: activeEnvironment,
+    environments,
+    onCreateEnvironment: handleCreateEnvironment,
+    onArchiveEnvironment: handleArchiveEnvironment,
+    onArchiveProject: handleArchiveProject,
+    onSecretCreated: handleSecretCreated,
+    onSelectEnvironment: handleSelectEnvironmentObj,
+    onUpdateProject: handleUpdateProject,
+    onUpdateEnvironment: handleUpdateEnvironment,
+  };
 
   // ─── command palette commands ─────────────────────────────────────────────
   const commandDestinations: Array<{ section: NavSection; title: string; description: string }> = [
