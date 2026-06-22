@@ -84,6 +84,7 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
     navigate: vi.fn() as (section: NavSection) => void,
     back: vi.fn(),
     drill: vi.fn(),
+    pushToast: vi.fn(),
     ...overrides,
   };
 }

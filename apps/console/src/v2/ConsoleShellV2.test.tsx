@@ -404,5 +404,76 @@ describe("ConsoleShellV2", () => {
       });
       expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
     });
+
+    it("switching project while detail is open clears the detail view", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      // Wait for project to load
+      await waitFor(() => {
+        expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument();
+      });
+
+      // Navigate to Investigate and drill into incident
+      await user.click(screen.getByTitle("Investigate"));
+      await waitFor(() => {
+        const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(rows.length).toBeGreaterThan(0);
+      });
+      const drillRows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+      await user.click(drillRows[0]);
+
+      // Verify IncidentScreen is mounted
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+      });
+
+      // Switch project via TopBar project switcher
+      const pills = document.querySelectorAll(".sw-pill");
+      await user.click(pills[0]);
+      const opts = document.querySelectorAll(".sw-opt");
+      const stagingOpt = Array.from(opts).find((o) => o.textContent?.includes("Acme Staging"));
+      await user.click(stagingOpt as HTMLElement);
+
+      // Detail should be cleared — no IncidentScreen back button
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+      });
+    });
+
+    it("clicking Create issue button in IncidentScreen shows a toast in the ToastStack", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      // Wait for project to load
+      await waitFor(() => {
+        expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument();
+      });
+
+      // Navigate to Investigate and drill into incident
+      await user.click(screen.getByTitle("Investigate"));
+      await waitFor(() => {
+        const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(rows.length).toBeGreaterThan(0);
+      });
+      const drillRows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+      await user.click(drillRows[0]);
+
+      // Verify IncidentScreen is mounted
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+      });
+
+      // Click Create issue — this calls ctx.pushToast which should put a toast in the stack
+      await user.click(screen.getByRole("button", { name: /create issue/i }));
+
+      // Toast should appear in the DOM via ToastStack
+      await waitFor(() => {
+        expect(document.querySelector(".toast__title")).toBeInTheDocument();
+        expect(document.querySelector(".toast__title")?.textContent).toMatch(/github issue creation is not available yet/i);
+      });
+    });
   });
 });

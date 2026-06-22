@@ -73,6 +73,7 @@ function makeMockCtx(): ScreenCtx {
     navigate: vi.fn(),
     back: vi.fn(),
     drill: vi.fn(),
+    pushToast: vi.fn(),
   };
 }
 

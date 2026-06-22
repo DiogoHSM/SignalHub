@@ -90,7 +90,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   // ─── hooks ────────────────────────────────────────────────────────────────
 
-  const { toasts, dismiss } = useToasts();
+  const { toasts, toast, dismiss } = useToasts();
 
   const {
     projects,
@@ -164,6 +164,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   const handleSelectProject = useCallback(
     (id: string) => {
+      setDetail(null);
       selectProject(id);
       saveState({ projectId: id });
     },
@@ -172,6 +173,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   const handleSelectEnv = useCallback(
     (name: string) => {
+      setDetail(null);
       selectEnvironment(name);
       saveState({ env: name });
     },
@@ -279,6 +281,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     navigate,
     drill: handleDrill,
     back: handleBack,
+    pushToast: (message: string) => toast({ title: message }),
   };
 
   // ─── command palette commands ─────────────────────────────────────────────

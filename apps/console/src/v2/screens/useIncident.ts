@@ -224,7 +224,7 @@ function buildVM(incident: ErrorGroupIncident): IncidentVM {
     groupId: group.id,
     release: group.latestRelease,
     incidentNumber: incident.incidentNumber,
-    openedRelative: relativeTime(primaryOccurrence.timestamp),
+    openedRelative: relativeTime(group.firstSeenAt),
     assigneeEmail: incident.assignedTo?.email ?? null,
     title: group.message,
     origin: group.type ?? group.topStackFrame ?? "",

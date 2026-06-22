@@ -173,6 +173,30 @@ describe("IncidentScreen", () => {
       expect(screen.getByText(/critical/i)).toBeInTheDocument();
     });
 
+    it("warning incident severity tag has 'warn' class, not 'critical'", () => {
+      // Use null priority to avoid PriorityPill(P1) which also renders sh-tag critical
+      mockUseIncident({ ...MOCK_VM, severity: "warning", severityColor: "var(--sev-warning)", priority: null });
+      const { container } = render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      // Find the severity tag by its text content (contains the severity value)
+      const allTags = Array.from(container.querySelectorAll(".sh-tag"));
+      const sevTag = allTags.find((el) => el.textContent?.includes("warning"));
+      expect(sevTag).toBeTruthy();
+      expect(sevTag!.classList.contains("warn")).toBe(true);
+      expect(sevTag!.classList.contains("critical")).toBe(false);
+    });
+
+    it("error incident severity tag has 'error' class, not 'critical'", () => {
+      // Use null priority to avoid PriorityPill(P1) rendering sh-tag critical
+      mockUseIncident({ ...MOCK_VM, severity: "error", severityColor: "var(--sev-error)", priority: null });
+      const { container } = render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      // Find the severity tag by its text content
+      const allTags = Array.from(container.querySelectorAll(".sh-tag"));
+      const sevTag = allTags.find((el) => el.textContent?.includes("error"));
+      expect(sevTag).toBeTruthy();
+      expect(sevTag!.classList.contains("error")).toBe(true);
+      expect(sevTag!.classList.contains("critical")).toBe(false);
+    });
+
     it("renders group ID tag", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);

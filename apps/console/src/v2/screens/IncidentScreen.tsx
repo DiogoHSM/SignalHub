@@ -191,8 +191,8 @@ export function IncidentScreen({
           }}
         >
           <span
-            className="sh-tag critical"
-            style={{ fontSize: 11, textTransform: "uppercase" }}
+            className={`sh-tag ${vm.severity === "warning" ? "warn" : vm.severity === "error" ? "error" : "critical"}`}
+            style={{ fontSize: 11, textTransform: "uppercase", color: vm.severityColor }}
           >
             ● {vm.severity}
           </span>
@@ -351,7 +351,7 @@ export function IncidentScreen({
         <button
           className="sh-btn"
           onClick={() =>
-            ctx.pushToast?.(
+            ctx.pushToast(
               "GitHub issue creation is not available yet"
             )
           }
@@ -367,10 +367,10 @@ export function IncidentScreen({
             void navigator.clipboard
               ?.writeText(window.location.href)
               .then(() => {
-                ctx.pushToast?.({ title: "Link copied", icon: "link" });
+                ctx.pushToast("Link copied");
               })
               .catch(() => {
-                ctx.pushToast?.("Couldn't copy link");
+                ctx.pushToast("Couldn't copy link");
               });
           }}
         >

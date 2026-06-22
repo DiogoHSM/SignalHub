@@ -34,8 +34,8 @@ export type ScreenCtx = {
   back: () => void;
   /** Drill into a nested screen. */
   drill: (target: DrillTarget, params: DrillParams) => void;
-  /** Push a transient toast notification. Accepts a string message or a structured Toast payload. */
-  pushToast?: (payload: string | { title: string; sub?: string; icon?: string; tone?: string }) => void;
+  /** Push a transient toast notification. */
+  pushToast: (message: string) => void;
 };
 
 // ─── Screen entries ───────────────────────────────────────────────────────────

@@ -354,7 +354,7 @@ describe("useIncident", () => {
     expect(result.current.data?.firstSeenRelative).toMatch(/\d+[dhms] ago/);
     // LAST_ISO = 2026-06-22T11:50:00Z, NOW = 2026-06-22T12:00:00Z → 10m ago
     expect(result.current.data?.lastSeenRelative).toMatch(/\d+[dhms] ago/);
-    // openedRelative uses primaryOccurrence.timestamp = NOW_ISO → 0s ago
+    // openedRelative uses group.firstSeenAt = FIRST_ISO → ~50h → 2d ago
     expect(result.current.data?.openedRelative).toMatch(/\d+[dhms] ago/);
   });
 
