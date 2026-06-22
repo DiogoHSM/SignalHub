@@ -25,6 +25,12 @@ export type ScreenCtx = {
   onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
   onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;
   navigate: (section: NavSection) => void;
+  /** Added by Task 4 shell wiring — call to navigate back to the previous screen. */
+  back?: () => void;
+  /** Added by Task 4 shell wiring — drill into a nested screen. */
+  drill?: (kind: "incident", params: { groupId: string }) => void;
+  /** Push a transient toast notification. Accepts a string message or a structured Toast payload. */
+  pushToast?: (payload: string | { title: string; sub?: string; icon?: string; tone?: string }) => void;
 };
 
 // ─── Screen entries ───────────────────────────────────────────────────────────
