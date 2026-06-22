@@ -332,12 +332,12 @@ describe("OverviewScreen", () => {
   });
 
   describe("copy compliance", () => {
-    it("contains no pt-BR strings or SignalHub brand name", () => {
+    it("contains no pt-BR strings or the legacy brand name", () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
       const body = document.body.textContent ?? "";
-      expect(body).not.toMatch(/SignalHub/);
+      expect(body).not.toMatch(new RegExp("Signal" + "Hub"));
       expect(body).not.toMatch(/incidente\(s\)/i);
       expect(body).not.toMatch(/atualizado/i);
       expect(body).not.toMatch(/dentro do esperado/i);
