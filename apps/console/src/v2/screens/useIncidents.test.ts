@@ -530,6 +530,29 @@ describe("useIncidents", () => {
     expect(result.current.status).toBe("loading");
   });
 
+  it("getIncidentMttr rejects (500) → status:'ok', mttrLabel:'—', resolved7d:0", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const listErrorGroups = vi.fn().mockImplementation((query: { status?: string }) => {
+      if (query.status === "open") return Promise.resolve({ data: [makeGroup({ id: "g1", status: "open" })] });
+      return Promise.resolve({ data: [] });
+    });
+    const listUsers = vi.fn().mockResolvedValue({ users: [] });
+    const getIncidentMttr = vi.fn().mockRejectedValue(Object.assign(new Error("Internal Server Error"), { status: 500 }));
+    const client = { listErrorGroups, listUsers, getIncidentMttr };
+
+    const { result } = renderHook(() =>
+      useIncidents({ client, projectId: "proj-1", environmentId: "env-1" })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.status).toBe("ok");
+    expect(result.current.data!.kpis.mttrLabel).toBe("—");
+    expect(result.current.data!.kpis.resolved7d).toBe(0);
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("does not call APIs when environmentId is undefined", async () => {
     const { client, listErrorGroups } = makeFakeClient();
 

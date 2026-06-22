@@ -112,7 +112,10 @@ export function useIncidents({
     const openFetch = client.listErrorGroups({ ...scope, status: "open", limit: 100 });
     const investigatingFetch = client.listErrorGroups({ ...scope, status: "investigating", limit: 100 });
     const mttrFetch = client.getIncidentMttr
-      ? client.getIncidentMttr({ ...scope, window: "7d" }).catch(() => null)
+      ? client.getIncidentMttr({ ...scope, window: "7d" }).catch((err) => {
+          console.error(err);
+          return null;
+        })
       : Promise.resolve(null);
     const usersFetch = client.listUsers().catch(() => null);
 
