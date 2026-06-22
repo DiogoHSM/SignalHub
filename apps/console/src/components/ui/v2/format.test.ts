@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompact } from "./format";
+import { formatCompact, formatDurationShort } from "./format";
 
 describe("formatCompact", () => {
   it("formats numbers below 10,000 with locale separators", () => {
@@ -24,5 +24,23 @@ describe("formatCompact", () => {
   it("formats numbers at or above 1M with two decimal M", () => {
     expect(formatCompact(1_000_000)).toBe("1.00M");
     expect(formatCompact(4_820_000)).toBe("4.82M");
+  });
+});
+
+describe("formatDurationShort", () => {
+  it("returns em dash for null", () => {
+    expect(formatDurationShort(null)).toBe("—");
+  });
+  it("formats sub-hour as whole minutes", () => {
+    expect(formatDurationShort(42 * 60 * 1000)).toBe("42 min");
+  });
+  it("rounds seconds to the nearest minute", () => {
+    expect(formatDurationShort(90 * 1000)).toBe("2 min");
+  });
+  it("formats >= 1h with one decimal", () => {
+    expect(formatDurationShort(90 * 60 * 1000)).toBe("1.5 h");
+  });
+  it("formats zero as 0 min", () => {
+    expect(formatDurationShort(0)).toBe("0 min");
   });
 });

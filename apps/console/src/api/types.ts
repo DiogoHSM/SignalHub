@@ -109,6 +109,9 @@ export type ErrorGroupRecord = {
   latestRelease: string | null;
   resolvedAt: string | null;
   ignoredAt: string | null;
+  assignedToUserId: string | null;
+  incidentNumber: string | null;
+  silencedUntil: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -125,6 +128,18 @@ export type ErrorGroupQuery = {
   from?: Date | string;
   to?: Date | string;
   limit?: number;
+};
+
+export type IncidentMttrQuery = {
+  projectId: string;
+  environmentId: string;
+  window?: "7d" | "30d";
+};
+
+export type IncidentMttrResult = {
+  mttrMs: number | null;
+  resolvedCount: number;
+  windowDays: number;
 };
 
 export type IncidentTimelineKind = "breadcrumb" | "event" | "error" | "trace" | "span" | "llm";
