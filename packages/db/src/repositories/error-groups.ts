@@ -8,7 +8,7 @@ export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored"
 export type ErrorGroupPriority = SchemaErrorGroupPriority;
 export type ErrorGroupPriorityInput = ErrorGroupPriority | null;
 
-type ErrorGroupRow = Selectable<ErrorGroupsTable>;
+export type ErrorGroupRow = Selectable<ErrorGroupsTable>;
 type DbExecutor = Kysely<Database> | Transaction<Database>;
 
 export type ErrorGroupingInput = {
@@ -131,7 +131,7 @@ export function buildErrorGroupingFingerprint(input: ErrorGroupingInput): ErrorG
   };
 }
 
-function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
+export function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
   return {
     id: row.id,
     projectId: row.project_id,

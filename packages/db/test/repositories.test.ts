@@ -7338,6 +7338,19 @@ describe("repositories", () => {
     });
   });
 
+  it("assign returns group_not_found for unknown error group", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const user = await createUser(db, { email: "assignee-no-group@example.com", passwordHash: "hash", isAdmin: false });
+
+      const result = await assignIncident(db, { errorGroupId: "grp_does_not_exist", assignedToUserId: user.id });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected error");
+      expect(result.error.kind).toBe("group_not_found");
+    });
+  });
+
   it("assign returns user_not_found for unknown user", async () => {
     await withDb(async (db) => {
       await migrate(db);

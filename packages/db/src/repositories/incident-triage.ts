@@ -2,7 +2,8 @@ import { sql } from "kysely";
 import type { Kysely, Selectable, Transaction } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Database, TriageNotesTable } from "../schema.js";
-import type { ErrorGroupRecord } from "./error-groups.js";
+import { toGroup } from "./error-groups.js";
+import type { ErrorGroupRecord, ErrorGroupRow } from "./error-groups.js";
 
 type DbExecutor = Kysely<Database> | Transaction<Database>;
 
@@ -18,6 +19,7 @@ export type TriageNoteRecord = {
 };
 
 export type AssignIncidentError =
+  | { kind: "group_not_found" }
   | { kind: "user_not_found" }
   | { kind: "user_archived" };
 
@@ -43,68 +45,22 @@ function toTriageNote(row: Selectable<TriageNotesTable>): TriageNoteRecord {
   };
 }
 
-function toGroupFromRow(row: {
-  id: string;
-  project_id: string;
-  environment_id: string;
-  grouping_fingerprint: string;
-  message: string;
-  type: string | null;
-  top_stack_frame: string | null;
-  severity: string;
-  status: "open" | "investigating" | "resolved" | "ignored";
-  priority: "urgent" | "high" | "normal" | "low" | null;
-  first_seen_at: Date;
-  last_seen_at: Date;
-  last_regressed_at: Date | null;
-  occurrence_count: number;
-  affected_users_count: number;
-  affected_tenants_count: number;
-  latest_error_id: string | null;
-  latest_release: string | null;
-  resolved_at: Date | null;
-  ignored_at: Date | null;
-  assigned_to_user_id: string | null;
-  silenced_until: Date | null;
-  incident_number: string | null;
-  created_at: Date;
-  updated_at: Date;
-}): ErrorGroupRecord {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    environmentId: row.environment_id,
-    groupingFingerprint: row.grouping_fingerprint,
-    message: row.message,
-    type: row.type,
-    topStackFrame: row.top_stack_frame,
-    severity: row.severity,
-    status: row.status,
-    priority: row.priority,
-    firstSeenAt: row.first_seen_at,
-    lastSeenAt: row.last_seen_at,
-    lastRegressedAt: row.last_regressed_at,
-    occurrenceCount: row.occurrence_count,
-    affectedUsersCount: row.affected_users_count,
-    affectedTenantsCount: row.affected_tenants_count,
-    latestErrorId: row.latest_error_id,
-    latestRelease: row.latest_release,
-    resolvedAt: row.resolved_at,
-    ignoredAt: row.ignored_at,
-    assignedToUserId: row.assigned_to_user_id,
-    silencedUntil: row.silenced_until,
-    incidentNumber: row.incident_number,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
-
 // ── assignIncident ─────────────────────────────────────────────────────────────
 
 export async function assignIncident(
   db: DbExecutor,
   input: { errorGroupId: string; assignedToUserId: string | null }
 ): Promise<AssignIncidentResult> {
+  const existingGroup = await (db as Kysely<Database>)
+    .selectFrom("error_groups")
+    .select("id")
+    .where("id", "=", input.errorGroupId)
+    .executeTakeFirst();
+
+  if (!existingGroup) {
+    return { ok: false, error: { kind: "group_not_found" } };
+  }
+
   if (input.assignedToUserId !== null) {
     const user = await (db as Kysely<Database>)
       .selectFrom("users")
@@ -128,13 +84,9 @@ export async function assignIncident(
     })
     .where("id", "=", input.errorGroupId)
     .returningAll()
-    .executeTakeFirst();
+    .executeTakeFirstOrThrow() as ErrorGroupRow;
 
-  if (!row) {
-    return { ok: false, error: { kind: "user_not_found" } };
-  }
-
-  return { ok: true, group: toGroupFromRow(row) };
+  return { ok: true, group: toGroup(row) };
 }
 
 // ── addTriageNote ──────────────────────────────────────────────────────────────
@@ -195,7 +147,7 @@ export async function silenceIncident(
     .returningAll()
     .executeTakeFirst();
 
-  return row ? toGroupFromRow(row) : null;
+  return row ? toGroup(row as ErrorGroupRow) : null;
 }
 
 // ── getIncidentMttr ────────────────────────────────────────────────────────────
