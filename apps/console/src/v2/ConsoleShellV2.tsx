@@ -264,6 +264,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     onSelectEnvironment: handleSelectEnvironmentObj,
     onUpdateProject: handleUpdateProject,
     onUpdateEnvironment: handleUpdateEnvironment,
+    navigate,
   };
 
   // ─── command palette commands ─────────────────────────────────────────────

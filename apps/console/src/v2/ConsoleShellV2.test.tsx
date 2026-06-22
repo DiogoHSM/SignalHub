@@ -38,7 +38,8 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     getLlmAggregates: vi.fn().mockResolvedValue({ data: { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: "0" } }),
     getEventAggregates: vi.fn(),
     getErrorAggregates: vi.fn(),
-    getOverview: vi.fn(),
+    getOverview: vi.fn().mockResolvedValue({ data: { window: "24h", generatedAt: "", scope: {}, range: {}, kpis: { events: 0, activeUsers: 0, activeTenants: 0, errors: 0, openErrors: 0, traces: 0, failedTraces: 0, llmCalls: 0, failedLlmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0, llmCostUsd: "0" }, trends: { usage: [], errors: [], latency: [], aiCost: [] }, top: { events: [], tenantsByUsage: [], tenantsByErrors: [], tenantsByLlmCalls: [], tenantsByLlmCost: [], llmProviders: [], llmModels: [], llmPrompts: [], errorSeverity: [], errorStatus: [] }, recent: { errors: [], failedTraces: [], failedLlmCalls: [] } } }),
+    getOperations: vi.fn().mockResolvedValue({ data: { window: "24h", generatedAt: "", scope: {}, range: {}, status: "ok", summary: { monitors: { total: 0, http: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 }, heartbeat: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 } }, alerts: { rules: { total: 0, enabled: 0 }, events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 } }, telemetry: { events: 0, errors: 0, traces: 0, failedTraces: 0, errorRatePercent: 0, p95TraceDurationMs: 0, lastEventAt: null, lastErrorAt: null, lastTraceAt: null }, incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 } }, recent: { monitors: [], alerts: [], incidents: [] }, topLatency: [], setupGaps: [] } }),
     getSystemHealth: vi.fn(),
     listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [] } }),
     getEntityTenantDetail: vi.fn(),
@@ -111,9 +112,9 @@ describe("ConsoleShellV2", () => {
     const user = userEvent.setup();
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    // Default section is overview — OverviewDashboard renders inside .console-legacy-island
+    // Default section is overview — OverviewScreen (v2) renders an h1 heading
     await waitFor(() => {
-      expect(document.querySelector(".console-legacy-island")).toBeInTheDocument();
+      expect(document.querySelector("h1.sh-h1")).toBeInTheDocument();
     });
 
     // Click the Settings nav item
