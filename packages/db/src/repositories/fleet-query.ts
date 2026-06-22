@@ -101,6 +101,10 @@ function hasPriorData(overview: { kpis: { events: number; traces: number; llmCos
   return overview.kpis.events > 0 || overview.kpis.traces > 0 || parseFloat(overview.kpis.llmCostUsd) > 0;
 }
 
+function rateFrom(overview: { kpis: { errors: number; traces: number } }): number | null {
+  return overview.kpis.traces > 0 ? (overview.kpis.errors / overview.kpis.traces) * 100 : null;
+}
+
 // ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
@@ -160,18 +164,15 @@ export async function getFleetRollup(db: Db, opts: FleetRollupOpts): Promise<Fle
       const incidents = ops.summary.incidents.open + ops.summary.incidents.investigating;
       const alerts = ops.summary.alerts.events.total;
 
-      // --- error rate ---
-      const errorRatePercent = ops.summary.telemetry.errorRatePercent;
+      // --- error rate (both current and prior derived from the same source for symmetric delta) ---
+      const errorRatePercent = rateFrom(currentOverview);
+      const priorErrorRate = rateFrom(priorOverview);
 
       // --- deltas ---
       const priorHasData = hasPriorData(priorOverview);
-      const priorErrorRate =
-        priorOverview.kpis.traces > 0
-          ? (priorOverview.kpis.errors / priorOverview.kpis.traces) * 100
-          : null;
 
       const errorRateDelta =
-        priorHasData && errorRatePercent !== null && priorErrorRate !== null
+        errorRatePercent !== null && priorErrorRate !== null
           ? errorRatePercent - priorErrorRate
           : null;
 

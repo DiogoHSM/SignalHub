@@ -281,24 +281,28 @@ describe("getFleetRollup", () => {
     vi.mocked(listEnvironments).mockResolvedValue([makeEnv()]);
     vi.mocked(getOperations).mockResolvedValue(makeOperationsResponse({ recent: { monitors: [], alerts: [], incidents: [] } }));
 
-    // Current overview: errorRate 10%, llmCost 5.50, p95 350
+    // Current overview: errorRate 10% (10/100), llmCost 5.50, p95 350
     const currentOverview = makeOverviewResponse({
       kpis: { ...makeOverviewResponse().kpis, p95TraceDurationMs: 350, llmCostUsd: "5.50", traces: 100, errors: 10 }
     });
-    // Prior overview: errorRate 6%, llmCost 3.00, p95 250
+    // Prior overview: errorRate 6% (6/100), llmCost 3.00, p95 250
     const priorOverview = makeOverviewResponse({
       kpis: { ...makeOverviewResponse().kpis, p95TraceDurationMs: 250, llmCostUsd: "3.00", traces: 100, errors: 6, events: 200 }
     });
 
-    let callCount = 0;
-    vi.mocked(getOverview).mockImplementation(() => {
-      callCount++;
-      return Promise.resolve(callCount === 1 ? currentOverview : priorOverview);
+    const PRIOR_NOW = new Date(NOW.getTime() - 24 * 60 * 60 * 1000);
+    vi.mocked(getOverview).mockImplementation((_, filters) => {
+      // The prior call receives priorNow (NOW shifted back by window); current call receives NOW
+      return Promise.resolve(
+        filters.now?.getTime() === PRIOR_NOW.getTime() ? priorOverview : currentOverview
+      );
     });
 
     const result = await getFleetRollup(mockDb, { window: "24h", getHealth: defaultGetHealth, now: NOW });
     const project = result.projects[0];
 
+    // errorRatePercent = 10/100*100 = 10 (from currentOverview kpis)
+    expect(project.errorRatePercent).toBeCloseTo(10, 2);
     // errorRateDelta = current(10%) - prior(6%) = 4
     expect(project.errorRateDelta).toBeCloseTo(4, 2);
     // llmCostDeltaUsd = 5.50 - 3.00 = 2.50
@@ -313,15 +317,16 @@ describe("getFleetRollup", () => {
     vi.mocked(getOperations).mockResolvedValue(makeOperationsResponse({ recent: { monitors: [], alerts: [], incidents: [] } }));
 
     const currentOverview = makeOverviewResponse();
-    // Prior with 0 events => no data
+    // Prior with 0 events/traces => no data, null errorRate
     const priorOverview = makeOverviewResponse({
       kpis: { ...makeOverviewResponse().kpis, events: 0, traces: 0, errors: 0, llmCostUsd: "0", p95TraceDurationMs: null }
     });
 
-    let callCount = 0;
-    vi.mocked(getOverview).mockImplementation(() => {
-      callCount++;
-      return Promise.resolve(callCount === 1 ? currentOverview : priorOverview);
+    const PRIOR_NOW = new Date(NOW.getTime() - 24 * 60 * 60 * 1000);
+    vi.mocked(getOverview).mockImplementation((_, filters) => {
+      return Promise.resolve(
+        filters.now?.getTime() === PRIOR_NOW.getTime() ? priorOverview : currentOverview
+      );
     });
 
     const result = await getFleetRollup(mockDb, { window: "24h", getHealth: defaultGetHealth, now: NOW });
