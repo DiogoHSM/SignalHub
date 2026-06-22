@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./api/client";
 import { App } from "./App";
+import { resolveV2ShellFlag } from "./v2/flag";
 
 const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() => {
   const bootstrapClient = {
@@ -120,6 +121,10 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
   return { bootstrapClient, operationalClient, createApiClient };
 });
 
+vi.mock("./v2/flag", () => ({
+  resolveV2ShellFlag: vi.fn(() => false)
+}));
+
 vi.mock("./api/client", () => ({
   ApiError: class ApiError extends Error {
     readonly status: number;
@@ -153,5 +158,28 @@ describe("App", () => {
     await userEvent.type(within(commandPalette).getByRole("textbox", { name: "Search commands" }), "onboarding");
     await userEvent.click(within(commandPalette).getByRole("button", { name: "Open Onboarding" }));
     expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(4);
+  });
+
+  describe("v2 shell flag", () => {
+    const mockResolveV2ShellFlag = vi.mocked(resolveV2ShellFlag);
+
+    afterEach(() => {
+      mockResolveV2ShellFlag.mockReturnValue(false);
+      cleanup();
+    });
+
+    it("renders ConsoleShellV2 when flag is on", async () => {
+      mockResolveV2ShellFlag.mockReturnValue(true);
+      render(<App />);
+      await waitFor(() => expect(document.querySelector(".sh-v2")).toBeInTheDocument());
+      expect(document.querySelector(".sh-v2")).toBeInTheDocument();
+    });
+
+    it("renders legacy ConsoleShell when flag is off", async () => {
+      mockResolveV2ShellFlag.mockReturnValue(false);
+      render(<App />);
+      expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
+      expect(document.querySelector(".sh-v2")).not.toBeInTheDocument();
+    });
   });
 });

@@ -3,6 +3,8 @@ import { createApiClient } from "./api/client";
 import type { ConsoleConfig } from "./api/types";
 import { AuthGate } from "./components/AuthGate";
 import { ConsoleShell } from "./components/ConsoleShell";
+import { ConsoleShellV2 } from "./v2/ConsoleShellV2";
+import { resolveV2ShellFlag } from "./v2/flag";
 
 const bootstrapClient = createApiClient();
 
@@ -55,6 +57,12 @@ export function App() {
         <h1>Console unavailable</h1>
       </div>
     );
+  }
+
+  const useV2 = resolveV2ShellFlag();
+
+  if (useV2) {
+    return <ConsoleShellV2 />;
   }
 
   return (
