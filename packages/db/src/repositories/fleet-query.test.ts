@@ -3,11 +3,12 @@ import type { OverviewResponse } from "./telemetry-query.js";
 import type { OperationsResponse } from "./operations-query.js";
 import type { Project, Environment } from "./admin.js";
 import type { SystemHealthSnapshot } from "../../../../apps/api/src/routes/system.js";
-import { getFleetRollup } from "./fleet-query.js";
+import { getFleetRollup, getProjectFleetEnvironments } from "./fleet-query.js";
 
 vi.mock("./admin.js", () => ({
   listProjects: vi.fn(),
-  listEnvironments: vi.fn()
+  listEnvironments: vi.fn(),
+  getProject: vi.fn()
 }));
 
 vi.mock("./telemetry-query.js", () => ({
@@ -22,7 +23,7 @@ vi.mock("./error-groups.js", () => ({
   getErrorGroup: vi.fn()
 }));
 
-import { listProjects, listEnvironments } from "./admin.js";
+import { listProjects, listEnvironments, getProject } from "./admin.js";
 import { getOverview } from "./telemetry-query.js";
 import { getOperations } from "./operations-query.js";
 
@@ -625,5 +626,158 @@ describe("getFleetRollup", () => {
     const result = await getFleetRollup(mockDb, { window: "24h", getHealth: defaultGetHealth, now: customNow });
 
     expect(result.generatedAt).toBe(customNow.toISOString());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getProjectFleetEnvironments
+// ---------------------------------------------------------------------------
+
+describe("getProjectFleetEnvironments", () => {
+  it("returns undefined (→ 404) for unknown or archived project", async () => {
+    vi.mocked(getProject).mockResolvedValue(undefined);
+
+    const result = await getProjectFleetEnvironments(mockDb, { projectId: "unknown-id", window: "24h" });
+    expect(result).toBeUndefined();
+  });
+
+  it("returns one FleetProjectEnv per non-archived env, production first", async () => {
+    vi.mocked(getProject).mockResolvedValue(makeProject({ id: "proj-1" }));
+    vi.mocked(listEnvironments).mockResolvedValue([
+      makeEnv({ id: "env-staging", name: "staging" }),
+      makeEnv({ id: "env-prod", name: "production" }),
+      makeEnv({ id: "env-dev", name: "development" })
+    ]);
+    vi.mocked(getOperations).mockImplementation((_, filters) => {
+      return Promise.resolve(
+        makeOperationsResponse({
+          scope: { projectId: "proj-1", environmentId: filters.environmentId },
+          status: "healthy",
+          summary: {
+            ...makeOperationsResponse().summary,
+            incidents: { open: 1, investigating: 0, urgent: 0, high: 0, regressed: 0 },
+            telemetry: { ...makeOperationsResponse().summary.telemetry, errorRatePercent: 5 }
+          },
+          recent: { monitors: [], alerts: [], incidents: [] }
+        })
+      );
+    });
+
+    const result = await getProjectFleetEnvironments(mockDb, { projectId: "proj-1", window: "24h" });
+
+    expect(result).not.toBeUndefined();
+    expect(result!.projectId).toBe("proj-1");
+    expect(result!.envs).toHaveLength(3);
+    // Production must be first
+    expect(result!.envs[0].name).toBe("production");
+  });
+
+  it("caps at 5 environments", async () => {
+    vi.mocked(getProject).mockResolvedValue(makeProject({ id: "proj-1" }));
+    // 7 environments
+    vi.mocked(listEnvironments).mockResolvedValue([
+      makeEnv({ id: "env-1", name: "env-1" }),
+      makeEnv({ id: "env-2", name: "env-2" }),
+      makeEnv({ id: "env-3", name: "env-3" }),
+      makeEnv({ id: "env-4", name: "env-4" }),
+      makeEnv({ id: "env-5", name: "env-5" }),
+      makeEnv({ id: "env-6", name: "env-6" }),
+      makeEnv({ id: "env-7", name: "production" })
+    ]);
+    vi.mocked(getOperations).mockResolvedValue(
+      makeOperationsResponse({ status: "healthy", recent: { monitors: [], alerts: [], incidents: [] } })
+    );
+
+    const result = await getProjectFleetEnvironments(mockDb, { projectId: "proj-1", window: "24h" });
+
+    expect(result!.envs).toHaveLength(5);
+  });
+
+  it("sets note='no data' when events===0 and status==='ok', else null", async () => {
+    vi.mocked(getProject).mockResolvedValue(makeProject({ id: "proj-1" }));
+    vi.mocked(listEnvironments).mockResolvedValue([
+      makeEnv({ id: "env-prod", name: "production" }),
+      makeEnv({ id: "env-staging", name: "staging" })
+    ]);
+    vi.mocked(getOperations).mockImplementation((_, filters) => {
+      if (filters.environmentId === "env-prod") {
+        // no data: status healthy + events 0
+        return Promise.resolve(makeOperationsResponse({
+          scope: { projectId: "proj-1", environmentId: "env-prod" },
+          status: "healthy",
+          summary: { ...makeOperationsResponse().summary, telemetry: { ...makeOperationsResponse().summary.telemetry, events: 0, errorRatePercent: null } },
+          recent: { monitors: [], alerts: [], incidents: [] }
+        }));
+      }
+      // staging has data
+      return Promise.resolve(makeOperationsResponse({
+        scope: { projectId: "proj-1", environmentId: "env-staging" },
+        status: "degraded",
+        summary: { ...makeOperationsResponse().summary, telemetry: { ...makeOperationsResponse().summary.telemetry, events: 100 } },
+        recent: { monitors: [], alerts: [], incidents: [] }
+      }));
+    });
+
+    const result = await getProjectFleetEnvironments(mockDb, { projectId: "proj-1", window: "24h" });
+
+    const prodEnv = result!.envs.find((e) => e.name === "production")!;
+    const stagingEnv = result!.envs.find((e) => e.name === "staging")!;
+
+    expect(prodEnv.note).toBe("no data");
+    expect(stagingEnv.note).toBeNull();
+  });
+
+  it("maps getOperations status to ok/warning/critical per FleetProjectEnv", async () => {
+    vi.mocked(getProject).mockResolvedValue(makeProject({ id: "proj-1" }));
+    vi.mocked(listEnvironments).mockResolvedValue([
+      makeEnv({ id: "env-1", name: "env-healthy" }),
+      makeEnv({ id: "env-2", name: "env-degraded" }),
+      makeEnv({ id: "env-3", name: "env-unhealthy" }),
+      makeEnv({ id: "env-4", name: "env-not_configured" })
+    ]);
+    vi.mocked(getOperations).mockImplementation((_, filters) => {
+      const statusMap: Record<string, OperationsResponse["status"]> = {
+        "env-1": "healthy",
+        "env-2": "degraded",
+        "env-3": "unhealthy",
+        "env-4": "not_configured"
+      };
+      return Promise.resolve(makeOperationsResponse({
+        scope: { projectId: "proj-1", environmentId: filters.environmentId },
+        status: statusMap[filters.environmentId] ?? "healthy",
+        recent: { monitors: [], alerts: [], incidents: [] }
+      }));
+    });
+
+    const result = await getProjectFleetEnvironments(mockDb, { projectId: "proj-1", window: "24h" });
+
+    const byName = Object.fromEntries(result!.envs.map((e) => [e.name, e]));
+    expect(byName["env-healthy"].status).toBe("ok");
+    expect(byName["env-degraded"].status).toBe("warning");
+    expect(byName["env-unhealthy"].status).toBe("critical");
+    expect(byName["env-not_configured"].status).toBe("ok");
+  });
+
+  it("returns correct incidents count and errorRatePercent per env", async () => {
+    vi.mocked(getProject).mockResolvedValue(makeProject({ id: "proj-1" }));
+    vi.mocked(listEnvironments).mockResolvedValue([makeEnv({ id: "env-prod", name: "production" })]);
+    vi.mocked(getOperations).mockResolvedValue(makeOperationsResponse({
+      scope: { projectId: "proj-1", environmentId: "env-prod" },
+      status: "healthy",
+      summary: {
+        ...makeOperationsResponse().summary,
+        incidents: { open: 3, investigating: 2, urgent: 0, high: 0, regressed: 0 },
+        telemetry: { ...makeOperationsResponse().summary.telemetry, events: 500, errorRatePercent: 12.5 }
+      },
+      recent: { monitors: [], alerts: [], incidents: [] }
+    }));
+
+    const result = await getProjectFleetEnvironments(mockDb, { projectId: "proj-1", window: "24h" });
+
+    const env = result!.envs[0];
+    expect(env.incidents).toBe(5); // open(3) + investigating(2)
+    expect(env.errorRatePercent).toBe(12.5);
+    expect(env.events).toBe(500);
+    expect(env.note).toBeNull(); // events > 0
   });
 });

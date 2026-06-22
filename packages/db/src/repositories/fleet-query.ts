@@ -1,5 +1,5 @@
 import type { Db } from "../client.js";
-import { listProjects, listEnvironments } from "./admin.js";
+import { listProjects, listEnvironments, getProject } from "./admin.js";
 import { getOperations } from "./operations-query.js";
 import { getOverview } from "./telemetry-query.js";
 import type { SystemHealthSnapshot, SystemStatus } from "../../../../apps/api/src/routes/system.js";
@@ -275,4 +275,66 @@ export async function getFleetRollup(db: Db, opts: FleetRollupOpts): Promise<Fle
     projects: sorted,
     rollup
   };
+}
+
+// ---------------------------------------------------------------------------
+// Per-environment fleet breakdown (lazy-loaded on card expand)
+// ---------------------------------------------------------------------------
+
+export type FleetProjectEnv = {
+  name: string;
+  status: "ok" | "warning" | "critical";
+  incidents: number;
+  errorRatePercent: number | null;
+  events: number;
+  note: string | null;
+};
+
+export type FleetProjectEnvsResult = {
+  projectId: string;
+  envs: FleetProjectEnv[];
+};
+
+/**
+ * Returns per-env health data for a single project.
+ * Returns `undefined` if the project is unknown or archived — the route maps
+ * this to a 404 response, consistent with the `getProject` → undefined pattern
+ * used throughout the admin repository.
+ */
+export async function getProjectFleetEnvironments(
+  db: Db,
+  opts: { projectId: string; window: "24h" | "7d" | "30d"; now?: Date }
+): Promise<FleetProjectEnvsResult | undefined> {
+  const { projectId, window: win, now } = opts;
+
+  // Resolve project — undefined means unknown or archived
+  const project = await getProject(db, projectId);
+  if (project === undefined) {
+    return undefined;
+  }
+
+  // List non-archived environments for this project
+  const allEnvs = await listEnvironments(db, projectId);
+
+  // Production first, then the rest (stable relative order preserved)
+  const prodEnvs = allEnvs.filter((e) => e.name.toLowerCase() === "production");
+  const otherEnvs = allEnvs.filter((e) => e.name.toLowerCase() !== "production");
+  const ordered = [...prodEnvs, ...otherEnvs].slice(0, 5);
+
+  // Run getOperations for each env sequentially-within-parallel (all at once)
+  const envResults = await Promise.all(
+    ordered.map(async (env): Promise<FleetProjectEnv> => {
+      const ops = await getOperations(db, { projectId, environmentId: env.id, window: win, now });
+
+      const status = mapOpsStatus(ops.status);
+      const incidents = ops.summary.incidents.open + ops.summary.incidents.investigating;
+      const events = ops.summary.telemetry.events;
+      const errorRatePercent = ops.summary.telemetry.errorRatePercent;
+      const note = events === 0 && status === "ok" ? "no data" : null;
+
+      return { name: env.name, status, incidents, errorRatePercent, events, note };
+    })
+  );
+
+  return { projectId, envs: envResults };
 }
