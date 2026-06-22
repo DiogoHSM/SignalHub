@@ -4,6 +4,7 @@ import type { IncidentAssignee, IncidentRowVM } from "./useIncidents";
 import {
   BigKpi,
   EmptyHint,
+  formatCompact,
   Icon,
   PageHead,
   PriorityPill,
@@ -135,15 +136,15 @@ function IncidentRow({ row, ctx }: { row: IncidentRowVM; ctx: ScreenCtx }) {
       {/* counts + open affordance */}
       <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
         <span className="sh-muted" style={{ fontSize: 12 }}>
-          <strong style={{ color: "var(--fg)" }}>{row.occurrenceCount.toLocaleString()}</strong>{" "}
+          <strong style={{ color: "var(--fg)" }}>{formatCompact(row.occurrenceCount)}</strong>{" "}
           occurrences
         </span>
         <span className="sh-muted" style={{ fontSize: 12 }}>
-          <strong style={{ color: "var(--fg)" }}>{row.affectedUsersCount.toLocaleString()}</strong>{" "}
+          <strong style={{ color: "var(--fg)" }}>{formatCompact(row.affectedUsersCount)}</strong>{" "}
           users
         </span>
         <span className="sh-muted" style={{ fontSize: 12 }}>
-          <strong style={{ color: "var(--fg)" }}>{row.affectedTenantsCount.toLocaleString()}</strong>{" "}
+          <strong style={{ color: "var(--fg)" }}>{formatCompact(row.affectedTenantsCount)}</strong>{" "}
           tenants
         </span>
         {/* The design renders a trend Sparkline here; the VM has no trend series,

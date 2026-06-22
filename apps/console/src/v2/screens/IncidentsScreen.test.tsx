@@ -276,10 +276,12 @@ describe("IncidentsScreen", () => {
       expect(screen.getByText("38")).toBeInTheDocument();
     });
 
-    it("renders an 'Open →' affordance", () => {
+    it("renders an 'Open →' affordance per row (distinct from the status pill)", () => {
       mockUseIncidents(INCIDENTS_VM);
-      render(<IncidentsScreen ctx={makeMockCtx()} />);
-      expect(screen.getAllByText(/Open/).length).toBeGreaterThanOrEqual(1);
+      const { container } = render(<IncidentsScreen ctx={makeMockCtx()} />);
+      const affordances = container.querySelectorAll("span.sh-btn.ghost");
+      expect(affordances.length).toBe(INCIDENTS_VM.rows.length);
+      affordances.forEach((el) => expect(el.textContent).toContain("Open"));
     });
   });
 
