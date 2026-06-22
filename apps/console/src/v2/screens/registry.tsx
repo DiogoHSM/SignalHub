@@ -7,6 +7,7 @@ import { ProjectSettingsWorkspace } from "../../components/ProjectSettingsWorksp
 import { SigmonAdminWorkspace } from "../../components/SigmonAdminWorkspace";
 import { LegacyIsland } from "./LegacyIsland";
 import { OverviewScreen } from "./OverviewScreen";
+import { ErrorsScreen } from "./ErrorsScreen";
 import type { NavSection } from "../nav";
 
 // ─── ScreenCtx ───────────────────────────────────────────────────────────────
@@ -37,15 +38,8 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   },
 
   investigate: {
-    kind: "legacy",
-    render: (ctx) => (
-      <InvestigationWorkspace
-        client={ctx.client}
-        projectId={ctx.project?.id}
-        environmentId={ctx.environment?.id}
-        initialTab="events"
-      />
-    ),
+    kind: "v2",
+    render: (ctx) => <ErrorsScreen ctx={ctx} navigate={ctx.navigate} />,
   },
 
   incidents: {
