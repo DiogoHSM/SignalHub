@@ -5,7 +5,6 @@ import { useOverview } from "./useOverview";
 import type { ActivityItemVM, KpisVM, LlmByModelVM, TenantVM } from "./useOverview";
 import type { OverviewWindow } from "../../api/types";
 import {
-  Bars,
   Card,
   EmptyHint,
   Icon,
@@ -195,7 +194,7 @@ function fmtNum(n: number): string {
   return String(n);
 }
 
-function buildHealthItems(kpis: KpisVM): KpiItem[] {
+function buildHealthItems(kpis: KpisVM, openIncidents: number): KpiItem[] {
   return [
     {
       label: "Errors (24h)",
@@ -205,7 +204,7 @@ function buildHealthItems(kpis: KpisVM): KpiItem[] {
     },
     {
       label: "Open incidents",
-      value: String(kpis.failedTraces),
+      value: String(openIncidents),
     },
     {
       label: "Error rate",
@@ -231,7 +230,10 @@ function buildUsageItems(kpis: KpisVM): KpiItem[] {
       spark: kpis.latencySparkline.length > 0 ? kpis.latencySparkline : undefined,
       color: "var(--sev-warning)",
     },
-    { label: "Avg trace", value: "—" },
+    {
+      label: "Avg trace",
+      value: kpis.averageTraceDurationMs != null ? `${Math.round(kpis.averageTraceDurationMs)} ms` : "—",
+    },
   ];
 }
 
@@ -289,7 +291,7 @@ function TopTenantsPanel({ tenants, navigate }: { tenants: TenantVM[]; navigate:
               className="sh-row sh-row--btn"
               aria-label={t.name}
               style={{
-                gridTemplateColumns: "20px 1.5fr 1fr 88px 70px",
+                gridTemplateColumns: "20px 2.5fr 88px 70px",
                 width: "100%",
                 textAlign: "left",
                 background: "transparent",
@@ -305,7 +307,6 @@ function TopTenantsPanel({ tenants, navigate }: { tenants: TenantVM[]; navigate:
                   {t.id}
                 </div>
               </div>
-              <Bars data={[3, 5, 4, 6, 7, 5, 8, 9, 7, 8, 6, 9]} height={24} />
               <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--sev-violet)" }}>
                 $ {parseFloat(t.costUsd).toFixed(2)}
               </span>
@@ -583,7 +584,7 @@ export function OverviewScreen({
 
       {/* KPI groups */}
       <div style={{ display: "grid", gridTemplateColumns: "1.05fr 1.5fr 1.4fr", gap: 16 }}>
-        <KpiGroup title="Health" icon="pulse" items={buildHealthItems(kpis)} />
+        <KpiGroup title="Health" icon="pulse" items={buildHealthItems(kpis, banner.incidents)} />
         <KpiGroup title="Usage" icon="activity" items={buildUsageItems(kpis)} />
         <KpiGroup title="AI cost" icon="sparkles" items={buildAiItems(kpis)} />
       </div>

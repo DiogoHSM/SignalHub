@@ -21,6 +21,7 @@ export type KpisVM = {
   traces: number;
   failedTraces: number;
   p95TraceDurationMs: number | null;
+  averageTraceDurationMs: number | null;
   llmCalls: number;
   llmCostUsd: string;
   // computed
@@ -167,6 +168,7 @@ export function useOverview({
           traces: kpis.traces,
           failedTraces: kpis.failedTraces,
           p95TraceDurationMs: kpis.p95TraceDurationMs,
+          averageTraceDurationMs: kpis.averageTraceDurationMs ?? null,
           llmCalls: kpis.llmCalls,
           llmCostUsd: kpis.llmCostUsd,
           errorRate,

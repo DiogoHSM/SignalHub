@@ -380,6 +380,29 @@ describe("useOverview", () => {
     expect(kpis.topModel).toBe("gpt-4o");
   });
 
+  it("maps averageTraceDurationMs from overview kpis", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    // OVERVIEW.kpis.averageTraceDurationMs = 150
+    expect(result.current.data!.kpis.averageTraceDurationMs).toBe(150);
+  });
+
+  it("sets averageTraceDurationMs to null when missing from api response", async () => {
+    const noAvg: OverviewResponse = {
+      ...OVERVIEW,
+      kpis: { ...OVERVIEW.kpis, averageTraceDurationMs: undefined as unknown as number }
+    };
+    const client = makeClient(noAvg);
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.kpis.averageTraceDurationMs).toBeNull();
+  });
+
   it("sparklines are last 12 buckets of trends", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));

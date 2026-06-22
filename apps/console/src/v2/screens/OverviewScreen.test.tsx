@@ -20,6 +20,7 @@ const ALL_CLEAR_VM: OverviewVM = {
     traces: 400,
     failedTraces: 12,
     p95TraceDurationMs: 320,
+    averageTraceDurationMs: 150,
     llmCalls: 200,
     llmCostUsd: "3.50",
     errorRate: 20,
@@ -172,6 +173,40 @@ describe("OverviewScreen", () => {
       // top model (may appear multiple times due to LLM panel)
       expect(screen.getAllByText("gpt-4o").length).toBeGreaterThanOrEqual(1);
     });
+
+    it("Open incidents tile shows banner.incidents, not failedTraces", () => {
+      const vm: OverviewVM = {
+        ...ALL_CLEAR_VM,
+        banner: { incidents: 7, alerts: 1, top: { message: "err", severity: "critical" } },
+        kpis: { ...ALL_CLEAR_VM.kpis, failedTraces: 99 },
+      };
+      mockUseOverview(vm);
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      // banner.incidents=7 must appear; failedTraces=99 must not appear as "Open incidents" value
+      expect(screen.getByText("7")).toBeInTheDocument();
+      expect(screen.queryByText("99")).not.toBeInTheDocument();
+    });
+
+    it("Avg trace tile formats averageTraceDurationMs from VM", () => {
+      mockUseOverview(ALL_CLEAR_VM); // averageTraceDurationMs=150
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByText("150 ms")).toBeInTheDocument();
+    });
+
+    it("Avg trace tile shows — when averageTraceDurationMs is null", () => {
+      const vm: OverviewVM = {
+        ...ALL_CLEAR_VM,
+        kpis: { ...ALL_CLEAR_VM.kpis, averageTraceDurationMs: null },
+      };
+      mockUseOverview(vm);
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      // "—" appears for null avg trace (and possibly for other null fields)
+      const dashes = screen.getAllByText("—");
+      expect(dashes.length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   describe("top tenants", () => {
@@ -291,8 +326,7 @@ describe("OverviewScreen", () => {
       mockUseOverview(null, "loading");
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      // Should show some loading UI, not crash
-      expect(document.body).toBeInTheDocument();
+      expect(screen.getByText(/loading/i)).toBeInTheDocument();
     });
   });
 
