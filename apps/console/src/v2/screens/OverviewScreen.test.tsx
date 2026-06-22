@@ -70,6 +70,7 @@ function makeMockCtx(): ScreenCtx {
     onSecretCreated: vi.fn(),
     onSelectEnvironment: vi.fn(),
     onUpdateProject: vi.fn(),
+    navigate: vi.fn(),
   };
 }
 

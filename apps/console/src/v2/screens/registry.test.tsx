@@ -1,8 +1,10 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api/client";
 import type { Environment, Project } from "../../api/types";
+import type { NavSection } from "../nav";
 import { renderSection, SCREENS, type ScreenCtx } from "./registry";
+import * as useOverviewModule from "./useOverview";
 
 afterEach(cleanup);
 
@@ -78,6 +80,7 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
     onSelectEnvironment: vi.fn(),
     onUpdateProject: vi.fn().mockResolvedValue(undefined),
     onUpdateEnvironment: vi.fn().mockResolvedValue(undefined),
+    navigate: vi.fn() as (section: NavSection) => void,
     ...overrides,
   };
 }
@@ -88,8 +91,27 @@ describe("screen registry", () => {
       expect(SCREENS[s]).toBeDefined();
   });
 
+  it("overview entry has kind === 'v2'", () => {
+    expect(SCREENS.overview.kind).toBe("v2");
+  });
+
+  it("renderSection('overview') renders OverviewScreen NOT inside .console-legacy-island", () => {
+    // Stub useOverview so OverviewScreen renders deterministically without client calls
+    vi.spyOn(useOverviewModule, "useOverview").mockReturnValue({
+      data: null,
+      status: "loading",
+      reload: vi.fn(),
+    });
+    const ctx = makeCtx();
+    const { container } = render(<>{renderSection("overview", ctx)}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    // OverviewScreen shows loading hint text when data is null and status is loading
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
   it("wraps legacy entries in the legacy island", () => {
-    const { container } = render(<>{renderSection("overview", makeCtx())}</>);
+    const { container } = render(<>{renderSection("settings", makeCtx())}</>);
     expect(container.querySelector(".console-legacy-island")).not.toBeNull();
   });
 

@@ -3,10 +3,10 @@ import type { ApiClient } from "../../api/client";
 import type { Environment, Project } from "../../api/types";
 import { AlertsPanel } from "../../components/AlertsPanel";
 import { InvestigationWorkspace } from "../../components/InvestigationWorkspace";
-import { OverviewDashboard } from "../../components/OverviewDashboard";
 import { ProjectSettingsWorkspace } from "../../components/ProjectSettingsWorkspace";
 import { SigmonAdminWorkspace } from "../../components/SigmonAdminWorkspace";
 import { LegacyIsland } from "./LegacyIsland";
+import { OverviewScreen } from "./OverviewScreen";
 import type { NavSection } from "../nav";
 
 // ─── ScreenCtx ───────────────────────────────────────────────────────────────
@@ -23,6 +23,7 @@ export type ScreenCtx = {
   onSelectEnvironment: (environment: Environment) => void;
   onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
   onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;
+  navigate: (section: NavSection) => void;
 };
 
 // ─── Screen entries ───────────────────────────────────────────────────────────
@@ -31,15 +32,8 @@ export type ScreenEntry = { kind: "v2" | "legacy"; render: (ctx: ScreenCtx) => R
 
 export const SCREENS: Record<NavSection, ScreenEntry> = {
   overview: {
-    kind: "legacy",
-    render: (ctx) => (
-      <OverviewDashboard
-        client={ctx.client}
-        projectId={ctx.project?.id}
-        environmentId={ctx.environment?.id}
-        onDrilldown={() => undefined}
-      />
-    ),
+    kind: "v2",
+    render: (ctx) => <OverviewScreen ctx={ctx} navigate={ctx.navigate} />,
   },
 
   investigate: {
