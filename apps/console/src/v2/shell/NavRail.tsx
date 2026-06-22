@@ -24,7 +24,7 @@ export function NavRail({ active, onNavigate, fleetCritical }: NavRailProps) {
 
   return (
     <nav className="nv">
-      <div className="nv-logo" title="SignalHub">
+      <div className="nv-logo" title="SignalMonitor">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
           <path
             d="M3 13l5-3 4 4 5-6 4 3"
