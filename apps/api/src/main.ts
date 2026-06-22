@@ -98,6 +98,7 @@ import {
 import { getErrorGroupIncident } from "@sigmon/db/repositories/incidents.js";
 import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositories/entities-query.js";
 import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositories/identity-profiles.js";
+import { getFleetRollup, getProjectFleetEnvironments } from "@sigmon/db/repositories/fleet-query.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
 import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
 import { hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
@@ -360,6 +361,44 @@ const auth: AuthDependencies = {
     : undefined
 };
 
+function getSystemHealth() {
+  return createSystemHealthSnapshot({
+    retention: {
+      enabled: config.retention.enabled,
+      intervalMinutes: config.retention.intervalMinutes,
+      policy: retentionPolicy
+    },
+    backups: {
+      enabled: config.backups.enabled,
+      intervalHours: config.backups.intervalHours,
+      retentionDays: config.backups.retentionDays,
+      s3Enabled: config.backups.s3.enabled
+    },
+    runtime: {
+      nodeEnv: config.nodeEnv,
+      consoleEnabled: config.console.enabled,
+      publicEndpointConfigured: Boolean(config.console.publicEndpoint),
+      googleOAuthEnabled: config.googleOAuth.enabled,
+      smtpConfigured: config.smtp.enabled,
+      alertsEnabled: config.alerts.enabled,
+      alertsIntervalMinutes: config.alerts.intervalMinutes,
+      monitorsEnabled: config.monitors.enabled,
+      monitorsIntervalMinutes: config.monitors.intervalMinutes,
+      sourceMapRetentionEnabled: config.sourceMaps.retention.enabled
+    },
+    postgresPing: () => sql`select 1`.execute(db),
+    redisPing: () => redis.ping(),
+    getQueueCounts: () => telemetryQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
+    getHeartbeats: async () => {
+      const [worker, scheduler] = await Promise.all([getHeartbeat(db, "worker"), getHeartbeat(db, "scheduler")]);
+      return { worker, scheduler };
+    },
+    getIngestionFreshness: () => getIngestionFreshness(db),
+    getLastRetentionRun: () => getLastRetentionRun(db),
+    getBackupStatus: () => getBackupStatus(db)
+  });
+}
+
 const app = await buildApp({
   readiness: async () => {
     const [postgres, redisReady] = await Promise.all([
@@ -468,45 +507,12 @@ const app = await buildApp({
         findSourceMapArtifactForFrame: (scope) => findSourceMapArtifactForFrame(db, scope),
         readSourceMapFile: ({ storagePath }) => readSourceMapFile({ localDir: config.sourceMaps.localDir, storagePath }),
         replaceErrorStackResolutions: (resolutionInput) => replaceErrorStackResolutions(db, resolutionInput)
-      })
+      }),
+    getFleet: (window) => getFleetRollup(db, { window, getHealth: getSystemHealth }),
+    getProjectFleetEnvironments: (projectId, window) => getProjectFleetEnvironments(db, { projectId, window })
   },
   system: {
-    getHealth: () =>
-      createSystemHealthSnapshot({
-        retention: {
-          enabled: config.retention.enabled,
-          intervalMinutes: config.retention.intervalMinutes,
-          policy: retentionPolicy
-        },
-        backups: {
-          enabled: config.backups.enabled,
-          intervalHours: config.backups.intervalHours,
-          retentionDays: config.backups.retentionDays,
-          s3Enabled: config.backups.s3.enabled
-        },
-        runtime: {
-          nodeEnv: config.nodeEnv,
-          consoleEnabled: config.console.enabled,
-          publicEndpointConfigured: Boolean(config.console.publicEndpoint),
-          googleOAuthEnabled: config.googleOAuth.enabled,
-          smtpConfigured: config.smtp.enabled,
-          alertsEnabled: config.alerts.enabled,
-          alertsIntervalMinutes: config.alerts.intervalMinutes,
-          monitorsEnabled: config.monitors.enabled,
-          monitorsIntervalMinutes: config.monitors.intervalMinutes,
-          sourceMapRetentionEnabled: config.sourceMaps.retention.enabled
-        },
-        postgresPing: () => sql`select 1`.execute(db),
-        redisPing: () => redis.ping(),
-        getQueueCounts: () => telemetryQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
-        getHeartbeats: async () => {
-          const [worker, scheduler] = await Promise.all([getHeartbeat(db, "worker"), getHeartbeat(db, "scheduler")]);
-          return { worker, scheduler };
-        },
-        getIngestionFreshness: () => getIngestionFreshness(db),
-        getLastRetentionRun: () => getLastRetentionRun(db),
-        getBackupStatus: () => getBackupStatus(db)
-      })
+    getHealth: getSystemHealth
   },
   alerts: {
     listNotificationChannels: () => listNotificationChannels(db),
