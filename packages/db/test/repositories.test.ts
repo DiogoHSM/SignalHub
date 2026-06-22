@@ -127,6 +127,13 @@ import {
   touchUserProfileLastSeen
 } from "../src/repositories/identity-profiles.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
+import {
+  assignIncident,
+  addTriageNote,
+  listTriageNotes,
+  silenceIncident,
+  getIncidentMttr
+} from "../src/repositories/incident-triage.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 
@@ -7290,6 +7297,405 @@ describe("repositories", () => {
 
       const limitedEvents = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 2 });
       expect(limitedEvents).toHaveLength(2);
+    });
+  });
+
+  // ── incident-triage ──────────────────────────────────────────────────────────
+
+  it("assign sets and clears assignedToUserId on an error group", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Assign Incident Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const user = await createUser(db, { email: "assignee@example.com", passwordHash: "hash", isAdmin: false });
+
+      await insertError(db, {
+        id: "err_assign_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Assignable error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const group = groups[0];
+      expect(group).toBeDefined();
+
+      // Assign to valid user
+      const assignResult = await assignIncident(db, { errorGroupId: group.id, assignedToUserId: user.id });
+      expect(assignResult.ok).toBe(true);
+      if (!assignResult.ok) throw new Error("expected ok");
+      expect(assignResult.group.assignedToUserId).toBe(user.id);
+
+      // Unassign (null)
+      const unassignResult = await assignIncident(db, { errorGroupId: group.id, assignedToUserId: null });
+      expect(unassignResult.ok).toBe(true);
+      if (!unassignResult.ok) throw new Error("expected ok");
+      expect(unassignResult.group.assignedToUserId).toBeNull();
+    });
+  });
+
+  it("assign returns user_not_found for unknown user", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Assign Unknown User Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertError(db, {
+        id: "err_assign_unknown_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Unknown assignee error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const group = groups[0];
+      expect(group).toBeDefined();
+
+      const result = await assignIncident(db, { errorGroupId: group.id, assignedToUserId: "usr_does_not_exist" });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected error");
+      expect(result.error.kind).toBe("user_not_found");
+    });
+  });
+
+  it("assign returns user_archived for archived user", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Assign Archived User Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const user = await createUser(db, { email: "archived-assignee@example.com", passwordHash: "hash", isAdmin: false });
+      await archiveUser(db, user.id);
+
+      await insertError(db, {
+        id: "err_assign_archived_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Archived assignee error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const group = groups[0];
+      expect(group).toBeDefined();
+
+      const result = await assignIncident(db, { errorGroupId: group.id, assignedToUserId: user.id });
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected error");
+      expect(result.error.kind).toBe("user_archived");
+    });
+  });
+
+  it("addTriageNote creates notes and listTriageNotes returns them ascending by created_at", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Triage Notes Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const user = await createUser(db, { email: "noter@example.com", passwordHash: "hash", isAdmin: false });
+
+      await insertError(db, {
+        id: "err_notes_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Note-worthy error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const group = groups[0];
+      expect(group).toBeDefined();
+
+      const note1 = await addTriageNote(db, {
+        errorGroupId: group.id,
+        authorUserId: user.id,
+        authorEmail: "noter@example.com",
+        body: "First note"
+      });
+      const note2 = await addTriageNote(db, {
+        errorGroupId: group.id,
+        authorUserId: null,
+        authorEmail: "external@example.com",
+        body: "Second note"
+      });
+
+      expect(note1.id).toMatch(/^note_/);
+      expect(note1.errorGroupId).toBe(group.id);
+      expect(note1.authorUserId).toBe(user.id);
+      expect(note1.authorEmail).toBe("noter@example.com");
+      expect(note1.body).toBe("First note");
+      expect(note1.createdAt).toBeInstanceOf(Date);
+
+      expect(note2.authorUserId).toBeNull();
+      expect(note2.authorEmail).toBe("external@example.com");
+
+      const notes = await listTriageNotes(db, group.id);
+      expect(notes).toHaveLength(2);
+      expect(notes[0].id).toBe(note1.id);
+      expect(notes[1].id).toBe(note2.id);
+      expect(notes[0].createdAt.getTime()).toBeLessThanOrEqual(notes[1].createdAt.getTime());
+    });
+  });
+
+  it("listTriageNotes returns empty array for group with no notes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Empty Notes Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertError(db, {
+        id: "err_empty_notes_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "No notes error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const group = groups[0];
+      expect(group).toBeDefined();
+
+      const notes = await listTriageNotes(db, group.id);
+      expect(notes).toHaveLength(0);
+    });
+  });
+
+  it("silenceIncident sets and clears silenced_until", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Silence Incident Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertError(db, {
+        id: "err_silence_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Silenceable error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const group = groups[0];
+      expect(group).toBeDefined();
+
+      const until = new Date("2026-06-08T10:00:00.000Z");
+      const silenced = await silenceIncident(db, { errorGroupId: group.id, until });
+      expect(silenced).not.toBeNull();
+      expect(silenced!.silencedUntil).toEqual(until);
+
+      // Clear silence
+      const cleared = await silenceIncident(db, { errorGroupId: group.id, until: null });
+      expect(cleared).not.toBeNull();
+      expect(cleared!.silencedUntil).toBeNull();
+    });
+  });
+
+  it("silenceIncident returns null for unknown group id", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const result = await silenceIncident(db, { errorGroupId: "grp_does_not_exist", until: new Date() });
+      expect(result).toBeNull();
+    });
+  });
+
+  it("getIncidentMttr returns null mttr and 0 count when no resolved groups in window", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "MTTR Empty Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const result = await getIncidentMttr(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        windowDays: 30
+      });
+
+      expect(result.mttrMs).toBeNull();
+      expect(result.resolvedCount).toBe(0);
+    });
+  });
+
+  it("getIncidentMttr computes average over resolved groups within window only", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "MTTR Compute Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      // Insert 3 errors that become 3 separate groups (different messages)
+      const now = new Date();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+
+      await insertError(db, {
+        id: "err_mttr_a",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "MTTR error A unique fingerprint alpha",
+        severity: "error",
+        timestamp: new Date(now.getTime() - 3 * oneDayMs),
+        receivedAt: new Date(now.getTime() - 3 * oneDayMs + 1000)
+      });
+      await insertError(db, {
+        id: "err_mttr_b",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "MTTR error B unique fingerprint beta",
+        severity: "error",
+        timestamp: new Date(now.getTime() - 2 * oneDayMs),
+        receivedAt: new Date(now.getTime() - 2 * oneDayMs + 1000)
+      });
+      // Out-of-window error (31 days ago)
+      await insertError(db, {
+        id: "err_mttr_c",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "MTTR error C unique fingerprint gamma",
+        severity: "error",
+        timestamp: new Date(now.getTime() - 31 * oneDayMs),
+        receivedAt: new Date(now.getTime() - 31 * oneDayMs + 1000)
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      expect(groups.length).toBeGreaterThanOrEqual(3);
+
+      // Resolve groups A and B with known resolution times (1h and 2h after first_seen_at respectively)
+      const groupA = groups.find((g) => g.latestErrorId === "err_mttr_a")!;
+      const groupB = groups.find((g) => g.latestErrorId === "err_mttr_b")!;
+      const groupC = groups.find((g) => g.latestErrorId === "err_mttr_c")!;
+
+      expect(groupA).toBeDefined();
+      expect(groupB).toBeDefined();
+      expect(groupC).toBeDefined();
+
+      const resolvedAtA = new Date(groupA.firstSeenAt.getTime() + 1 * 60 * 60 * 1000); // +1h
+      const resolvedAtB = new Date(groupB.firstSeenAt.getTime() + 3 * 60 * 60 * 1000); // +3h
+      // Resolve C out of window
+      const resolvedAtC = new Date(groupC.firstSeenAt.getTime() + 2 * 60 * 60 * 1000);
+
+      // Mark as resolved — force resolved_at and status directly
+      await sql`
+        UPDATE error_groups
+        SET status = 'resolved', resolved_at = ${resolvedAtA.toISOString()}
+        WHERE id = ${groupA.id}
+      `.execute(db);
+      await sql`
+        UPDATE error_groups
+        SET status = 'resolved', resolved_at = ${resolvedAtB.toISOString()}
+        WHERE id = ${groupB.id}
+      `.execute(db);
+      await sql`
+        UPDATE error_groups
+        SET status = 'resolved', resolved_at = ${resolvedAtC.toISOString()}
+        WHERE id = ${groupC.id}
+      `.execute(db);
+
+      // Query with 30-day window — should include A and B, not C
+      const result = await getIncidentMttr(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        windowDays: 30
+      });
+
+      // A: 1h = 3_600_000ms, B: 3h = 10_800_000ms → avg = 7_200_000ms
+      expect(result.resolvedCount).toBe(2);
+      expect(result.mttrMs).not.toBeNull();
+      expect(result.mttrMs!).toBeCloseTo(7_200_000, -3); // within ±1000ms tolerance
+    });
+  });
+
+  it("getIncidentMttr ignores unresolved groups and respects project/env scope", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "MTTR Scoped Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherProject = await createProject(db, { name: "MTTR Other Project" });
+      const otherEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "staging" });
+
+      const now = new Date();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+
+      // Resolved in target scope
+      await insertError(db, {
+        id: "err_mttr_scoped_a",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Scoped MTTR resolved error alpha unique",
+        severity: "error",
+        timestamp: new Date(now.getTime() - 2 * oneDayMs),
+        receivedAt: new Date(now.getTime() - 2 * oneDayMs + 1000)
+      });
+
+      // Unresolved in target scope — should be ignored
+      await insertError(db, {
+        id: "err_mttr_scoped_b",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Scoped MTTR unresolved error beta unique",
+        severity: "error",
+        timestamp: new Date(now.getTime() - 1 * oneDayMs),
+        receivedAt: new Date(now.getTime() - 1 * oneDayMs + 1000)
+      });
+
+      // Resolved in other scope — should be ignored
+      await insertError(db, {
+        id: "err_mttr_other",
+        projectId: otherProject.id,
+        environmentId: otherEnvironment.id,
+        message: "Other project MTTR resolved error gamma unique",
+        severity: "error",
+        timestamp: new Date(now.getTime() - 2 * oneDayMs),
+        receivedAt: new Date(now.getTime() - 2 * oneDayMs + 1000)
+      });
+
+      const scopedGroups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const groupA = scopedGroups.find((g) => g.latestErrorId === "err_mttr_scoped_a")!;
+
+      const otherGroups = await listErrorGroups(db, {
+        projectId: otherProject.id,
+        environmentId: otherEnvironment.id
+      });
+      const groupOther = otherGroups.find((g) => g.latestErrorId === "err_mttr_other")!;
+
+      expect(groupA).toBeDefined();
+      expect(groupOther).toBeDefined();
+
+      const resolvedAtA = new Date(groupA.firstSeenAt.getTime() + 2 * 60 * 60 * 1000); // +2h
+      const resolvedAtOther = new Date(groupOther.firstSeenAt.getTime() + 10 * 60 * 60 * 1000); // +10h (should be excluded)
+
+      await sql`UPDATE error_groups SET status = 'resolved', resolved_at = ${resolvedAtA.toISOString()} WHERE id = ${groupA.id}`.execute(db);
+      await sql`UPDATE error_groups SET status = 'resolved', resolved_at = ${resolvedAtOther.toISOString()} WHERE id = ${groupOther.id}`.execute(db);
+
+      const result = await getIncidentMttr(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        windowDays: 30
+      });
+
+      // Only groupA resolved in scope: 2h = 7_200_000ms
+      expect(result.resolvedCount).toBe(1);
+      expect(result.mttrMs).not.toBeNull();
+      expect(result.mttrMs!).toBeCloseTo(7_200_000, -3);
     });
   });
 

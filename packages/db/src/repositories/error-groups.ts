@@ -45,6 +45,9 @@ export type ErrorGroupRecord = {
   latestRelease: string | null;
   resolvedAt: Date | null;
   ignoredAt: Date | null;
+  assignedToUserId: string | null;
+  silencedUntil: Date | null;
+  incidentNumber: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -150,6 +153,9 @@ function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
     latestRelease: row.latest_release,
     resolvedAt: row.resolved_at,
     ignoredAt: row.ignored_at,
+    assignedToUserId: row.assigned_to_user_id,
+    silencedUntil: row.silenced_until,
+    incidentNumber: row.incident_number,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
