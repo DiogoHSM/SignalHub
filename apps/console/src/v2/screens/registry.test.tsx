@@ -120,6 +120,7 @@ describe("screen registry", () => {
     vi.spyOn(useErrorsModule, "useErrors").mockReturnValue({
       data: null,
       status: "loading",
+      reload: () => {},
     });
     const ctx = makeCtx();
     const { container } = render(<>{renderSection("investigate", ctx)}</>);
