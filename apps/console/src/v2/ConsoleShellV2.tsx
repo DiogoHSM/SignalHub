@@ -79,7 +79,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   // Page-transition state (remount the page div on nav change)
   const [seq, setSeq] = useState(0);
-  const [anim, setAnim] = useState<"in" | "out">("in");
+  const [anim, setAnim] = useState<"nav" | "forward" | "back">("nav");
 
   // Command palette
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -143,14 +143,10 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   // ─── actions ─────────────────────────────────────────────────────────────
 
   const navigate = useCallback((section: NavSection) => {
-    setAnim("out");
-    // Small timeout to allow exit animation before remounting
-    requestAnimationFrame(() => {
-      setNavRaw(section);
-      setDrillStack([]);
-      setSeq((s) => s + 1);
-      setAnim("in");
-    });
+    setNavRaw(section);
+    setDrillStack([]);
+    setAnim("nav");
+    setSeq((s) => s + 1);
     saveState({ nav: section });
   }, []);
 
