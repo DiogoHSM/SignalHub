@@ -133,7 +133,7 @@ export type ErrorGroupQuery = {
 export type IncidentMttrQuery = {
   projectId: string;
   environmentId: string;
-  window?: "24h" | "7d" | "30d";
+  window?: "7d" | "30d";
 };
 
 export type IncidentMttrResult = {
