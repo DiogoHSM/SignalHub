@@ -1,0 +1,388 @@
+import { useState } from "react";
+import type { NavSection } from "../nav";
+import type { ScreenCtx } from "./registry";
+import { useErrors } from "./useErrors";
+import type { ErrorRowVM } from "./useErrors";
+import type { OverviewWindow } from "../../api/types";
+import {
+  Bars,
+  Divider,
+  EmptyHint,
+  Icon,
+  PriorityPill,
+  Segmented,
+  StatusPill,
+  SummaryStat,
+} from "../../components/ui/v2";
+import { formatCompact } from "../../components/ui/v2/format";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type NavigateFn = (section: NavSection) => void;
+
+type SeverityFilter = "all" | "critical" | "error" | "warning";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const SEV_COLOR: Record<string, string> = {
+  critical: "var(--sev-critical)",
+  fatal: "var(--sev-critical)",
+  error: "var(--sev-error, var(--sev-warning))",
+  warning: "var(--sev-warning)",
+};
+
+const SEV_BG: Record<string, string> = {
+  critical: "var(--sev-critical-bg)",
+  fatal: "var(--sev-critical-bg)",
+  error: "var(--sev-error-bg, var(--sev-warning-bg))",
+  warning: "var(--sev-warning-bg)",
+};
+
+// ---------------------------------------------------------------------------
+// InvestigateTabs
+// ---------------------------------------------------------------------------
+
+type TabDef = {
+  label: string;
+  icon: "activity" | "error" | "waterfall" | "sparkles" | "cube" | "users";
+  count: string;
+  dest?: NavSection;
+  active?: boolean;
+};
+
+function InvestigateTabs({
+  tabs,
+  navigate,
+}: {
+  tabs: TabDef[];
+  navigate: NavigateFn;
+}) {
+  return (
+    <div className="inv-tabs">
+      {tabs.map((t) => (
+        <button
+          key={t.label}
+          className={`inv-tab${t.active ? " is-active" : ""}`}
+          aria-label={t.label}
+          onClick={t.dest ? () => navigate(t.dest!) : undefined}
+        >
+          <Icon name={t.icon} size={14} />
+          {t.label}
+          <span
+            className="sh-tag mono"
+            style={{
+              fontSize: 10,
+              padding: "1px 6px",
+              background: t.active ? "var(--bg-surface-3)" : "var(--bg-surface)",
+            }}
+          >
+            {t.count}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ErrorRow
+// ---------------------------------------------------------------------------
+
+function ErrorRow({ row, navigate }: { row: ErrorRowVM; navigate: NavigateFn }) {
+  const sevColor = SEV_COLOR[row.severity] ?? "var(--fg-muted)";
+  const sevBg = SEV_BG[row.severity] ?? "var(--bg-surface-2)";
+
+  return (
+    <button
+      className="sh-row sh-row--btn"
+      aria-label={row.message}
+      style={{
+        gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 84px 28px",
+        width: "100%",
+        textAlign: "left",
+        background: "transparent",
+        border: "none",
+        borderBottom: "1px solid var(--border-subtle)",
+        cursor: "pointer",
+      }}
+      onClick={() => navigate("incidents")}
+    >
+      {/* severity + message */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
+        <span
+          style={{
+            width: 3,
+            alignSelf: "stretch",
+            borderRadius: 1,
+            background: sevColor,
+            flex: "0 0 auto",
+          }}
+        />
+        <div style={{ minWidth: 0 }}>
+          <div
+            className="sh-mono"
+            style={{
+              fontSize: 12.5,
+              color: "var(--fg)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {row.message}
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
+            <span className="sh-tag mono">{row.id}</span>
+            <span
+              className="sh-tag"
+              style={{
+                background: sevBg,
+                color: sevColor,
+                borderColor: "transparent",
+                textTransform: "uppercase",
+                fontSize: 10,
+                fontWeight: 700,
+              }}
+            >
+              {row.severity}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* status */}
+      <span>
+        <StatusPill status={row.status as "open" | "investigating" | "resolved" | "ignored"} />
+      </span>
+
+      {/* priority */}
+      <span>
+        {row.priority != null ? <PriorityPill p={row.priority} /> : null}
+      </span>
+
+      {/* events */}
+      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 500 }}>
+        {row.events.toLocaleString()}
+      </span>
+
+      {/* users */}
+      <span className="sh-muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+        {row.users ?? "—"}
+      </span>
+
+      {/* tenants */}
+      <span className="sh-muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+        {row.tenants ?? "—"}
+      </span>
+
+      {/* last */}
+      <span className="sh-mono sh-faint" style={{ fontSize: 11 }}>
+        {row.last}
+      </span>
+
+      <Icon name="chev" size={13} style={{ color: "var(--fg-faint)" }} />
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ErrorsScreen
+// ---------------------------------------------------------------------------
+
+const WINDOW_OPTIONS: OverviewWindow[] = ["24h", "7d"];
+
+export function ErrorsScreen({
+  ctx,
+  navigate,
+}: {
+  ctx: ScreenCtx;
+  navigate: NavigateFn;
+}) {
+  const [window, setWindow] = useState<OverviewWindow>("24h");
+  const [severity, setSeverity] = useState<SeverityFilter>("all");
+
+  const projectId = ctx.project?.id ?? "";
+  const environmentId = ctx.environment?.id ?? "";
+
+  const { data, status } = useErrors({
+    client: ctx.client,
+    projectId,
+    environmentId,
+    window,
+    severity: severity === "all" ? undefined : severity,
+  });
+
+  // Defensive guard: shell should prevent renders without project/env, but
+  // protect against the initial project-load window to avoid spurious 400s.
+  if (!ctx.project || !ctx.environment) {
+    return (
+      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+        <EmptyHint
+          icon="activity"
+          title="No project selected"
+          sub="Select a project and environment to view errors."
+        />
+      </div>
+    );
+  }
+
+  // Loading state
+  if (status === "loading" && !data) {
+    return (
+      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+        <EmptyHint icon="activity" title="Loading…" sub="Fetching error groups." />
+      </div>
+    );
+  }
+
+  // Error state
+  if (status === "error" || !data) {
+    return (
+      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+        <EmptyHint
+          icon="alert"
+          title="Could not load errors"
+          sub="Check your connection or try again."
+        />
+      </div>
+    );
+  }
+
+  const { tabs, summary, volume, rows } = data;
+
+  const tabDefs: TabDef[] = [
+    { label: "Events", icon: "activity", count: formatCompact(tabs.events), dest: "overview" },
+    { label: "Errors", icon: "error", count: formatCompact(tabs.errors), active: true },
+    { label: "Traces", icon: "waterfall", count: formatCompact(tabs.traces), dest: "traces" },
+    { label: "LLM", icon: "sparkles", count: formatCompact(tabs.llm), dest: "llm" },
+    { label: "Tenants", icon: "cube", count: formatCompact(tabs.tenants), dest: "investigate" },
+    { label: "Users", icon: "users", count: formatCompact(tabs.users), dest: "investigate" },
+  ];
+
+  const SEV_OPTIONS = ["all", "critical", "error", "warning"] as const;
+  const sevLabel = (s: string) => (s === "all" ? "severity: all" : s);
+
+  return (
+    <>
+      {/* Tab bar */}
+      <InvestigateTabs tabs={tabDefs} navigate={navigate} />
+
+      {/* Filter row */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="sh-segmented">
+          {SEV_OPTIONS.map((s) => (
+            <button
+              key={s}
+              aria-pressed={s === severity}
+              onClick={() => setSeverity(s)}
+            >
+              {sevLabel(s)}
+            </button>
+          ))}
+        </div>
+        {/* TODO(PER-349 follow-up): wire status/release filters */}
+        <button className="sh-btn" disabled>
+          <Icon name="filter" size={13} />
+          status: open, investigating
+        </button>
+        <button className="sh-btn" disabled>
+          <Icon name="filter" size={13} />
+          release: any
+        </button>
+        <div style={{ flex: 1 }} />
+        <Segmented options={["Grouped", "Raw"]} value="Grouped" />
+        <Segmented
+          options={WINDOW_OPTIONS}
+          value={window}
+          onChange={(v) => setWindow(v as OverviewWindow)}
+        />
+      </div>
+
+      {/* Summary strip */}
+      <div className="sh-card">
+        <div
+          className="sh-card__body"
+          style={{
+            display: "flex",
+            gap: 28,
+            padding: "14px 18px",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <SummaryStat
+            label="Errors (24h)"
+            value={summary.errors24h.toLocaleString()}
+            tone="danger"
+          />
+          <Divider />
+          <SummaryStat label="Open groups" value={String(summary.openGroups)} />
+          <Divider />
+          <SummaryStat label="Critical" value={String(summary.critical)} tone="danger" />
+          <Divider />
+          <SummaryStat label="MTTR" value="—" />
+          <Divider />
+          <SummaryStat
+            label="Top release"
+            value={summary.topRelease ?? "—"}
+            mono
+          />
+          <div style={{ flex: 1 }} />
+          {volume.length > 0 && (
+            <div style={{ width: 240 }}>
+              <div
+                className="sh-eyebrow"
+                style={{ marginBottom: 4, fontSize: 11, color: "var(--fg-muted)" }}
+              >
+                Volume / hour
+              </div>
+              <Bars data={volume} color="var(--sev-critical)" height={32} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Error group table */}
+      <div
+        className="sh-card"
+        style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+      >
+        {/* Table header */}
+        <div
+          className="sh-row sh-row__head"
+          style={{
+            gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 84px 28px",
+          }}
+        >
+          <span>Error</span>
+          <span>Status</span>
+          <span>Priority</span>
+          <span>Events</span>
+          <span>Users</span>
+          <span>Tenants</span>
+          <span>Last</span>
+          <span />
+        </div>
+
+        {/* Rows */}
+        <div style={{ overflow: "auto", flex: 1 }}>
+          {rows.length === 0 ? (
+            <EmptyHint
+              icon="error"
+              title="No error groups"
+              sub="No errors match the current filters."
+            />
+          ) : (
+            rows.map((row) => (
+              <ErrorRow key={row.id} row={row} navigate={navigate} />
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  );
+}

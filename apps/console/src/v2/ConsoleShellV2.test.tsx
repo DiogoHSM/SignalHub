@@ -225,4 +225,14 @@ describe("ConsoleShellV2", () => {
       expect(document.querySelector(".command-palette")).toBeInTheDocument();
     });
   });
+
+  it("shows loading project hint when projects have not yet loaded", () => {
+    // Client that never resolves project list — simulates initial load window
+    const client = makeClient({
+      listProjects: vi.fn().mockReturnValue(new Promise(() => {})),
+    });
+    render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    // Shell guard renders EmptyHint before project/env are available
+    expect(screen.getByText(/loading project/i)).toBeInTheDocument();
+  });
 });
