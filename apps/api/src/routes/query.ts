@@ -1376,10 +1376,10 @@ async function handleFleetProjectEnvironmentsRoute(request: FastifyRequest, repl
     return reply.status(400).send({ error: "invalid_query" });
   }
 
-  const raw = (request.query ?? {}) as Record<string, unknown>;
-  const rawWindow = typeof raw.window === "string" ? raw.window.trim() : "24h";
-  const window: "24h" | "7d" | "30d" =
-    rawWindow === "7d" ? "7d" : rawWindow === "30d" ? "30d" : "24h";
+  const window = parseFleetWindow(request.query);
+  if (window === null) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
 
   try {
     const result = await options.query.getProjectFleetEnvironments(params.data.id, window);

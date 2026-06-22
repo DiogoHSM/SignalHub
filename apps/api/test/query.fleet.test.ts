@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.js";
 import { clearFleetCache } from "../src/routes/query.js";
 import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
@@ -207,6 +207,42 @@ describe("GET /query/fleet", () => {
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ error: "query_unavailable" });
   });
+
+  it("caches fleet data for 10s and recomputes after TTL expires", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const getFleetMock = vi.fn(async () => mockFleetData);
+
+      app = await buildApp({
+        readiness,
+        auth: humanAuth,
+        query: {
+          getFleet: getFleetMock
+        }
+      });
+
+      // First request — mock called once
+      const response1 = await app.inject({ method: "GET", url: "/query/fleet" });
+      expect(response1.statusCode).toBe(200);
+      expect(getFleetMock).toHaveBeenCalledTimes(1);
+
+      // Second request immediately after — mock still called once (cached)
+      const response2 = await app.inject({ method: "GET", url: "/query/fleet" });
+      expect(response2.statusCode).toBe(200);
+      expect(getFleetMock).toHaveBeenCalledTimes(1);
+
+      // Advance time past 10s
+      vi.advanceTimersByTime(10_001);
+
+      // Third request — mock called twice (cache expired, recomputed)
+      const response3 = await app.inject({ method: "GET", url: "/query/fleet" });
+      expect(response3.statusCode).toBe(200);
+      expect(getFleetMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("GET /query/fleet/projects/:id/environments", () => {
@@ -226,6 +262,24 @@ describe("GET /query/fleet/projects/:id/environments", () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toEqual({ error: "unauthenticated" });
+  });
+
+  it("returns 400 when window param is invalid", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getProjectFleetEnvironments: async () => mockEnvsResult
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/fleet/projects/prj_1/environments?window=foo"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
   it("returns 404 when project is unknown", async () => {
