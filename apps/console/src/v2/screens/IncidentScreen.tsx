@@ -112,7 +112,7 @@ export function IncidentScreen({
       environmentId,
       groupId,
       errorId,
-      onResolved: () => ctx.back?.(),
+      onResolved: () => ctx.back(),
     });
 
   // Local UI state
@@ -161,7 +161,7 @@ export function IncidentScreen({
     if (rel.target.kind === "section") {
       ctx.navigate(rel.target.section as NavSection);
     } else if (rel.target.kind === "drill") {
-      ctx.drill?.("incident", { groupId: rel.target.groupId });
+      ctx.drill("incident", { groupId: rel.target.groupId });
     }
   }
 
@@ -172,7 +172,7 @@ export function IncidentScreen({
         <button
           className="sh-btn"
           aria-label="Back"
-          onClick={() => ctx.back?.()}
+          onClick={() => ctx.back()}
         >
           <Icon name="chev" size={13} style={{ transform: "rotate(180deg)" }} />
           Back
@@ -370,7 +370,7 @@ export function IncidentScreen({
                 ctx.pushToast?.({ title: "Link copied", icon: "link" });
               })
               .catch(() => {
-                ctx.pushToast?.({ title: "Link copied", icon: "link" });
+                ctx.pushToast?.("Couldn't copy link");
               });
           }}
         >

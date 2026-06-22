@@ -92,7 +92,7 @@ function InvestigateTabs({
 // ErrorRow
 // ---------------------------------------------------------------------------
 
-function ErrorRow({ row, navigate }: { row: ErrorRowVM; navigate: NavigateFn }) {
+function ErrorRow({ row, ctx }: { row: ErrorRowVM; ctx: ScreenCtx }) {
   const sevColor = SEV_COLOR[row.severity] ?? "var(--fg-muted)";
   const sevBg = SEV_BG[row.severity] ?? "var(--bg-surface-2)";
 
@@ -109,7 +109,7 @@ function ErrorRow({ row, navigate }: { row: ErrorRowVM; navigate: NavigateFn }) 
         borderBottom: "1px solid var(--border-subtle)",
         cursor: "pointer",
       }}
-      onClick={() => navigate("incidents")}
+      onClick={() => ctx.drill("incident", { groupId: row.id })}
     >
       {/* severity + message */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0 }}>
@@ -378,7 +378,7 @@ export function ErrorsScreen({
             />
           ) : (
             rows.map((row) => (
-              <ErrorRow key={row.id} row={row} navigate={navigate} />
+              <ErrorRow key={row.id} row={row} ctx={ctx} />
             ))
           )}
         </div>

@@ -10,7 +10,8 @@ import { useConsoleProjects } from "./useConsoleProjects";
 import { useToasts } from "./useToasts";
 import { useFleet } from "./useFleet";
 import { renderSection } from "./screens/registry";
-import type { ScreenCtx } from "./screens/registry";
+import type { ScreenCtx, DrillTarget, DrillParams } from "./screens/registry";
+import { IncidentScreen } from "./screens/IncidentScreen";
 import type { NavSection } from "./nav";
 import type { BreadcrumbItem } from "./shell/TopBar";
 import { EmptyHint } from "../components/ui/v2";
@@ -77,6 +78,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   const [railCollapsed, setRailCollapsedRaw] = useState(persisted.railCollapsed ?? false);
   const [drillStack, setDrillStack] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [detail, setDetail] = useState<{ target: "incident"; groupId: string; errorId?: string } | null>(null);
 
   // Page-transition state (remount the page div on nav change)
   const [seq, setSeq] = useState(0);
@@ -144,6 +146,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   // ─── actions ─────────────────────────────────────────────────────────────
 
   const navigate = useCallback((section: NavSection) => {
+    setDetail(null);
     setNavRaw(section);
     setDrillStack([]);
     setAnim("nav");
@@ -252,6 +255,14 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     [client]
   );
 
+  const handleDrill = useCallback((target: DrillTarget, params: DrillParams) => {
+    setDetail({ target, ...params });
+  }, []);
+
+  const handleBack = useCallback(() => {
+    setDetail(null);
+  }, []);
+
   // ─── render section context ───────────────────────────────────────────────
   const screenCtx: ScreenCtx = {
     client,
@@ -266,6 +277,8 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     onUpdateProject: handleUpdateProject,
     onUpdateEnvironment: handleUpdateEnvironment,
     navigate,
+    drill: handleDrill,
+    back: handleBack,
   };
 
   // ─── command palette commands ─────────────────────────────────────────────
@@ -313,7 +326,9 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
           <div className="app-workspace">
             <div className="page" key={seq} data-anim={anim}>
               {activeProject && activeEnvironment
-                ? renderSection(nav, screenCtx)
+                ? detail
+                  ? <IncidentScreen ctx={screenCtx} groupId={detail.groupId} errorId={detail.errorId} />
+                  : renderSection(nav, screenCtx)
                 : (
                   <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
                     <EmptyHint

@@ -82,6 +82,8 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
     onUpdateProject: vi.fn().mockResolvedValue(undefined),
     onUpdateEnvironment: vi.fn().mockResolvedValue(undefined),
     navigate: vi.fn() as (section: NavSection) => void,
+    back: vi.fn(),
+    drill: vi.fn(),
     ...overrides,
   };
 }

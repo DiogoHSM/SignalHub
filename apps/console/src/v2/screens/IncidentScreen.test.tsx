@@ -341,11 +341,12 @@ describe("IncidentScreen", () => {
       expect(screen.getAllByText(/412 occurrences/i).length).toBeGreaterThanOrEqual(1);
     });
 
-    it("renders first and last seen in occurrence summary", () => {
+    it("renders first and last seen in occurrence summary card", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      expect(screen.getAllByText(/first/i).length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText(/last/i).length).toBeGreaterThanOrEqual(1);
+      // The occurrence summary card renders a single span with all info:
+      // "{n} occurrences · first {firstSeenRelative} · last {lastSeenRelative}"
+      expect(screen.getAllByText(/412 occurrences.*first.*32m ago.*last.*8s ago/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it("does NOT render any bar chart (no <div aria-hidden> chart bars)", () => {
@@ -472,6 +473,8 @@ describe("IncidentScreen", () => {
       // We check that we have exactly Trace and Session as rendered related items
       const relatedItems = screen.getAllByRole("button", { name: /^(Trace|Session)$/i });
       expect(relatedItems.length).toBeGreaterThanOrEqual(1);
+      // User and Tenant rows (no target) should not appear as buttons in the related section
+      expect(screen.queryByRole("button", { name: "User" })).not.toBeInTheDocument();
     });
 
     it("clicking a section-target related row calls ctx.navigate", async () => {
