@@ -117,7 +117,7 @@ export function useOverview({
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<OverviewVM | null>(null);
   const [tick, setTick] = useState(0);
-  const cancelledRef = useRef(false);
+  const genRef = useRef(0);
 
   const reload = useCallback(() => {
     setStatus("loading");
@@ -125,7 +125,7 @@ export function useOverview({
   }, []);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    const gen = ++genRef.current;
     setStatus("loading");
 
     const query = { projectId, environmentId, window: timeWindow };
@@ -142,7 +142,7 @@ export function useOverview({
         .then((r) => r.data)
     ])
       .then(([overview, ops, tenantList]) => {
-        if (cancelledRef.current) return;
+        if (gen !== genRef.current) return;
 
         // banner
         const banner = buildBanner(ops);
@@ -222,14 +222,15 @@ export function useOverview({
         setData({ banner, kpis: kpisVM, topTenants, llmByModel, activity });
         setStatus("ok");
       })
-      .catch(() => {
-        if (cancelledRef.current) return;
+      .catch((err) => {
+        if (gen !== genRef.current) return;
+        console.error(err);
         setData(null);
         setStatus("error");
       });
 
     return () => {
-      cancelledRef.current = true;
+      ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, environmentId, timeWindow, tick]);

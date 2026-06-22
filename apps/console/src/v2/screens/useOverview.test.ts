@@ -566,7 +566,7 @@ describe("useOverview", () => {
     await waitFor(() => expect(client.getOverview).toHaveBeenCalledTimes(2));
   });
 
-  it("does not update state after unmount (no cancelled-promise warnings)", async () => {
+  it("does not update state after unmount (generation guard prevents post-unmount setState)", async () => {
     let resolveOverview!: (v: AggregateResponse<OverviewResponse>) => void;
     const pendingOverview = new Promise<AggregateResponse<OverviewResponse>>((res) => {
       resolveOverview = res;
@@ -578,7 +578,7 @@ describe("useOverview", () => {
       listEntityTenants: vi.fn().mockResolvedValue({ data: TENANTS })
     };
 
-    const { unmount } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+    const { result, unmount } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
 
     unmount();
 
@@ -587,8 +587,53 @@ describe("useOverview", () => {
       resolveOverview({ data: OVERVIEW });
     });
 
-    // No error thrown means cancellation guard works
-    expect(true).toBe(true);
+    // Status must remain loading — the generation guard prevented setState
+    expect(result.current.status).toBe("loading");
+    expect(result.current.data).toBeNull();
+  });
+
+  it("rapid reload() does not let stale fetch overwrite fresh data (generation counter)", async () => {
+    // First call returns a deferred promise (slow / stale)
+    let resolveStale!: (v: AggregateResponse<OverviewResponse>) => void;
+    const stalePromise = new Promise<AggregateResponse<OverviewResponse>>((res) => {
+      resolveStale = res;
+    });
+
+    // Second call resolves immediately with fresh data
+    const freshOverview: OverviewResponse = {
+      ...OVERVIEW,
+      kpis: { ...OVERVIEW.kpis, events: 9999 }
+    };
+
+    let callCount = 0;
+    const client = {
+      getOverview: vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) return stalePromise;
+        return Promise.resolve({ data: freshOverview } as AggregateResponse<OverviewResponse>);
+      }),
+      getOperations: vi.fn().mockResolvedValue({ data: OPERATIONS }),
+      listEntityTenants: vi.fn().mockResolvedValue({ data: TENANTS })
+    };
+
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    // Trigger a second (fresh) fetch before the first one resolves
+    act(() => {
+      result.current.reload();
+    });
+
+    // Wait for the fresh fetch to settle
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data!.kpis.events).toBe(9999);
+
+    // Now resolve the original stale promise — must NOT overwrite fresh data
+    act(() => {
+      resolveStale({ data: OVERVIEW }); // OVERVIEW has events=5000
+    });
+
+    // After stale resolution, fresh data (9999) must still be present
+    expect(result.current.data!.kpis.events).toBe(9999);
   });
 
   it("topModel is null when llmModels is empty", async () => {

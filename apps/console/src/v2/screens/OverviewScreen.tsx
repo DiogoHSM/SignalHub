@@ -145,10 +145,12 @@ function IncidentBanner({
 function AllClearBanner({
   projectName,
   envName,
+  window: timeWindow,
   onViewRules,
 }: {
   projectName: string;
   envName: string;
+  window: OverviewWindow;
   onViewRules: () => void;
 }) {
   return (
@@ -173,7 +175,7 @@ function AllClearBanner({
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600 }}>No active incidents</div>
           <div className="sh-muted" style={{ fontSize: 12, marginTop: 2 }}>
-            {projectName} · {envName} operating within expected range over the last 24h.
+            {projectName} · {envName} operating within expected range over the last {timeWindow}.
           </div>
         </div>
         <button className="sh-btn" onClick={onViewRules}>
@@ -341,7 +343,7 @@ const MODEL_COLORS = [
 ];
 
 function LlmByModelPanel({ models, window: timeWindow }: { models: LlmByModelVM[]; window: string }) {
-  const total = models.reduce((s, m) => s + parseFloat(m.costUsd), 0) || 1;
+  const total = models.reduce((s, m) => s + (Number(m.costUsd) || 0), 0) || 1;
   return (
     <Card title="LLM cost by model" actions={<span className="sh-tag">{timeWindow}</span>}>
       {models.length === 0 ? (
@@ -349,7 +351,7 @@ function LlmByModelPanel({ models, window: timeWindow }: { models: LlmByModelVM[
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
           {models.map((m, i) => {
-            const cost = parseFloat(m.costUsd);
+            const cost = Number(m.costUsd) || 0;
             const frac = cost / total;
             const color = MODEL_COLORS[i % MODEL_COLORS.length];
             return (
@@ -415,19 +417,11 @@ const ACTIVITY_COLOR: Record<ActivityItemVM["kind"], string> = {
   trace: "var(--sev-info)",
 };
 
-// Need the type to not cause circular imports
-type ActivityItemVMLocal = {
-  kind: "error" | "trace" | "llm";
-  title: string;
-  sub: string | null;
-  timestamp: string;
-};
-
 function RecentActivityPanel({
   items,
   navigate,
 }: {
-  items: ActivityItemVMLocal[];
+  items: ActivityItemVM[];
   navigate: NavigateFn;
 }) {
   return (
@@ -552,16 +546,11 @@ export function OverviewScreen({
           </>
         }
         actions={
-          <>
-            <Segmented
-              options={WINDOW_OPTIONS}
-              value={window}
-              onChange={(v) => setWindow(v as OverviewWindow)}
-            />
-            <button className="sh-btn">
-              <Icon name="download" size={14} /> Export
-            </button>
-          </>
+          <Segmented
+            options={WINDOW_OPTIONS}
+            value={window}
+            onChange={(v) => setWindow(v as OverviewWindow)}
+          />
         }
       />
 
@@ -578,6 +567,7 @@ export function OverviewScreen({
         <AllClearBanner
           projectName={projectName}
           envName={envName}
+          window={window}
           onViewRules={() => navigate("alerts")}
         />
       )}

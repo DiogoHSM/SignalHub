@@ -128,6 +128,23 @@ describe("OverviewScreen", () => {
       await userEvent.click(screen.getByRole("button", { name: /view rules/i }));
       expect(navigate).toHaveBeenCalledWith("alerts");
     });
+
+    it("all-clear banner reflects selected window (not hardcoded 24h)", async () => {
+      mockUseOverview(ALL_CLEAR_VM);
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      // Default window is 24h — banner should say "24h"
+      expect(screen.getByText(/over the last 24h/i)).toBeInTheDocument();
+
+      // Switch to 7d
+      await userEvent.click(screen.getByRole("button", { name: "7d" }));
+
+      // Banner must now reflect 7d
+      await waitFor(() =>
+        expect(screen.getByText(/over the last 7d/i)).toBeInTheDocument()
+      );
+      expect(screen.queryByText(/over the last 24h/i)).not.toBeInTheDocument();
+    });
   });
 
   describe("KPI groups", () => {
