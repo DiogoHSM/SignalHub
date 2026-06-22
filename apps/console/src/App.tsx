@@ -3,6 +3,8 @@ import { createApiClient } from "./api/client";
 import type { ConsoleConfig } from "./api/types";
 import { AuthGate } from "./components/AuthGate";
 import { ConsoleShell } from "./components/ConsoleShell";
+import { ConsoleShellV2 } from "./v2/ConsoleShellV2";
+import { resolveV2ShellFlag } from "./v2/flag";
 
 const bootstrapClient = createApiClient();
 
@@ -57,17 +59,23 @@ export function App() {
     );
   }
 
+  const useV2 = resolveV2ShellFlag();
+
   return (
     <AuthGate client={runtime.client}>
-      {({ user, signOut }) => (
-        <ConsoleShell
-          apiEndpoint={resolveApiEndpoint(runtime.config.apiEndpoint)}
-          browserCorsOrigins={runtime.config.browserCorsOrigins}
-          client={runtime.client}
-          onSignOut={signOut}
-          user={user}
-        />
-      )}
+      {({ user, signOut }) =>
+        useV2 ? (
+          <ConsoleShellV2 client={runtime.client} user={user} />
+        ) : (
+          <ConsoleShell
+            apiEndpoint={resolveApiEndpoint(runtime.config.apiEndpoint)}
+            browserCorsOrigins={runtime.config.browserCorsOrigins}
+            client={runtime.client}
+            onSignOut={signOut}
+            user={user}
+          />
+        )
+      }
     </AuthGate>
   );
 }

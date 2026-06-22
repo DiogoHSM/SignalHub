@@ -54,6 +54,7 @@ function isHistoricalOrExternal(path: string) {
     path.startsWith("docs/superpowers/plans/") ||
     path.startsWith("docs/superpowers/runs/") ||
     path.startsWith("review/") ||
+    path.startsWith(".claude/design-v2/") ||
     path === "audit.md"
   );
 }

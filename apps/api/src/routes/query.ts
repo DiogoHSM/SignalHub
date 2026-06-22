@@ -3,6 +3,7 @@ import { z } from "zod";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 import type { SourceMapResolutionResponse } from "../source-maps/resolver.js";
 import type { AuthDependencies } from "./auth.js";
+import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -180,6 +181,8 @@ export type QueryDependencies = {
     projectId: string;
     environmentId: string;
   }) => Promise<SourceMapResolutionResponse | null>;
+  getFleet?: (window: "24h" | "7d" | "30d") => Promise<FleetData>;
+  getProjectFleetEnvironments?: (projectId: string, window: "24h" | "7d" | "30d") => Promise<FleetProjectEnvsResult | undefined>;
 };
 
 export type QueryRouteOptions = {
@@ -1293,7 +1296,107 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
   }
 }
 
+// ---------------------------------------------------------------------------
+// Fleet TTL cache (10 s in-process, keyed by window)
+// ---------------------------------------------------------------------------
+
+type FleetCacheEntry = { data: FleetData; expiresAt: number };
+const fleetCache = new Map<string, FleetCacheEntry>();
+const FLEET_TTL_MS = 10_000;
+
+/** Clears the in-process fleet cache. Exposed for test isolation only. */
+export function clearFleetCache(): void {
+  fleetCache.clear();
+}
+
+async function getCachedFleet(
+  window: "24h" | "7d" | "30d",
+  getFleet: (window: "24h" | "7d" | "30d") => Promise<FleetData>
+): Promise<FleetData> {
+  const cached = fleetCache.get(window);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.data;
+  }
+  const data = await getFleet(window);
+  fleetCache.set(window, { data, expiresAt: Date.now() + FLEET_TTL_MS });
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Fleet route handlers
+// ---------------------------------------------------------------------------
+
+function parseFleetWindow(query: unknown): "24h" | "7d" | "30d" | null {
+  const raw = (query ?? {}) as Record<string, unknown>;
+  const value = typeof raw.window === "string" ? raw.window.trim() : undefined;
+  const resolved = value && value.length > 0 ? value : "24h";
+  if (resolved !== "24h" && resolved !== "7d" && resolved !== "30d") {
+    return null;
+  }
+  return resolved;
+}
+
+const fleetProjectParamsSchema = z.object({ id: z.string().trim().min(1) });
+
+async function handleFleetRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getFleet) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const window = parseFleetWindow(request.query);
+  if (window === null) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const data = await getCachedFleet(window, options.query.getFleet);
+    return reply.send({ data });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleFleetProjectEnvironmentsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getProjectFleetEnvironments) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = fleetProjectParamsSchema.safeParse(request.params);
+  if (!params.success) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  const window = parseFleetWindow(request.query);
+  if (window === null) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getProjectFleetEnvironments(params.data.id, window);
+    if (result === undefined) {
+      return reply.status(404).send({ error: "project_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
+  app.get("/query/fleet", (request, reply) => handleFleetRoute(request, reply, options));
+  app.get("/query/fleet/projects/:id/environments", (request, reply) =>
+    handleFleetProjectEnvironmentsRoute(request, reply, options)
+  );
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
   app.get("/query/operations", (request, reply) => handleOperationsRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));

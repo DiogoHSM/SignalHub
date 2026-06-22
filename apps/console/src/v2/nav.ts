@@ -1,0 +1,32 @@
+import type { IconName } from "../components/ui/v2/icon";
+
+export type NavSection =
+  | "overview"
+  | "investigate"
+  | "incidents"
+  | "llm"
+  | "traces"
+  | "alerts"
+  | "system"
+  | "settings";
+
+export type NavItem = {
+  id: NavSection;
+  icon: IconName;
+  label: string;
+  badge?: boolean;
+};
+
+export const NAV: NavItem[] = [
+  { id: "overview",    icon: "home",      label: "Overview" },
+  { id: "investigate", icon: "activity",  label: "Investigate" },
+  { id: "incidents",   icon: "error",     label: "Incidents", badge: true },
+  { id: "llm",         icon: "sparkles",  label: "LLM" },
+  { id: "traces",      icon: "waterfall", label: "Traces" },
+  { id: "alerts",      icon: "bell",      label: "Alerts" },
+];
+
+export const NAV_BOTTOM: NavItem[] = [
+  { id: "system",   icon: "server",   label: "System" },
+  { id: "settings", icon: "settings", label: "Settings" },
+];

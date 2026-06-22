@@ -57,6 +57,58 @@ import type {
   UpdateNotificationChannelInput
 } from "./types";
 
+// Fleet types — matching B1 spec §2 verbatim
+export type FleetProject = {
+  id: string;
+  name: string;
+  status: "ok" | "warning" | "critical" | "idle";
+  incidents: number;
+  alerts: number;
+  errorRatePercent: number | null;
+  errorRateDelta: number | null;
+  errorTrend: number[];
+  events: number;
+  activeUsers: number;
+  activeTenants: number;
+  llmCostUsd: string;
+  llmCostDeltaUsd: string | null;
+  p95TraceDurationMs: number | null;
+  p95DeltaMs: number | null;
+  infra: {
+    api: "ok" | "warning" | "critical";
+    db: "ok" | "warning" | "critical";
+    redis: "ok" | "warning" | "critical";
+    queue: "ok" | "warning" | "critical";
+  };
+  topIncident: {
+    message: string;
+    traceOrRouteName: string | null;
+    occurrenceCount: number;
+    affectedUsers: number;
+    severity: "critical" | "warning";
+  } | null;
+};
+
+export type FleetRollup = {
+  counts: { ok: number; warning: number; critical: number };
+  incidents: number;
+  alerts: number;
+  llmCostUsd: string;
+  overall: "ok" | "warning" | "critical";
+  total: number;
+};
+
+export type FleetData = {
+  window: "24h" | "7d" | "30d";
+  generatedAt: string;
+  projects: FleetProject[];
+  rollup: FleetRollup;
+};
+
+export type FleetResponse = {
+  data: FleetData;
+};
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -187,6 +239,7 @@ export type ApiClient = {
   createUser: (input: { email: string; password: string; isAdmin: boolean }) => Promise<{ user: User }>;
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
+  fetchFleet: () => Promise<FleetResponse>;
 } & AlertApiClient &
   ErrorGroupApiClient &
   SessionTimelineApiClient &
@@ -722,6 +775,7 @@ export function createApiClient(
     listAlertEvents: (query) =>
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>
-      request<AggregateResponse<AlertEventResponse>>(path(apiBasePath, `/alerts/events/${encodePathSegment(id)}`))
+      request<AggregateResponse<AlertEventResponse>>(path(apiBasePath, `/alerts/events/${encodePathSegment(id)}`)),
+    fetchFleet: () => request<FleetResponse>(path(apiBasePath, "/query/fleet"))
   };
 }
