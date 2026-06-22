@@ -59,7 +59,8 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
     getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
     updateErrorGroupTriage: vi.fn(),
-    getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } })
+    getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
+    fetchFleet: vi.fn().mockRejectedValue(new Error("fleet unavailable"))
   } satisfies ApiClient;
   const operationalClient = {
     getConsoleConfig: vi.fn(),
@@ -114,7 +115,8 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
     getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
     updateErrorGroupTriage: vi.fn(),
-    getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } })
+    getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
+    fetchFleet: vi.fn().mockRejectedValue(new Error("fleet unavailable"))
   } satisfies ApiClient;
   const createApiClient = vi.fn((apiBasePath?: string) => (apiBasePath === "/api" ? operationalClient : bootstrapClient));
 

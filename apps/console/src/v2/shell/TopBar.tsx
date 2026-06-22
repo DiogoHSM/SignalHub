@@ -21,6 +21,8 @@ export interface TopBarProps {
   onToggleRail: () => void;
   onRefresh: () => void;
   onOpenSearch: () => void;
+  /** Authenticated user — initials derived from email; falls back to "OP". */
+  userEmail?: string;
 }
 
 // Projects and environments don't carry a `status` field in the API types,
@@ -159,6 +161,14 @@ function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
   );
 }
 
+function deriveInitials(email: string | undefined): string {
+  if (!email) return "OP";
+  const [name] = email.split("@");
+  const parts = name.split(/[._\-\s]+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
 export function TopBar({
   projects,
   project,
@@ -171,7 +181,9 @@ export function TopBar({
   onToggleRail,
   onRefresh,
   onOpenSearch,
+  userEmail,
 }: TopBarProps) {
+  const avatarInitials = deriveInitials(userEmail);
   return (
     <header className="tb">
       <ProjectSwitcher
@@ -202,8 +214,8 @@ export function TopBar({
             <Icon name="panelExpand" size={15} />
           </button>
         ) : null}
-        <div className="tb-avatar" title="ana@acme.dev">
-          AM
+        <div className="tb-avatar" title={userEmail ?? "Console operator"}>
+          {avatarInitials}
         </div>
       </div>
     </header>

@@ -61,21 +61,21 @@ export function App() {
 
   const useV2 = resolveV2ShellFlag();
 
-  if (useV2) {
-    return <ConsoleShellV2 />;
-  }
-
   return (
     <AuthGate client={runtime.client}>
-      {({ user, signOut }) => (
-        <ConsoleShell
-          apiEndpoint={resolveApiEndpoint(runtime.config.apiEndpoint)}
-          browserCorsOrigins={runtime.config.browserCorsOrigins}
-          client={runtime.client}
-          onSignOut={signOut}
-          user={user}
-        />
-      )}
+      {({ user, signOut }) =>
+        useV2 ? (
+          <ConsoleShellV2 client={runtime.client} user={user} />
+        ) : (
+          <ConsoleShell
+            apiEndpoint={resolveApiEndpoint(runtime.config.apiEndpoint)}
+            browserCorsOrigins={runtime.config.browserCorsOrigins}
+            client={runtime.client}
+            onSignOut={signOut}
+            user={user}
+          />
+        )
+      }
     </AuthGate>
   );
 }
