@@ -41,6 +41,9 @@ function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord 
     latestRelease: "v1.2.0",
     resolvedAt: null,
     ignoredAt: null,
+    assignedToUserId: null,
+    incidentNumber: null,
+    silencedUntil: null,
     createdAt: FIRST_ISO,
     updatedAt: LAST_ISO,
     ...overrides

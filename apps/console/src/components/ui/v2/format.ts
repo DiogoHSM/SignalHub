@@ -17,6 +17,21 @@ export function formatCompact(n: number): string {
 }
 
 /**
+ * Compact duration formatter for MTTR and similar millisecond durations.
+ *
+ * Rules:
+ *   null          → "—"
+ *   < 60 min      → whole minutes, e.g. "42 min"
+ *   >= 60 min     → one-decimal hours, e.g. "1.5 h"
+ */
+export function formatDurationShort(ms: number | null): string {
+  if (ms == null) return "—";
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `${minutes} min`;
+  return `${(ms / 3600000).toFixed(1)} h`;
+}
+
+/**
  * Human-readable relative time from an ISO timestamp.
  * Returns strings like "8s ago", "32m ago", "4h ago", "2d ago".
  */

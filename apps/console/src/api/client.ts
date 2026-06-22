@@ -19,6 +19,8 @@ import type {
   ErrorGroupIncidentQuery,
   ErrorGroupQuery,
   ErrorGroupRecord,
+  IncidentMttrQuery,
+  IncidentMttrResult,
   ErrorRecord,
   EventRecord,
   LlmAggregates,
@@ -235,6 +237,7 @@ export type ApiClient = {
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
+  getIncidentMttr?: (query: IncidentMttrQuery) => Promise<AggregateResponse<IncidentMttrResult>>;
   getSystemHealth: () => Promise<AggregateResponse<SystemHealthResponse>>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
@@ -494,6 +497,15 @@ function operationsPath(query: OperationsQuery): string {
   return `/query/operations?${params.toString()}`;
 }
 
+function incidentMttrPath(query: IncidentMttrQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.window) params.set("window", query.window);
+
+  return `/query/incidents/mttr?${params.toString()}`;
+}
+
 function entityTenantListPath(query: TenantListQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -742,6 +754,7 @@ export function createApiClient(
       request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
+    getIncidentMttr: (query) => request<AggregateResponse<IncidentMttrResult>>(path(apiBasePath, incidentMttrPath(query))),
     getSystemHealth: () => request<AggregateResponse<SystemHealthResponse>>(path(apiBasePath, "/system/health")),
     listEntityTenants: (query) =>
       request<AggregateResponse<TenantListResponse>>(path(apiBasePath, entityTenantListPath(query))),

@@ -35,6 +35,9 @@ function incidentFixture(overrides: IncidentFixtureOverrides = {}): ErrorGroupIn
       latestRelease: "web@1",
       resolvedAt: null,
       ignoredAt: null,
+      assignedToUserId: null,
+      incidentNumber: null,
+      silencedUntil: null,
       createdAt: "2026-05-24T12:00:00.000Z",
       updatedAt: "2026-05-24T12:05:00.000Z"
     },
