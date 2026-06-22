@@ -2185,4 +2185,460 @@ describe("query routes", () => {
     expect(response.statusCode).toBe(501);
     expect(response.json()).toEqual({ error: "query_method_unavailable" });
   });
+
+  // ── assign incident ─────────────────────────────────────────────────────────
+
+  it("assigns an incident to a user via PATCH /query/error-groups/:id", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async (input) => {
+          received.push(input);
+          return { ok: true, group: { id: "egrp_1", assignedToUserId: "usr_2" } as never };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { assignedToUserId: "usr_2" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { id: "egrp_1", assignedToUserId: "usr_2" } });
+    expect(received).toEqual([{ errorGroupId: "egrp_1", assignedToUserId: "usr_2" }]);
+  });
+
+  it("unassigns an incident when assignedToUserId is null", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async (input) =>
+          ({ ok: true, group: { id: "egrp_1", assignedToUserId: input.assignedToUserId } } as never)
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { assignedToUserId: null }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { assignedToUserId: null } });
+  });
+
+  it("returns 404 when assigning to an unknown error group", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async () => ({ ok: false, error: { kind: "group_not_found" } } as never)
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_unknown?project_id=prj_1&environment_id=env_1",
+      payload: { assignedToUserId: "usr_2" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "error_group_not_found" });
+  });
+
+  it("returns 400 when assignee user is not found", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async () => ({ ok: false, error: { kind: "user_not_found" } } as never)
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { assignedToUserId: "usr_ghost" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "user_not_found" });
+  });
+
+  it("returns 400 when assignee user is archived", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async () => ({ ok: false, error: { kind: "user_archived" } } as never)
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { assignedToUserId: "usr_archived" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "user_archived" });
+  });
+
+  it("returns 401 for unauthenticated assign request", async () => {
+    app = await buildApp({
+      readiness,
+      auth: { login: humanAuth.login, findSessionUser: async () => null },
+      query: {
+        assignIncident: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { assignedToUserId: "usr_2" }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "unauthenticated" });
+  });
+
+  // ── triage notes ────────────────────────────────────────────────────────────
+
+  it("creates a triage note with currentUser identity", async () => {
+    const received: unknown[] = [];
+    const now = new Date();
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        addTriageNote: async (input) => {
+          received.push(input);
+          return {
+            id: "note_1",
+            errorGroupId: input.errorGroupId,
+            authorUserId: input.authorUserId,
+            authorEmail: input.authorEmail,
+            body: input.body,
+            createdAt: now
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/notes",
+      payload: { body: "Looks like a memory leak." }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: {
+        id: "note_1",
+        errorGroupId: "egrp_1",
+        authorUserId: "usr_1",
+        authorEmail: "user@example.com",
+        body: "Looks like a memory leak."
+      }
+    });
+    expect(received).toEqual([
+      {
+        errorGroupId: "egrp_1",
+        authorUserId: "usr_1",
+        authorEmail: "user@example.com",
+        body: "Looks like a memory leak."
+      }
+    ]);
+  });
+
+  it("rejects empty note body", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        addTriageNote: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/notes",
+      payload: { body: "   " }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects note body exceeding 5000 characters", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        addTriageNote: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/notes",
+      payload: { body: "a".repeat(5001) }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 401 for unauthenticated note creation", async () => {
+    app = await buildApp({
+      readiness,
+      auth: { login: humanAuth.login, findSessionUser: async () => null },
+      query: {
+        addTriageNote: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/notes",
+      payload: { body: "Hello" }
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  // ── silence incident ────────────────────────────────────────────────────────
+
+  it("silences an incident for a given number of minutes", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async (input) => {
+          received.push({ errorGroupId: input.errorGroupId, hasUntil: input.until !== null });
+          return { id: "egrp_1", silencedUntil: input.until };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/silence",
+      payload: { minutes: 60 }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { id: "egrp_1" } });
+    expect(received).toEqual([{ errorGroupId: "egrp_1", hasUntil: true }]);
+  });
+
+  it("clears silence when minutes is null", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async (input) => {
+          received.push({ errorGroupId: input.errorGroupId, until: input.until });
+          return { id: "egrp_1", silencedUntil: null };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/silence",
+      payload: { minutes: null }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(received).toEqual([{ errorGroupId: "egrp_1", until: null }]);
+  });
+
+  it("clears silence when minutes is 0", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async (input) => {
+          received.push({ until: input.until });
+          return { id: "egrp_1", silencedUntil: null };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/silence",
+      payload: { minutes: 0 }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(received).toEqual([{ until: null }]);
+  });
+
+  it("returns 404 when silencing an unknown error group", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_unknown/silence",
+      payload: { minutes: 30 }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "error_group_not_found" });
+  });
+
+  it("returns 400 for invalid silence body", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/silence",
+      payload: { minutes: -5 }
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  // ── MTTR ────────────────────────────────────────────────────────────────────
+
+  it("returns MTTR data for the default 7d window", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getIncidentMttr: async (input) => {
+          received.push(input);
+          return { mttrMs: 3600000, resolvedCount: 5 };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/incidents/mttr?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: { mttrMs: 3600000, resolvedCount: 5, windowDays: 7 }
+    });
+    expect(received).toEqual([{ projectId: "prj_1", environmentId: "env_1", windowDays: 7 }]);
+  });
+
+  it("returns MTTR data for the 30d window", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getIncidentMttr: async (input) => ({ mttrMs: null, resolvedCount: 0 })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/incidents/mttr?project_id=prj_1&environment_id=env_1&window=30d"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: { mttrMs: null, resolvedCount: 0, windowDays: 30 }
+    });
+  });
+
+  it("returns 400 for unsupported MTTR window", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getIncidentMttr: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/incidents/mttr?project_id=prj_1&environment_id=env_1&window=24h"
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("returns 400 for missing project_id in MTTR request", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getIncidentMttr: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/incidents/mttr?environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("returns 401 for unauthenticated MTTR request", async () => {
+    app = await buildApp({
+      readiness,
+      auth: { login: humanAuth.login, findSessionUser: async () => null },
+      query: {
+        getIncidentMttr: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/incidents/mttr?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
 });

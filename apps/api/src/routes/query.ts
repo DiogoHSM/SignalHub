@@ -4,6 +4,7 @@ import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-conte
 import type { SourceMapResolutionResponse } from "../source-maps/resolver.js";
 import type { AuthDependencies } from "./auth.js";
 import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
+import type { AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -183,6 +184,15 @@ export type QueryDependencies = {
   }) => Promise<SourceMapResolutionResponse | null>;
   getFleet?: (window: "24h" | "7d" | "30d") => Promise<FleetData>;
   getProjectFleetEnvironments?: (projectId: string, window: "24h" | "7d" | "30d") => Promise<FleetProjectEnvsResult | undefined>;
+  assignIncident?: (input: { errorGroupId: string; assignedToUserId: string | null }) => Promise<AssignIncidentResult>;
+  addTriageNote?: (input: {
+    errorGroupId: string;
+    authorUserId: string | null;
+    authorEmail: string;
+    body: string;
+  }) => Promise<TriageNoteRecord>;
+  silenceIncident?: (input: { errorGroupId: string; until: Date | null }) => Promise<unknown | null>;
+  getIncidentMttr?: (input: { projectId: string; environmentId: string; windowDays: number }) => Promise<MttrResult>;
 };
 
 export type QueryRouteOptions = {
@@ -206,9 +216,26 @@ const errorGroupIncidentScopeSchema = z.object({
 const errorGroupTriageBodySchema = z
   .object({
     status: errorGroupStatusSchema.optional(),
-    priority: errorGroupPrioritySchema.nullable().optional()
+    priority: errorGroupPrioritySchema.nullable().optional(),
+    assignedToUserId: z.string().nullable().optional()
   })
-  .refine((value) => value.status !== undefined || "priority" in value);
+  .refine(
+    (value) =>
+      value.status !== undefined ||
+      "priority" in value ||
+      "assignedToUserId" in value
+  );
+
+const triageNoteBodySchema = z.object({
+  body: z.string().trim().min(1).max(5000)
+});
+
+const silenceBodySchema = z.object({
+  minutes: z.number().int().nonnegative().nullable()
+});
+
+const mttrWindowValues = ["7d", "30d"] as const;
+type MttrWindow = (typeof mttrWindowValues)[number];
 
 type RawQuery = Record<string, unknown>;
 
@@ -1279,6 +1306,36 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
     return reply.status(400).send({ error: "invalid_query" });
   }
 
+  // Handle assignment when assignedToUserId is present in the body
+  if ("assignedToUserId" in body.data) {
+    if (!options.query?.assignIncident) {
+      return reply.status(501).send({ error: "query_method_unavailable" });
+    }
+
+    try {
+      const result = await options.query.assignIncident({
+        errorGroupId: params.data.id,
+        assignedToUserId: body.data.assignedToUserId ?? null
+      });
+
+      if (!result.ok) {
+        if (result.error.kind === "group_not_found") {
+          return reply.status(404).send({ error: "error_group_not_found" });
+        }
+        if (result.error.kind === "user_not_found") {
+          return reply.status(400).send({ error: "user_not_found", message: "The specified user does not exist." });
+        }
+        if (result.error.kind === "user_archived") {
+          return reply.status(400).send({ error: "user_archived", message: "The specified user is archived and cannot be assigned." });
+        }
+      }
+
+      return reply.send({ data: result.ok ? result.group : undefined });
+    } catch {
+      return reply.status(503).send({ error: "query_unavailable" });
+    }
+  }
+
   if (!options.query?.updateErrorGroupTriage && (!options.query?.updateErrorGroupStatus || !body.data.status)) {
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
@@ -1291,6 +1348,99 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
           status: body.data.status!
         });
     return group ? reply.send({ data: group }) : reply.status(404).send({ error: "error_group_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.addTriageNote) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const body = triageNoteBodySchema.safeParse(request.body);
+  if (!params.success || !body.success) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const note = await options.query.addTriageNote({
+      errorGroupId: params.data.id,
+      authorUserId: user.id,
+      authorEmail: user.email,
+      body: body.data.body
+    });
+    return reply.send({ data: note });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === "error_group_not_found") {
+      return reply.status(404).send({ error: "error_group_not_found" });
+    }
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleSilenceIncidentRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.silenceIncident) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const body = silenceBodySchema.safeParse(request.body);
+  if (!params.success || !body.success) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  const minutes = body.data.minutes;
+  const until = minutes !== null && minutes > 0 ? new Date(Date.now() + minutes * 60_000) : null;
+
+  try {
+    const group = await options.query.silenceIncident({ errorGroupId: params.data.id, until });
+    return group ? reply.send({ data: group }) : reply.status(404).send({ error: "error_group_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+function parseMttrWindow(raw: RawQuery): number | null {
+  const value = optionalNonEmpty(raw, "window") ?? "7d";
+  if (value === "7d") return 7;
+  if (value === "30d") return 30;
+  return null;
+}
+
+async function handleIncidentMttrRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getIncidentMttr) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const raw = (request.query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  const windowDays = parseMttrWindow(raw);
+  if (!projectId || !environmentId || windowDays === null) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getIncidentMttr({ projectId, environmentId, windowDays });
+    return reply.send({ data: { ...result, windowDays } });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1407,6 +1557,15 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/error-groups", (request, reply) => handleErrorGroupListRoute(request, reply, options));
   app.get("/query/incidents/error-groups/:id", (request, reply) =>
     handleErrorGroupIncidentRoute(request, reply, options)
+  );
+  app.post("/query/incidents/error-groups/:id/notes", (request, reply) =>
+    handleTriageNoteRoute(request, reply, options)
+  );
+  app.post("/query/incidents/error-groups/:id/silence", (request, reply) =>
+    handleSilenceIncidentRoute(request, reply, options)
+  );
+  app.get("/query/incidents/mttr", (request, reply) =>
+    handleIncidentMttrRoute(request, reply, options)
   );
   app.get("/query/error-groups/:id/errors", (request, reply) =>
     handleErrorGroupOccurrencesRoute(request, reply, options)

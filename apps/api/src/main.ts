@@ -96,6 +96,12 @@ import {
   updateErrorGroupTriage
 } from "@sigmon/db/repositories/error-groups.js";
 import { getErrorGroupIncident } from "@sigmon/db/repositories/incidents.js";
+import {
+  assignIncident,
+  addTriageNote,
+  silenceIncident,
+  getIncidentMttr
+} from "@sigmon/db/repositories/incident-triage.js";
 import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositories/entities-query.js";
 import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositories/identity-profiles.js";
 import { getFleetRollup, getProjectFleetEnvironments } from "@sigmon/db/repositories/fleet-query.js";
@@ -509,7 +515,11 @@ const app = await buildApp({
         replaceErrorStackResolutions: (resolutionInput) => replaceErrorStackResolutions(db, resolutionInput)
       }),
     getFleet: (window) => getFleetRollup(db, { window, getHealth: getSystemHealth }),
-    getProjectFleetEnvironments: (projectId, window) => getProjectFleetEnvironments(db, { projectId, window })
+    getProjectFleetEnvironments: (projectId, window) => getProjectFleetEnvironments(db, { projectId, window }),
+    assignIncident: (input) => assignIncident(db, input),
+    addTriageNote: (input) => addTriageNote(db, input),
+    silenceIncident: (input) => silenceIncident(db, input),
+    getIncidentMttr: (input) => getIncidentMttr(db, input)
   },
   system: {
     getHealth: getSystemHealth
