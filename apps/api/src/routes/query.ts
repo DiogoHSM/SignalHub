@@ -235,7 +235,6 @@ const silenceBodySchema = z.object({
 });
 
 const mttrWindowValues = ["7d", "30d"] as const;
-type MttrWindow = (typeof mttrWindowValues)[number];
 
 type RawQuery = Record<string, unknown>;
 
@@ -1318,19 +1317,19 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
         assignedToUserId: body.data.assignedToUserId ?? null
       });
 
-      if (!result.ok) {
-        if (result.error.kind === "group_not_found") {
-          return reply.status(404).send({ error: "error_group_not_found" });
-        }
-        if (result.error.kind === "user_not_found") {
-          return reply.status(400).send({ error: "user_not_found", message: "The specified user does not exist." });
-        }
-        if (result.error.kind === "user_archived") {
-          return reply.status(400).send({ error: "user_archived", message: "The specified user is archived and cannot be assigned." });
-        }
+      if (result.ok) {
+        return reply.send({ data: result.group });
       }
-
-      return reply.send({ data: result.ok ? result.group : undefined });
+      if (result.error.kind === "group_not_found") {
+        return reply.status(404).send({ error: "error_group_not_found" });
+      }
+      if (result.error.kind === "user_not_found") {
+        return reply.status(400).send({ error: "user_not_found", message: "The specified user does not exist." });
+      }
+      if (result.error.kind === "user_archived") {
+        return reply.status(400).send({ error: "user_archived", message: "The specified user is archived and cannot be assigned." });
+      }
+      return reply.status(503).send({ error: "query_unavailable" });
     } catch {
       return reply.status(503).send({ error: "query_unavailable" });
     }
