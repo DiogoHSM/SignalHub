@@ -27,20 +27,6 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
   // Refs to safely read current values inside async callbacks without stale closures
   const activeProjectIdRef = useRef<string | undefined>(undefined);
   const activeEnvironmentRef = useRef<Environment | undefined>(undefined);
-  const environmentsRef = useRef<Environment[]>([]);
-
-  // Keep refs in sync with state
-  useEffect(() => {
-    activeProjectIdRef.current = activeProject?.id;
-  }, [activeProject?.id]);
-
-  useEffect(() => {
-    activeEnvironmentRef.current = activeEnvironment;
-  }, [activeEnvironment]);
-
-  useEffect(() => {
-    environmentsRef.current = environments;
-  }, [environments]);
 
   // Load projects on mount
   useEffect(() => {
@@ -73,7 +59,6 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
     let cancelled = false;
 
     if (!activeProject) {
-      environmentsRef.current = [];
       activeEnvironmentRef.current = undefined;
       setEnvironments([]);
       setActiveEnvironment(undefined);
@@ -82,7 +67,6 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
       };
     }
 
-    environmentsRef.current = [];
     activeEnvironmentRef.current = undefined;
     setEnvironments([]);
     setActiveEnvironment(undefined);
@@ -92,22 +76,15 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
       .then(({ environments: loaded }) => {
         if (cancelled || activeProjectIdRef.current !== activeProject.id) return;
 
-        const fetchedIds = new Set(loaded.map((e) => e.id));
-        const localEnvironments = environmentsRef.current.filter(
-          (e) => e.projectId === activeProject.id && !fetchedIds.has(e.id)
-        );
-        const merged = [...loaded, ...localEnvironments];
-
         const current = activeEnvironmentRef.current;
         const preserved =
           current?.projectId === activeProject.id
-            ? merged.find((e) => e.id === current.id)
+            ? loaded.find((e) => e.id === current.id)
             : undefined;
-        const next = preserved ?? merged[0];
+        const next = preserved ?? loaded[0];
 
-        environmentsRef.current = merged;
         activeEnvironmentRef.current = next;
-        setEnvironments(merged);
+        setEnvironments(loaded);
         setActiveEnvironment(next);
       });
 
