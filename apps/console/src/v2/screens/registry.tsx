@@ -8,6 +8,7 @@ import { SigmonAdminWorkspace } from "../../components/SigmonAdminWorkspace";
 import { LegacyIsland } from "./LegacyIsland";
 import { OverviewScreen } from "./OverviewScreen";
 import { ErrorsScreen } from "./ErrorsScreen";
+import { IncidentsScreen } from "./IncidentsScreen";
 import type { NavSection } from "../nav";
 
 // ─── Drill types ─────────────────────────────────────────────────────────────
@@ -54,15 +55,8 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   },
 
   incidents: {
-    kind: "legacy",
-    render: (ctx) => (
-      <InvestigationWorkspace
-        client={ctx.client}
-        projectId={ctx.project?.id}
-        environmentId={ctx.environment?.id}
-        initialTab="errors"
-      />
-    ),
+    kind: "v2",
+    render: (ctx) => <IncidentsScreen ctx={ctx} />,
   },
 
   llm: {
