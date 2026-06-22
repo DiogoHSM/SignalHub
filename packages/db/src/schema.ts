@@ -151,6 +151,9 @@ export interface ErrorGroupsTable {
   latest_release: string | null;
   resolved_at: NullableTimestamp;
   ignored_at: NullableTimestamp;
+  assigned_to_user_id: string | null;
+  silenced_until: NullableTimestamp;
+  incident_number: string | null;
   created_at: Timestamp;
   updated_at: Timestamp;
 }
@@ -454,6 +457,15 @@ export interface ErrorStackResolutionsTable {
   created_at: Timestamp;
 }
 
+export interface TriageNotesTable {
+  id: string;
+  error_group_id: string;
+  author_user_id: string | null;
+  author_email: string;
+  body: string;
+  created_at: Timestamp;
+}
+
 export interface MigrationsTable {
   name: string;
   checksum: string;
@@ -488,5 +500,6 @@ export interface Database {
   monitor_checks: MonitorChecksTable;
   source_map_artifacts: SourceMapArtifactsTable;
   error_stack_resolutions: ErrorStackResolutionsTable;
+  triage_notes: TriageNotesTable;
   _migrations: MigrationsTable;
 }

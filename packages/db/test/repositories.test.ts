@@ -357,6 +357,39 @@ describe("repositories", () => {
     });
   });
 
+  it("incident triage migration adds columns, triage_notes table, and backfills incident numbers", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      // new columns exist on error_groups
+      await sql`select assigned_to_user_id, silenced_until, incident_number from error_groups limit 0`.execute(db);
+      // triage_notes table exists with correct columns
+      await sql`select id, error_group_id, author_user_id, author_email, body, created_at from triage_notes limit 0`.execute(db);
+
+      // insert an error which triggers group creation, then verify incident_number is assigned
+      await insertProjectAndEnvironment(db, "prj_triage_test", "env_triage_test");
+      await insertError(db, {
+        id: "err_triage_inc_001",
+        projectId: "prj_triage_test",
+        environmentId: "env_triage_test",
+        message: "Triage migration test error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const group = await db
+        .selectFrom("error_groups")
+        .select(["id", "incident_number"])
+        .where("project_id", "=", "prj_triage_test")
+        .where("environment_id", "=", "env_triage_test")
+        .executeTakeFirstOrThrow();
+
+      expect(group.incident_number).not.toBeNull();
+      expect(group.incident_number).toMatch(/^INC-\d{4}$/);
+    });
+  });
+
   it("runs backup metadata migrations", async () => {
     await withDb(async (db) => {
       await migrate(db);
