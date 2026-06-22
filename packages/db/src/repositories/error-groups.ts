@@ -8,7 +8,7 @@ export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored"
 export type ErrorGroupPriority = SchemaErrorGroupPriority;
 export type ErrorGroupPriorityInput = ErrorGroupPriority | null;
 
-type ErrorGroupRow = Selectable<ErrorGroupsTable>;
+export type ErrorGroupRow = Selectable<ErrorGroupsTable>;
 type DbExecutor = Kysely<Database> | Transaction<Database>;
 
 export type ErrorGroupingInput = {
@@ -45,6 +45,9 @@ export type ErrorGroupRecord = {
   latestRelease: string | null;
   resolvedAt: Date | null;
   ignoredAt: Date | null;
+  assignedToUserId: string | null;
+  silencedUntil: Date | null;
+  incidentNumber: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -128,7 +131,7 @@ export function buildErrorGroupingFingerprint(input: ErrorGroupingInput): ErrorG
   };
 }
 
-function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
+export function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -150,6 +153,9 @@ function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
     latestRelease: row.latest_release,
     resolvedAt: row.resolved_at,
     ignoredAt: row.ignored_at,
+    assignedToUserId: row.assigned_to_user_id,
+    silencedUntil: row.silenced_until,
+    incidentNumber: row.incident_number,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -164,7 +170,7 @@ export async function upsertErrorGroupForOccurrence(
   db: DbExecutor,
   input: UpsertErrorGroupInput,
   options: UpsertErrorGroupOptions = {}
-): Promise<ErrorGroupingFingerprint & { groupId: string }> {
+): Promise<ErrorGroupingFingerprint & { groupId: string; incidentNumber: string | null }> {
   const grouping = buildErrorGroupingFingerprint(input);
   const reopenResolved = options.reopenResolved ?? true;
   const shouldReopenResolved = sql<boolean>`
@@ -242,10 +248,22 @@ export async function upsertErrorGroupForOccurrence(
         updated_at: new Date()
       })
     )
-    .returning(["id"])
+    .returning(["id", "incident_number"])
     .executeTakeFirstOrThrow();
 
-  return { ...grouping, groupId: inserted.id };
+  let incidentNumber = inserted.incident_number;
+
+  if (incidentNumber === null) {
+    const updated = await sql<{ incident_number: string }>`
+      UPDATE error_groups
+      SET incident_number = 'INC-' || lpad(nextval('incident_number_seq')::text, 4, '0')
+      WHERE id = ${inserted.id} AND incident_number IS NULL
+      RETURNING incident_number
+    `.execute(db);
+    incidentNumber = updated.rows[0]?.incident_number ?? null;
+  }
+
+  return { ...grouping, groupId: inserted.id, incidentNumber };
 }
 
 export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promise<ErrorGroupRecord[]> {

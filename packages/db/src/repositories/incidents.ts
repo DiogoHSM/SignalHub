@@ -2,6 +2,7 @@ import { sql } from "kysely";
 import type { Db } from "../client.js";
 import type { ErrorGroupPriority, ErrorGroupRecord } from "./error-groups.js";
 import { getErrorGroup } from "./error-groups.js";
+import { listTriageNotes } from "./incident-triage.js";
 import type { ErrorRecord } from "./telemetry-query.js";
 
 export type IncidentTimelineKind = "breadcrumb" | "event" | "error" | "trace" | "span" | "llm";
@@ -42,6 +43,10 @@ export type ErrorGroupIncident = {
     tenantId: string | null;
     release: string | null;
   };
+  incidentNumber: string | null;
+  assignedTo: { id: string; email: string } | null;
+  silencedUntil: string | null;
+  notes: { id: string; authorEmail: string; body: string; createdAt: string }[];
 };
 
 type IncidentTimelineRow = {
@@ -433,6 +438,20 @@ export async function getErrorGroupIncident(
     limit: 50
   });
 
+  let assignedTo: { id: string; email: string } | null = null;
+  if (group.assignedToUserId) {
+    const userRow = await db
+      .selectFrom("users")
+      .select(["id", "email"])
+      .where("id", "=", group.assignedToUserId)
+      .executeTakeFirst();
+    if (userRow) {
+      assignedTo = { id: userRow.id, email: userRow.email };
+    }
+  }
+
+  const triageNotes = await listTriageNotes(db, group.id);
+
   return {
     group,
     primaryOccurrence,
@@ -458,6 +477,15 @@ export async function getErrorGroupIncident(
       userId: primaryOccurrence.userId,
       tenantId: primaryOccurrence.tenantId,
       release: primaryOccurrence.release
-    }
+    },
+    incidentNumber: group.incidentNumber,
+    assignedTo,
+    silencedUntil: group.silencedUntil ? group.silencedUntil.toISOString() : null,
+    notes: triageNotes.map((note) => ({
+      id: note.id,
+      authorEmail: note.authorEmail,
+      body: note.body,
+      createdAt: note.createdAt.toISOString()
+    }))
   };
 }
