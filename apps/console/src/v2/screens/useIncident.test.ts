@@ -355,7 +355,7 @@ describe("useIncident", () => {
     // LAST_ISO = 2026-06-22T11:50:00Z, NOW = 2026-06-22T12:00:00Z → 10m ago
     expect(result.current.data?.lastSeenRelative).toMatch(/\d+[dhms] ago/);
     // openedRelative uses primaryOccurrence.timestamp = NOW_ISO → 0s ago
-    expect(result.current.data?.openedRelative).toBeDefined();
+    expect(result.current.data?.openedRelative).toMatch(/\d+[dhms] ago/);
   });
 
   it("maps sourceMapBadge from sourceMapResolution", async () => {
@@ -704,6 +704,68 @@ describe("useIncident", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(result.current.users).toBeNull();
     expect(result.current.canReassign).toBe(false);
+  });
+
+  it("sets users:null and canReassign:false on non-auth error AND calls console.warn", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = Object.assign(new Error("Internal Server Error"), { status: 500 });
+    const client = makeClient({
+      listUsers: vi.fn().mockRejectedValue(err)
+    });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.users).toBeNull();
+    expect(result.current.canReassign).toBe(false);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toMatch(/listUsers failed with non-auth error/);
+  });
+
+  it("does NOT call console.warn when listUsers returns 401", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = Object.assign(new Error("Unauthorized"), { status: 401 });
+    const client = makeClient({
+      listUsers: vi.fn().mockRejectedValue(err)
+    });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.canReassign).toBe(false);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call console.warn when listUsers returns 403", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = Object.assign(new Error("Forbidden"), { status: 403 });
+    const client = makeClient({
+      listUsers: vi.fn().mockRejectedValue(err)
+    });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.canReassign).toBe(false);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

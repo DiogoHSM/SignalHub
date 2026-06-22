@@ -4,7 +4,6 @@ import type {
   ErrorGroupIncident,
   ErrorGroupPriority,
   IncidentTimelineItem,
-  UpdateErrorGroupTriageInput,
   User
 } from "../../api/types";
 import { relativeTime } from "../../components/ui/v2/format";
@@ -126,6 +125,7 @@ function mapBreadcrumbs(
   }));
 }
 
+// Always emits four rows (trace/session/user/tenant); rows without an underlying id get no `target` (screen renders them as unavailable).
 function mapRelated(incident: ErrorGroupIncident): RelVM[] {
   const { related } = incident;
   const rows: RelVM[] = [];
@@ -304,9 +304,13 @@ export function useIncident({
         setUsers(res.users);
         setCanReassign(true);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         setUsers(null);
         setCanReassign(false);
+        const status = (err as { status?: number } | null)?.status;
+        if (status !== 401 && status !== 403) {
+          console.warn("listUsers failed with non-auth error:", err);
+        }
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -322,13 +326,11 @@ export function useIncident({
 
   const reassign = useCallback(
     async (userId: string | null) => {
-      // Cast needed: UpdateErrorGroupTriageInput requires status|priority, but
-      // assignedToUserId-only updates are valid at the API level.
       await client.updateErrorGroupTriage(groupId, {
         projectId,
         environmentId,
         assignedToUserId: userId
-      } as UpdateErrorGroupTriageInput);
+      });
       reload();
     },
     [client, groupId, projectId, environmentId, reload]

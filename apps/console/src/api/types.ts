@@ -208,7 +208,8 @@ type ErrorGroupTriageScope = {
 
 type ErrorGroupTriagePatch =
   | { status: ErrorGroupStatus; priority?: ErrorGroupPriority | null }
-  | { status?: ErrorGroupStatus; priority: ErrorGroupPriority | null };
+  | { status?: ErrorGroupStatus; priority: ErrorGroupPriority | null }
+  | { status?: undefined; priority?: undefined; assignedToUserId: string | null };
 
 export type UpdateErrorGroupTriageInput = ErrorGroupTriageScope & ErrorGroupTriagePatch;
 
