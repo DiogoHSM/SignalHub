@@ -59,6 +59,8 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
     updateErrorGroupTriage: vi.fn(),
+    addTriageNote: vi.fn(),
+    silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
     ...overrides
   };

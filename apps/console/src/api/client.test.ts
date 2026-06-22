@@ -754,6 +754,91 @@ describe("createApiClient", () => {
     );
   });
 
+  it("sends assignedToUserId in triage PATCH body when provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "egrp/1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").updateErrorGroupTriage("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      status: "investigating",
+      assignedToUserId: "usr_1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/error-groups/egrp%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "investigating", assignedToUserId: "usr_1" })
+      })
+    );
+  });
+
+  it("POSTs addTriageNote to the notes sub-resource with scoped query and body", async () => {
+    const noteRecord = {
+      id: "note_1",
+      errorGroupId: "egrp/1",
+      authorUserId: "usr_1",
+      authorEmail: "admin@example.com",
+      body: "Looking into this now",
+      createdAt: "2026-06-22T10:00:00.000Z"
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { data: noteRecord }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").addTriageNote("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      body: "Looking into this now"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/incidents/error-groups/egrp%2F1/notes?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ body: "Looking into this now" })
+      })
+    );
+  });
+
+  it("POSTs silenceIncident to the silence sub-resource with scoped query and minutes body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "egrp/1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").silenceIncident("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      minutes: 60
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/incidents/error-groups/egrp%2F1/silence?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ minutes: 60 })
+      })
+    );
+  });
+
+  it("POSTs silenceIncident with null minutes to unsilence", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "egrp/1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").silenceIncident("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      minutes: null
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/incidents/error-groups/egrp%2F1/silence?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ minutes: null })
+      })
+    );
+  });
+
   it("does not encode event name for error queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);

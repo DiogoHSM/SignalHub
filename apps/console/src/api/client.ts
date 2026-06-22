@@ -1,4 +1,5 @@
 import type {
+  AddTriageNoteInput,
   AggregateResponse,
   ApiKey,
   BrowserOrigin,
@@ -35,6 +36,7 @@ import type {
   QueryListResponse,
   SessionTimelineQuery,
   SessionTimelineResponse,
+  SilenceIncidentInput,
   SourceMapArtifact,
   SourceMapArtifactQuery,
   SourceMapResolution,
@@ -46,6 +48,7 @@ import type {
   TenantListQuery,
   TenantListResponse,
   TraceRecord,
+  TriageNoteRecord,
   User,
   UserDetailQuery,
   UserDetailResponse,
@@ -155,6 +158,8 @@ export type ErrorGroupApiClient = {
   ) => Promise<AggregateResponse<ErrorGroupIncident>>;
   updateErrorGroupStatus: (id: string, input: UpdateErrorGroupStatusInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
   updateErrorGroupTriage: (id: string, input: UpdateErrorGroupTriageInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
+  addTriageNote: (id: string, input: AddTriageNoteInput) => Promise<AggregateResponse<TriageNoteRecord>>;
+  silenceIncident: (id: string, input: SilenceIncidentInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
 };
 
 export type SourceMapUploadInput = Pick<SourceMapArtifactQuery, "projectId" | "environmentId"> & {
@@ -411,6 +416,14 @@ function errorGroupIncidentPath(id: string, query: ErrorGroupIncidentQuery): str
   return `/query/incidents/error-groups/${encodePathSegment(id)}?${params.toString()}`;
 }
 
+function triageNotePath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
+  return `/query/incidents/error-groups/${encodePathSegment(id)}/notes?${errorGroupScopeParams(scope).toString()}`;
+}
+
+function silenceIncidentPath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
+  return `/query/incidents/error-groups/${encodePathSegment(id)}/silence?${errorGroupScopeParams(scope).toString()}`;
+}
+
 function sourceMapScopeParams(query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): URLSearchParams {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -656,8 +669,19 @@ export function createApiClient(
         method: "PATCH",
         body: {
           ...(input.status !== undefined ? { status: input.status } : {}),
-          ...("priority" in input ? { priority: input.priority ?? null } : {})
+          ...("priority" in input ? { priority: input.priority ?? null } : {}),
+          ...(input.assignedToUserId !== undefined ? { assignedToUserId: input.assignedToUserId } : {})
         }
+      }),
+    addTriageNote: (id, input) =>
+      request<AggregateResponse<TriageNoteRecord>>(path(apiBasePath, triageNotePath(id, input)), {
+        method: "POST",
+        body: { body: input.body }
+      }),
+    silenceIncident: (id, input) =>
+      request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, silenceIncidentPath(id, input)), {
+        method: "POST",
+        body: { minutes: input.minutes }
       }),
     listSourceMapArtifacts: async (query) => {
       const response = await request<{ artifacts: SourceMapArtifact[] }>(path(apiBasePath, sourceMapArtifactsPath(query)));

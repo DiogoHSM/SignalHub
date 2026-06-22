@@ -56,6 +56,8 @@ function client(getSystemHealth: ApiClient["getSystemHealth"]): ApiClient {
     getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
     updateErrorGroupTriage: vi.fn(),
+    addTriageNote: vi.fn(),
+    silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({
       data: {
         sessionId: "sess_1",

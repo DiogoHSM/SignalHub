@@ -108,7 +108,11 @@ function incidentFixture(overrides: IncidentFixtureOverrides = {}): ErrorGroupIn
       userId: "user_1",
       tenantId: "tenant_1",
       release: "web@1"
-    }
+    },
+    incidentNumber: null,
+    assignedTo: null,
+    silencedUntil: null,
+    notes: []
   };
   return {
     ...base,
@@ -124,7 +128,9 @@ function clientWithIncident(incident: ErrorGroupIncident = incidentFixture()): A
     getErrorGroupIncident: vi.fn().mockResolvedValue({ data: incident }),
     updateErrorGroupTriage: vi.fn().mockResolvedValue({
       data: { ...incident.group, priority: "high" }
-    })
+    }),
+    addTriageNote: vi.fn(),
+    silenceIncident: vi.fn(),
   } as unknown as ApiClient;
 }
 
@@ -283,7 +289,9 @@ describe("IncidentView", () => {
         .fn()
         .mockResolvedValueOnce({ data: incidentFixture() })
         .mockResolvedValueOnce({ data: nextIncident }),
-      updateErrorGroupTriage: vi.fn()
+      updateErrorGroupTriage: vi.fn(),
+      addTriageNote: vi.fn(),
+      silenceIncident: vi.fn(),
     } as unknown as ApiClient;
 
     const { rerender } = render(
@@ -341,7 +349,9 @@ describe("IncidentView", () => {
         .fn()
         .mockResolvedValueOnce({ data: checkoutIncident })
         .mockResolvedValueOnce({ data: billingIncident }),
-      updateErrorGroupTriage: vi.fn().mockReturnValue(save.promise)
+      updateErrorGroupTriage: vi.fn().mockReturnValue(save.promise),
+      addTriageNote: vi.fn(),
+      silenceIncident: vi.fn(),
     } as unknown as ApiClient;
 
     const { rerender } = render(

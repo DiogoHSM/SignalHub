@@ -64,6 +64,8 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
     updateErrorGroupTriage: vi.fn(),
+    addTriageNote: vi.fn(),
+    silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn(),
     fetchFleet: vi.fn().mockRejectedValue(new Error("fleet unavailable")),
     ...overrides,

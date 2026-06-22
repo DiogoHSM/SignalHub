@@ -161,6 +161,31 @@ export type ErrorGroupIncident = {
     tenantId: string | null;
     release: string | null;
   };
+  incidentNumber: string | null;
+  assignedTo: { id: string; email: string } | null;
+  silencedUntil: string | null;
+  notes: { id: string; authorEmail: string; body: string; createdAt: string }[];
+};
+
+export type TriageNoteRecord = {
+  id: string;
+  errorGroupId: string;
+  authorUserId: string | null;
+  authorEmail: string;
+  body: string;
+  createdAt: string;
+};
+
+export type AddTriageNoteInput = {
+  projectId: string;
+  environmentId: string;
+  body: string;
+};
+
+export type SilenceIncidentInput = {
+  projectId: string;
+  environmentId: string;
+  minutes: number | null;
 };
 
 export type ErrorGroupIncidentQuery = {
@@ -178,6 +203,7 @@ export type UpdateErrorGroupStatusInput = {
 type ErrorGroupTriageScope = {
   projectId: string;
   environmentId: string;
+  assignedToUserId?: string | null;
 };
 
 type ErrorGroupTriagePatch =
