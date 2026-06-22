@@ -3451,6 +3451,94 @@ describe("repositories", () => {
     });
   });
 
+  it("incident detail includes incidentNumber, silencedUntil, and notes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const group = await seedGroupedError(db, {
+        id: "err_triage_fields_1",
+        projectId: "prj_triage_fields",
+        environmentId: "env_triage_fields",
+        message: "Triage fields error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z")
+      });
+
+      const until = new Date("2026-07-01T00:00:00.000Z");
+      await silenceIncident(db, { errorGroupId: group.id, until });
+
+      await addTriageNote(db, {
+        errorGroupId: group.id,
+        authorUserId: null,
+        authorEmail: "ops@example.com",
+        body: "First note"
+      });
+      await addTriageNote(db, {
+        errorGroupId: group.id,
+        authorUserId: null,
+        authorEmail: "dev@example.com",
+        body: "Second note"
+      });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: "prj_triage_fields",
+        environmentId: "env_triage_fields",
+        errorId: "err_triage_fields_1"
+      });
+
+      expect(incident).not.toBeNull();
+      expect(incident!.incidentNumber).toMatch(/^INC-/);
+      expect(incident!.silencedUntil).toBe(until.toISOString());
+      expect(incident!.assignedTo).toBeNull();
+      expect(incident!.notes).toHaveLength(2);
+      expect(incident!.notes[0]).toMatchObject({
+        authorEmail: "ops@example.com",
+        body: "First note"
+      });
+      expect(incident!.notes[1]).toMatchObject({
+        authorEmail: "dev@example.com",
+        body: "Second note"
+      });
+      expect(typeof incident!.notes[0].id).toBe("string");
+      expect(typeof incident!.notes[0].createdAt).toBe("string");
+    });
+  });
+
+  it("incident detail assignedTo is populated when group has an assigned user", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Triage AssignedTo Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const user = await createUser(db, { email: "assignee-detail@example.com", passwordHash: "hash", isAdmin: false });
+
+      await insertError(db, {
+        id: "err_triage_assigned_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Assigned triage error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const groups = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      const group = groups[0];
+      expect(group).toBeDefined();
+
+      await assignIncident(db, { errorGroupId: group.id, assignedToUserId: user.id });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        errorId: "err_triage_assigned_1"
+      });
+
+      expect(incident).not.toBeNull();
+      expect(incident!.assignedTo).toEqual({ id: user.id, email: "assignee-detail@example.com" });
+    });
+  });
+
   it("groups new error inserts and reopens resolved groups on recurrence", async () => {
     await withDb(async (db) => {
       await migrate(db);
