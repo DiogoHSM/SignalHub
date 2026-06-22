@@ -8,6 +8,7 @@ import { InvestigationWorkspace } from "./InvestigationWorkspace";
 function client(overrides: Partial<ApiClient>): ApiClient {
   return {
     getConsoleConfig: vi.fn(),
+    fetchFleet: vi.fn(),
     getMe: vi.fn(),
     login: vi.fn(),
     logout: vi.fn(),

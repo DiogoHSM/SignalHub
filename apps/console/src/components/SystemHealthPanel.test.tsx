@@ -8,6 +8,7 @@ import { SystemHealthPanel } from "./SystemHealthPanel";
 function client(getSystemHealth: ApiClient["getSystemHealth"]): ApiClient {
   return {
     getConsoleConfig: vi.fn(),
+    fetchFleet: vi.fn(),
     getMe: vi.fn(),
     login: vi.fn(),
     logout: vi.fn(),

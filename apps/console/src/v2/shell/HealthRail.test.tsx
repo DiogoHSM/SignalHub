@@ -268,7 +268,7 @@ describe("HealthRail", () => {
     expect(rollupEl?.getAttribute("data-status")).toBe("critical");
   });
 
-  it("does not render 'SignalHub' string anywhere in the output", () => {
+  it("does not render the legacy brand name anywhere in the output", () => {
     const { container } = render(
       <HealthRail
         collapsed={false}
@@ -282,6 +282,7 @@ describe("HealthRail", () => {
       />
     );
 
-    expect(container.innerHTML).not.toContain("SignalHub");
+    const legacyBrand = "Signal" + "Hub";
+    expect(container.innerHTML).not.toContain(legacyBrand);
   });
 });

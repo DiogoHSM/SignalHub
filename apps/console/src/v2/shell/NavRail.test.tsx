@@ -39,7 +39,7 @@ describe("NavRail", () => {
     );
 
     expect(incidentsItem).toBeInTheDocument();
-    expect(incidentsItem?.title).toBe("Incidents");
+    expect((incidentsItem as HTMLElement | null)?.title).toBe("Incidents");
   });
 
   it("calls onNavigate when an item is clicked", async () => {
@@ -84,7 +84,7 @@ describe("NavRail", () => {
     );
 
     const items = container.querySelectorAll(".nv-item");
-    const labels = Array.from(items).map(item => item.title);
+    const labels = Array.from(items).map(item => (item as HTMLElement).title);
 
     expect(labels).toContain("Overview");
     expect(labels).toContain("Incidents");
