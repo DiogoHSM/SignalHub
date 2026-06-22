@@ -390,6 +390,68 @@ describe("repositories", () => {
     });
   });
 
+  it("incident_number is stable across many occurrences of the same group and sequence does not inflate", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_seq_stable", "env_seq_stable");
+
+      // Insert 5 occurrences of the same logical error (same fingerprint via same message)
+      for (let i = 1; i <= 5; i++) {
+        await insertError(db, {
+          id: `err_seq_stable_${i}`,
+          projectId: "prj_seq_stable",
+          environmentId: "env_seq_stable",
+          message: "Stable sequence error",
+          severity: "error",
+          timestamp: new Date(`2026-06-01T10:0${i}:00.000Z`),
+          receivedAt: new Date(`2026-06-01T10:0${i}:01.000Z`)
+        });
+      }
+
+      const group = await db
+        .selectFrom("error_groups")
+        .select(["id", "incident_number", "occurrence_count"])
+        .where("project_id", "=", "prj_seq_stable")
+        .where("environment_id", "=", "env_seq_stable")
+        .executeTakeFirstOrThrow();
+
+      // exactly one group was created
+      expect(group.incident_number).not.toBeNull();
+      expect(group.incident_number).toMatch(/^INC-\d{4}$/);
+      // all 5 occurrences landed on the same group
+      expect(Number(group.occurrence_count)).toBe(5);
+
+      // the sequence must have advanced by exactly 1 (one genuine new group)
+      // we verify by inserting a second DISTINCT group and checking the numbers are consecutive
+      await insertError(db, {
+        id: "err_seq_stable_second_group",
+        projectId: "prj_seq_stable",
+        environmentId: "env_seq_stable",
+        message: "Different error for second group",
+        severity: "warning",
+        timestamp: new Date("2026-06-01T10:10:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:10:01.000Z")
+      });
+
+      const groups = await db
+        .selectFrom("error_groups")
+        .select(["incident_number"])
+        .where("project_id", "=", "prj_seq_stable")
+        .where("environment_id", "=", "env_seq_stable")
+        .orderBy("incident_number", "asc")
+        .execute();
+
+      expect(groups).toHaveLength(2);
+      const [first, second] = groups;
+      expect(first.incident_number).toMatch(/^INC-\d{4}$/);
+      expect(second.incident_number).toMatch(/^INC-\d{4}$/);
+      // the two numbers must be consecutive — no sequence slots wasted by the 5 extra occurrences
+      const firstNum = parseInt(first.incident_number!.slice(4), 10);
+      const secondNum = parseInt(second.incident_number!.slice(4), 10);
+      expect(secondNum - firstNum).toBe(1);
+    });
+  });
+
   it("runs backup metadata migrations", async () => {
     await withDb(async (db) => {
       await migrate(db);

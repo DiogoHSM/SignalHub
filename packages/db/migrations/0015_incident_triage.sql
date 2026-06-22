@@ -18,20 +18,6 @@ $$;
 
 ALTER TABLE error_groups ADD CONSTRAINT error_groups_incident_number_unique UNIQUE (incident_number);
 
-CREATE OR REPLACE FUNCTION assign_incident_number()
-RETURNS trigger AS $$
-BEGIN
-  IF NEW.incident_number IS NULL THEN
-    NEW.incident_number := 'INC-' || lpad(nextval('incident_number_seq')::text, 4, '0');
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER error_groups_assign_incident_number
-BEFORE INSERT ON error_groups
-FOR EACH ROW EXECUTE FUNCTION assign_incident_number();
-
 CREATE TABLE triage_notes (
   id text PRIMARY KEY,
   error_group_id text NOT NULL REFERENCES error_groups(id) ON DELETE CASCADE,

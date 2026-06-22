@@ -164,7 +164,7 @@ export async function upsertErrorGroupForOccurrence(
   db: DbExecutor,
   input: UpsertErrorGroupInput,
   options: UpsertErrorGroupOptions = {}
-): Promise<ErrorGroupingFingerprint & { groupId: string }> {
+): Promise<ErrorGroupingFingerprint & { groupId: string; incidentNumber: string | null }> {
   const grouping = buildErrorGroupingFingerprint(input);
   const reopenResolved = options.reopenResolved ?? true;
   const shouldReopenResolved = sql<boolean>`
@@ -242,10 +242,22 @@ export async function upsertErrorGroupForOccurrence(
         updated_at: new Date()
       })
     )
-    .returning(["id"])
+    .returning(["id", "incident_number"])
     .executeTakeFirstOrThrow();
 
-  return { ...grouping, groupId: inserted.id };
+  let incidentNumber = inserted.incident_number;
+
+  if (incidentNumber === null) {
+    const updated = await sql<{ incident_number: string }>`
+      UPDATE error_groups
+      SET incident_number = 'INC-' || lpad(nextval('incident_number_seq')::text, 4, '0')
+      WHERE id = ${inserted.id} AND incident_number IS NULL
+      RETURNING incident_number
+    `.execute(db);
+    incidentNumber = updated.rows[0]?.incident_number ?? null;
+  }
+
+  return { ...grouping, groupId: inserted.id, incidentNumber };
 }
 
 export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promise<ErrorGroupRecord[]> {
