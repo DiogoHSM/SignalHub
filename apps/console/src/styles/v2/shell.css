@@ -146,7 +146,7 @@
 .sh-v2 .toast[data-tone="critical"] .toast__icon { background: var(--sev-critical-bg); color: var(--sev-critical); }
 .sh-v2 .toast__title { font-size: 13px; font-weight: 600; }
 .sh-v2 .toast__sub { font-size: 11.5px; color: var(--fg-muted); margin-top: 1px; }
-.sh-v2 .toast__x { width: 24px; height: 24px; border-radius: 6px; border: none; background: transparent; color: var(--fg-muted); display: grid; place-items: center; }
+.sh-v2 .toast__x { width: 24px; height: 24px; border-radius: 6px; border: none; background: transparent; color: var(--fg-muted); display: grid; place-items: center; flex-shrink: 0; }
 .sh-v2 .toast__x:hover { background: var(--bg-surface-3); color: var(--fg); }
 
 .sh-v2 .hr-list::-webkit-scrollbar, .sh-v2 .app-workspace ::-webkit-scrollbar { width: 9px; height: 9px; }
