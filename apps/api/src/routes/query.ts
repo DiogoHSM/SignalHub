@@ -4,7 +4,7 @@ import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-conte
 import type { SourceMapResolutionResponse } from "../source-maps/resolver.js";
 import type { AuthDependencies } from "./auth.js";
 import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
-import type { AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
+import type { AddTriageNoteResult, AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -184,14 +184,16 @@ export type QueryDependencies = {
   }) => Promise<SourceMapResolutionResponse | null>;
   getFleet?: (window: "24h" | "7d" | "30d") => Promise<FleetData>;
   getProjectFleetEnvironments?: (projectId: string, window: "24h" | "7d" | "30d") => Promise<FleetProjectEnvsResult | undefined>;
-  assignIncident?: (input: { errorGroupId: string; assignedToUserId: string | null }) => Promise<AssignIncidentResult>;
+  assignIncident?: (input: { errorGroupId: string; assignedToUserId: string | null; projectId: string; environmentId: string }) => Promise<AssignIncidentResult>;
   addTriageNote?: (input: {
     errorGroupId: string;
     authorUserId: string | null;
     authorEmail: string;
     body: string;
-  }) => Promise<TriageNoteRecord>;
-  silenceIncident?: (input: { errorGroupId: string; until: Date | null }) => Promise<unknown | null>;
+    projectId: string;
+    environmentId: string;
+  }) => Promise<AddTriageNoteResult>;
+  silenceIncident?: (input: { errorGroupId: string; until: Date | null; projectId: string; environmentId: string }) => Promise<unknown | null>;
   getIncidentMttr?: (input: { projectId: string; environmentId: string; windowDays: number }) => Promise<MttrResult>;
 };
 
@@ -233,8 +235,6 @@ const triageNoteBodySchema = z.object({
 const silenceBodySchema = z.object({
   minutes: z.number().int().nonnegative().nullable()
 });
-
-const mttrWindowValues = ["7d", "30d"] as const;
 
 type RawQuery = Record<string, unknown>;
 
@@ -1305,8 +1305,36 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
     return reply.status(400).send({ error: "invalid_query" });
   }
 
-  // Handle assignment when assignedToUserId is present in the body
-  if ("assignedToUserId" in body.data) {
+  const hasAssignment = "assignedToUserId" in body.data;
+  const hasTriageFields = body.data.status !== undefined || "priority" in body.data;
+
+  // Apply status/priority first if present
+  if (hasTriageFields) {
+    if (!options.query?.updateErrorGroupTriage && (!options.query?.updateErrorGroupStatus || !body.data.status)) {
+      return reply.status(501).send({ error: "query_method_unavailable" });
+    }
+
+    try {
+      const group = options.query.updateErrorGroupTriage
+        ? await options.query.updateErrorGroupTriage(params.data.id, { ...scope, ...body.data })
+        : await options.query.updateErrorGroupStatus!(params.data.id, {
+            ...scope,
+            status: body.data.status!
+          });
+      if (!group) {
+        return reply.status(404).send({ error: "error_group_not_found" });
+      }
+      // If no assignment, return now
+      if (!hasAssignment) {
+        return reply.send({ data: group });
+      }
+    } catch {
+      return reply.status(503).send({ error: "query_unavailable" });
+    }
+  }
+
+  // Handle assignment (either standalone or after status/priority)
+  if (hasAssignment) {
     if (!options.query?.assignIncident) {
       return reply.status(501).send({ error: "query_method_unavailable" });
     }
@@ -1314,7 +1342,9 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
     try {
       const result = await options.query.assignIncident({
         errorGroupId: params.data.id,
-        assignedToUserId: body.data.assignedToUserId ?? null
+        assignedToUserId: body.data.assignedToUserId ?? null,
+        projectId: scope.projectId,
+        environmentId: scope.environmentId
       });
 
       if (result.ok) {
@@ -1335,21 +1365,8 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
     }
   }
 
-  if (!options.query?.updateErrorGroupTriage && (!options.query?.updateErrorGroupStatus || !body.data.status)) {
-    return reply.status(501).send({ error: "query_method_unavailable" });
-  }
-
-  try {
-    const group = options.query.updateErrorGroupTriage
-      ? await options.query.updateErrorGroupTriage(params.data.id, { ...scope, ...body.data })
-      : await options.query.updateErrorGroupStatus!(params.data.id, {
-          ...scope,
-          status: body.data.status!
-        });
-    return group ? reply.send({ data: group }) : reply.status(404).send({ error: "error_group_not_found" });
-  } catch {
-    return reply.status(503).send({ error: "query_unavailable" });
-  }
+  // Neither field present (shouldn't reach here given Zod refine, but guard anyway)
+  return reply.status(400).send({ error: "invalid_query" });
 }
 
 async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
@@ -1363,24 +1380,26 @@ async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyRepl
   }
 
   const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupScope(request.query);
   const body = triageNoteBodySchema.safeParse(request.body);
-  if (!params.success || !body.success) {
+  if (!params.success || !scope || !body.success) {
     return reply.status(400).send({ error: "invalid_query" });
   }
 
   try {
-    const note = await options.query.addTriageNote({
+    const result = await options.query.addTriageNote({
       errorGroupId: params.data.id,
       authorUserId: user.id,
       authorEmail: user.email,
-      body: body.data.body
+      body: body.data.body,
+      projectId: scope.projectId,
+      environmentId: scope.environmentId
     });
-    return reply.send({ data: note });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message === "error_group_not_found") {
+    if (!result.ok) {
       return reply.status(404).send({ error: "error_group_not_found" });
     }
+    return reply.send({ data: result.note });
+  } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }
@@ -1396,8 +1415,9 @@ async function handleSilenceIncidentRoute(request: FastifyRequest, reply: Fastif
   }
 
   const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupScope(request.query);
   const body = silenceBodySchema.safeParse(request.body);
-  if (!params.success || !body.success) {
+  if (!params.success || !scope || !body.success) {
     return reply.status(400).send({ error: "invalid_query" });
   }
 
@@ -1405,7 +1425,12 @@ async function handleSilenceIncidentRoute(request: FastifyRequest, reply: Fastif
   const until = minutes !== null && minutes > 0 ? new Date(Date.now() + minutes * 60_000) : null;
 
   try {
-    const group = await options.query.silenceIncident({ errorGroupId: params.data.id, until });
+    const group = await options.query.silenceIncident({
+      errorGroupId: params.data.id,
+      until,
+      projectId: scope.projectId,
+      environmentId: scope.environmentId
+    });
     return group ? reply.send({ data: group }) : reply.status(404).send({ error: "error_group_not_found" });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });

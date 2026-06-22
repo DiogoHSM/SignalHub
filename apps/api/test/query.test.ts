@@ -2210,7 +2210,7 @@ describe("query routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ data: { id: "egrp_1", assignedToUserId: "usr_2" } });
-    expect(received).toEqual([{ errorGroupId: "egrp_1", assignedToUserId: "usr_2" }]);
+    expect(received).toEqual([{ errorGroupId: "egrp_1", assignedToUserId: "usr_2", projectId: "prj_1", environmentId: "env_1" }]);
   });
 
   it("unassigns an incident when assignedToUserId is null", async () => {
@@ -2324,12 +2324,15 @@ describe("query routes", () => {
         addTriageNote: async (input) => {
           received.push(input);
           return {
-            id: "note_1",
-            errorGroupId: input.errorGroupId,
-            authorUserId: input.authorUserId,
-            authorEmail: input.authorEmail,
-            body: input.body,
-            createdAt: now
+            ok: true as const,
+            note: {
+              id: "note_1",
+              errorGroupId: input.errorGroupId,
+              authorUserId: input.authorUserId,
+              authorEmail: input.authorEmail,
+              body: input.body,
+              createdAt: now
+            }
           };
         }
       }
@@ -2337,7 +2340,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/notes",
+      url: "/query/incidents/error-groups/egrp_1/notes?project_id=prj_1&environment_id=env_1",
       payload: { body: "Looks like a memory leak." }
     });
 
@@ -2356,7 +2359,9 @@ describe("query routes", () => {
         errorGroupId: "egrp_1",
         authorUserId: "usr_1",
         authorEmail: "user@example.com",
-        body: "Looks like a memory leak."
+        body: "Looks like a memory leak.",
+        projectId: "prj_1",
+        environmentId: "env_1"
       }
     ]);
   });
@@ -2374,7 +2379,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/notes",
+      url: "/query/incidents/error-groups/egrp_1/notes?project_id=prj_1&environment_id=env_1",
       payload: { body: "   " }
     });
 
@@ -2395,7 +2400,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/notes",
+      url: "/query/incidents/error-groups/egrp_1/notes?project_id=prj_1&environment_id=env_1",
       payload: { body: "a".repeat(5001) }
     });
 
@@ -2416,7 +2421,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/notes",
+      url: "/query/incidents/error-groups/egrp_1/notes?project_id=prj_1&environment_id=env_1",
       payload: { body: "Hello" }
     });
 
@@ -2441,7 +2446,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/silence",
+      url: "/query/incidents/error-groups/egrp_1/silence?project_id=prj_1&environment_id=env_1",
       payload: { minutes: 60 }
     });
 
@@ -2466,7 +2471,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/silence",
+      url: "/query/incidents/error-groups/egrp_1/silence?project_id=prj_1&environment_id=env_1",
       payload: { minutes: null }
     });
 
@@ -2490,7 +2495,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/silence",
+      url: "/query/incidents/error-groups/egrp_1/silence?project_id=prj_1&environment_id=env_1",
       payload: { minutes: 0 }
     });
 
@@ -2509,7 +2514,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_unknown/silence",
+      url: "/query/incidents/error-groups/egrp_unknown/silence?project_id=prj_1&environment_id=env_1",
       payload: { minutes: 30 }
     });
 
@@ -2530,7 +2535,7 @@ describe("query routes", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: "/query/incidents/error-groups/egrp_1/silence",
+      url: "/query/incidents/error-groups/egrp_1/silence?project_id=prj_1&environment_id=env_1",
       payload: { minutes: -5 }
     });
 
@@ -2640,5 +2645,245 @@ describe("query routes", () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  // ── scope enforcement ────────────────────────────────────────────────────────
+
+  it("returns 404 when assigning to an error group that exists but is in a different project/env", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async () => ({ ok: false, error: { kind: "group_not_found" } } as never)
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_other&environment_id=env_other",
+      payload: { assignedToUserId: "usr_2" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "error_group_not_found" });
+  });
+
+  it("passes projectId and environmentId to assignIncident", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async (input) => {
+          received.push(input);
+          return { ok: true, group: { id: "egrp_1", assignedToUserId: "usr_2" } as never };
+        }
+      }
+    });
+
+    await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_scope&environment_id=env_scope",
+      payload: { assignedToUserId: "usr_2" }
+    });
+
+    expect(received).toEqual([
+      { errorGroupId: "egrp_1", assignedToUserId: "usr_2", projectId: "prj_scope", environmentId: "env_scope" }
+    ]);
+  });
+
+  it("returns 400 when assigning without project_id", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        assignIncident: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?environment_id=env_1",
+      payload: { assignedToUserId: "usr_2" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 404 when silencing an error group in the wrong project/env", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/silence?project_id=prj_other&environment_id=env_other",
+      payload: { minutes: 30 }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "error_group_not_found" });
+  });
+
+  it("passes projectId and environmentId to silenceIncident", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async (input) => {
+          received.push({ errorGroupId: input.errorGroupId, projectId: input.projectId, environmentId: input.environmentId });
+          return { id: "egrp_1" };
+        }
+      }
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/silence?project_id=prj_scope&environment_id=env_scope",
+      payload: { minutes: 10 }
+    });
+
+    expect(received).toEqual([
+      { errorGroupId: "egrp_1", projectId: "prj_scope", environmentId: "env_scope" }
+    ]);
+  });
+
+  it("returns 400 when silencing without project_id", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        silenceIncident: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/silence?environment_id=env_1",
+      payload: { minutes: 30 }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 404 when adding a note to an error group in the wrong project/env", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        addTriageNote: async () => ({ ok: false as const, error: "group_not_found" as const })
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/notes?project_id=prj_other&environment_id=env_other",
+      payload: { body: "This note should not be saved." }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "error_group_not_found" });
+  });
+
+  it("passes projectId and environmentId to addTriageNote", async () => {
+    const received: unknown[] = [];
+    const now = new Date();
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        addTriageNote: async (input) => {
+          received.push({ errorGroupId: input.errorGroupId, projectId: input.projectId, environmentId: input.environmentId });
+          return {
+            ok: true as const,
+            note: {
+              id: "note_1",
+              errorGroupId: input.errorGroupId,
+              authorUserId: input.authorUserId,
+              authorEmail: input.authorEmail,
+              body: input.body,
+              createdAt: now
+            }
+          };
+        }
+      }
+    });
+
+    await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/notes?project_id=prj_scope&environment_id=env_scope",
+      payload: { body: "Scoped note." }
+    });
+
+    expect(received).toEqual([
+      { errorGroupId: "egrp_1", projectId: "prj_scope", environmentId: "env_scope" }
+    ]);
+  });
+
+  it("returns 400 when adding a note without project_id", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        addTriageNote: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/notes?environment_id=env_1",
+      payload: { body: "Missing scope." }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("applies both status and assignedToUserId in a combined PATCH payload", async () => {
+    const triageCalls: unknown[] = [];
+    const assignCalls: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        updateErrorGroupTriage: async (id, input) => {
+          triageCalls.push({ id, ...input });
+          return { id: "egrp_1", status: input.status } as never;
+        },
+        assignIncident: async (input) => {
+          assignCalls.push(input);
+          return { ok: true, group: { id: "egrp_1", status: "investigating", assignedToUserId: "usr_2" } as never };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/query/error-groups/egrp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "investigating", assignedToUserId: "usr_2" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { id: "egrp_1", assignedToUserId: "usr_2" } });
+    expect(triageCalls).toHaveLength(1);
+    expect(assignCalls).toHaveLength(1);
+    expect(assignCalls[0]).toMatchObject({ errorGroupId: "egrp_1", assignedToUserId: "usr_2", projectId: "prj_1", environmentId: "env_1" });
   });
 });

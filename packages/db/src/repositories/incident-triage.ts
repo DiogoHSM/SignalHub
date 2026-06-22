@@ -49,12 +49,14 @@ function toTriageNote(row: Selectable<TriageNotesTable>): TriageNoteRecord {
 
 export async function assignIncident(
   db: DbExecutor,
-  input: { errorGroupId: string; assignedToUserId: string | null }
+  input: { errorGroupId: string; assignedToUserId: string | null; projectId: string; environmentId: string }
 ): Promise<AssignIncidentResult> {
   const existingGroup = await (db as Kysely<Database>)
     .selectFrom("error_groups")
     .select("id")
     .where("id", "=", input.errorGroupId)
+    .where("project_id", "=", input.projectId)
+    .where("environment_id", "=", input.environmentId)
     .executeTakeFirst();
 
   if (!existingGroup) {
@@ -83,6 +85,8 @@ export async function assignIncident(
       updated_at: new Date()
     })
     .where("id", "=", input.errorGroupId)
+    .where("project_id", "=", input.projectId)
+    .where("environment_id", "=", input.environmentId)
     .returningAll()
     .executeTakeFirstOrThrow() as ErrorGroupRow;
 
@@ -91,6 +95,10 @@ export async function assignIncident(
 
 // ── addTriageNote ──────────────────────────────────────────────────────────────
 
+export type AddTriageNoteResult =
+  | { ok: true; note: TriageNoteRecord }
+  | { ok: false; error: "group_not_found" };
+
 export async function addTriageNote(
   db: DbExecutor,
   input: {
@@ -98,8 +106,22 @@ export async function addTriageNote(
     authorUserId: string | null;
     authorEmail: string;
     body: string;
+    projectId: string;
+    environmentId: string;
   }
-): Promise<TriageNoteRecord> {
+): Promise<AddTriageNoteResult> {
+  const existingGroup = await (db as Kysely<Database>)
+    .selectFrom("error_groups")
+    .select("id")
+    .where("id", "=", input.errorGroupId)
+    .where("project_id", "=", input.projectId)
+    .where("environment_id", "=", input.environmentId)
+    .executeTakeFirst();
+
+  if (!existingGroup) {
+    return { ok: false, error: "group_not_found" };
+  }
+
   const row = await (db as Kysely<Database>)
     .insertInto("triage_notes")
     .values({
@@ -112,7 +134,7 @@ export async function addTriageNote(
     .returningAll()
     .executeTakeFirstOrThrow();
 
-  return toTriageNote(row);
+  return { ok: true, note: toTriageNote(row) };
 }
 
 // ── listTriageNotes ────────────────────────────────────────────────────────────
@@ -135,7 +157,7 @@ export async function listTriageNotes(
 
 export async function silenceIncident(
   db: DbExecutor,
-  input: { errorGroupId: string; until: Date | null }
+  input: { errorGroupId: string; until: Date | null; projectId: string; environmentId: string }
 ): Promise<ErrorGroupRecord | null> {
   const row = await (db as Kysely<Database>)
     .updateTable("error_groups")
@@ -144,6 +166,8 @@ export async function silenceIncident(
       updated_at: new Date()
     })
     .where("id", "=", input.errorGroupId)
+    .where("project_id", "=", input.projectId)
+    .where("environment_id", "=", input.environmentId)
     .returningAll()
     .executeTakeFirst();
 
