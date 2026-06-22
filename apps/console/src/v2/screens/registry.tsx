@@ -10,6 +10,11 @@ import { OverviewScreen } from "./OverviewScreen";
 import { ErrorsScreen } from "./ErrorsScreen";
 import type { NavSection } from "../nav";
 
+// ─── Drill types ─────────────────────────────────────────────────────────────
+
+export type DrillTarget = "incident";
+export type DrillParams = { groupId: string; errorId?: string };
+
 // ─── ScreenCtx ───────────────────────────────────────────────────────────────
 
 export type ScreenCtx = {
@@ -25,6 +30,12 @@ export type ScreenCtx = {
   onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
   onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;
   navigate: (section: NavSection) => void;
+  /** Navigate back to the previous screen. */
+  back: () => void;
+  /** Drill into a nested screen. */
+  drill: (target: DrillTarget, params: DrillParams) => void;
+  /** Push a transient toast notification. */
+  pushToast: (message: string) => void;
 };
 
 // ─── Screen entries ───────────────────────────────────────────────────────────

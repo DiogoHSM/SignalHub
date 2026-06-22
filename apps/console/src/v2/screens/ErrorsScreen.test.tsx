@@ -108,6 +108,9 @@ function makeMockCtx(): ScreenCtx {
     onSelectEnvironment: vi.fn(),
     onUpdateProject: vi.fn(),
     navigate: vi.fn(),
+    back: vi.fn(),
+    drill: vi.fn(),
+    pushToast: vi.fn(),
   };
 }
 
@@ -430,15 +433,15 @@ describe("ErrorsScreen", () => {
       expect(screen.queryByText(/trend/i)).not.toBeInTheDocument();
     });
 
-    it("navigates to incidents when a row is clicked", async () => {
+    it("calls ctx.drill('incident', {groupId}) when a row is clicked", async () => {
       mockUseErrors(ERRORS_VM);
-      const navigate = vi.fn();
-      render(<ErrorsScreen ctx={makeMockCtx()} navigate={navigate} />);
+      const ctx = makeMockCtx();
+      render(<ErrorsScreen ctx={ctx} navigate={vi.fn()} />);
 
       // Click the first error row
       const rows = screen.getAllByRole("button", { name: /PaymentTimeoutError/i });
       await userEvent.click(rows[0]);
-      expect(navigate).toHaveBeenCalledWith("incidents");
+      expect(ctx.drill).toHaveBeenCalledWith("incident", expect.objectContaining({ groupId: "err_grp_8a2f" }));
     });
 
     it("renders last seen time", () => {

@@ -89,6 +89,8 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
     updateErrorGroupTriage: vi.fn(),
+    addTriageNote: vi.fn(),
+    silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn(),
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),

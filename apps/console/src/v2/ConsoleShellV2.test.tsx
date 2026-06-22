@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
 import type { User } from "../api/types";
 import { ConsoleShellV2 } from "./ConsoleShellV2";
+import * as useIncidentModule from "./screens/useIncident";
+import * as useErrorsModule from "./screens/useErrors";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,8 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     getErrorGroupIncident: vi.fn(),
     updateErrorGroupStatus: vi.fn(),
     updateErrorGroupTriage: vi.fn(),
+    addTriageNote: vi.fn(),
+    silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn(),
     fetchFleet: vi.fn().mockRejectedValue(new Error("fleet unavailable")),
     ...overrides,
@@ -234,5 +238,242 @@ describe("ConsoleShellV2", () => {
     render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
     // Shell guard renders EmptyHint before project/env are available
     expect(screen.getByText(/loading project/i)).toBeInTheDocument();
+  });
+
+  describe("drill/back navigation", () => {
+    const ERRORS_VM_FOR_DRILL = {
+      tabs: { events: 0, errors: 1, traces: 0, llm: 0, tenants: 0, users: 0 },
+      summary: { errors24h: 1, openGroups: 1, critical: 1, mttr: null, topRelease: null },
+      volume: [],
+      rows: [
+        {
+          id: "g1",
+          message: "TestError: drill navigation test",
+          severity: "critical",
+          status: "open",
+          priority: null as null,
+          events: 10,
+          users: null as null,
+          tenants: null as null,
+          last: "5m ago",
+        },
+      ],
+    };
+
+    const INCIDENT_VM_FOR_DRILL = {
+      severity: "critical",
+      severityColor: "var(--sev-critical)",
+      status: "investigating",
+      priority: "P1" as const,
+      groupId: "g1",
+      release: null,
+      incidentNumber: "1",
+      openedRelative: "5m ago",
+      assigneeEmail: null,
+      title: "TestError: drill navigation test",
+      origin: "src/test.ts",
+      occurrenceCount: 10,
+      affectedUsers: 3,
+      affectedTenants: 1,
+      firstSeenRelative: "10m ago",
+      lastSeenRelative: "5m ago",
+      silencedUntil: null,
+      stack: null,
+      sourceMapBadge: { resolved: false, frameCount: 0 },
+      breadcrumbs: [],
+      related: [],
+      notes: [],
+    };
+
+    function setupDrillMocks() {
+      vi.spyOn(useErrorsModule, "useErrors").mockReturnValue({
+        data: ERRORS_VM_FOR_DRILL,
+        status: "ok",
+        reload: vi.fn(),
+      });
+      vi.spyOn(useIncidentModule, "useIncident").mockReturnValue({
+        data: INCIDENT_VM_FOR_DRILL,
+        status: "ready" as const,
+        reload: vi.fn(),
+        resolve: vi.fn().mockResolvedValue(undefined),
+        reassign: vi.fn().mockResolvedValue(undefined),
+        silence: vi.fn().mockResolvedValue(undefined),
+        addNote: vi.fn().mockResolvedValue(undefined),
+        users: [],
+        canReassign: false,
+      });
+    }
+
+    it("drilling into incident renders IncidentScreen instead of section", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      // Wait for project to load
+      await waitFor(() => {
+        expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument();
+      });
+
+      // Navigate to Investigate
+      await user.click(screen.getByTitle("Investigate"));
+
+      // Error row should be visible
+      await waitFor(() => {
+        const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(rows.length).toBeGreaterThan(0);
+      });
+
+      // Click row to drill into incident
+      const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+      await user.click(rows[0]);
+
+      // IncidentScreen should render (has a "Back" button and incident h1)
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+      });
+      expect(screen.getByRole("heading", { level: 1, name: /TestError: drill navigation test/i })).toBeInTheDocument();
+    });
+
+    it("ctx.back() from IncidentScreen returns to the section", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      // Wait for project to load
+      await waitFor(() => {
+        expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument();
+      });
+
+      // Navigate to Investigate and drill into incident
+      await user.click(screen.getByTitle("Investigate"));
+      await waitFor(() => {
+        const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(rows.length).toBeGreaterThan(0);
+      });
+      const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+      await user.click(rows[0]);
+
+      // Wait for IncidentScreen
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+      });
+
+      // Click back
+      await user.click(screen.getByRole("button", { name: /back/i }));
+
+      // Should return to ErrorsScreen (the error row should reappear)
+      await waitFor(() => {
+        const errorRows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(errorRows.length).toBeGreaterThan(0);
+      });
+
+      // Back button (standalone "Back" on IncidentScreen) should no longer be in document
+      expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+    });
+
+    it("selecting a different NavRail section clears the detail view", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      // Wait for project to load
+      await waitFor(() => {
+        expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument();
+      });
+
+      // Navigate to Investigate and drill into incident
+      await user.click(screen.getByTitle("Investigate"));
+      await waitFor(() => {
+        const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(rows.length).toBeGreaterThan(0);
+      });
+      const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+      await user.click(rows[0]);
+
+      // Verify we're in IncidentScreen
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+      });
+
+      // Click Overview in nav rail — should clear detail and go to OverviewScreen
+      await user.click(screen.getByTitle("Overview"));
+
+      // Should be on OverviewScreen (has h1.sh-h1, no incident back button)
+      await waitFor(() => {
+        expect(document.querySelector("h1.sh-h1")).toBeInTheDocument();
+      });
+      expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+    });
+
+    it("switching project while detail is open clears the detail view", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      // Wait for project to load
+      await waitFor(() => {
+        expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument();
+      });
+
+      // Navigate to Investigate and drill into incident
+      await user.click(screen.getByTitle("Investigate"));
+      await waitFor(() => {
+        const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(rows.length).toBeGreaterThan(0);
+      });
+      const drillRows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+      await user.click(drillRows[0]);
+
+      // Verify IncidentScreen is mounted
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+      });
+
+      // Switch project via TopBar project switcher
+      const pills = document.querySelectorAll(".sw-pill");
+      await user.click(pills[0]);
+      const opts = document.querySelectorAll(".sw-opt");
+      const stagingOpt = Array.from(opts).find((o) => o.textContent?.includes("Acme Staging"));
+      await user.click(stagingOpt as HTMLElement);
+
+      // Detail should be cleared — no IncidentScreen back button
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+      });
+    });
+
+    it("clicking Create issue button in IncidentScreen shows a toast in the ToastStack", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      // Wait for project to load
+      await waitFor(() => {
+        expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument();
+      });
+
+      // Navigate to Investigate and drill into incident
+      await user.click(screen.getByTitle("Investigate"));
+      await waitFor(() => {
+        const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+        expect(rows.length).toBeGreaterThan(0);
+      });
+      const drillRows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
+      await user.click(drillRows[0]);
+
+      // Verify IncidentScreen is mounted
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
+      });
+
+      // Click Create issue — this calls ctx.pushToast which should put a toast in the stack
+      await user.click(screen.getByRole("button", { name: /create issue/i }));
+
+      // Toast should appear in the DOM via ToastStack
+      await waitFor(() => {
+        expect(document.querySelector(".toast__title")).toBeInTheDocument();
+        expect(document.querySelector(".toast__title")?.textContent).toMatch(/github issue creation is not available yet/i);
+      });
+    });
   });
 });
