@@ -14,6 +14,7 @@ import {
   StatusPill,
   SummaryStat,
 } from "../../components/ui/v2";
+import { formatCompact } from "../../components/ui/v2/format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,18 +27,6 @@ type SeverityFilter = "all" | "critical" | "error" | "warning";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
-  return String(n);
-}
-
-function fmtCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
 
 const SEV_COLOR: Record<string, string> = {
   critical: "var(--sev-critical)",
@@ -227,6 +216,20 @@ export function ErrorsScreen({
     severity: severity === "all" ? undefined : severity,
   });
 
+  // Defensive guard: shell should prevent renders without project/env, but
+  // protect against the initial project-load window to avoid spurious 400s.
+  if (!ctx.project || !ctx.environment) {
+    return (
+      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+        <EmptyHint
+          icon="activity"
+          title="No project selected"
+          sub="Select a project and environment to view errors."
+        />
+      </div>
+    );
+  }
+
   // Loading state
   if (status === "loading" && !data) {
     return (
@@ -252,12 +255,12 @@ export function ErrorsScreen({
   const { tabs, summary, volume, rows } = data;
 
   const tabDefs: TabDef[] = [
-    { label: "Events", icon: "activity", count: fmtCount(tabs.events), dest: "overview" },
-    { label: "Errors", icon: "error", count: fmtCount(tabs.errors), active: true },
-    { label: "Traces", icon: "waterfall", count: fmtCount(tabs.traces), dest: "traces" },
-    { label: "LLM", icon: "sparkles", count: fmtCount(tabs.llm), dest: "llm" },
-    { label: "Tenants", icon: "cube", count: fmtCount(tabs.tenants), dest: "investigate" },
-    { label: "Users", icon: "users", count: fmtCount(tabs.users), dest: "investigate" },
+    { label: "Events", icon: "activity", count: formatCompact(tabs.events), dest: "overview" },
+    { label: "Errors", icon: "error", count: formatCompact(tabs.errors), active: true },
+    { label: "Traces", icon: "waterfall", count: formatCompact(tabs.traces), dest: "traces" },
+    { label: "LLM", icon: "sparkles", count: formatCompact(tabs.llm), dest: "llm" },
+    { label: "Tenants", icon: "cube", count: formatCompact(tabs.tenants), dest: "investigate" },
+    { label: "Users", icon: "users", count: formatCompact(tabs.users), dest: "investigate" },
   ];
 
   const SEV_OPTIONS = ["all", "critical", "error", "warning"] as const;
@@ -281,11 +284,12 @@ export function ErrorsScreen({
             </button>
           ))}
         </div>
-        <button className="sh-btn">
+        {/* TODO(PER-349 follow-up): wire status/release filters */}
+        <button className="sh-btn" disabled>
           <Icon name="filter" size={13} />
           status: open, investigating
         </button>
-        <button className="sh-btn">
+        <button className="sh-btn" disabled>
           <Icon name="filter" size={13} />
           release: any
         </button>

@@ -8,3 +8,4 @@ export * from "./secret-field";
 export * from "./confirm-button";
 export * from "./empty-hint";
 export * from "./toast";
+export * from "./format";

@@ -13,6 +13,7 @@ import { renderSection } from "./screens/registry";
 import type { ScreenCtx } from "./screens/registry";
 import type { NavSection } from "./nav";
 import type { BreadcrumbItem } from "./shell/TopBar";
+import { EmptyHint } from "../components/ui/v2";
 
 // ─── persistence ─────────────────────────────────────────────────────────────
 
@@ -311,7 +312,17 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
           <div className="app-workspace">
             <div className="page" key={seq} data-anim={anim}>
-              {renderSection(nav, screenCtx)}
+              {activeProject && activeEnvironment
+                ? renderSection(nav, screenCtx)
+                : (
+                  <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+                    <EmptyHint
+                      icon="activity"
+                      title="Loading project…"
+                      sub="Waiting for project and environment data."
+                    />
+                  </div>
+                )}
             </div>
           </div>
         </div>

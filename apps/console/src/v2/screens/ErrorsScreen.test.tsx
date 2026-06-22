@@ -14,7 +14,9 @@ import type { ScreenCtx } from "./registry";
 const ERRORS_VM: ErrorsVM = {
   tabs: {
     events: 4820000,
-    errors: 2481,
+    // Distinct from summary.errors24h (2481) so tab badge vs. strip can be
+    // asserted independently.  formatCompact(3500) → "3,500"
+    errors: 3500,
     traces: 31000,
     llm: 184000,
     tenants: 287,
@@ -127,6 +129,22 @@ afterEach(() => {
 });
 
 describe("ErrorsScreen", () => {
+  describe("no project guard", () => {
+    it("shows 'No project selected' hint when project is undefined", () => {
+      mockUseErrors(null, "loading");
+      const ctx = { ...makeMockCtx(), project: undefined };
+      render(<ErrorsScreen ctx={ctx} navigate={vi.fn()} />);
+      expect(screen.getByText(/no project selected/i)).toBeInTheDocument();
+    });
+
+    it("shows 'No project selected' hint when environment is undefined", () => {
+      mockUseErrors(null, "loading");
+      const ctx = { ...makeMockCtx(), environment: undefined };
+      render(<ErrorsScreen ctx={ctx} navigate={vi.fn()} />);
+      expect(screen.getByText(/no project selected/i)).toBeInTheDocument();
+    });
+  });
+
   describe("loading state", () => {
     it("shows loading hint while data is loading", () => {
       mockUseErrors(null, "loading");
@@ -162,13 +180,17 @@ describe("ErrorsScreen", () => {
       expect(screen.getByRole("button", { name: "Users" })).toBeInTheDocument();
     });
 
-    it("displays tab counts from VM", () => {
+    it("displays tab counts from VM using formatCompact", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-      // errors tab count
-      expect(screen.getByText("2,481")).toBeInTheDocument();
-      // tenants count
+      // tabs.errors = 3500 → formatCompact → "3,500" (tab badge only; summary strip shows "2,481")
+      expect(screen.getByText("3,500")).toBeInTheDocument();
+      // tabs.tenants = 287 → formatCompact → "287"
       expect(screen.getByText("287")).toBeInTheDocument();
+      // tabs.events = 4820000 → formatCompact → "4.82M"
+      expect(screen.getByText("4.82M")).toBeInTheDocument();
+      // tabs.traces = 31000 → formatCompact → "31K"
+      expect(screen.getByText("31K")).toBeInTheDocument();
     });
 
     it("navigates to overview when Events tab is clicked", async () => {
@@ -265,9 +287,8 @@ describe("ErrorsScreen", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByText(/errors.*24h/i)).toBeInTheDocument();
-      // 2,481 should appear (may appear in summary strip)
-      const vals = screen.getAllByText("2,481");
-      expect(vals.length).toBeGreaterThanOrEqual(1);
+      // summary.errors24h = 2481 → toLocaleString → "2,481" (summary strip only)
+      expect(screen.getByText("2,481")).toBeInTheDocument();
     });
 
     it("renders Open groups count", () => {
