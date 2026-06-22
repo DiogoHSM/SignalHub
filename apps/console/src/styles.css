@@ -3291,7 +3291,8 @@ select {
 }
 
 /* SignalMonitor Console Redesign */
-:root {
+:root,
+.console-legacy-island {
   color-scheme: dark;
   color: #f5f7fa;
   background: #161a21;
@@ -3326,6 +3327,8 @@ select {
   --scrollbar-thumb-hover: #5a6675;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
 }
+
+.console-legacy-island { color-scheme: light; height: 100%; overflow: auto; }
 
 html,
 body,
