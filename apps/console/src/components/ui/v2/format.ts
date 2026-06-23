@@ -89,3 +89,14 @@ export function formatUtcTimestamp(isoString: string): string {
   const ms = pad(d.getUTCMilliseconds(), 3);
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}.${ms} UTC`;
 }
+
+/**
+ * Formats an ISO timestamp as "HH:MM:SS" (UTC fields), for dense timeline rows.
+ * Invalid input returns an em-dash.
+ */
+export function formatClockUtc(isoString: string): string {
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
