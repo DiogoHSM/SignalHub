@@ -1,6 +1,7 @@
+// @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Bars, MicroSpark, Sparkline } from "./charts";
+import { Bars, MicroSpark, Sparkline, StackedArea } from "./charts";
 
 afterEach(cleanup);
 
@@ -31,6 +32,35 @@ describe("charts", () => {
     const { container } = render(<MicroSpark data={[1, 2, 1, 3]} width={52} height={16} />);
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("width")).toBe("52");
+    expect(container.querySelectorAll("path").length).toBe(1);
+  });
+});
+
+describe("StackedArea", () => {
+  it("renders one filled path per series plus baseline gridlines", () => {
+    const { container } = render(
+      <StackedArea
+        buckets={["a", "b", "c"]}
+        series={[
+          { model: "gpt-5", color: "var(--sev-violet)", costs: [1, 2, 3] },
+          { model: "haiku-4", color: "var(--accent)", costs: [0, 1, 2] },
+        ]}
+      />
+    );
+    expect(container.querySelector("svg")).not.toBeNull();
+    expect(container.querySelectorAll("path").length).toBe(2);
+    expect(container.querySelectorAll("line").length).toBe(5);
+  });
+
+  it("returns null for empty series", () => {
+    const { container } = render(<StackedArea buckets={[]} series={[]} />);
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("does not crash on a single bucket", () => {
+    const { container } = render(
+      <StackedArea buckets={["a"]} series={[{ model: "m", color: "red", costs: [5] }]} />
+    );
     expect(container.querySelectorAll("path").length).toBe(1);
   });
 });
