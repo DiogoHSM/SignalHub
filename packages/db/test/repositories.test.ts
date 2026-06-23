@@ -67,9 +67,14 @@ import {
   insertTrace
 } from "../src/repositories/telemetry-writes.js";
 import {
+  buildBucketAxis,
   getErrorAggregates,
   getEventAggregates,
   getLlmAggregates,
+  getLlmByPrompt,
+  getLlmByTenant,
+  getLlmCostByModel,
+  getLlmSummary,
   getOverview,
   getTraceAggregates,
   listErrors,
@@ -8039,6 +8044,776 @@ describe("repositories", () => {
       if (!result.ok) throw new Error("expected ok");
       expect(result.note.body).toBe("Scoped note");
       expect(result.note.errorGroupId).toBe(group.id);
+    });
+  });
+
+  it("getLlmSummary returns correct aggregates for in-window llm_calls", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM Summary Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      // Use a fixed anchor inside the 24h window
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2h ago
+      const receivedAt = new Date(now.getTime() - 2 * 60 * 60 * 1000 + 1000);
+      const outsideWindow = new Date(now.getTime() - 26 * 60 * 60 * 1000); // 26h ago
+
+      // success row: input=100 output=50 => tokens=150, latency=200ms, cost=0.010000
+      await insertLlmCall(db, {
+        id: "llm_sum_success",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.010000",
+        latencyMs: 200,
+        status: "success"
+      });
+
+      // error row: input=200 output=100 => tokens=300, latency=400ms, cost=0.020000
+      await insertLlmCall(db, {
+        id: "llm_sum_error",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 200,
+        outputTokens: 100,
+        costUsd: "0.020000",
+        latencyMs: 400,
+        status: "error"
+      });
+
+      // pending row: null latency, cost=0.005000
+      await insertLlmCall(db, {
+        id: "llm_sum_pending",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 50,
+        outputTokens: 25,
+        costUsd: "0.005000",
+        latencyMs: undefined,
+        status: "pending"
+      });
+
+      // outside-window row — should be excluded
+      await insertLlmCall(db, {
+        id: "llm_sum_outside",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: outsideWindow,
+        receivedAt: new Date(outsideWindow.getTime() + 1000),
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      const summary = await getLlmSummary(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // calls = 3 in-window rows
+      expect(summary.calls).toBe(3);
+      // failedCalls = error + pending = 2
+      expect(summary.failedCalls).toBe(2);
+      // costUsd = 0.010000 + 0.020000 + 0.005000 = 0.035000
+      expect(summary.costUsd).toBe("0.035000");
+      // avgTokens = round((150 + 300 + 75) / 3) = round(175) = 175
+      expect(summary.avgTokens).toBe(175);
+      // avgLatencyMs = round((200 + 400) / 2) = 300 (null latency excluded)
+      expect(summary.avgLatencyMs).toBe(300);
+      // p95LatencyMs: only 2 non-null values [200, 400], p95 = 200 + 0.95*(400-200) = 390
+      expect(summary.p95LatencyMs).toBe(390);
+    });
+  });
+
+  it("getLlmSummary returns zero/null shape for empty window (different project)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM Summary Empty Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const summary = await getLlmSummary(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      expect(summary).toEqual({
+        calls: 0,
+        failedCalls: 0,
+        costUsd: "0",
+        avgTokens: null,
+        avgLatencyMs: null,
+        p95LatencyMs: null
+      });
+    });
+  });
+
+  it("buildBucketAxis produces correct hour and day bucket starts", () => {
+    // hour case: from=2026-06-22T03:30Z to=2026-06-22T06:10Z → 4 buckets
+    const hourAxis = buildBucketAxis(new Date("2026-06-22T03:30:00Z"), new Date("2026-06-22T06:10:00Z"), "hour");
+    expect(hourAxis).toEqual([
+      "2026-06-22T03:00:00.000Z",
+      "2026-06-22T04:00:00.000Z",
+      "2026-06-22T05:00:00.000Z",
+      "2026-06-22T06:00:00.000Z"
+    ]);
+
+    // day case: from=2026-06-20T15:00Z to=2026-06-22T10:00Z → 3 days
+    const dayAxis = buildBucketAxis(new Date("2026-06-20T15:00:00Z"), new Date("2026-06-22T10:00:00Z"), "day");
+    expect(dayAxis).toEqual([
+      "2026-06-20T00:00:00.000Z",
+      "2026-06-21T00:00:00.000Z",
+      "2026-06-22T00:00:00.000Z"
+    ]);
+  });
+
+  it("getLlmByTenant returns top 10 tenants ordered by cost desc, excludes null tenant", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByTenant Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2h ago
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      // Seed 11 tenants so we can assert the cap of 10.
+      // Costs are spread so sorting by cost desc is deterministic.
+      // tenant-01 gets the most cost, tenant-11 gets the least.
+      for (let i = 1; i <= 11; i++) {
+        const tenantId = `tenant-${String(i).padStart(2, "0")}`;
+        const costNum = (12 - i) * 0.01; // tenant-01 = 0.11, tenant-11 = 0.01
+        const cost = costNum.toFixed(6);
+        await insertLlmCall(db, {
+          id: `llm_tenant_${i}_a`,
+          projectId: project.id,
+          environmentId: environment.id,
+          tenantId,
+          timestamp: inWindow,
+          receivedAt,
+          provider: "openai",
+          model: "gpt-4",
+          inputTokens: 100,
+          outputTokens: 50,
+          costUsd: cost,
+          latencyMs: 100 + i * 10,
+          status: "success"
+        });
+        // Add one failed call for tenant-01 only
+        if (i === 1) {
+          await insertLlmCall(db, {
+            id: `llm_tenant_${i}_b`,
+            projectId: project.id,
+            environmentId: environment.id,
+            tenantId,
+            timestamp: inWindow,
+            receivedAt,
+            provider: "openai",
+            model: "gpt-4",
+            inputTokens: 50,
+            outputTokens: 25,
+            costUsd: "0.000000",
+            latencyMs: 50,
+            status: "error"
+          });
+        }
+      }
+
+      // Add a null-tenant row (should be excluded)
+      await insertLlmCall(db, {
+        id: "llm_tenant_null",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 500,
+        outputTokens: 500,
+        costUsd: "99.000000",
+        latencyMs: 999,
+        status: "success"
+      });
+
+      const rows = await getLlmByTenant(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // Cap of 10: tenant-11 (lowest cost) is excluded
+      expect(rows).toHaveLength(10);
+
+      // No null tenants in result
+      for (const row of rows) {
+        expect(row.tenantId).not.toBeNull();
+        expect(typeof row.tenantId).toBe("string");
+      }
+
+      // First row is tenant-01 (highest cost = 0.110000)
+      expect(rows[0].tenantId).toBe("tenant-01");
+      // tenant-01 has 2 calls (1 success + 1 error), 1 failedCall
+      expect(rows[0].calls).toBe(2);
+      expect(rows[0].failedCalls).toBe(1);
+      // cost = 0.110000 + 0.000000 = 0.110000
+      expect(rows[0].costUsd).toBe("0.110000");
+      // avgTokens = round((150 + 75) / 2) = 113
+      expect(rows[0].avgTokens).toBe(113);
+      // avgLatencyMs = round((110 + 50) / 2) = 80
+      expect(rows[0].avgLatencyMs).toBe(80);
+      // p95 of [50, 110] = 50 + 0.95*(110-50) = 50 + 57 = 107
+      expect(rows[0].p95LatencyMs).toBe(107);
+
+      // Second row is tenant-02
+      expect(rows[1].tenantId).toBe("tenant-02");
+      expect(rows[1].calls).toBe(1);
+      expect(rows[1].failedCalls).toBe(0);
+      // cost = (12 - 2) * 0.01 = 0.100000
+      expect(rows[1].costUsd).toBe("0.100000");
+
+      // Last row in result is tenant-10
+      expect(rows[9].tenantId).toBe("tenant-10");
+    });
+  });
+
+  it("getLlmByTenant excludes out-of-window rows and other projects", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByTenant Scoped" });
+      const otherProject = await createProject(db, { name: "LLM ByTenant Other" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnv = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+      const outsideWindow = new Date(now.getTime() - 30 * 60 * 60 * 1000);
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      await insertLlmCall(db, {
+        id: "llm_scoped_in",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant-a",
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.010000",
+        latencyMs: 200,
+        status: "success"
+      });
+
+      // Out-of-window row for same tenant
+      await insertLlmCall(db, {
+        id: "llm_scoped_out",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant-a",
+        timestamp: outsideWindow,
+        receivedAt: new Date(outsideWindow.getTime() + 1000),
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      // Different project row
+      await insertLlmCall(db, {
+        id: "llm_scoped_other_proj",
+        projectId: otherProject.id,
+        environmentId: otherEnv.id,
+        tenantId: "tenant-a",
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      const rows = await getLlmByTenant(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].tenantId).toBe("tenant-a");
+      expect(rows[0].calls).toBe(1);
+      expect(rows[0].costUsd).toBe("0.010000");
+    });
+  });
+
+  it("getLlmByPrompt returns rows per (prompt, model) pair, null prompt → Unspecified, ordered by cost desc", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByPrompt Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      // (prompt-a, gpt-4): 2 calls, 1 success + 1 error, cost = 0.030000
+      await insertLlmCall(db, {
+        id: "llm_prompt_a_gpt4_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        promptName: "prompt-a",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.020000",
+        latencyMs: 200,
+        status: "success"
+      });
+      await insertLlmCall(db, {
+        id: "llm_prompt_a_gpt4_2",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        promptName: "prompt-a",
+        inputTokens: 50,
+        outputTokens: 25,
+        costUsd: "0.010000",
+        latencyMs: 400,
+        status: "error"
+      });
+
+      // (prompt-a, gpt-3.5): 1 call, cost = 0.005000
+      await insertLlmCall(db, {
+        id: "llm_prompt_a_gpt35_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-3.5",
+        promptName: "prompt-a",
+        inputTokens: 80,
+        outputTokens: 40,
+        costUsd: "0.005000",
+        latencyMs: 100,
+        status: "success"
+      });
+
+      // (prompt-b, gpt-4): 1 call, highest cost = 0.050000
+      await insertLlmCall(db, {
+        id: "llm_prompt_b_gpt4_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        promptName: "prompt-b",
+        inputTokens: 200,
+        outputTokens: 100,
+        costUsd: "0.050000",
+        latencyMs: 300,
+        status: "success"
+      });
+
+      // null prompt_name, model gpt-4: 1 call → should appear as "Unspecified"
+      await insertLlmCall(db, {
+        id: "llm_prompt_null_gpt4",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 60,
+        outputTokens: 30,
+        costUsd: "0.002000",
+        latencyMs: 150,
+        status: "success"
+      });
+
+      const rows = await getLlmByPrompt(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // 4 distinct (coalesced_prompt, model) pairs:
+      // (prompt-b, gpt-4)=0.05, (prompt-a, gpt-4)=0.03, (prompt-a, gpt-3.5)=0.005, (Unspecified, gpt-4)=0.002
+      expect(rows).toHaveLength(4);
+
+      // Row 0: prompt-b / gpt-4 (highest cost)
+      expect(rows[0].promptName).toBe("prompt-b");
+      expect(rows[0].model).toBe("gpt-4");
+      expect(rows[0].calls).toBe(1);
+      expect(rows[0].failedCalls).toBe(0);
+      expect(rows[0].costUsd).toBe("0.050000");
+      // avgTokens = round((200 + 100) / 1) = 300
+      expect(rows[0].avgTokens).toBe(300);
+      expect(rows[0].avgLatencyMs).toBe(300);
+      expect(rows[0].p95LatencyMs).toBe(300);
+
+      // Row 1: prompt-a / gpt-4 (cost=0.030000)
+      expect(rows[1].promptName).toBe("prompt-a");
+      expect(rows[1].model).toBe("gpt-4");
+      expect(rows[1].calls).toBe(2);
+      expect(rows[1].failedCalls).toBe(1);
+      expect(rows[1].costUsd).toBe("0.030000");
+      // avgTokens = round((150 + 75) / 2) = 113
+      expect(rows[1].avgTokens).toBe(113);
+      // avgLatencyMs = round((200 + 400) / 2) = 300
+      expect(rows[1].avgLatencyMs).toBe(300);
+      // p95 of [200, 400] = 200 + 0.95*200 = 390
+      expect(rows[1].p95LatencyMs).toBe(390);
+
+      // Row 2: prompt-a / gpt-3.5 (cost=0.005000)
+      expect(rows[2].promptName).toBe("prompt-a");
+      expect(rows[2].model).toBe("gpt-3.5");
+      expect(rows[2].calls).toBe(1);
+      expect(rows[2].failedCalls).toBe(0);
+      expect(rows[2].costUsd).toBe("0.005000");
+
+      // Row 3: Unspecified / gpt-4 (null prompt → 'Unspecified', cost=0.002000)
+      expect(rows[3].promptName).toBe("Unspecified");
+      expect(rows[3].model).toBe("gpt-4");
+      expect(rows[3].calls).toBe(1);
+      expect(rows[3].costUsd).toBe("0.002000");
+    });
+  });
+
+  it("getLlmByPrompt caps at 20 rows and excludes out-of-window rows", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByPrompt Cap" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+      const outsideWindow = new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000);
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      // Seed 21 unique (prompt, model) pairs
+      for (let i = 1; i <= 21; i++) {
+        const cost = (0.001 * i).toFixed(6);
+        await insertLlmCall(db, {
+          id: `llm_cap_${i}`,
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: inWindow,
+          receivedAt,
+          provider: "openai",
+          model: `model-${String(i).padStart(2, "0")}`,
+          promptName: `prompt-cap`,
+          inputTokens: 100,
+          outputTokens: 50,
+          costUsd: cost,
+          latencyMs: 100,
+          status: "success"
+        });
+      }
+
+      // Out-of-window row (should be excluded)
+      await insertLlmCall(db, {
+        id: "llm_cap_outside",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: outsideWindow,
+        receivedAt: new Date(outsideWindow.getTime() + 1000),
+        provider: "openai",
+        model: "model-99",
+        promptName: "prompt-cap",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      const rows = await getLlmByPrompt(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // Cap of 20: only top 20 by cost
+      expect(rows).toHaveLength(20);
+      // Highest cost is model-21 (i=21, cost=0.021000)
+      expect(rows[0].model).toBe("model-21");
+    });
+  });
+
+  it("getLlmCostByModel returns top-5 models ordered by total cost desc with zero-filled bucket axis", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM CostByModel Main" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      // Use a fixed "now" so buckets are predictable
+      const now = new Date();
+      // Place calls in two different hours within the 24h window
+      const hourA = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2 hours ago
+      const hourB = new Date(now.getTime() - 5 * 60 * 60 * 1000); // 5 hours ago
+      const receivedAt = new Date(now.getTime() - 100);
+
+      // Seed 6 models to assert top-5 cap.
+      // model-1: cost 0.100000 in hourA
+      // model-2: cost 0.080000 in hourA
+      // model-3: cost 0.060000 in hourB
+      // model-4: cost 0.040000 in hourA
+      // model-5: cost 0.020000 in hourB
+      // model-6: cost 0.005000 in hourA (should be excluded from top-5)
+      const models = [
+        { name: "model-1", cost: "0.100000", hour: hourA },
+        { name: "model-2", cost: "0.080000", hour: hourA },
+        { name: "model-3", cost: "0.060000", hour: hourB },
+        { name: "model-4", cost: "0.040000", hour: hourA },
+        { name: "model-5", cost: "0.020000", hour: hourB },
+        { name: "model-6", cost: "0.005000", hour: hourA }
+      ];
+
+      for (let i = 0; i < models.length; i++) {
+        const m = models[i];
+        await insertLlmCall(db, {
+          id: `llm_cbm_${i + 1}`,
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: m.hour,
+          receivedAt,
+          provider: "openai",
+          model: m.name,
+          inputTokens: 100,
+          outputTokens: 50,
+          costUsd: m.cost,
+          latencyMs: 100,
+          status: "success"
+        });
+      }
+
+      const result = await getLlmCostByModel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // Buckets axis: hourly, 24h window
+      expect(result.buckets.length).toBeGreaterThanOrEqual(24);
+      expect(result.buckets.length).toBeLessThanOrEqual(26);
+
+      // Top-5 cap: model-6 excluded
+      expect(result.series).toHaveLength(5);
+
+      // Ordered by total cost desc
+      expect(result.series[0].model).toBe("model-1");
+      expect(result.series[1].model).toBe("model-2");
+      expect(result.series[2].model).toBe("model-3");
+      expect(result.series[3].model).toBe("model-4");
+      expect(result.series[4].model).toBe("model-5");
+
+      // Each costs array length must match buckets length
+      for (const s of result.series) {
+        expect(s.costs).toHaveLength(result.buckets.length);
+      }
+
+      // Verify bucket alignment: find the hourA and hourB bucket keys
+      const hourAKey = `${hourA.getUTCFullYear().toString().padStart(4, "0")}-${(hourA.getUTCMonth() + 1).toString().padStart(2, "0")}-${hourA.getUTCDate().toString().padStart(2, "0")}T${hourA.getUTCHours().toString().padStart(2, "0")}:00:00.000Z`;
+      const hourBKey = `${hourB.getUTCFullYear().toString().padStart(4, "0")}-${(hourB.getUTCMonth() + 1).toString().padStart(2, "0")}-${hourB.getUTCDate().toString().padStart(2, "0")}T${hourB.getUTCHours().toString().padStart(2, "0")}:00:00.000Z`;
+
+      const hourAIdx = result.buckets.indexOf(hourAKey);
+      const hourBIdx = result.buckets.indexOf(hourBKey);
+      expect(hourAIdx).toBeGreaterThanOrEqual(0);
+      expect(hourBIdx).toBeGreaterThanOrEqual(0);
+
+      // model-1 has cost in hourA, zero in hourB
+      const m1 = result.series[0];
+      expect(m1.costs[hourAIdx]).toBe("0.100000");
+      expect(m1.costs[hourBIdx]).toBe("0");
+
+      // model-3 has cost in hourB, zero in hourA
+      const m3 = result.series[2];
+      expect(m3.costs[hourBIdx]).toBe("0.060000");
+      expect(m3.costs[hourAIdx]).toBe("0");
+    });
+  });
+
+  it("getLlmCostByModel returns empty series when no data in window", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM CostByModel Empty" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const result = await getLlmCostByModel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // Buckets axis is non-empty even with no data
+      expect(result.buckets.length).toBeGreaterThanOrEqual(24);
+      expect(result.series).toHaveLength(0);
+    });
+  });
+
+  it("getLlmCostByModel returns daily axis for 7d window", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM CostByModel 7d" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      await insertLlmCall(db, {
+        id: "llm_cbm_7d_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.010000",
+        latencyMs: 100,
+        status: "success"
+      });
+
+      const result = await getLlmCostByModel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d"
+      });
+
+      // Daily axis for 7d: ~7–8 buckets
+      expect(result.buckets.length).toBeGreaterThanOrEqual(7);
+      expect(result.buckets.length).toBeLessThanOrEqual(9);
+
+      // Buckets are daily (time portion is T00:00:00.000Z)
+      for (const b of result.buckets) {
+        expect(b).toMatch(/T00:00:00\.000Z$/);
+      }
+
+      expect(result.series).toHaveLength(1);
+      expect(result.series[0].model).toBe("gpt-4");
+      expect(result.series[0].costs).toHaveLength(result.buckets.length);
+
+      // The seeded day's cost lands in its daily bucket; every other day is zero-filled.
+      const seededDay = new Date(inWindow);
+      seededDay.setUTCHours(0, 0, 0, 0);
+      const dayKey = `${seededDay.getUTCFullYear().toString().padStart(4, "0")}-${(seededDay.getUTCMonth() + 1).toString().padStart(2, "0")}-${seededDay.getUTCDate().toString().padStart(2, "0")}T00:00:00.000Z`;
+      const dayIdx = result.buckets.indexOf(dayKey);
+      expect(dayIdx).toBeGreaterThanOrEqual(0);
+      expect(result.series[0].costs[dayIdx]).toBe("0.010000");
+      expect(result.series[0].costs.filter((c) => c === "0")).toHaveLength(result.buckets.length - 1);
+    });
+  });
+
+  it("getLlmCostByModel excludes out-of-window rows and other projects", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM CostByModel Scope" });
+      const otherProject = await createProject(db, { name: "LLM CostByModel Other" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnv = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+      const outsideWindow = new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000);
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      // In-window row for the target project
+      await insertLlmCall(db, {
+        id: "llm_cbm_scope_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "model-x",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.010000",
+        latencyMs: 100,
+        status: "success"
+      });
+
+      // Out-of-window row for the target project
+      await insertLlmCall(db, {
+        id: "llm_cbm_scope_2",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: outsideWindow,
+        receivedAt: new Date(outsideWindow.getTime() + 1000),
+        provider: "openai",
+        model: "model-y",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      // Row for other project (should be excluded)
+      await insertLlmCall(db, {
+        id: "llm_cbm_scope_3",
+        projectId: otherProject.id,
+        environmentId: otherEnv.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "model-z",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "5.000000",
+        latencyMs: 100,
+        status: "success"
+      });
+
+      const result = await getLlmCostByModel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // Only model-x in window for this project
+      expect(result.series).toHaveLength(1);
+      expect(result.series[0].model).toBe("model-x");
     });
   });
 

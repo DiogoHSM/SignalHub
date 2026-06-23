@@ -56,6 +56,42 @@ export interface LlmAggregates {
   totalCostUsd: string;
 }
 
+export interface LlmAggregateFilters {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+}
+
+export interface LlmSummary {
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
+export interface LlmTenantRow {
+  tenantId: string;
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
+export interface LlmPromptRow {
+  promptName: string;
+  model: string;
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
 export interface CountAggregate {
   total: number;
 }
@@ -421,6 +457,34 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+function toRoundedOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+export function buildBucketAxis(from: Date, to: Date, bucket: OverviewTrendBucket): string[] {
+  const stepHours = bucket === "hour" ? 1 : 24;
+  const start = new Date(from);
+  start.setUTCMinutes(0, 0, 0);
+  if (bucket === "day") {
+    start.setUTCHours(0, 0, 0, 0);
+  }
+  const axis: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= to) {
+    const yyyy = cursor.getUTCFullYear().toString().padStart(4, "0");
+    const mm = (cursor.getUTCMonth() + 1).toString().padStart(2, "0");
+    const dd = cursor.getUTCDate().toString().padStart(2, "0");
+    const hh = bucket === "hour" ? cursor.getUTCHours().toString().padStart(2, "0") : "00";
+    axis.push(`${yyyy}-${mm}-${dd}T${hh}:00:00.000Z`);
+    cursor.setUTCHours(cursor.getUTCHours() + stepHours);
+  }
+  return axis;
+}
+
 function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
@@ -678,6 +742,193 @@ export async function getLlmAggregates(db: Db, filters: TelemetryFilters): Promi
     totalOutputTokens: toNumber(row.total_output_tokens),
     totalCostUsd: row.total_cost_usd
   };
+}
+
+export async function getLlmSummary(db: Db, filters: LlmAggregateFilters): Promise<LlmSummary> {
+  const { from, to } = resolveOverviewRange(filters.window);
+  const result = await sql<{
+    calls: unknown;
+    failed_calls: unknown;
+    cost_usd: string;
+    avg_tokens: unknown;
+    avg_latency_ms: unknown;
+    p95_latency_ms: unknown;
+  }>`
+    select
+      count(*) as calls,
+      count(*) filter (where status <> 'success') as failed_calls,
+      coalesce(sum(cost_usd), 0)::text as cost_usd,
+      avg(input_tokens + output_tokens) as avg_tokens,
+      avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
+      percentile_cont(0.95) within group (order by latency_ms) as p95_latency_ms
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+  `.execute(db);
+
+  const r = result.rows[0];
+  return {
+    calls: toNumber(r?.calls ?? 0),
+    failedCalls: toNumber(r?.failed_calls ?? 0),
+    costUsd: r?.cost_usd ?? "0",
+    avgTokens: toRoundedOrNull(r?.avg_tokens),
+    avgLatencyMs: toRoundedOrNull(r?.avg_latency_ms),
+    p95LatencyMs: toRoundedOrNull(r?.p95_latency_ms)
+  };
+}
+
+export async function getLlmByTenant(db: Db, filters: LlmAggregateFilters): Promise<LlmTenantRow[]> {
+  const { from, to } = resolveOverviewRange(filters.window);
+  const result = await sql<{
+    tenant_id: string;
+    calls: unknown;
+    failed_calls: unknown;
+    cost_usd: string;
+    avg_tokens: unknown;
+    avg_latency_ms: unknown;
+    p95_latency_ms: unknown;
+  }>`
+    select
+      tenant_id,
+      count(*) as calls,
+      count(*) filter (where status <> 'success') as failed_calls,
+      coalesce(sum(cost_usd), 0)::text as cost_usd,
+      avg(input_tokens + output_tokens) as avg_tokens,
+      avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
+      percentile_cont(0.95) within group (order by latency_ms) as p95_latency_ms
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and tenant_id is not null
+    group by tenant_id
+    order by sum(cost_usd) desc, tenant_id asc
+    limit 10
+  `.execute(db);
+
+  return result.rows.map((r) => ({
+    tenantId: r.tenant_id,
+    calls: toNumber(r.calls),
+    failedCalls: toNumber(r.failed_calls),
+    costUsd: r.cost_usd,
+    avgTokens: toRoundedOrNull(r.avg_tokens),
+    avgLatencyMs: toRoundedOrNull(r.avg_latency_ms),
+    p95LatencyMs: toRoundedOrNull(r.p95_latency_ms)
+  }));
+}
+
+export async function getLlmByPrompt(db: Db, filters: LlmAggregateFilters): Promise<LlmPromptRow[]> {
+  const { from, to } = resolveOverviewRange(filters.window);
+  const result = await sql<{
+    prompt_name: string;
+    model: string;
+    calls: unknown;
+    failed_calls: unknown;
+    cost_usd: string;
+    avg_tokens: unknown;
+    avg_latency_ms: unknown;
+    p95_latency_ms: unknown;
+  }>`
+    select
+      coalesce(prompt_name, 'Unspecified') as prompt_name,
+      model,
+      count(*) as calls,
+      count(*) filter (where status <> 'success') as failed_calls,
+      coalesce(sum(cost_usd), 0)::text as cost_usd,
+      avg(input_tokens + output_tokens) as avg_tokens,
+      avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
+      percentile_cont(0.95) within group (order by latency_ms) as p95_latency_ms
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by coalesce(prompt_name, 'Unspecified'), model
+    order by sum(cost_usd) desc, prompt_name asc, model asc
+    limit 20
+  `.execute(db);
+
+  return result.rows.map((r) => ({
+    promptName: r.prompt_name,
+    model: r.model,
+    calls: toNumber(r.calls),
+    failedCalls: toNumber(r.failed_calls),
+    costUsd: r.cost_usd,
+    avgTokens: toRoundedOrNull(r.avg_tokens),
+    avgLatencyMs: toRoundedOrNull(r.avg_latency_ms),
+    p95LatencyMs: toRoundedOrNull(r.p95_latency_ms)
+  }));
+}
+
+export interface LlmCostByModelSeries {
+  model: string;
+  costs: string[]; // costs[i] aligns to buckets[i]
+}
+
+export interface LlmCostByModel {
+  buckets: string[];
+  series: LlmCostByModelSeries[];
+}
+
+export async function getLlmCostByModel(db: Db, filters: LlmAggregateFilters): Promise<LlmCostByModel> {
+  const { from, to, bucket } = resolveOverviewRange(filters.window);
+  const buckets = buildBucketAxis(from, to, bucket);
+
+  const topModels = await sql<{ model: string }>`
+    select model
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by model
+    order by sum(cost_usd) desc, model asc
+    limit 5
+  `.execute(db);
+
+  const models = topModels.rows.map((r) => r.model);
+  if (models.length === 0) {
+    return { buckets, series: [] };
+  }
+
+  const bucketExpr = bucketExpression(bucket, "timestamp");
+  const perBucket = await sql<{ model: string; bucket_start: string; cost_usd: string }>`
+    select
+      model,
+      ${bucketExpr} as bucket_start,
+      coalesce(sum(cost_usd), 0)::text as cost_usd
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and model in (${sql.join(models)})
+    group by model, bucket_start
+  `.execute(db);
+
+  // index: model -> (bucket_start -> cost string)
+  const byModel = new Map<string, Map<string, string>>();
+  for (const row of perBucket.rows) {
+    let m = byModel.get(row.model);
+    if (!m) {
+      m = new Map();
+      byModel.set(row.model, m);
+    }
+    m.set(row.bucket_start, row.cost_usd);
+  }
+
+  const series: LlmCostByModelSeries[] = models.map((model) => {
+    const m = byModel.get(model);
+    return {
+      model,
+      costs: buckets.map((b) => m?.get(b) ?? "0")
+    };
+  });
+
+  return { buckets, series };
 }
 
 export async function getTraceAggregates(db: Db, filters: TelemetryFilters): Promise<TraceAggregates> {

@@ -35,6 +35,12 @@ export type OverviewFilters = {
   window: OverviewWindow;
 };
 
+export type LlmAggregateFilters = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+};
+
 export type OperationsWindow = "24h" | "7d" | "30d";
 
 export type OperationsFilters = {
@@ -195,6 +201,10 @@ export type QueryDependencies = {
   }) => Promise<AddTriageNoteResult>;
   silenceIncident?: (input: { errorGroupId: string; until: Date | null; projectId: string; environmentId: string }) => Promise<unknown | null>;
   getIncidentMttr?: (input: { projectId: string; environmentId: string; windowDays: number }) => Promise<MttrResult>;
+  getLlmSummary?: (filters: LlmAggregateFilters) => Promise<unknown>;
+  getLlmByTenant?: (filters: LlmAggregateFilters) => Promise<unknown>;
+  getLlmByPrompt?: (filters: LlmAggregateFilters) => Promise<unknown>;
+  getLlmCostByModel?: (filters: LlmAggregateFilters) => Promise<unknown>;
 };
 
 export type QueryRouteOptions = {
@@ -592,6 +602,26 @@ function parseSessionTimelineFilters(query: unknown, sessionId: string): Session
 }
 
 function parseOverviewFilters(query: unknown): OverviewFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "24h";
+  if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    window: rawWindow
+  };
+}
+
+function parseLlmAggregateFilters(query: unknown): LlmAggregateFilters | undefined {
   const raw = (query ?? {}) as RawQuery;
   const projectId = parseRequiredId(raw, "project_id");
   const environmentId = parseRequiredId(raw, "environment_id");
@@ -1020,6 +1050,34 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
 
   try {
     return reply.send({ data: await options.query.getOverview(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleLlmAggregateRoute(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  options: QueryRouteOptions,
+  hasMethod: () => boolean,
+  run: (filters: LlmAggregateFilters) => Promise<unknown>
+) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!hasMethod()) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseLlmAggregateFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await run(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1572,6 +1630,22 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     handleFleetProjectEnvironmentsRoute(request, reply, options)
   );
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
+  app.get("/query/llm/summary", (request, reply) =>
+    handleLlmAggregateRoute(request, reply, options,
+      () => !!options.query?.getLlmSummary,
+      (filters) => options.query!.getLlmSummary!(filters)));
+  app.get("/query/llm/by-tenant", (request, reply) =>
+    handleLlmAggregateRoute(request, reply, options,
+      () => !!options.query?.getLlmByTenant,
+      (filters) => options.query!.getLlmByTenant!(filters)));
+  app.get("/query/llm/by-prompt", (request, reply) =>
+    handleLlmAggregateRoute(request, reply, options,
+      () => !!options.query?.getLlmByPrompt,
+      (filters) => options.query!.getLlmByPrompt!(filters)));
+  app.get("/query/llm/cost-by-model", (request, reply) =>
+    handleLlmAggregateRoute(request, reply, options,
+      () => !!options.query?.getLlmCostByModel,
+      (filters) => options.query!.getLlmCostByModel!(filters)));
   app.get("/query/operations", (request, reply) => handleOperationsRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
