@@ -71,3 +71,21 @@ export function relativeTime(isoString: string): string {
   const diffDay = Math.floor(diffHr / 24);
   return `${diffDay}d ago`;
 }
+
+/**
+ * Formats an ISO timestamp as "YYYY-MM-DD HH:MM:SS.mmm UTC" (UTC fields).
+ * Invalid input returns an em-dash.
+ */
+export function formatUtcTimestamp(isoString: string): string {
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return "—";
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  const yyyy = d.getUTCFullYear();
+  const mm = pad(d.getUTCMonth() + 1);
+  const dd = pad(d.getUTCDate());
+  const hh = pad(d.getUTCHours());
+  const mi = pad(d.getUTCMinutes());
+  const ss = pad(d.getUTCSeconds());
+  const ms = pad(d.getUTCMilliseconds(), 3);
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}.${ms} UTC`;
+}
