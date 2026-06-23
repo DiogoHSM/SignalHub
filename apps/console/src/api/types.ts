@@ -360,6 +360,52 @@ export type LlmAggregates = {
   totalCostUsd: string;
 };
 
+export type LlmAggregateQuery = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+};
+
+export type LlmSummary = {
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+};
+
+export type LlmTenantRow = {
+  tenantId: string;
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+};
+
+export type LlmPromptRow = {
+  promptName: string;
+  model: string;
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+};
+
+export type LlmCostByModelSeries = {
+  model: string;
+  costs: string[];
+};
+
+export type LlmCostByModel = {
+  buckets: string[];
+  series: LlmCostByModelSeries[];
+};
+
 export type OverviewWindow = "24h" | "7d" | "30d";
 
 export type OverviewTrendBucket = "hour" | "day";
