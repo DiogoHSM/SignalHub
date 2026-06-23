@@ -32,6 +32,23 @@ export function formatDurationShort(ms: number | null): string {
 }
 
 /**
+ * Latency formatter for LLM metrics.
+ *   null      → "—"
+ *   < 1000 ms → whole ms, e.g. "842 ms"
+ *   >= 1000ms → one-decimal seconds, e.g. "2.4 s"
+ */
+export function formatLatency(ms: number | null): string {
+  if (ms == null) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** USD formatter: "$ 48.21" (two decimals). */
+export function formatUsd(n: number): string {
+  return `$ ${n.toFixed(2)}`;
+}
+
+/**
  * Human-readable relative time from an ISO timestamp.
  * Returns strings like "8s ago", "32m ago", "4h ago", "2d ago".
  */

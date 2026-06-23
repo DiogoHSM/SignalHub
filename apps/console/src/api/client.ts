@@ -59,7 +59,12 @@ import type {
   UpdateAlertRuleInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
-  UpdateNotificationChannelInput
+  UpdateNotificationChannelInput,
+  LlmAggregateQuery,
+  LlmSummary,
+  LlmTenantRow,
+  LlmPromptRow,
+  LlmCostByModel
 } from "./types";
 
 // Fleet types — matching B1 spec §2 verbatim
@@ -238,6 +243,10 @@ export type ApiClient = {
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getIncidentMttr?: (query: IncidentMttrQuery) => Promise<AggregateResponse<IncidentMttrResult>>;
+  getLlmSummary?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmSummary>>;
+  getLlmByTenant?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmTenantRow[]>>;
+  getLlmByPrompt?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmPromptRow[]>>;
+  getLlmCostByModel?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmCostByModel>>;
   getSystemHealth: () => Promise<AggregateResponse<SystemHealthResponse>>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
@@ -506,6 +515,15 @@ function incidentMttrPath(query: IncidentMttrQuery): string {
   return `/query/incidents/mttr?${params.toString()}`;
 }
 
+function llmAggregatePath(suffix: string, query: LlmAggregateQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+
+  return `/query/llm/${suffix}?${params.toString()}`;
+}
+
 function entityTenantListPath(query: TenantListQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -755,6 +773,14 @@ export function createApiClient(
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getIncidentMttr: (query) => request<AggregateResponse<IncidentMttrResult>>(path(apiBasePath, incidentMttrPath(query))),
+    getLlmSummary: (query) =>
+      request<AggregateResponse<LlmSummary>>(path(apiBasePath, llmAggregatePath("summary", query))),
+    getLlmByTenant: (query) =>
+      request<AggregateResponse<LlmTenantRow[]>>(path(apiBasePath, llmAggregatePath("by-tenant", query))),
+    getLlmByPrompt: (query) =>
+      request<AggregateResponse<LlmPromptRow[]>>(path(apiBasePath, llmAggregatePath("by-prompt", query))),
+    getLlmCostByModel: (query) =>
+      request<AggregateResponse<LlmCostByModel>>(path(apiBasePath, llmAggregatePath("cost-by-model", query))),
     getSystemHealth: () => request<AggregateResponse<SystemHealthResponse>>(path(apiBasePath, "/system/health")),
     listEntityTenants: (query) =>
       request<AggregateResponse<TenantListResponse>>(path(apiBasePath, entityTenantListPath(query))),

@@ -7,6 +7,7 @@ import { renderSection, SCREENS, type ScreenCtx } from "./registry";
 import * as useOverviewModule from "./useOverview";
 import * as useErrorsModule from "./useErrors";
 import * as useIncidentsModule from "./useIncidents";
+import * as useLlmModule from "./useLlm";
 
 afterEach(cleanup);
 
@@ -149,6 +150,23 @@ describe("screen registry", () => {
     const { container } = render(<>{renderSection("incidents", ctx)}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     // IncidentsScreen shows loading hint text when data is null and status is loading
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
+  it("llm entry has kind === 'v2'", () => {
+    expect(SCREENS.llm.kind).toBe("v2");
+  });
+
+  it("renderSection('llm') renders LlmScreen NOT inside .console-legacy-island", () => {
+    vi.spyOn(useLlmModule, "useLlm").mockReturnValue({
+      data: null,
+      status: "loading",
+      reload: vi.fn(),
+    });
+    const ctx = makeCtx();
+    const { container } = render(<>{renderSection("llm", ctx)}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     vi.restoreAllMocks();
   });
