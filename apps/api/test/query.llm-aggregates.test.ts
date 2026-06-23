@@ -21,8 +21,9 @@ const mockSummaryData = {
   calls: 100,
   failedCalls: 2,
   costUsd: "1.23",
-  avgDurationMs: 500,
-  p95DurationMs: 1200
+  avgTokens: 850,
+  avgLatencyMs: 500,
+  p95LatencyMs: 1200
 };
 
 afterEach(async () => {
@@ -499,7 +500,10 @@ describe("GET /query/llm/by-prompt", () => {
 });
 
 describe("GET /query/llm/cost-by-model", () => {
-  const mockData = { models: [{ model: "gpt-4o", costUsd: "2.00" }] };
+  const mockData = {
+    buckets: ["2026-06-22T00:00:00.000Z", "2026-06-22T01:00:00.000Z"],
+    series: [{ model: "gpt-4o", costs: ["2.000000", "0"] }]
+  };
 
   it("returns 401 when unauthenticated", async () => {
     app = await buildApp({

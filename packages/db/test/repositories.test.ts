@@ -8731,6 +8731,15 @@ describe("repositories", () => {
       expect(result.series).toHaveLength(1);
       expect(result.series[0].model).toBe("gpt-4");
       expect(result.series[0].costs).toHaveLength(result.buckets.length);
+
+      // The seeded day's cost lands in its daily bucket; every other day is zero-filled.
+      const seededDay = new Date(inWindow);
+      seededDay.setUTCHours(0, 0, 0, 0);
+      const dayKey = `${seededDay.getUTCFullYear().toString().padStart(4, "0")}-${(seededDay.getUTCMonth() + 1).toString().padStart(2, "0")}-${seededDay.getUTCDate().toString().padStart(2, "0")}T00:00:00.000Z`;
+      const dayIdx = result.buckets.indexOf(dayKey);
+      expect(dayIdx).toBeGreaterThanOrEqual(0);
+      expect(result.series[0].costs[dayIdx]).toBe("0.010000");
+      expect(result.series[0].costs.filter((c) => c === "0")).toHaveLength(result.buckets.length - 1);
     });
   });
 
