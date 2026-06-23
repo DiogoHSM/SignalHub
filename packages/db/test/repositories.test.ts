@@ -67,9 +67,11 @@ import {
   insertTrace
 } from "../src/repositories/telemetry-writes.js";
 import {
+  buildBucketAxis,
   getErrorAggregates,
   getEventAggregates,
   getLlmAggregates,
+  getLlmSummary,
   getOverview,
   getTraceAggregates,
   listErrors,
@@ -8040,6 +8042,146 @@ describe("repositories", () => {
       expect(result.note.body).toBe("Scoped note");
       expect(result.note.errorGroupId).toBe(group.id);
     });
+  });
+
+  it("getLlmSummary returns correct aggregates for in-window llm_calls", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM Summary Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      // Use a fixed anchor inside the 24h window
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2h ago
+      const receivedAt = new Date(now.getTime() - 2 * 60 * 60 * 1000 + 1000);
+      const outsideWindow = new Date(now.getTime() - 26 * 60 * 60 * 1000); // 26h ago
+
+      // success row: input=100 output=50 => tokens=150, latency=200ms, cost=0.010000
+      await insertLlmCall(db, {
+        id: "llm_sum_success",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.010000",
+        latencyMs: 200,
+        status: "success"
+      });
+
+      // error row: input=200 output=100 => tokens=300, latency=400ms, cost=0.020000
+      await insertLlmCall(db, {
+        id: "llm_sum_error",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 200,
+        outputTokens: 100,
+        costUsd: "0.020000",
+        latencyMs: 400,
+        status: "error"
+      });
+
+      // pending row: null latency, cost=0.005000
+      await insertLlmCall(db, {
+        id: "llm_sum_pending",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 50,
+        outputTokens: 25,
+        costUsd: "0.005000",
+        latencyMs: undefined,
+        status: "pending"
+      });
+
+      // outside-window row — should be excluded
+      await insertLlmCall(db, {
+        id: "llm_sum_outside",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: outsideWindow,
+        receivedAt: new Date(outsideWindow.getTime() + 1000),
+        provider: "openai",
+        model: "gpt-5",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      const summary = await getLlmSummary(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // calls = 3 in-window rows
+      expect(summary.calls).toBe(3);
+      // failedCalls = error + pending = 2
+      expect(summary.failedCalls).toBe(2);
+      // costUsd = 0.010000 + 0.020000 + 0.005000 = 0.035000
+      expect(summary.costUsd).toBe("0.035000");
+      // avgTokens = round((150 + 300 + 75) / 3) = round(175) = 175
+      expect(summary.avgTokens).toBe(175);
+      // avgLatencyMs = round((200 + 400) / 2) = 300 (null latency excluded)
+      expect(summary.avgLatencyMs).toBe(300);
+      // p95LatencyMs: only 2 non-null values [200, 400], p95 = 200 + 0.95*(400-200) = 390
+      expect(summary.p95LatencyMs).toBe(390);
+    });
+  });
+
+  it("getLlmSummary returns zero/null shape for empty window (different project)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM Summary Empty Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const summary = await getLlmSummary(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      expect(summary).toEqual({
+        calls: 0,
+        failedCalls: 0,
+        costUsd: "0",
+        avgTokens: null,
+        avgLatencyMs: null,
+        p95LatencyMs: null
+      });
+    });
+  });
+
+  it("buildBucketAxis produces correct hour and day bucket starts", () => {
+    // hour case: from=2026-06-22T03:30Z to=2026-06-22T06:10Z → 4 buckets
+    const hourAxis = buildBucketAxis(new Date("2026-06-22T03:30:00Z"), new Date("2026-06-22T06:10:00Z"), "hour");
+    expect(hourAxis).toEqual([
+      "2026-06-22T03:00:00.000Z",
+      "2026-06-22T04:00:00.000Z",
+      "2026-06-22T05:00:00.000Z",
+      "2026-06-22T06:00:00.000Z"
+    ]);
+
+    // day case: from=2026-06-20T15:00Z to=2026-06-22T10:00Z → 3 days
+    const dayAxis = buildBucketAxis(new Date("2026-06-20T15:00:00Z"), new Date("2026-06-22T10:00:00Z"), "day");
+    expect(dayAxis).toEqual([
+      "2026-06-20T00:00:00.000Z",
+      "2026-06-21T00:00:00.000Z",
+      "2026-06-22T00:00:00.000Z"
+    ]);
   });
 
   it("detects migration checksum mismatches", async () => {

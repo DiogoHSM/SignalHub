@@ -56,6 +56,21 @@ export interface LlmAggregates {
   totalCostUsd: string;
 }
 
+export interface LlmAggregateFilters {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+}
+
+export interface LlmSummary {
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
 export interface CountAggregate {
   total: number;
 }
@@ -421,6 +436,34 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+function toRoundedOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+export function buildBucketAxis(from: Date, to: Date, bucket: OverviewTrendBucket): string[] {
+  const stepHours = bucket === "hour" ? 1 : 24;
+  const start = new Date(from);
+  start.setUTCMinutes(0, 0, 0);
+  if (bucket === "day") {
+    start.setUTCHours(0, 0, 0, 0);
+  }
+  const axis: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= to) {
+    const yyyy = cursor.getUTCFullYear().toString().padStart(4, "0");
+    const mm = (cursor.getUTCMonth() + 1).toString().padStart(2, "0");
+    const dd = cursor.getUTCDate().toString().padStart(2, "0");
+    const hh = bucket === "hour" ? cursor.getUTCHours().toString().padStart(2, "0") : "00";
+    axis.push(`${yyyy}-${mm}-${dd}T${hh}:00:00.000Z`);
+    cursor.setUTCHours(cursor.getUTCHours() + stepHours);
+  }
+  return axis;
+}
+
 function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
@@ -677,6 +720,41 @@ export async function getLlmAggregates(db: Db, filters: TelemetryFilters): Promi
     totalInputTokens: toNumber(row.total_input_tokens),
     totalOutputTokens: toNumber(row.total_output_tokens),
     totalCostUsd: row.total_cost_usd
+  };
+}
+
+export async function getLlmSummary(db: Db, filters: LlmAggregateFilters): Promise<LlmSummary> {
+  const { from, to } = resolveOverviewRange(filters.window);
+  const result = await sql<{
+    calls: unknown;
+    failed_calls: unknown;
+    cost_usd: string;
+    avg_tokens: unknown;
+    avg_latency_ms: unknown;
+    p95_latency_ms: unknown;
+  }>`
+    select
+      count(*) as calls,
+      count(*) filter (where status <> 'success') as failed_calls,
+      coalesce(sum(cost_usd), 0)::text as cost_usd,
+      avg(input_tokens + output_tokens) as avg_tokens,
+      avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
+      percentile_cont(0.95) within group (order by latency_ms) as p95_latency_ms
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+  `.execute(db);
+
+  const r = result.rows[0];
+  return {
+    calls: toNumber(r?.calls ?? 0),
+    failedCalls: toNumber(r?.failed_calls ?? 0),
+    costUsd: r?.cost_usd ?? "0",
+    avgTokens: toRoundedOrNull(r?.avg_tokens),
+    avgLatencyMs: toRoundedOrNull(r?.avg_latency_ms),
+    p95LatencyMs: toRoundedOrNull(r?.p95_latency_ms)
   };
 }
 
