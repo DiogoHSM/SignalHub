@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompact, formatDurationShort } from "./format";
+import { formatCompact, formatDurationShort, formatUtcTimestamp } from "./format";
 
 describe("formatCompact", () => {
   it("formats numbers below 10,000 with locale separators", () => {
@@ -42,5 +42,19 @@ describe("formatDurationShort", () => {
   });
   it("formats zero as 0 min", () => {
     expect(formatDurationShort(0)).toBe("0 min");
+  });
+});
+
+describe("formatUtcTimestamp", () => {
+  it("formats an ISO string as 'YYYY-MM-DD HH:MM:SS.mmm UTC'", () => {
+    expect(formatUtcTimestamp("2026-05-24T12:42:08.412Z")).toBe("2026-05-24 12:42:08.412 UTC");
+  });
+
+  it("zero-pads all fields", () => {
+    expect(formatUtcTimestamp("2026-01-02T03:04:05.006Z")).toBe("2026-01-02 03:04:05.006 UTC");
+  });
+
+  it("returns an em-dash for an invalid timestamp", () => {
+    expect(formatUtcTimestamp("not-a-date")).toBe("—");
   });
 });
