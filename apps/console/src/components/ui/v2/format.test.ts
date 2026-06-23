@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompact, formatDurationShort, formatUtcTimestamp } from "./format";
+import { formatCompact, formatDurationShort, formatUtcTimestamp, formatClockUtc } from "./format";
 
 describe("formatCompact", () => {
   it("formats numbers below 10,000 with locale separators", () => {
@@ -56,5 +56,17 @@ describe("formatUtcTimestamp", () => {
 
   it("returns an em-dash for an invalid timestamp", () => {
     expect(formatUtcTimestamp("not-a-date")).toBe("—");
+  });
+});
+
+describe("formatClockUtc", () => {
+  it("formats UTC clock time as HH:MM:SS", () => {
+    expect(formatClockUtc("2026-06-23T12:42:08.412Z")).toBe("12:42:08");
+  });
+  it("zero-pads hours, minutes, and seconds", () => {
+    expect(formatClockUtc("2026-06-23T03:04:05.000Z")).toBe("03:04:05");
+  });
+  it("returns an em-dash for invalid input", () => {
+    expect(formatClockUtc("not-a-date")).toBe("—");
   });
 });

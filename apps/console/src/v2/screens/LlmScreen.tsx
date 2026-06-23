@@ -48,7 +48,7 @@ function TenantRow({ row, ctx }: { row: LlmTenantVM; ctx: ScreenCtx }) {
         borderBottom: "1px solid var(--border-subtle)",
         cursor: "pointer",
       }}
-      onClick={() => ctx.pushToast("Tenant detail is not yet available")}
+      onClick={() => ctx.drill("tenant", { tenantId: row.tenantId })}
     >
       <div>
         <strong style={{ fontSize: 12.5 }}>{row.tenantId}</strong>

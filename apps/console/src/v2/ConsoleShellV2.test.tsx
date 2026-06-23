@@ -475,5 +475,33 @@ describe("ConsoleShellV2", () => {
         expect(document.querySelector(".toast__title")?.textContent).toMatch(/github issue creation is not available yet/i);
       });
     });
+
+    it("drilling a tenant from the LLM screen renders TenantScreen", async () => {
+      const user = userEvent.setup();
+      const tenant = {
+        tenantId: "tenant_acme", label: "Acme Corp", traits: {}, keyTraits: {},
+        isUnassigned: false, impactScore: 0, lastSeenAt: null,
+        events: 0, errors: 0, openErrors: 0, severeErrors: 0, traces: 0, failedTraces: 0,
+        llmCalls: 10, failedLlmCalls: 0, llmCostUsd: "5", activeUsers: 0, activeSessions: 0,
+      };
+      const client = makeClient({
+        getLlmSummary: vi.fn().mockResolvedValue({ data: { calls: 10, failedCalls: 0, costUsd: "5", avgTokens: null, avgLatencyMs: null, p95LatencyMs: null } }),
+        getLlmByTenant: vi.fn().mockResolvedValue({ data: [{ tenantId: "tenant_acme", calls: 10, failedCalls: 0, costUsd: "5", avgTokens: null, avgLatencyMs: null, p95LatencyMs: null }] }),
+        getLlmByPrompt: vi.fn().mockResolvedValue({ data: [] }),
+        getLlmCostByModel: vi.fn().mockResolvedValue({ data: { buckets: [], series: [] } }),
+        getEntityTenantDetail: vi.fn().mockResolvedValue({ data: { window: "24h", generatedAt: "", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: "", to: "" }, tenant, topUsers: [], timeline: [] } }),
+      });
+      render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+
+      // Navigate to the LLM section via the nav rail.
+      await waitFor(() => expect(screen.getByTitle("LLM")).toBeInTheDocument());
+      await user.click(screen.getByTitle("LLM"));
+
+      // The top-tenants row appears; clicking it drills into TenantScreen.
+      await waitFor(() => expect(screen.getByText("tenant_acme")).toBeInTheDocument());
+      await user.click(screen.getByText("tenant_acme"));
+
+      await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: /Acme Corp/i })).toBeInTheDocument());
+    });
   });
 });
