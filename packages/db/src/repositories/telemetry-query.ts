@@ -863,6 +863,74 @@ export async function getLlmByPrompt(db: Db, filters: LlmAggregateFilters): Prom
   }));
 }
 
+export interface LlmCostByModelSeries {
+  model: string;
+  costs: string[]; // costs[i] aligns to buckets[i]
+}
+
+export interface LlmCostByModel {
+  buckets: string[];
+  series: LlmCostByModelSeries[];
+}
+
+export async function getLlmCostByModel(db: Db, filters: LlmAggregateFilters): Promise<LlmCostByModel> {
+  const { from, to, bucket } = resolveOverviewRange(filters.window);
+  const buckets = buildBucketAxis(from, to, bucket);
+
+  const topModels = await sql<{ model: string }>`
+    select model
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by model
+    order by sum(cost_usd) desc, model asc
+    limit 5
+  `.execute(db);
+
+  const models = topModels.rows.map((r) => r.model);
+  if (models.length === 0) {
+    return { buckets, series: [] };
+  }
+
+  const bucketExpr = bucketExpression(bucket, "timestamp");
+  const perBucket = await sql<{ model: string; bucket_start: string; cost_usd: string }>`
+    select
+      model,
+      ${bucketExpr} as bucket_start,
+      coalesce(sum(cost_usd), 0)::text as cost_usd
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and model in (${sql.join(models)})
+    group by model, bucket_start
+  `.execute(db);
+
+  // index: model -> (bucket_start -> cost string)
+  const byModel = new Map<string, Map<string, string>>();
+  for (const row of perBucket.rows) {
+    let m = byModel.get(row.model);
+    if (!m) {
+      m = new Map();
+      byModel.set(row.model, m);
+    }
+    m.set(row.bucket_start, row.cost_usd);
+  }
+
+  const series: LlmCostByModelSeries[] = models.map((model) => {
+    const m = byModel.get(model);
+    return {
+      model,
+      costs: buckets.map((b) => m?.get(b) ?? "0")
+    };
+  });
+
+  return { buckets, series };
+}
+
 export async function getTraceAggregates(db: Db, filters: TelemetryFilters): Promise<TraceAggregates> {
   let query = db
     .selectFrom("traces")
