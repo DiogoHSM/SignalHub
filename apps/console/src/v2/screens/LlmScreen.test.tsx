@@ -88,7 +88,8 @@ describe("LlmScreen", () => {
     mockUseLlm(vm);
     render(<LlmScreen ctx={makeCtx()} />);
     expect(screen.getByText("LLM observability")).toBeInTheDocument();
-    expect(screen.getByText("24h")).toBeInTheDocument();
+    // "24h" appears in the Segmented selector AND in the Top-tenants window badge
+    expect(screen.getAllByText("24h").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("7d")).toBeInTheDocument();
     expect(screen.getByText("30d")).toBeInTheDocument();
   });
@@ -96,16 +97,17 @@ describe("LlmScreen", () => {
   it("renders the 5 KPI tiles with derived values", () => {
     mockUseLlm(vm);
     render(<LlmScreen ctx={makeCtx()} />);
-    expect(screen.getByText("Calls")).toBeInTheDocument();
+    // "Calls", "Avg latency", "Error rate" appear in both KPI tiles and prompt-table column headers
+    expect(screen.getAllByText("Calls").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("184K")).toBeInTheDocument(); // formatCompact
     expect(screen.getByText("Cost (24h)")).toBeInTheDocument();
     expect(screen.getByText("$ 142.18")).toBeInTheDocument();
     expect(screen.getByText(/run-rate/i)).toBeInTheDocument();
-    expect(screen.getByText("Avg latency")).toBeInTheDocument();
+    expect(screen.getAllByText("Avg latency").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("842 ms")).toBeInTheDocument();
     expect(screen.getByText("p95 latency")).toBeInTheDocument();
     expect(screen.getByText("2.4 s")).toBeInTheDocument();
-    expect(screen.getByText("Error rate")).toBeInTheDocument();
+    expect(screen.getAllByText("Error rate").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("0.42%")).toBeInTheDocument();
   });
 
@@ -113,8 +115,9 @@ describe("LlmScreen", () => {
     mockUseLlm(vm);
     const { container } = render(<LlmScreen ctx={makeCtx()} />);
     expect(screen.getByText(/cost by model/i)).toBeInTheDocument();
-    expect(screen.getByText("gpt-5")).toBeInTheDocument();
-    expect(screen.getByText("haiku-4")).toBeInTheDocument();
+    // model names appear in the Legend AND in PromptRow sub-lines
+    expect(screen.getAllByText("gpt-5").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("haiku-4").length).toBeGreaterThanOrEqual(1);
     expect(container.querySelector("svg")).not.toBeNull();
   });
 

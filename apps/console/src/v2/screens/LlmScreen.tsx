@@ -90,7 +90,7 @@ function PromptRow({ row }: { row: LlmPromptVM }) {
       <div>
         <div style={{ fontSize: 13, fontWeight: 500 }}>{row.promptName}</div>
         <div className="sh-faint sh-mono" style={{ fontSize: 11 }}>
-          {`· ${row.model}`}
+          {row.model}
         </div>
       </div>
       <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatCompact(row.calls)}</span>
@@ -212,7 +212,8 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
 
         <div className="sh-card">
           <div className="sh-card__head">
-            <h2 className="sh-h2">Top tenants — cost ({window})</h2>
+            <h2 className="sh-h2">Top tenants — cost</h2>
+            <span className="sh-faint" style={{ fontSize: 11 }}>{window}</span>
           </div>
           <div className="sh-card__body flush">
             {tenants.length === 0 ? (
@@ -237,10 +238,10 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
         <div className="sh-row sh-row__head" style={{ gridTemplateColumns: PROMPT_GRID }}>
           <span>Prompt · model</span>
-          <span>Count</span>
-          <span>Tokens</span>
-          <span>Latency p50</span>
-          <span>Errors</span>
+          <span>Calls</span>
+          <span>Avg tokens</span>
+          <span>Avg latency</span>
+          <span>Error rate</span>
           <span>Cost</span>
           <span>p95</span>
           <span />
