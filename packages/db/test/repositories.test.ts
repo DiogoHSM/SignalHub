@@ -71,6 +71,8 @@ import {
   getErrorAggregates,
   getEventAggregates,
   getLlmAggregates,
+  getLlmByPrompt,
+  getLlmByTenant,
   getLlmSummary,
   getOverview,
   getTraceAggregates,
@@ -8182,6 +8184,393 @@ describe("repositories", () => {
       "2026-06-21T00:00:00.000Z",
       "2026-06-22T00:00:00.000Z"
     ]);
+  });
+
+  it("getLlmByTenant returns top 10 tenants ordered by cost desc, excludes null tenant", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByTenant Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2h ago
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      // Seed 11 tenants so we can assert the cap of 10.
+      // Costs are spread so sorting by cost desc is deterministic.
+      // tenant-01 gets the most cost, tenant-11 gets the least.
+      for (let i = 1; i <= 11; i++) {
+        const tenantId = `tenant-${String(i).padStart(2, "0")}`;
+        const costNum = (12 - i) * 0.01; // tenant-01 = 0.11, tenant-11 = 0.01
+        const cost = costNum.toFixed(6);
+        await insertLlmCall(db, {
+          id: `llm_tenant_${i}_a`,
+          projectId: project.id,
+          environmentId: environment.id,
+          tenantId,
+          timestamp: inWindow,
+          receivedAt,
+          provider: "openai",
+          model: "gpt-4",
+          inputTokens: 100,
+          outputTokens: 50,
+          costUsd: cost,
+          latencyMs: 100 + i * 10,
+          status: "success"
+        });
+        // Add one failed call for tenant-01 only
+        if (i === 1) {
+          await insertLlmCall(db, {
+            id: `llm_tenant_${i}_b`,
+            projectId: project.id,
+            environmentId: environment.id,
+            tenantId,
+            timestamp: inWindow,
+            receivedAt,
+            provider: "openai",
+            model: "gpt-4",
+            inputTokens: 50,
+            outputTokens: 25,
+            costUsd: "0.000000",
+            latencyMs: 50,
+            status: "error"
+          });
+        }
+      }
+
+      // Add a null-tenant row (should be excluded)
+      await insertLlmCall(db, {
+        id: "llm_tenant_null",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 500,
+        outputTokens: 500,
+        costUsd: "99.000000",
+        latencyMs: 999,
+        status: "success"
+      });
+
+      const rows = await getLlmByTenant(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // Cap of 10: tenant-11 (lowest cost) is excluded
+      expect(rows).toHaveLength(10);
+
+      // No null tenants in result
+      for (const row of rows) {
+        expect(row.tenantId).not.toBeNull();
+        expect(typeof row.tenantId).toBe("string");
+      }
+
+      // First row is tenant-01 (highest cost = 0.110000)
+      expect(rows[0].tenantId).toBe("tenant-01");
+      // tenant-01 has 2 calls (1 success + 1 error), 1 failedCall
+      expect(rows[0].calls).toBe(2);
+      expect(rows[0].failedCalls).toBe(1);
+      // cost = 0.110000 + 0.000000 = 0.110000
+      expect(rows[0].costUsd).toBe("0.110000");
+      // avgTokens = round((150 + 75) / 2) = 113
+      expect(rows[0].avgTokens).toBe(113);
+      // avgLatencyMs = round((110 + 50) / 2) = 80
+      expect(rows[0].avgLatencyMs).toBe(80);
+      // p95 of [50, 110] = 50 + 0.95*(110-50) = 50 + 57 = 107
+      expect(rows[0].p95LatencyMs).toBe(107);
+
+      // Second row is tenant-02
+      expect(rows[1].tenantId).toBe("tenant-02");
+      expect(rows[1].calls).toBe(1);
+      expect(rows[1].failedCalls).toBe(0);
+      // cost = (12 - 2) * 0.01 = 0.100000
+      expect(rows[1].costUsd).toBe("0.100000");
+
+      // Last row in result is tenant-10
+      expect(rows[9].tenantId).toBe("tenant-10");
+    });
+  });
+
+  it("getLlmByTenant excludes out-of-window rows and other projects", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByTenant Scoped" });
+      const otherProject = await createProject(db, { name: "LLM ByTenant Other" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnv = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+      const outsideWindow = new Date(now.getTime() - 30 * 60 * 60 * 1000);
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      await insertLlmCall(db, {
+        id: "llm_scoped_in",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant-a",
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.010000",
+        latencyMs: 200,
+        status: "success"
+      });
+
+      // Out-of-window row for same tenant
+      await insertLlmCall(db, {
+        id: "llm_scoped_out",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant-a",
+        timestamp: outsideWindow,
+        receivedAt: new Date(outsideWindow.getTime() + 1000),
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      // Different project row
+      await insertLlmCall(db, {
+        id: "llm_scoped_other_proj",
+        projectId: otherProject.id,
+        environmentId: otherEnv.id,
+        tenantId: "tenant-a",
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      const rows = await getLlmByTenant(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].tenantId).toBe("tenant-a");
+      expect(rows[0].calls).toBe(1);
+      expect(rows[0].costUsd).toBe("0.010000");
+    });
+  });
+
+  it("getLlmByPrompt returns rows per (prompt, model) pair, null prompt → Unspecified, ordered by cost desc", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByPrompt Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      // (prompt-a, gpt-4): 2 calls, 1 success + 1 error, cost = 0.030000
+      await insertLlmCall(db, {
+        id: "llm_prompt_a_gpt4_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        promptName: "prompt-a",
+        inputTokens: 100,
+        outputTokens: 50,
+        costUsd: "0.020000",
+        latencyMs: 200,
+        status: "success"
+      });
+      await insertLlmCall(db, {
+        id: "llm_prompt_a_gpt4_2",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        promptName: "prompt-a",
+        inputTokens: 50,
+        outputTokens: 25,
+        costUsd: "0.010000",
+        latencyMs: 400,
+        status: "error"
+      });
+
+      // (prompt-a, gpt-3.5): 1 call, cost = 0.005000
+      await insertLlmCall(db, {
+        id: "llm_prompt_a_gpt35_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-3.5",
+        promptName: "prompt-a",
+        inputTokens: 80,
+        outputTokens: 40,
+        costUsd: "0.005000",
+        latencyMs: 100,
+        status: "success"
+      });
+
+      // (prompt-b, gpt-4): 1 call, highest cost = 0.050000
+      await insertLlmCall(db, {
+        id: "llm_prompt_b_gpt4_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        promptName: "prompt-b",
+        inputTokens: 200,
+        outputTokens: 100,
+        costUsd: "0.050000",
+        latencyMs: 300,
+        status: "success"
+      });
+
+      // null prompt_name, model gpt-4: 1 call → should appear as "Unspecified"
+      await insertLlmCall(db, {
+        id: "llm_prompt_null_gpt4",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: inWindow,
+        receivedAt,
+        provider: "openai",
+        model: "gpt-4",
+        inputTokens: 60,
+        outputTokens: 30,
+        costUsd: "0.002000",
+        latencyMs: 150,
+        status: "success"
+      });
+
+      const rows = await getLlmByPrompt(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // 4 distinct (coalesced_prompt, model) pairs:
+      // (prompt-b, gpt-4)=0.05, (prompt-a, gpt-4)=0.03, (prompt-a, gpt-3.5)=0.005, (Unspecified, gpt-4)=0.002
+      expect(rows).toHaveLength(4);
+
+      // Row 0: prompt-b / gpt-4 (highest cost)
+      expect(rows[0].promptName).toBe("prompt-b");
+      expect(rows[0].model).toBe("gpt-4");
+      expect(rows[0].calls).toBe(1);
+      expect(rows[0].failedCalls).toBe(0);
+      expect(rows[0].costUsd).toBe("0.050000");
+      // avgTokens = round((200 + 100) / 1) = 300
+      expect(rows[0].avgTokens).toBe(300);
+      expect(rows[0].avgLatencyMs).toBe(300);
+      expect(rows[0].p95LatencyMs).toBe(300);
+
+      // Row 1: prompt-a / gpt-4 (cost=0.030000)
+      expect(rows[1].promptName).toBe("prompt-a");
+      expect(rows[1].model).toBe("gpt-4");
+      expect(rows[1].calls).toBe(2);
+      expect(rows[1].failedCalls).toBe(1);
+      expect(rows[1].costUsd).toBe("0.030000");
+      // avgTokens = round((150 + 75) / 2) = 113
+      expect(rows[1].avgTokens).toBe(113);
+      // avgLatencyMs = round((200 + 400) / 2) = 300
+      expect(rows[1].avgLatencyMs).toBe(300);
+      // p95 of [200, 400] = 200 + 0.95*200 = 390
+      expect(rows[1].p95LatencyMs).toBe(390);
+
+      // Row 2: prompt-a / gpt-3.5 (cost=0.005000)
+      expect(rows[2].promptName).toBe("prompt-a");
+      expect(rows[2].model).toBe("gpt-3.5");
+      expect(rows[2].calls).toBe(1);
+      expect(rows[2].failedCalls).toBe(0);
+      expect(rows[2].costUsd).toBe("0.005000");
+
+      // Row 3: Unspecified / gpt-4 (null prompt → 'Unspecified', cost=0.002000)
+      expect(rows[3].promptName).toBe("Unspecified");
+      expect(rows[3].model).toBe("gpt-4");
+      expect(rows[3].calls).toBe(1);
+      expect(rows[3].costUsd).toBe("0.002000");
+    });
+  });
+
+  it("getLlmByPrompt caps at 20 rows and excludes out-of-window rows", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "LLM ByPrompt Cap" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date();
+      const inWindow = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+      const outsideWindow = new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000);
+      const receivedAt = new Date(inWindow.getTime() + 1000);
+
+      // Seed 21 unique (prompt, model) pairs
+      for (let i = 1; i <= 21; i++) {
+        const cost = (0.001 * i).toFixed(6);
+        await insertLlmCall(db, {
+          id: `llm_cap_${i}`,
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: inWindow,
+          receivedAt,
+          provider: "openai",
+          model: `model-${String(i).padStart(2, "0")}`,
+          promptName: `prompt-cap`,
+          inputTokens: 100,
+          outputTokens: 50,
+          costUsd: cost,
+          latencyMs: 100,
+          status: "success"
+        });
+      }
+
+      // Out-of-window row (should be excluded)
+      await insertLlmCall(db, {
+        id: "llm_cap_outside",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: outsideWindow,
+        receivedAt: new Date(outsideWindow.getTime() + 1000),
+        provider: "openai",
+        model: "model-99",
+        promptName: "prompt-cap",
+        inputTokens: 999,
+        outputTokens: 999,
+        costUsd: "9.999999",
+        latencyMs: 9999,
+        status: "success"
+      });
+
+      const rows = await getLlmByPrompt(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h"
+      });
+
+      // Cap of 20: only top 20 by cost
+      expect(rows).toHaveLength(20);
+      // Highest cost is model-21 (i=21, cost=0.021000)
+      expect(rows[0].model).toBe("model-21");
+    });
   });
 
   it("detects migration checksum mismatches", async () => {

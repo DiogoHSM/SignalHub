@@ -71,6 +71,27 @@ export interface LlmSummary {
   p95LatencyMs: number | null;
 }
 
+export interface LlmTenantRow {
+  tenantId: string;
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
+export interface LlmPromptRow {
+  promptName: string;
+  model: string;
+  calls: number;
+  failedCalls: number;
+  costUsd: string;
+  avgTokens: number | null;
+  avgLatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
 export interface CountAggregate {
   total: number;
 }
@@ -756,6 +777,90 @@ export async function getLlmSummary(db: Db, filters: LlmAggregateFilters): Promi
     avgLatencyMs: toRoundedOrNull(r?.avg_latency_ms),
     p95LatencyMs: toRoundedOrNull(r?.p95_latency_ms)
   };
+}
+
+export async function getLlmByTenant(db: Db, filters: LlmAggregateFilters): Promise<LlmTenantRow[]> {
+  const { from, to } = resolveOverviewRange(filters.window);
+  const result = await sql<{
+    tenant_id: string;
+    calls: unknown;
+    failed_calls: unknown;
+    cost_usd: string;
+    avg_tokens: unknown;
+    avg_latency_ms: unknown;
+    p95_latency_ms: unknown;
+  }>`
+    select
+      tenant_id,
+      count(*) as calls,
+      count(*) filter (where status <> 'success') as failed_calls,
+      coalesce(sum(cost_usd), 0)::text as cost_usd,
+      avg(input_tokens + output_tokens) as avg_tokens,
+      avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
+      percentile_cont(0.95) within group (order by latency_ms) as p95_latency_ms
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+      and tenant_id is not null
+    group by tenant_id
+    order by sum(cost_usd) desc, tenant_id asc
+    limit 10
+  `.execute(db);
+
+  return result.rows.map((r) => ({
+    tenantId: r.tenant_id,
+    calls: toNumber(r.calls),
+    failedCalls: toNumber(r.failed_calls),
+    costUsd: r.cost_usd,
+    avgTokens: toRoundedOrNull(r.avg_tokens),
+    avgLatencyMs: toRoundedOrNull(r.avg_latency_ms),
+    p95LatencyMs: toRoundedOrNull(r.p95_latency_ms)
+  }));
+}
+
+export async function getLlmByPrompt(db: Db, filters: LlmAggregateFilters): Promise<LlmPromptRow[]> {
+  const { from, to } = resolveOverviewRange(filters.window);
+  const result = await sql<{
+    prompt_name: string;
+    model: string;
+    calls: unknown;
+    failed_calls: unknown;
+    cost_usd: string;
+    avg_tokens: unknown;
+    avg_latency_ms: unknown;
+    p95_latency_ms: unknown;
+  }>`
+    select
+      coalesce(prompt_name, 'Unspecified') as prompt_name,
+      model,
+      count(*) as calls,
+      count(*) filter (where status <> 'success') as failed_calls,
+      coalesce(sum(cost_usd), 0)::text as cost_usd,
+      avg(input_tokens + output_tokens) as avg_tokens,
+      avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
+      percentile_cont(0.95) within group (order by latency_ms) as p95_latency_ms
+    from llm_calls
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp <= ${to}
+    group by coalesce(prompt_name, 'Unspecified'), model
+    order by sum(cost_usd) desc, prompt_name asc, model asc
+    limit 20
+  `.execute(db);
+
+  return result.rows.map((r) => ({
+    promptName: r.prompt_name,
+    model: r.model,
+    calls: toNumber(r.calls),
+    failedCalls: toNumber(r.failed_calls),
+    costUsd: r.cost_usd,
+    avgTokens: toRoundedOrNull(r.avg_tokens),
+    avgLatencyMs: toRoundedOrNull(r.avg_latency_ms),
+    p95LatencyMs: toRoundedOrNull(r.p95_latency_ms)
+  }));
 }
 
 export async function getTraceAggregates(db: Db, filters: TelemetryFilters): Promise<TraceAggregates> {
