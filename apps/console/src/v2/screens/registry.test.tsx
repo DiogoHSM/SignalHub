@@ -8,6 +8,7 @@ import * as useOverviewModule from "./useOverview";
 import * as useErrorsModule from "./useErrors";
 import * as useIncidentsModule from "./useIncidents";
 import * as useLlmModule from "./useLlm";
+import * as useTracesModule from "./useTraces";
 
 afterEach(cleanup);
 
@@ -169,6 +170,19 @@ describe("screen registry", () => {
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     vi.restoreAllMocks();
+  });
+
+  it("routes traces to a v2 screen", () => {
+    expect(SCREENS.traces.kind).toBe("v2");
+  });
+
+  it("renders the v2 Traces screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useTracesModule, "useTraces").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    const ctx = makeCtx();
+    const node = renderSection("traces", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
   it("wraps legacy entries in the legacy island", () => {
