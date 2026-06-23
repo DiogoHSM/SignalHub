@@ -9,6 +9,7 @@ import { LegacyIsland } from "./LegacyIsland";
 import { OverviewScreen } from "./OverviewScreen";
 import { ErrorsScreen } from "./ErrorsScreen";
 import { IncidentsScreen } from "./IncidentsScreen";
+import { LlmScreen } from "./LlmScreen";
 import type { NavSection } from "../nav";
 
 // ─── Drill types ─────────────────────────────────────────────────────────────
@@ -60,15 +61,8 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   },
 
   llm: {
-    kind: "legacy",
-    render: (ctx) => (
-      <InvestigationWorkspace
-        client={ctx.client}
-        projectId={ctx.project?.id}
-        environmentId={ctx.environment?.id}
-        initialTab="llm"
-      />
-    ),
+    kind: "v2",
+    render: (ctx) => <LlmScreen ctx={ctx} />,
   },
 
   traces: {
