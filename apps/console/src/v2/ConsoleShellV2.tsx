@@ -12,6 +12,7 @@ import { useFleet } from "./useFleet";
 import { renderSection } from "./screens/registry";
 import type { ScreenCtx, DrillTarget, DrillParams } from "./screens/registry";
 import { IncidentScreen } from "./screens/IncidentScreen";
+import { TenantScreen } from "./screens/TenantScreen";
 import type { NavSection } from "./nav";
 import type { BreadcrumbItem } from "./shell/TopBar";
 import { EmptyHint } from "../components/ui/v2";
@@ -78,7 +79,11 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   const [railCollapsed, setRailCollapsedRaw] = useState(persisted.railCollapsed ?? false);
   const [drillStack, setDrillStack] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [detail, setDetail] = useState<{ target: "incident"; groupId: string; errorId?: string } | null>(null);
+  const [detail, setDetail] = useState<
+    | { target: "incident"; groupId: string; errorId?: string }
+    | { target: "tenant"; tenantId: string }
+    | null
+  >(null);
 
   // Page-transition state (remount the page div on nav change)
   const [seq, setSeq] = useState(0);
@@ -258,7 +263,11 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   );
 
   const handleDrill = useCallback((target: DrillTarget, params: DrillParams) => {
-    setDetail({ target, ...params });
+    if (target === "tenant" && "tenantId" in params) {
+      setDetail({ target: "tenant", tenantId: params.tenantId });
+    } else if (target === "incident" && "groupId" in params) {
+      setDetail({ target: "incident", groupId: params.groupId, errorId: params.errorId });
+    }
   }, []);
 
   const handleBack = useCallback(() => {
@@ -330,7 +339,9 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
             <div className="page" key={seq} data-anim={anim}>
               {activeProject && activeEnvironment
                 ? detail
-                  ? <IncidentScreen ctx={screenCtx} groupId={detail.groupId} errorId={detail.errorId} />
+                  ? detail.target === "tenant"
+                    ? <TenantScreen ctx={screenCtx} tenantId={detail.tenantId} />
+                    : <IncidentScreen ctx={screenCtx} groupId={detail.groupId} errorId={detail.errorId} />
                   : renderSection(nav, screenCtx)
                 : (
                   <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>

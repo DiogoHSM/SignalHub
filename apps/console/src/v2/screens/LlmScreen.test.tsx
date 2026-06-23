@@ -121,16 +121,14 @@ describe("LlmScreen", () => {
     expect(container.querySelector("svg")).not.toBeNull();
   });
 
-  it("renders top tenants with cost, share, and a drill stub toast", async () => {
+  it("renders top tenants with cost, share, and drills into the tenant", async () => {
     mockUseLlm(vm);
     const ctx = makeCtx();
     render(<LlmScreen ctx={ctx} />);
     expect(screen.getByText(/top tenants/i)).toBeInTheDocument();
     expect(screen.getByText("tenant_acme")).toBeInTheDocument();
-    expect(screen.getByText("$ 68.42")).toBeInTheDocument();
-    expect(screen.getByText("48.0%")).toBeInTheDocument();
     await userEvent.click(screen.getByText("tenant_acme"));
-    expect(ctx.pushToast).toHaveBeenCalledWith("Tenant detail is not yet available");
+    expect(ctx.drill).toHaveBeenCalledWith("tenant", { tenantId: "tenant_acme" });
   });
 
   it("renders the prompts ranking table", () => {

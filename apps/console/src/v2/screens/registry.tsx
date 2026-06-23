@@ -14,8 +14,10 @@ import type { NavSection } from "../nav";
 
 // ─── Drill types ─────────────────────────────────────────────────────────────
 
-export type DrillTarget = "incident";
-export type DrillParams = { groupId: string; errorId?: string };
+export type DrillTarget = "incident" | "tenant";
+export type DrillParams =
+  | { groupId: string; errorId?: string }
+  | { tenantId: string };
 
 // ─── ScreenCtx ───────────────────────────────────────────────────────────────
 
