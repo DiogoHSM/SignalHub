@@ -262,7 +262,7 @@ function SpanDetailPanel({ span, traceIdLabel, ctx }: { span: SpanNodeVM; traceI
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <Kv k="Started" v={`+${Math.round(span.offsetMs)} ms`} mono />
-          <Kv k="Elapsed" v={`${Math.round(span.durMs)} ms`} mono />
+          <Kv k="Duration" v={`${Math.round(span.durMs)} ms`} mono />
           <Kv k="Service" v={span.service ?? "—"} mono />
           <Kv k="Kind" v={span.kind} mono />
           <Kv k="Status" v={span.status} mono tone={span.errored ? "danger" : null} />
@@ -358,13 +358,13 @@ function TraceDetailView({ ctx, trace, onBack }: { ctx: ScreenCtx; trace: TraceL
           <Divider />
           <SummaryStat label="Spans" value={String(spanCount)} />
           <Divider />
-          <SummaryStat label="LLM cost" value={`$ ${(summary?.llmCostUsd ?? 0).toFixed(4)}`} mono />
+          <SummaryStat label="LLM cost" value={formatUsd(summary?.llmCostUsd ?? 0)} mono />
           <Divider />
           <SummaryStat label="LLM time" value={formatLatency(summary?.llmTimeMs ?? 0)} />
           <Divider />
           <SummaryStat label="DB time" value={formatLatency(summary?.dbTimeMs ?? 0)} />
           <Divider />
-          <SummaryStat label="Error count" value={String(errorCount)} tone={errorCount > 0 ? "danger" : undefined} />
+          <SummaryStat label="Errors" value={String(errorCount)} tone={errorCount > 0 ? "danger" : undefined} />
           <div style={{ flex: 1 }} />
           <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
             {(Object.entries(SPAN_KIND_COLOR) as [string, string][]).map(([k, c]) => (
