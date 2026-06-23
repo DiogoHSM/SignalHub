@@ -127,6 +127,8 @@ describe("LlmScreen", () => {
     render(<LlmScreen ctx={ctx} />);
     expect(screen.getByText(/top tenants/i)).toBeInTheDocument();
     expect(screen.getByText("tenant_acme")).toBeInTheDocument();
+    expect(screen.getByText("$ 68.42")).toBeInTheDocument();
+    expect(screen.getByText("48.0%")).toBeInTheDocument();
     await userEvent.click(screen.getByText("tenant_acme"));
     expect(ctx.drill).toHaveBeenCalledWith("tenant", { tenantId: "tenant_acme" });
   });
