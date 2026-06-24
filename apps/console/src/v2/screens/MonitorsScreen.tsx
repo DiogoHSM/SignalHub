@@ -170,7 +170,7 @@ export function MonitorsScreen({ ctx }: { ctx: ScreenCtx }) {
         actions={
           <>
             <Segmented options={[...KIND_FILTERS]} value={filter} onChange={(v) => setFilter(v as KindFilter)} />
-            <button className="sh-btn primary" onClick={() => setShowCreate((s) => !s)}>
+            <button type="button" className="sh-btn primary" onClick={() => setShowCreate((s) => !s)}>
               <Icon name="plus" size={13} />
               New monitor
             </button>
