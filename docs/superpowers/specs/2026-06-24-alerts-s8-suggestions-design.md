@@ -51,32 +51,27 @@ All other AlertsScreen actions wire to the **already-existing** alert-rule and n
 
 - **Constants** live beside the builder and are exported for the tests to reference (so threshold math is asserted against the same source).
 
-### 2. Backend — channel test-send (new route)
-
-- **Route:** `POST /admin/notification-channels/:id/test` — admin session.
-- Loads the channel (404 if missing/archived), builds a fixed sample `AlertWebhookPayload` (clearly marked as a test), calls the existing `deliverNotification`. **Stateless** — no `notification_deliveries` row written.
-- Response: `{ status: "delivered" | "failed", responseStatus?: number | null, errorMessage?: string }`. SSRF-rejected webhooks surface as `status: "failed"` with the existing `"unsafe webhook target"` message — the guard is inherited, never bypassed.
-
-### 3. Console API client
+### 2. Console API client
 
 Add to `ApiClient` (optional methods, matching the existing source-map/monitor optional-method pattern) + `types.ts`:
 - `listAlertSuggestions(query: { projectId; environmentId }) → Promise<{ suggestions: AlertSuggestionResponse[] }>`
-- `testNotificationChannel(id: string) → Promise<{ status: "delivered" | "failed"; responseStatus?: number | null; errorMessage?: string }>`
 - `AlertSuggestionResponse` type mirrors the backend suggestion shape.
 
-### 4. Console — AlertsScreen wiring
+> **Deferred (PER-364 follow-up):** a channel test-send route (`POST /admin/notification-channels/:id/test`) and its `testNotificationChannel` client method. Implementing it correctly requires relocating the worker's notification-delivery module (`deliverNotification` / `deliverWebhook` / `deliverEmail`) into a shared package and re-verifying the worker's alert + monitor hot paths — a cross-cutting refactor out of scope for this slice. The channel "Test" button ships as a clearly-disabled affordance.
+
+### 3. Console — AlertsScreen wiring
 
 A race-guarded hook (`useAlerts`, same pattern as `useMonitors`/`useArtifacts`: `genRef`, `nowMs` captured once per load, `tick`/`reload`, actions return `Promise<boolean>` — the **screen** toasts on `false`, the hook does not). It loads rules + channels + events + suggestions and exposes mutation actions. The screen renders:
 
 - **Suggestions card** — violet `AI` tag (branding only). Each suggestion shows title + sub; one-click **Create** → `createAlertRule` with the suggestion fields, `notificationChannelId` omitted. A faint hint notes that attaching a channel enables delivery. On success: refetch suggestions + rules, the created suggestion drops out (deduped by the backend on next load).
 - **Rule editor** (create + inline edit) — fields from `CreateAlertRuleInput`: name, type, severity, windowMinutes, threshold, cooldownMinutes, `routePattern` (shown only for `error_count`/`error_rate`/`trace_p95_latency`), minimumSampleSize, optional channel select. Numeric validation ported from the v1 alert pattern; threshold kept as string.
 - **Pause/Resume** → `updateAlertRule(id, { enabled })`. **Archive** → `ConfirmButton` → `archiveAlertRule`.
-- **Channels panel** — list + create (webhook/email Segmented toggle), edit, archive, and per-channel **Test** → `testNotificationChannel` (toast the delivered/failed result). Channel secret header **value** is a write-only input; reads show only `hasSecret`.
+- **Channels panel** — list + create (webhook/email Segmented toggle), edit, archive. The per-channel **Test** control ships as a **disabled affordance** (visible, disabled, with a hint that test-send is coming) — the backing route is deferred (see §2). Channel secret header **value** is a write-only input; reads show only `hasSecret`.
 
 ### 5. Testing
 
-- **Backend:** heuristic unit tests — each heuristic fires / does-not-fire at floor boundaries, dedup against existing rules, threshold math against the exported constants, deterministic `now`, empty-scope → `[]`. Test-send route tests — delivered, failed, and SSRF-rejected paths via an injected `deliverNotification`.
-- **Console:** hook tests (load, each action returns boolean, race-guard) + AlertsScreen tests (suggestion render→create, rule create/edit/pause/archive, channel create/edit/archive/test, unavailable/empty states). New DOM test files carry `// @vitest-environment jsdom` on line 1.
+- **Backend:** heuristic tests run against the real-Postgres `@testcontainers/postgresql` harness used by `packages/db/test/repositories.test.ts` (migrate + seed `errors`/`traces`/`llm_calls` rows via `sql\`insert…\``, then assert real builder output) — **not** a Kysely `executeQuery` intercept. Cover each heuristic firing / not-firing at floor boundaries, dedup against existing rules, threshold math against the exported constants, deterministic `now`, and empty-scope → `[]`. Route test for `GET /alerts/suggestions` follows the existing `apps/api/test/alerts.test.ts` pattern.
+- **Console:** hook tests (load, each action returns boolean, race-guard) + AlertsScreen tests (suggestion render→create, rule create/edit/pause/archive, channel create/edit/archive, disabled Test affordance, unavailable/empty states). New DOM test files carry `// @vitest-environment jsdom` on line 1.
 
 ## Constraints honored
 
@@ -88,6 +83,7 @@ A race-guarded hook (`useAlerts`, same pattern as `useMonitors`/`useArtifacts`: 
 
 ## Out of scope (→ PER-364 follow-ups)
 
+- **Channel test-send** route (`POST /admin/notification-channels/:id/test`) + `testNotificationChannel` client method, which require relocating the worker notification-delivery module into a shared package and re-verifying the worker alert + monitor hot paths. The channel "Test" button ships disabled.
 - Recording test-send attempts in `notification_deliveries`.
 - Suggestion snooze/dismiss persistence (suggestions are recomputed each load; dedup handles created rules).
 - Tuning heuristic floors from real production data.
