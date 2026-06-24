@@ -33,6 +33,7 @@ function client(overrides: Partial<ApiClient & SourceMapApiClient> = {}): ApiCli
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn(),
     getSystemHealth: vi.fn(),
+    getSystemHealthHistory: vi.fn(),
     listEntityTenants: vi.fn(),
     getEntityTenantDetail: vi.fn(),
     listUsersActivity: vi.fn(),
