@@ -168,6 +168,7 @@ export function useArtifacts({ client, projectId, environmentId }: UseArtifactsA
     }
 
     const gen = ++genRef.current;
+    const nowMs = Date.now();
     setStatus("loading");
 
     const release = releaseFilter.trim();
@@ -186,7 +187,7 @@ export function useArtifacts({ client, projectId, environmentId }: UseArtifactsA
         setData(
           buildArtifactsVM(
             { artifacts, tokens, artifactsAvailable: hasArtifacts, tokensAvailable: hasTokens },
-            Date.now(),
+            nowMs,
           ),
         );
         setStatus("ok");
