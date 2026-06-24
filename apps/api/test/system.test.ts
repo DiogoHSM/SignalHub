@@ -718,3 +718,99 @@ describe("system health routes", () => {
     expect(JSON.stringify(snapshot)).not.toContain("/data/sigmon-dumps");
   });
 });
+
+const sampleHistory = [
+  {
+    capturedAt: "2026-06-23T12:00:00.000Z",
+    postgresLatencyMs: 2,
+    redisLatencyMs: 3,
+    queueWaiting: 4,
+    queueActive: 5,
+    queueFailed: 6
+  },
+  {
+    capturedAt: "2026-06-23T12:05:00.000Z",
+    postgresLatencyMs: 7,
+    redisLatencyMs: null,
+    queueWaiting: 0,
+    queueActive: 0,
+    queueFailed: 0
+  }
+];
+
+describe("system health history routes", () => {
+  it("requires authentication", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth: undefined,
+      system: { getHealth: async () => systemHealthSnapshot, getHistory: async () => sampleHistory }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/system/health/history" });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "unauthenticated" });
+  });
+
+  it("returns unavailable when the history dependency is missing", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: { getHealth: async () => systemHealthSnapshot }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/system/health/history" });
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "system_health_history_unavailable" });
+  });
+
+  it("returns history oldest -> newest for authenticated users", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: { getHealth: async () => systemHealthSnapshot, getHistory: async () => sampleHistory }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/system/health/history" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: sampleHistory });
+  });
+
+  it("clamps the limit to [1, 480] and defaults to 60", async () => {
+    const seen: number[] = [];
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: {
+        getHealth: async () => systemHealthSnapshot,
+        getHistory: async ({ limit }) => {
+          seen.push(limit);
+          return sampleHistory;
+        }
+      }
+    });
+
+    await app.inject({ method: "GET", url: "/system/health/history" });
+    await app.inject({ method: "GET", url: "/system/health/history?limit=0" });
+    await app.inject({ method: "GET", url: "/system/health/history?limit=9999" });
+    await app.inject({ method: "GET", url: "/system/health/history?limit=abc" });
+
+    expect(seen).toEqual([60, 1, 480, 60]);
+  });
+
+  it("returns unavailable when the history dependency fails", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: {
+        getHealth: async () => systemHealthSnapshot,
+        getHistory: async () => {
+          throw new Error("history dependency failed");
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/system/health/history" });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "system_health_history_unavailable" });
+  });
+});

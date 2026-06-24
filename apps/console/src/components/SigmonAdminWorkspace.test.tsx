@@ -33,6 +33,7 @@ function client(getSystemHealth: ApiClient["getSystemHealth"]): ApiClient {
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn(),
     getSystemHealth,
+    getSystemHealthHistory: vi.fn(),
     listEntityTenants: vi.fn(),
     getEntityTenantDetail: vi.fn(),
     listUsersActivity: vi.fn(),

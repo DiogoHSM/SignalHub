@@ -60,6 +60,7 @@ import {
   getIngestionFreshness,
   getLastRetentionRun
 } from "@sigmon/db/repositories/system.js";
+import { listSystemHealthSamples } from "@sigmon/db/repositories/system-health-samples.js";
 import {
   findSourceMapArtifactForFrame,
   getCachedErrorStackResolution,
@@ -530,7 +531,18 @@ const app = await buildApp({
     getIncidentMttr: (input) => getIncidentMttr(db, input)
   },
   system: {
-    getHealth: getSystemHealth
+    getHealth: getSystemHealth,
+    getHistory: ({ limit }) =>
+      listSystemHealthSamples(db, { limit }).then((rows) =>
+        rows.map((r) => ({
+          capturedAt: r.capturedAt.toISOString(),
+          postgresLatencyMs: r.postgresLatencyMs,
+          redisLatencyMs: r.redisLatencyMs,
+          queueWaiting: r.queueWaiting,
+          queueActive: r.queueActive,
+          queueFailed: r.queueFailed
+        }))
+      )
   },
   alerts: {
     listNotificationChannels: () => listNotificationChannels(db),

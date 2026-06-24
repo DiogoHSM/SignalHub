@@ -45,6 +45,7 @@ import type {
   SourceMapUploadToken,
   SpanRecord,
   SystemHealthResponse,
+  SystemHealthSampleResponse,
   TenantDetailQuery,
   TenantDetailResponse,
   TenantListQuery,
@@ -248,6 +249,7 @@ export type ApiClient = {
   getLlmByPrompt?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmPromptRow[]>>;
   getLlmCostByModel?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmCostByModel>>;
   getSystemHealth: () => Promise<AggregateResponse<SystemHealthResponse>>;
+  getSystemHealthHistory?: (params?: { limit?: number }) => Promise<AggregateResponse<SystemHealthSampleResponse[]>>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
   listUsersActivity: (query: UserListQuery) => Promise<AggregateResponse<UserListResponse>>;
@@ -782,6 +784,16 @@ export function createApiClient(
     getLlmCostByModel: (query) =>
       request<AggregateResponse<LlmCostByModel>>(path(apiBasePath, llmAggregatePath("cost-by-model", query))),
     getSystemHealth: () => request<AggregateResponse<SystemHealthResponse>>(path(apiBasePath, "/system/health")),
+    getSystemHealthHistory: (params) => {
+      const search = new URLSearchParams();
+      if (params?.limit !== undefined) {
+        search.set("limit", String(params.limit));
+      }
+      const query = search.toString();
+      return request<AggregateResponse<SystemHealthSampleResponse[]>>(
+        path(apiBasePath, `/system/health/history${query ? `?${query}` : ""}`)
+      );
+    },
     listEntityTenants: (query) =>
       request<AggregateResponse<TenantListResponse>>(path(apiBasePath, entityTenantListPath(query))),
     getEntityTenantDetail: (tenantId, query) =>

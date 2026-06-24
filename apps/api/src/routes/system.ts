@@ -120,9 +120,25 @@ export type SystemHealthSnapshot = {
   };
 };
 
+export type SystemHealthSampleResponse = {
+  capturedAt: string;
+  postgresLatencyMs: number | null;
+  redisLatencyMs: number | null;
+  queueWaiting: number;
+  queueActive: number;
+  queueFailed: number;
+};
+
 export type SystemHealthDependencies = {
   getHealth?: () => Promise<SystemHealthSnapshot>;
+  getHistory?: (input: { limit: number }) => Promise<SystemHealthSampleResponse[]>;
 };
+
+function parseHistoryLimit(raw: unknown): number {
+  const value = typeof raw === "string" ? Number.parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(value)) return 60;
+  return Math.min(480, Math.max(1, value));
+}
 
 export function registerSystemRoutes(
   app: FastifyInstance,
@@ -144,6 +160,27 @@ export function registerSystemRoutes(
       return { data: await options.system.getHealth() };
     } catch {
       return reply.code(503).send({ error: "system_health_unavailable" });
+    }
+  });
+
+  app.get("/system/health/history", async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = await options.auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
+    if (!user) {
+      setCurrentUser(request, null);
+      return reply.code(401).send({ error: "unauthenticated" });
+    }
+    setCurrentUser(request, user);
+
+    if (!options.system?.getHistory) {
+      return reply.code(501).send({ error: "system_health_history_unavailable" });
+    }
+
+    const limit = parseHistoryLimit((request.query as { limit?: unknown } | undefined)?.limit);
+
+    try {
+      return { data: await options.system.getHistory({ limit }) };
+    } catch {
+      return reply.code(503).send({ error: "system_health_history_unavailable" });
     }
   });
 }

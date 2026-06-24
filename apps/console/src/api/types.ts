@@ -969,6 +969,15 @@ export type SystemHealthResponse = {
   };
 };
 
+export type SystemHealthSampleResponse = {
+  capturedAt: string;
+  postgresLatencyMs: number | null;
+  redisLatencyMs: number | null;
+  queueWaiting: number;
+  queueActive: number;
+  queueFailed: number;
+};
+
 export type NotificationChannelResponse =
   | {
       id: string;
