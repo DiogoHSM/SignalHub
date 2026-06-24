@@ -131,7 +131,11 @@ describe("MonitorsScreen — mutations", () => {
     fireEvent.change(screen.getByLabelText("Monitor name"), { target: { value: "API health v2" } });
     fireEvent.click(screen.getByRole("button", { name: "Save monitor" }));
     await waitFor(() =>
-      expect(ctx.client.updateMonitor).toHaveBeenCalledWith("mon_http", expect.objectContaining({ name: "API health v2" })),
+      expect(ctx.client.updateMonitor).toHaveBeenCalledWith(
+        "mon_http",
+        // the existing channel + cadence must be preserved, not reset, when only the name changes
+        expect.objectContaining({ name: "API health v2", notificationChannelId: "ch_1", intervalMinutes: 5, timeoutMs: 5000 }),
+      ),
     );
   });
 

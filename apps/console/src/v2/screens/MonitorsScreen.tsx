@@ -181,12 +181,12 @@ function EditRow({
 }) {
   const [name, setName] = useState(row.name);
   const [enabled, setEnabled] = useState(row.enabled);
-  const [channelId, setChannelId] = useState("");
-  const [url, setUrl] = useState(row.kind === "http" ? row.target : "");
-  const [intervalMinutes, setIntervalMinutes] = useState("5");
-  const [timeoutMs, setTimeoutMs] = useState("5000");
-  const [expectedIntervalMinutes, setExpectedIntervalMinutes] = useState("5");
-  const [graceMinutes, setGraceMinutes] = useState("2");
+  const [channelId, setChannelId] = useState(row.notificationChannelId ?? "");
+  const [url, setUrl] = useState(row.url ?? "");
+  const [intervalMinutes, setIntervalMinutes] = useState(String(row.intervalMinutes ?? 5));
+  const [timeoutMs, setTimeoutMs] = useState(String(row.timeoutMs ?? 5000));
+  const [expectedIntervalMinutes, setExpectedIntervalMinutes] = useState(String(row.expectedIntervalMinutes ?? 5));
+  const [graceMinutes, setGraceMinutes] = useState(String(row.graceMinutes ?? 2));
 
   async function save() {
     const trimmed = name.trim();

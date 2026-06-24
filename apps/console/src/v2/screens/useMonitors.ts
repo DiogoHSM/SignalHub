@@ -27,6 +27,14 @@ export type MonitorRowVM = {
   lastCheckedLabel: string;
   channelLabel: string | null;
   hasChannel: boolean;
+  // Raw editable fields, carried so the inline editor can pre-seed current values
+  // instead of resetting them to defaults on edit-open.
+  notificationChannelId: string | null;
+  url: string | null;
+  intervalMinutes: number | null;
+  timeoutMs: number | null;
+  expectedIntervalMinutes: number | null;
+  graceMinutes: number | null;
 };
 
 export type MonitorRollupVM = {
@@ -183,6 +191,12 @@ export function buildMonitorsVM(input: BuildMonitorsInput, nowMs: number): Monit
       lastCheckedLabel: relativeTimeFrom(m.lastCheckedAt, nowMs),
       channelLabel,
       hasChannel: m.notificationChannelId != null,
+      notificationChannelId: m.notificationChannelId,
+      url: m.url,
+      intervalMinutes: m.intervalMinutes,
+      timeoutMs: m.timeoutMs,
+      expectedIntervalMinutes: m.expectedIntervalMinutes,
+      graceMinutes: m.graceMinutes,
     };
   });
 

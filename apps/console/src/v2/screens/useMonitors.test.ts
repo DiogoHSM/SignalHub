@@ -61,6 +61,14 @@ describe("buildMonitorsVM", () => {
     expect(http.channelLabel).toBe("Ops webhook");
     expect(http.hasChannel).toBe(true);
     expect(http.lastCheckedLabel).toBe("12m ago");
+    // raw editable fields carried for the inline editor to pre-seed
+    expect(http.notificationChannelId).toBe("ch_1");
+    expect(http.url).toBe("https://api.example.com/health");
+    expect(http.intervalMinutes).toBe(5);
+    expect(http.timeoutMs).toBe(5000);
+    expect(hb.notificationChannelId).toBeNull();
+    expect(hb.expectedIntervalMinutes).toBe(5);
+    expect(hb.graceMinutes).toBe(2);
 
     expect(hb.kind).toBe("heartbeat");
     expect(hb.statusV2).toBe("critical");
