@@ -157,7 +157,7 @@ export function ArtifactsSection({ ctx }: { ctx: ScreenCtx }) {
                     ) : (
                       <div>
                         <strong style={{ fontSize: 12.5 }}>{row.name}</strong>
-                        <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>{row.prefix} · used {row.lastUsedLabel}</div>
+                        <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>{row.prefix} · created {row.createdLabel} · used {row.lastUsedLabel}</div>
                       </div>
                     )}
                     <span className={`sh-tag ${row.revoked ? "" : "ok"}`}>{row.statusLabel}</span>
