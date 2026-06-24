@@ -311,6 +311,16 @@ export interface SystemHeartbeatsTable {
   updated_at: Timestamp;
 }
 
+export interface SystemHealthSamplesTable {
+  id: ColumnType<string, string | undefined, string>;
+  captured_at: Timestamp;
+  postgres_latency_ms: number | null;
+  redis_latency_ms: number | null;
+  queue_waiting: DefaultedInteger;
+  queue_active: DefaultedInteger;
+  queue_failed: DefaultedInteger;
+}
+
 export type AlertRuleType = "critical_errors" | "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost";
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -492,6 +502,7 @@ export interface Database {
   retention_runs: RetentionRunsTable;
   backup_runs: BackupRunsTable;
   system_heartbeats: SystemHeartbeatsTable;
+  system_health_samples: SystemHealthSamplesTable;
   notification_channels: NotificationChannelsTable;
   alert_rules: AlertRulesTable;
   alert_events: AlertEventsTable;

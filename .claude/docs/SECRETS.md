@@ -30,6 +30,9 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `SOURCE_MAPS_RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables worker cleanup of old local source-map artifacts when telemetry retention is enabled. |
 | `SOURCE_MAPS_RETENTION_DAYS` | No | `180` | Non-secret operational config. Retention window for source-map artifacts by upload time. |
 | `SOURCE_MAPS_RETENTION_BATCH_SIZE` | No | `100` | Non-secret operational config. Maximum source-map artifacts cleaned per retention run. |
+| `SYSTEM_HEALTH_HISTORY_ENABLED` | No | `true` | Non-secret operational config. Enables the worker health-history sampler that records a bounded system_health_samples time-series. |
+| `SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES` | No | `5` | Non-secret operational config. Minutes between health-history samples. |
+| `SYSTEM_HEALTH_HISTORY_RETENTION_HOURS` | No | `48` | Non-secret operational config. Age after which health-history samples are pruned on every sampler run. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | `admin@example.com` | Email used by `pnpm seed:admin`. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Initial admin login password. |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enables Google OAuth when set to `true` and all Google settings are present. |

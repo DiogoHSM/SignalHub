@@ -101,6 +101,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn(),
     getSystemHealth: vi.fn(),
+    getSystemHealthHistory: vi.fn(),
     listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [] } }),
     getEntityTenantDetail: vi.fn(),
     listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [] } }),
