@@ -9,6 +9,7 @@ import * as useErrorsModule from "./useErrors";
 import * as useIncidentsModule from "./useIncidents";
 import * as useLlmModule from "./useLlm";
 import * as useTracesModule from "./useTraces";
+import * as useAlertsModule from "./useAlerts";
 
 afterEach(cleanup);
 
@@ -180,6 +181,19 @@ describe("screen registry", () => {
     vi.spyOn(useTracesModule, "useTraces").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
     const ctx = makeCtx();
     const node = renderSection("traces", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it("routes alerts to a v2 screen", () => {
+    expect(SCREENS.alerts.kind).toBe("v2");
+  });
+
+  it("renders the v2 Alerts screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    const ctx = makeCtx();
+    const node = renderSection("alerts", ctx);
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();

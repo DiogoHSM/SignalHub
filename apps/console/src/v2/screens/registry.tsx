@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import type { ApiClient } from "../../api/client";
 import type { Environment, Project } from "../../api/types";
-import { AlertsPanel } from "../../components/AlertsPanel";
 import { ProjectSettingsWorkspace } from "../../components/ProjectSettingsWorkspace";
 import { SigmonAdminWorkspace } from "../../components/SigmonAdminWorkspace";
 import { LegacyIsland } from "./LegacyIsland";
@@ -10,6 +9,7 @@ import { ErrorsScreen } from "./ErrorsScreen";
 import { IncidentsScreen } from "./IncidentsScreen";
 import { LlmScreen } from "./LlmScreen";
 import { TracesScreen } from "./TracesScreen";
+import { AlertsScreen } from "./AlertsScreen";
 import type { NavSection } from "../nav";
 
 // ─── Drill types ─────────────────────────────────────────────────────────────
@@ -73,14 +73,8 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   },
 
   alerts: {
-    kind: "legacy",
-    render: (ctx) => (
-      <AlertsPanel
-        client={ctx.client}
-        projectId={ctx.project?.id}
-        environmentId={ctx.environment?.id}
-      />
-    ),
+    kind: "v2",
+    render: (ctx) => <AlertsScreen ctx={ctx} />,
   },
 
   system: {
