@@ -23,6 +23,12 @@ function makeClient(over: Partial<ApiClient> = {}): ApiClient {
     listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [] }),
     createApiKey: vi.fn().mockResolvedValue({ apiKey: { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "k", prefix: "sh_live_ab", createdAt: "x", revokedAt: null, secret: "sh_live_browser_secret_value" } }),
     getOperations: vi.fn().mockResolvedValue({ data: { window: "24h", summary: { telemetry: { events: 184, lastEventAt: "2026-06-24T11:59:56.000Z", errors: 0, traces: 0, failedTraces: 0, errorRatePercent: null, p95TraceDurationMs: null, lastErrorAt: null, lastTraceAt: null } } } }),
+    listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
+    listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [] }),
+    deleteSourceMapArtifact: vi.fn().mockResolvedValue(undefined),
+    createSourceMapUploadToken: vi.fn().mockResolvedValue({ token: { id: "tok_1", projectId: "prj_1", environmentId: "env_1", name: "n", prefix: "shsmap_ab", createdAt: "x", lastUsedAt: null, revokedAt: null, secret: "shsmap_secret" } }),
+    updateSourceMapUploadToken: vi.fn().mockResolvedValue({ token: { id: "tok_1", projectId: "prj_1", environmentId: "env_1", name: "n", prefix: "shsmap_ab", createdAt: "x", lastUsedAt: null, revokedAt: null } }),
+    revokeSourceMapUploadToken: vi.fn().mockResolvedValue(undefined),
     ...over,
   } as unknown as ApiClient;
 }
@@ -127,5 +133,11 @@ describe("SetupScreen", () => {
     const ping = await screen.findByRole("button", { name: "Send ping" });
     fireEvent.click(ping);
     expect(ctx.pushToast).toHaveBeenCalledWith("Test ping is not yet available");
+  });
+
+  it("mounts the artifacts section", async () => {
+    render(<SetupScreen ctx={makeCtx()} />);
+    expect(await screen.findByText("Source map artifacts")).toBeInTheDocument();
+    expect(screen.getByText("CI upload tokens")).toBeInTheDocument();
   });
 });

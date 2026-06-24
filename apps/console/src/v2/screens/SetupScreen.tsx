@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { EmptyHint, Icon, PageHead, SecretField, Segmented, StatusDot } from "../../components/ui/v2";
 import type { ScreenCtx } from "./registry";
 import { useSetup } from "./useSetup";
+import { ArtifactsSection } from "./ArtifactsSection";
 
 const SNIPPET_TABS = ["Browser", "Node", "Python", "HTTP"] as const;
 type SnippetTab = (typeof SNIPPET_TABS)[number];
@@ -241,6 +242,8 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
           </div>
         </div>
       </div>
+
+      <ArtifactsSection ctx={ctx} />
     </>
   );
 }
