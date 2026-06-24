@@ -153,7 +153,13 @@ const rawConfigSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   SOURCE_MAPS_RETENTION_DAYS: optionalPositiveInteger(180),
-  SOURCE_MAPS_RETENTION_BATCH_SIZE: optionalPositiveInteger(100)
+  SOURCE_MAPS_RETENTION_BATCH_SIZE: optionalPositiveInteger(100),
+  SYSTEM_HEALTH_HISTORY_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES: optionalPositiveInteger(5),
+  SYSTEM_HEALTH_HISTORY_RETENTION_HOURS: optionalPositiveInteger(48)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -288,6 +294,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         days: parsed.SOURCE_MAPS_RETENTION_DAYS,
         batchSize: parsed.SOURCE_MAPS_RETENTION_BATCH_SIZE
       }
+    },
+    systemHealthHistory: {
+      enabled: parsed.SYSTEM_HEALTH_HISTORY_ENABLED,
+      sampleIntervalMinutes: parsed.SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES,
+      retentionHours: parsed.SYSTEM_HEALTH_HISTORY_RETENTION_HOURS
     }
   };
 }

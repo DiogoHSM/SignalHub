@@ -401,6 +401,38 @@ describe("loadConfig", () => {
     }
   );
 
+  it("loads system health history defaults", () => {
+    const config = loadConfig(baseEnv());
+
+    expect(config.systemHealthHistory).toEqual({
+      enabled: true,
+      sampleIntervalMinutes: 5,
+      retentionHours: 48
+    });
+  });
+
+  it("loads explicit system health history settings", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      SYSTEM_HEALTH_HISTORY_ENABLED: "false",
+      SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES: "10",
+      SYSTEM_HEALTH_HISTORY_RETENTION_HOURS: "72"
+    });
+
+    expect(config.systemHealthHistory).toEqual({
+      enabled: false,
+      sampleIntervalMinutes: 10,
+      retentionHours: 72
+    });
+  });
+
+  it.each(["SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES", "SYSTEM_HEALTH_HISTORY_RETENTION_HOURS"] as const)(
+    "rejects non-positive %s",
+    (fieldName) => {
+      expect(() => loadConfig({ ...validEnv, [fieldName]: "0" })).toThrow();
+    }
+  );
+
   it("requires S3 settings when backup S3 upload is enabled", () => {
     expect(() =>
       loadConfig({
