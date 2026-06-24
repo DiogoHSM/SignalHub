@@ -10,6 +10,7 @@ export type UseConsoleProjectsResult = {
   isLoading: boolean;
   selectProject: (projectId: string) => void;
   selectEnvironment: (name: string) => void;
+  reload: () => void;
 };
 
 /**
@@ -23,6 +24,7 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
   const [activeProject, setActiveProject] = useState<Project | undefined>();
   const [activeEnvironment, setActiveEnvironment] = useState<Environment | undefined>();
   const [isLoading, setIsLoading] = useState(true);
+  const [reloadTick, setReloadTick] = useState(0);
 
   // Refs to safely read current values inside async callbacks without stale closures
   const activeProjectIdRef = useRef<string | undefined>(undefined);
@@ -52,7 +54,7 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, reloadTick]);
 
   // Load environments whenever the active project changes
   useEffect(() => {
@@ -113,6 +115,8 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
     [environments]
   );
 
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
+
   return {
     projects,
     environments,
@@ -120,6 +124,7 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
     activeEnvironment,
     isLoading,
     selectProject,
-    selectEnvironment
+    selectEnvironment,
+    reload,
   };
 }

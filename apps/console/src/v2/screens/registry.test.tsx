@@ -11,6 +11,7 @@ import * as useLlmModule from "./useLlm";
 import * as useTracesModule from "./useTraces";
 import * as useAlertsModule from "./useAlerts";
 import * as useSystemHealthModule from "./useSystemHealth";
+import * as useSetupModule from "./useSetup";
 
 afterEach(cleanup);
 
@@ -214,16 +215,28 @@ describe("screen registry", () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
-  it("wraps legacy entries in the legacy island", () => {
-    const { container } = render(<>{renderSection("settings", makeCtx())}</>);
-    expect(container.querySelector(".console-legacy-island")).not.toBeNull();
+  it("routes settings to a v2 screen", () => {
+    expect(SCREENS.settings.kind).toBe("v2");
   });
 
-  it("settings section renders ProjectSettingsWorkspace inside the legacy island", () => {
-    const { container } = render(<>{renderSection("settings", makeCtx())}</>);
-    // LegacyIsland wrapper
-    expect(container.querySelector(".console-legacy-island")).not.toBeNull();
-    // ProjectSettingsWorkspace renders a SettingsSectionNav with aria-label="Project settings sections"
-    expect(container.querySelector("[aria-label='Project settings sections']")).not.toBeNull();
+  it("renders the v2 Setup screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useSetupModule, "useSetup").mockReturnValue({
+      data: null,
+      status: "loading",
+      latestSecret: null,
+      busy: false,
+      reload: vi.fn(),
+      createProject: vi.fn(),
+      renameProject: vi.fn(),
+      archiveProject: vi.fn(),
+      createEnvironment: vi.fn(),
+      generateApiKey: vi.fn(),
+    });
+    const ctx = makeCtx();
+    const node = renderSection("settings", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    vi.restoreAllMocks();
   });
 });

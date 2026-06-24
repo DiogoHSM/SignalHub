@@ -160,7 +160,7 @@ function originEndpoint(): string {
   return "https://your-instance.example.com";
 }
 
-export function useSetup({ ctx }: { ctx: ScreenCtx & { reload?: () => void } }): UseSetupResult {
+export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
   const { client, project, environment } = ctx;
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<SetupVM | null>(null);
