@@ -104,6 +104,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     activeEnvironment,
     selectProject,
     selectEnvironment,
+    reload: reloadProjects,
   } = useConsoleProjects(client);
 
   const fleet = useFleet({
@@ -291,6 +292,10 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     drill: handleDrill,
     back: handleBack,
     pushToast: (message: string) => toast({ title: message }),
+    reload: () => {
+      reloadProjects();
+      setSeq((s) => s + 1);
+    },
   };
 
   // ─── command palette commands ─────────────────────────────────────────────

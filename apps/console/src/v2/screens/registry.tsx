@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import type { ApiClient } from "../../api/client";
 import type { Environment, Project } from "../../api/types";
-import { ProjectSettingsWorkspace } from "../../components/ProjectSettingsWorkspace";
 import { LegacyIsland } from "./LegacyIsland";
+import { SetupScreen } from "./SetupScreen";
 import { OverviewScreen } from "./OverviewScreen";
 import { ErrorsScreen } from "./ErrorsScreen";
 import { IncidentsScreen } from "./IncidentsScreen";
@@ -40,6 +40,8 @@ export type ScreenCtx = {
   drill: (target: DrillTarget, params: DrillParams) => void;
   /** Push a transient toast notification. */
   pushToast: (message: string) => void;
+  /** Reload shell-level project/environment data after a mutation. */
+  reload?: () => void;
 };
 
 // ─── Screen entries ───────────────────────────────────────────────────────────
@@ -83,24 +85,8 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   },
 
   settings: {
-    kind: "legacy",
-    render: (ctx) => (
-      <ProjectSettingsWorkspace
-        client={ctx.client}
-        activeProject={ctx.project}
-        activeEnvironment={ctx.environment}
-        activeProjectId={ctx.project?.id}
-        environments={ctx.environments}
-        isEnvironmentCreationDisabled={!ctx.project}
-        onCreateEnvironment={ctx.onCreateEnvironment}
-        onArchiveEnvironment={ctx.onArchiveEnvironment}
-        onArchiveProject={ctx.onArchiveProject}
-        onSecretCreated={ctx.onSecretCreated}
-        onSelectEnvironment={ctx.onSelectEnvironment}
-        onUpdateProject={ctx.onUpdateProject}
-        onUpdateEnvironment={ctx.onUpdateEnvironment}
-      />
-    ),
+    kind: "v2",
+    render: (ctx) => <SetupScreen ctx={ctx} />,
   },
 };
 
