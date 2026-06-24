@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { buildArtifactsVM, formatBytes, useArtifacts } from "./useArtifacts";
 import type { ApiClient } from "../../api/client";
@@ -108,7 +108,7 @@ describe("useArtifacts hook", () => {
     const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
     await waitFor(() => expect(result.current.status).toBe("ok"));
     let ok = false;
-    await waitFor(async () => { ok = await result.current.createToken("CI new"); });
+    await act(async () => { ok = await result.current.createToken("CI new"); });
     expect(ok).toBe(true);
     expect(client.createSourceMapUploadToken).toHaveBeenCalledWith({ projectId: "p", environmentId: "e", name: "CI new" });
     expect(result.current.latestSecret).toEqual({ name: "CI new", prefix: "shsmap_zz", secret: "shsmap_secret_value" });
@@ -118,7 +118,7 @@ describe("useArtifacts hook", () => {
     const client = makeClient();
     const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
     await waitFor(() => expect(result.current.status).toBe("ok"));
-    await waitFor(async () => { await result.current.revokeToken("tok_1"); });
+    await act(async () => { await result.current.revokeToken("tok_1"); });
     expect(client.revokeSourceMapUploadToken).toHaveBeenCalledWith("tok_1", { projectId: "p", environmentId: "e" });
   });
 });
