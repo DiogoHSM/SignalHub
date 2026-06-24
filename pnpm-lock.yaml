@@ -203,6 +203,9 @@ importers:
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
+      kysely:
+        specifier: ^0.28.16
+        version: 0.28.16
       nodemailer:
         specifier: ^8.0.8
         version: 8.0.8
