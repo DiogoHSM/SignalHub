@@ -10,6 +10,7 @@ import * as useIncidentsModule from "./useIncidents";
 import * as useLlmModule from "./useLlm";
 import * as useTracesModule from "./useTraces";
 import * as useAlertsModule from "./useAlerts";
+import * as useSystemHealthModule from "./useSystemHealth";
 
 afterEach(cleanup);
 
@@ -52,6 +53,7 @@ function makeClient(): ApiClient {
     createNotificationChannel: vi.fn(),
     deleteNotificationChannel: vi.fn(),
     fetchFleet: vi.fn().mockResolvedValue({ projects: [] }),
+    getSystemHealth: vi.fn().mockResolvedValue({ data: null }),
   } as unknown as ApiClient;
 }
 
@@ -194,6 +196,19 @@ describe("screen registry", () => {
     vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
     const ctx = makeCtx();
     const node = renderSection("alerts", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it("routes system to a v2 screen", () => {
+    expect(SCREENS.system.kind).toBe("v2");
+  });
+
+  it("renders the v2 System screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useSystemHealthModule, "useSystemHealth").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    const ctx = makeCtx();
+    const node = renderSection("system", ctx);
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();

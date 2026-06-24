@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import type { ApiClient } from "../../api/client";
 import type { Environment, Project } from "../../api/types";
 import { ProjectSettingsWorkspace } from "../../components/ProjectSettingsWorkspace";
-import { SigmonAdminWorkspace } from "../../components/SigmonAdminWorkspace";
 import { LegacyIsland } from "./LegacyIsland";
 import { OverviewScreen } from "./OverviewScreen";
 import { ErrorsScreen } from "./ErrorsScreen";
@@ -10,6 +9,7 @@ import { IncidentsScreen } from "./IncidentsScreen";
 import { LlmScreen } from "./LlmScreen";
 import { TracesScreen } from "./TracesScreen";
 import { AlertsScreen } from "./AlertsScreen";
+import { SystemScreen } from "./SystemScreen";
 import type { NavSection } from "../nav";
 
 // ─── Drill types ─────────────────────────────────────────────────────────────
@@ -78,10 +78,8 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   },
 
   system: {
-    kind: "legacy",
-    render: (ctx) => (
-      <SigmonAdminWorkspace client={ctx.client} />
-    ),
+    kind: "v2",
+    render: (ctx) => <SystemScreen ctx={ctx} />,
   },
 
   settings: {
