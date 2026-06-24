@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import { buildMonitorsVM, buildCheckVMs, monitorStatusToV2 } from "./useMonitors";
+import { renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { buildMonitorsVM, buildCheckVMs, monitorStatusToV2, useMonitors } from "./useMonitors";
+import type { ApiClient } from "../../api/client";
 import type { MonitorResponse, MonitorCheckResponse, NotificationChannelResponse } from "../../api/types";
 
 const NOW = Date.parse("2026-06-24T12:00:00.000Z");
@@ -104,11 +106,6 @@ describe("buildCheckVMs", () => {
     expect(vms[1].detail).toBe("500 · Timeout");
   });
 });
-
-import { renderHook, waitFor } from "@testing-library/react";
-import { vi } from "vitest";
-import { useMonitors } from "./useMonitors";
-import type { ApiClient } from "../../api/client";
 
 describe("useMonitors hook", () => {
   it("loads monitors + channels and builds the VM", async () => {

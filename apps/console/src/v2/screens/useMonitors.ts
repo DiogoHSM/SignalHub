@@ -380,9 +380,10 @@ export function useMonitors({ client, projectId, environmentId, endpoint }: UseM
   const loadChecks = useCallback(
     async (id: string): Promise<MonitorCheckVM[]> => {
       if (!client.listMonitorChecks) return [];
+      const nowMs = Date.now();
       try {
         const { checks } = await client.listMonitorChecks(id, 20);
-        return buildCheckVMs(checks, Date.now());
+        return buildCheckVMs(checks, nowMs);
       } catch (err) {
         console.error(err);
         return [];
