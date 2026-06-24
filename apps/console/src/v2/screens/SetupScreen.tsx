@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ConfirmButton, EmptyHint, Icon, PageHead, SecretField, Segmented, StatusDot } from "../../components/ui/v2";
+import { EmptyHint, Icon, PageHead, SecretField, Segmented, StatusDot } from "../../components/ui/v2";
 import type { ScreenCtx } from "./registry";
 import { useSetup } from "./useSetup";
 
