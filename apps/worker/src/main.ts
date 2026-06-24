@@ -1,7 +1,9 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
+import { sql } from "kysely";
 import { createStructuredLogger, loadConfig } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
+import { createTelemetryQueue } from "@sigmon/queues";
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import { recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups.js";
 import { backfillErrorGroups } from "@sigmon/db/repositories/error-groups.js";
@@ -58,6 +60,11 @@ import {
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
 import { runShutdownSteps, runSignalShutdown } from "./runtime.js";
+import {
+  pruneSystemHealthSamples,
+  recordSystemHealthSample
+} from "@sigmon/db/repositories/system-health-samples.js";
+import { collectHealthSample, runHealthSampleOnce, startHealthSampleScheduler } from "./system-health-samples.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
@@ -256,6 +263,34 @@ const stopBackups = runsScheduler && config.backups.enabled
     })
   : async () => {};
 
+const healthSampleConnection =
+  runsScheduler && config.systemHealthHistory.enabled
+    ? new Redis(config.redisUrl, { maxRetriesPerRequest: null })
+    : null;
+const healthSampleQueue =
+  runsScheduler && config.systemHealthHistory.enabled ? createTelemetryQueue(config.redisUrl) : null;
+
+const stopHealthSamples =
+  healthSampleConnection && healthSampleQueue
+    ? startHealthSampleScheduler({
+        intervalMinutes: config.systemHealthHistory.sampleIntervalMinutes,
+        runOnce: () =>
+          runHealthSampleOnce({
+            now: () => new Date(),
+            retentionHours: config.systemHealthHistory.retentionHours,
+            collect: () =>
+              collectHealthSample({
+                now: () => new Date(),
+                postgresPing: () => sql`select 1`.execute(db),
+                redisPing: () => healthSampleConnection.ping(),
+                getQueueCounts: () => healthSampleQueue.getJobCounts("waiting", "active", "failed")
+              }),
+            record: (sample) => recordSystemHealthSample(db, sample),
+            prune: (input) => pruneSystemHealthSamples(db, input)
+          })
+      })
+    : async () => {};
+
 logger.info({ role: config.worker.role, queueName: runsQueue ? "telemetry" : null }, "Telemetry worker started");
 
 worker?.on("completed", (job) => {
@@ -303,6 +338,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
   await runShutdownSteps(
     [
+      { name: "stopHealthSamples", run: () => stopHealthSamples() },
       { name: "stopBackups", run: () => stopBackups() },
       { name: "stopMonitors", run: () => stopMonitors() },
       { name: "stopAlerts", run: () => stopAlerts() },
@@ -310,6 +346,8 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "stopSchedulerHeartbeat", run: () => stopSchedulerHeartbeat() },
       { name: "stopWorkerHeartbeat", run: () => stopWorkerHeartbeat() },
       { name: "worker.close", run: () => worker?.close() ?? Promise.resolve() },
+      { name: "healthSampleQueue.close", run: () => healthSampleQueue?.close() ?? Promise.resolve() },
+      { name: "healthSampleConnection.quit", run: () => healthSampleConnection?.quit() ?? Promise.resolve() },
       { name: "connection.quit", run: () => connection?.quit() ?? Promise.resolve() },
       { name: "db.destroy", run: () => db.destroy() }
     ],
