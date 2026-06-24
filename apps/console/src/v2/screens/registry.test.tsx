@@ -53,6 +53,8 @@ function makeClient(): ApiClient {
     listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
     createNotificationChannel: vi.fn(),
     deleteNotificationChannel: vi.fn(),
+    listMonitors: vi.fn().mockResolvedValue({ monitors: [] }),
+    listMonitorChecks: vi.fn().mockResolvedValue({ checks: [] }),
     fetchFleet: vi.fn().mockResolvedValue({ projects: [] }),
     getSystemHealth: vi.fn().mockResolvedValue({ data: null }),
   } as unknown as ApiClient;
@@ -98,7 +100,7 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
 
 describe("screen registry", () => {
   it("has an entry for every nav section", () => {
-    for (const s of ["overview","investigate","incidents","llm","traces","alerts","system","settings"] as const)
+    for (const s of ["overview","investigate","incidents","llm","traces","alerts","monitors","system","settings"] as const)
       expect(SCREENS[s]).toBeDefined();
   });
 
@@ -200,6 +202,15 @@ describe("screen registry", () => {
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it("routes monitors to a v2 screen", () => {
+    expect(SCREENS.monitors.kind).toBe("v2");
+  });
+
+  it("renders the v2 Monitors screen (not wrapped in the legacy island)", () => {
+    const { container } = render(<>{renderSection("monitors", makeCtx())}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
   });
 
   it("routes system to a v2 screen", () => {

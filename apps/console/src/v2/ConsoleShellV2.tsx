@@ -54,6 +54,7 @@ const NAV_LABELS: Record<NavSection, string> = {
   llm: "LLM",
   traces: "Traces",
   alerts: "Alerts",
+  monitors: "Monitors",
   system: "System",
   settings: "Settings",
 };
@@ -306,6 +307,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     { section: "llm", title: "LLM", description: "LLM call logs, costs, and analysis" },
     { section: "traces", title: "Traces", description: "Request timelines and span-level investigation" },
     { section: "alerts", title: "Alerts", description: "Alert rules and recent alerts" },
+    { section: "monitors", title: "Monitors", description: "HTTP uptime and heartbeat checks" },
     { section: "system", title: "System", description: "Server health, workers, and scheduler" },
     { section: "settings", title: "Settings", description: "Project and environment settings" },
   ];
