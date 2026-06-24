@@ -125,9 +125,9 @@ describe("ConsoleShellV2", () => {
     const settingsBtn = screen.getByTitle("Settings");
     await user.click(settingsBtn);
 
-    // After navigation, ProjectSettingsWorkspace renders a SettingsSectionNav
+    // After navigation, the v2 SetupScreen renders its PageHead
     await waitFor(() => {
-      expect(document.querySelector("[aria-label='Project settings sections']")).toBeInTheDocument();
+      expect(screen.getByText(/Connect your application/i)).toBeInTheDocument();
     });
   });
 
@@ -147,9 +147,9 @@ describe("ConsoleShellV2", () => {
     localStorage.setItem("sh_v2_state", JSON.stringify({ nav: "settings" }));
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    // Should restore to settings — ProjectSettingsWorkspace renders a SettingsSectionNav immediately
+    // Should restore to settings — the v2 SetupScreen renders its PageHead immediately
     await waitFor(() => {
-      expect(document.querySelector("[aria-label='Project settings sections']")).toBeInTheDocument();
+      expect(screen.getByText(/Connect your application/i)).toBeInTheDocument();
     });
   });
 
