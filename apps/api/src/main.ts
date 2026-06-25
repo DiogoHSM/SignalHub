@@ -24,6 +24,7 @@ import {
 import {
   archiveAlertRule,
   archiveNotificationChannel,
+  buildAlertSuggestions,
   createAlertRule,
   createNotificationChannel,
   getAlertEvent,
@@ -555,7 +556,9 @@ const app = await buildApp({
     updateAlertRule: (id, input) => updateAlertRule(db, id, input),
     archiveAlertRule: (id) => archiveAlertRule(db, id),
     listAlertEvents: (filters) => listAlertEvents(db, filters),
-    getAlertEvent: (id) => getAlertEvent(db, id)
+    getAlertEvent: (id) => getAlertEvent(db, id),
+    listAlertSuggestions: (filters) =>
+      buildAlertSuggestions(db, { ...filters, now: new Date() })
   },
   monitors: {
     listMonitors: (filters) => listMonitors(db, filters),

@@ -250,6 +250,99 @@ describe("alert history routes", () => {
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "alert_event_not_found" });
   });
+
+  it("returns alert suggestions for authenticated users", async () => {
+    const receivedInputs: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      alerts: {
+        listAlertSuggestions: async (input) => {
+          receivedInputs.push(input);
+          return [
+            {
+              key: "critical_errors",
+              type: "critical_errors" as const,
+              severity: "critical" as const,
+              title: "Critical errors detected",
+              sub: "3 critical errors in 24h",
+              windowMinutes: 60,
+              threshold: "1",
+              cooldownMinutes: 60,
+              rationale: "rationale text",
+            },
+          ];
+        },
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/alerts/suggestions?project_id=prj_1&environment_id=env_1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().suggestions).toHaveLength(1);
+    expect(response.json().suggestions[0]).toMatchObject({
+      type: "critical_errors",
+      severity: "critical",
+      threshold: "1",
+    });
+    expect(receivedInputs).toEqual([{ projectId: "prj_1", environmentId: "env_1" }]);
+  });
+
+  it("requires authentication for suggestions", async () => {
+    app = await buildApp({
+      readiness,
+      auth: unauthenticatedAuth,
+      alerts: { listAlertSuggestions: async () => [] },
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: "/alerts/suggestions?project_id=prj_1&environment_id=env_1",
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("returns 400 for suggestions with missing query params", async () => {
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      alerts: { listAlertSuggestions: async () => [] },
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: "/alerts/suggestions",
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_alert_suggestions_query" });
+  });
+
+  it("returns 501 when suggestions handler is unavailable", async () => {
+    app = await buildApp({ readiness, auth: userAuth });
+    const response = await app.inject({
+      method: "GET",
+      url: "/alerts/suggestions?project_id=prj_1&environment_id=env_1",
+    });
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "alerts_repository_unavailable" });
+  });
+
+  it("returns 503 when suggestions handler throws", async () => {
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      alerts: {
+        listAlertSuggestions: async () => { throw new Error("db down"); },
+      },
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: "/alerts/suggestions?project_id=prj_1&environment_id=env_1",
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "alerts_unavailable" });
+  });
 });
 
 describe("admin alert routes", () => {

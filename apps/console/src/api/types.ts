@@ -1090,6 +1090,20 @@ export type AlertEventResponse = {
   latestDeliveryStatus: "success" | "failed" | null;
 };
 
+export type AlertSuggestionResponse = {
+  key: string;
+  type: AlertRuleType;
+  severity: AlertSeverity;
+  title: string;
+  sub: string;
+  windowMinutes: number;
+  threshold: string;
+  routePattern?: string | null;
+  minimumSampleSize?: number;
+  rationale: string;
+  cooldownMinutes: number;
+};
+
 export type AlertEventListQuery = {
   projectId: string;
   environmentId: string;

@@ -196,7 +196,19 @@ describe("screen registry", () => {
   });
 
   it("renders the v2 Alerts screen (not wrapped in the legacy island)", () => {
-    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: null,
+      status: "loading",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      createChannel: vi.fn().mockResolvedValue(true),
+      updateChannel: vi.fn().mockResolvedValue(true),
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
     const ctx = makeCtx();
     const node = renderSection("alerts", ctx);
     const { container } = render(<>{node}</>);
