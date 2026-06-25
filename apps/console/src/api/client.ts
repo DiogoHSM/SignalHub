@@ -7,6 +7,7 @@ import type {
   AlertEventResponse,
   AlertRuleListQuery,
   AlertRuleResponse,
+  AlertSuggestionResponse,
   ConsoleConfig,
   CreateAlertRuleInput,
   CreateHeartbeatMonitorInput,
@@ -145,6 +146,10 @@ export type AlertApiClient = {
   getAlertEvent: (id: string) => Promise<AggregateResponse<AlertEventResponse>>;
 };
 
+export type AlertSuggestionApiClient = {
+  listAlertSuggestions: (query: { projectId: string; environmentId: string }) => Promise<{ suggestions: AlertSuggestionResponse[] }>;
+};
+
 export type MonitorApiClient = {
   listMonitors: (query: MonitorListQuery) => Promise<{ monitors: MonitorResponse[] }>;
   createHttpMonitor: (input: CreateHttpMonitorInput) => Promise<{ monitor: MonitorResponse }>;
@@ -263,7 +268,8 @@ export type ApiClient = {
   ErrorGroupApiClient &
   SessionTimelineApiClient &
   Partial<MonitorApiClient> &
-  Partial<SourceMapApiClient>;
+  Partial<SourceMapApiClient> &
+  Partial<AlertSuggestionApiClient>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -610,6 +616,10 @@ function alertEventListPath(query: AlertEventListQuery): string {
   return `/alerts/events?${params.toString()}`;
 }
 
+function alertSuggestionsPath(query: { projectId: string; environmentId: string }): string {
+  return `/alerts/suggestions?project_id=${encodeURIComponent(query.projectId)}&environment_id=${encodeURIComponent(query.environmentId)}`;
+}
+
 function monitorListPath(query: MonitorListQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -851,6 +861,8 @@ export function createApiClient(
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>
       request<AggregateResponse<AlertEventResponse>>(path(apiBasePath, `/alerts/events/${encodePathSegment(id)}`)),
+    listAlertSuggestions: (query) =>
+      request<{ suggestions: AlertSuggestionResponse[] }>(path(apiBasePath, alertSuggestionsPath(query))),
     fetchFleet: () => request<FleetResponse>(path(apiBasePath, "/query/fleet"))
   };
 }
