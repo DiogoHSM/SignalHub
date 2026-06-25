@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   AlertEventResponse,
   AlertRuleResponse,
+  AlertSuggestionResponse,
   NotificationChannelResponse,
 } from "../../api/types";
 import { buildAlertsVM, useAlerts } from "./useAlerts";
@@ -222,5 +223,115 @@ describe("useAlerts", () => {
     );
     expect(result.current.status).toBe("loading");
     expect(client.listAlertRules).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suggestion VM building
+// ---------------------------------------------------------------------------
+
+function suggestion(over: Partial<AlertSuggestionResponse> = {}): AlertSuggestionResponse {
+  return {
+    key: "critical_errors",
+    type: "critical_errors",
+    severity: "critical",
+    title: "Critical errors detected",
+    sub: "3 in 24h",
+    windowMinutes: 60,
+    threshold: "1",
+    cooldownMinutes: 60,
+    rationale: "rationale",
+    ...over,
+  };
+}
+
+describe("buildAlertsVM — suggestions", () => {
+  it("includes suggestions in the VM", () => {
+    const vm = buildAlertsVM(
+      { rules: [], events: [], channels: [], suggestions: [suggestion()] },
+      NOW,
+    );
+    expect(vm.suggestions).toHaveLength(1);
+    expect(vm.suggestions[0].key).toBe("critical_errors");
+    expect(vm.suggestions[0].title).toBe("Critical errors detected");
+    expect(vm.suggestions[0].severity).toBe("critical");
+  });
+
+  it("returns empty suggestions array when none provided", () => {
+    const vm = buildAlertsVM({ rules: [], events: [], channels: [], suggestions: [] }, NOW);
+    expect(vm.suggestions).toEqual([]);
+  });
+});
+
+describe("useAlerts — mutation actions", () => {
+  function makeFullClient() {
+    return {
+      listAlertRules: vi.fn().mockResolvedValue({ rules: [rule()] }),
+      listAlertEvents: vi.fn().mockResolvedValue({ data: [event()] }),
+      listNotificationChannels: vi.fn().mockResolvedValue({ channels: [webhookChannel] }),
+      listAlertSuggestions: vi.fn().mockResolvedValue({ suggestions: [] }),
+      createAlertRule: vi.fn().mockResolvedValue({ rule: rule() }),
+      updateAlertRule: vi.fn().mockResolvedValue({ rule: rule() }),
+      archiveAlertRule: vi.fn().mockResolvedValue(undefined),
+      createNotificationChannel: vi.fn().mockResolvedValue({ channel: webhookChannel }),
+      updateNotificationChannel: vi.fn().mockResolvedValue({ channel: webhookChannel }),
+      archiveNotificationChannel: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  it("createRule returns true on success and reloads", async () => {
+    const client = makeFullClient();
+    const { result } = renderHook(() =>
+      useAlerts({ client, projectId: "p", environmentId: "e" }),
+    );
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.createRule({
+        name: "New rule",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 60,
+        threshold: "1",
+        cooldownMinutes: 60,
+      });
+    });
+    expect(ok).toBe(true);
+    expect(client.createAlertRule).toHaveBeenCalledOnce();
+  });
+
+  it("createRule returns false on error", async () => {
+    const client = makeFullClient();
+    client.createAlertRule = vi.fn().mockRejectedValue(new Error("boom"));
+    const { result } = renderHook(() =>
+      useAlerts({ client, projectId: "p", environmentId: "e" }),
+    );
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.createRule({
+        name: "x",
+        type: "critical_errors",
+        severity: "critical",
+        windowMinutes: 5,
+        threshold: "1",
+        cooldownMinutes: 5,
+      });
+    });
+    expect(ok).toBe(false);
+  });
+
+  it("createFromSuggestion calls createAlertRule without notificationChannelId", async () => {
+    const client = makeFullClient();
+    const { result } = renderHook(() =>
+      useAlerts({ client, projectId: "p", environmentId: "e" }),
+    );
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    await act(async () => {
+      await result.current.createFromSuggestion(suggestion());
+    });
+    expect(client.createAlertRule).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "critical_errors", threshold: "1", notificationChannelId: undefined }),
+    );
   });
 });
