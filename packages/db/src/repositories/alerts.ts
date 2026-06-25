@@ -844,3 +844,194 @@ export async function withAlertEvaluationLock<T>(
     return { locked: true, result: await run(trx) };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Alert suggestion heuristics
+// ---------------------------------------------------------------------------
+
+export const ERROR_COUNT_FLOOR = 20;
+export const LATENCY_FLOOR_MS = 1000;
+export const LLM_COST_FLOOR_USD = 10;
+
+export type AlertSuggestion = {
+  key: string;
+  type: AlertRuleType;
+  severity: AlertSeverity;
+  title: string;
+  sub: string;
+  windowMinutes: number;
+  threshold: string;
+  routePattern?: string | null;
+  minimumSampleSize?: number;
+  rationale: string;
+  cooldownMinutes: number;
+};
+
+export async function buildAlertSuggestions(
+  db: AlertDb,
+  input: { projectId: string; environmentId: string; now: Date }
+): Promise<AlertSuggestion[]> {
+  const { projectId, environmentId, now } = input;
+  const window24hStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  // Load active (enabled, non-archived) rules for dedup check
+  const activeRuleRows = await db
+    .selectFrom("alert_rules")
+    .select(["type", "route_pattern"])
+    .where("project_id", "=", projectId)
+    .where("environment_id", "=", environmentId)
+    .where("enabled", "=", true)
+    .where("archived_at", "is", null)
+    .execute();
+
+  const activeByType = new Map<string, Array<string | null>>();
+  for (const row of activeRuleRows) {
+    const existing = activeByType.get(row.type) ?? [];
+    existing.push(row.route_pattern);
+    activeByType.set(row.type, existing);
+  }
+
+  function hasActiveRule(type: AlertRuleType, routePattern?: string | null): boolean {
+    const patterns = activeByType.get(type);
+    if (!patterns || patterns.length === 0) return false;
+    if (routePattern == null) return true; // any active rule of this type
+    return patterns.includes(routePattern);
+  }
+
+  const suggestions: AlertSuggestion[] = [];
+
+  // 1. critical_errors — fires when ≥1 critical/fatal error in 24h
+  if (!hasActiveRule("critical_errors")) {
+    const ceResult = await sql<{ value: string }>`
+      select count(*)::text as value
+      from errors
+      where project_id = ${projectId}
+        and environment_id = ${environmentId}
+        and timestamp >= ${window24hStart}
+        and timestamp < ${now}
+        and severity in ('critical', 'fatal')
+    `.execute(db);
+    const ceCount = Number(ceResult.rows[0]?.value ?? "0");
+    if (ceCount >= 1) {
+      suggestions.push({
+        key: "critical_errors",
+        type: "critical_errors",
+        severity: "critical",
+        title: "Critical errors detected",
+        sub: `${ceCount} critical/fatal error${ceCount === 1 ? "" : "s"} in the last 24h`,
+        windowMinutes: 60,
+        threshold: "1",
+        cooldownMinutes: 60,
+        rationale: `${ceCount} critical or fatal errors observed in the last 24 hours. A rule at threshold 1 will alert immediately on recurrence.`,
+      });
+    }
+  }
+
+  // 2. error_count (route-scoped) — busiest route's peak 15-min error count
+  if (!hasActiveRule("error_count")) {
+    const peakResult = await sql<{ name: string; cnt: string }>`
+      with bucketed as (
+        select
+          t.name,
+          date_trunc('hour', e.timestamp) + interval '15 min' * floor(extract(minute from e.timestamp) / 15) as bucket,
+          count(*) as cnt
+        from errors e
+        join traces t on t.trace_id = e.trace_id
+          and t.project_id = e.project_id
+          and t.environment_id = e.environment_id
+        where e.project_id = ${projectId}
+          and e.environment_id = ${environmentId}
+          and e.timestamp >= ${window24hStart}
+          and e.timestamp < ${now}
+          and t.name is not null
+        group by t.name, bucket
+      )
+      select name, max(cnt)::text as cnt
+      from bucketed
+      group by name
+      order by max(cnt) desc
+      limit 1
+    `.execute(db);
+
+    const peakRow = peakResult.rows[0];
+    if (peakRow) {
+      const peak15 = Number(peakRow.cnt);
+      if (peak15 >= ERROR_COUNT_FLOOR) {
+        const threshold = Math.ceil(peak15 * 1.5);
+        suggestions.push({
+          key: `error_count:${peakRow.name}`,
+          type: "error_count",
+          severity: "warning",
+          title: `High error rate on ${peakRow.name}`,
+          sub: `Peak ${peak15} errors in 15 min on this route`,
+          windowMinutes: 15,
+          threshold: String(threshold),
+          routePattern: peakRow.name,
+          cooldownMinutes: 60,
+          rationale: `Route "${peakRow.name}" had ${peak15} errors in a 15-minute window. Threshold set to ${threshold} (peak × 1.5, rounded up).`,
+        });
+      }
+    }
+  }
+
+  // 3. trace_p95_latency — observed 24h p95 >= LATENCY_FLOOR_MS
+  if (!hasActiveRule("trace_p95_latency")) {
+    const p95Result = await sql<{ value: string | null }>`
+      select case
+        when count(*) = 0 then '0'
+        else trim_scale(percentile_cont(0.95) within group (order by duration_ms)::numeric(18,6))::text
+      end as value
+      from traces
+      where project_id = ${projectId}
+        and environment_id = ${environmentId}
+        and timestamp >= ${window24hStart}
+        and timestamp < ${now}
+        and duration_ms is not null
+    `.execute(db);
+    const p95 = Number(p95Result.rows[0]?.value ?? "0");
+    if (p95 >= LATENCY_FLOOR_MS) {
+      const threshold = String(Math.round(p95 * 1.2));
+      suggestions.push({
+        key: "trace_p95_latency",
+        type: "trace_p95_latency",
+        severity: "warning",
+        title: "High p95 trace latency",
+        sub: `24h p95: ${Math.round(p95)} ms`,
+        windowMinutes: 15,
+        threshold,
+        cooldownMinutes: 60,
+        rationale: `Observed 24h p95 latency of ${Math.round(p95)} ms exceeds ${LATENCY_FLOOR_MS} ms floor. Threshold set to ${threshold} ms (p95 × 1.2, rounded).`,
+      });
+    }
+  }
+
+  // 4. llm_cost — 24h LLM spend >= LLM_COST_FLOOR_USD
+  if (!hasActiveRule("llm_cost")) {
+    const costResult = await sql<{ value: string }>`
+      select trim_scale(coalesce(sum(cost_usd), 0)::numeric(18,6))::text as value
+      from llm_calls
+      where project_id = ${projectId}
+        and environment_id = ${environmentId}
+        and timestamp >= ${window24hStart}
+        and timestamp < ${now}
+    `.execute(db);
+    const cost24h = Number(costResult.rows[0]?.value ?? "0");
+    if (cost24h >= LLM_COST_FLOOR_USD) {
+      const rawThreshold = Math.round(cost24h * 1.25 * 100) / 100;
+      const threshold = rawThreshold % 1 === 0 ? String(rawThreshold) : rawThreshold.toFixed(2).replace(/\.?0+$/, "");
+      suggestions.push({
+        key: "llm_cost",
+        type: "llm_cost",
+        severity: "warning",
+        title: "LLM daily spend approaching limit",
+        sub: `24h spend: $${cost24h.toFixed(2)}`,
+        windowMinutes: 1440,
+        threshold,
+        cooldownMinutes: 60,
+        rationale: `24-hour LLM spend of $${cost24h.toFixed(2)} exceeds $${LLM_COST_FLOOR_USD} floor. Daily-window threshold set to $${threshold} (spend × 1.25).`,
+      });
+    }
+  }
+
+  return suggestions;
+}
