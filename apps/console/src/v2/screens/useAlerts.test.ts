@@ -198,6 +198,13 @@ describe("useAlerts", () => {
       listAlertRules: vi.fn().mockResolvedValue({ rules: [rule()] }),
       listAlertEvents: vi.fn().mockResolvedValue({ data: [event()] }),
       listNotificationChannels: vi.fn().mockResolvedValue({ channels: [webhookChannel] }),
+      listAlertSuggestions: vi.fn().mockResolvedValue({ suggestions: [] }),
+      createAlertRule: vi.fn().mockResolvedValue({ rule: rule() }),
+      updateAlertRule: vi.fn().mockResolvedValue({ rule: rule() }),
+      archiveAlertRule: vi.fn().mockResolvedValue(undefined),
+      createNotificationChannel: vi.fn().mockResolvedValue({ channel: webhookChannel }),
+      updateNotificationChannel: vi.fn().mockResolvedValue({ channel: webhookChannel }),
+      archiveNotificationChannel: vi.fn().mockResolvedValue(undefined),
     };
   }
 
