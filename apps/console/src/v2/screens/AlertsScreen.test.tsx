@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Environment, Project } from "../../api/types";
@@ -266,5 +266,60 @@ describe("AlertsScreen — pause/resume and archive", () => {
     const pauseButtons = screen.getAllByTitle("Pause");
     await userEvent.click(pauseButtons[0]);
     expect(updateRule).toHaveBeenCalledWith("r1", { enabled: false });
+  });
+});
+
+describe("AlertsScreen — channels panel", () => {
+  // NOTE: "renders channel name renders + Test disabled" is already covered by
+  // the "renders channels and disabled test button" test in the main describe block.
+  // We add only the gaps missing from that test.
+
+  it("renders the Test button title attribute hint", () => {
+    // The existing test checks toBeDisabled() but NOT the title attribute.
+    mockUseAlertsWithActions(vm);
+    render(<AlertsScreen ctx={makeCtx()} />);
+    // Each channel row has a disabled "test" button with a title hint
+    const testBtns = screen.getAllByText("test");
+    expect(testBtns[0]).toHaveAttribute("title", "Test send coming soon");
+  });
+
+  it("renders channel target (webhook URL host / email address)", () => {
+    mockUseAlertsWithActions(vm);
+    render(<AlertsScreen ctx={makeCtx()} />);
+    // Webhook channel target: full URL shown on the row
+    expect(screen.getByText("https://hooks.slack.com/services/T0/abc")).toBeInTheDocument();
+    // Email channel target
+    expect(screen.getByText("finance@acme.dev")).toBeInTheDocument();
+  });
+
+  it("calls archiveChannel on archive confirm", async () => {
+    const archiveChannel = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      createChannel: vi.fn().mockResolvedValue(true),
+      updateChannel: vi.fn().mockResolvedValue(true),
+      archiveChannel,
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+    // Find the first channel row via its "test" disabled button, then locate
+    // the adjacent ConfirmButton (archive) within the same row container.
+    const testBtns = screen.getAllByText("test");
+    const channelRow = testBtns[0].closest("div") as HTMLElement;
+    const btnsInRow = within(channelRow).getAllByRole("button");
+    // Row has: [test button (disabled)] [ConfirmButton (first state: arm, enabled)]
+    const armBtn = btnsInRow.find((b) => !(b as HTMLButtonElement).disabled);
+    expect(armBtn).toBeDefined();
+    // First click arms the ConfirmButton (shows the confirmLabel "Archive")
+    await userEvent.click(armBtn!);
+    const confirmBtn = screen.getByRole("button", { name: /archive/i });
+    await userEvent.click(confirmBtn);
+    expect(archiveChannel).toHaveBeenCalledWith(expect.any(String));
   });
 });
