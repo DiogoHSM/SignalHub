@@ -128,6 +128,8 @@ export type MonitorAdministrationDependencies = {
   archiveMonitor?: (id: string) => Promise<void>;
   listMonitorChecks?: (input: {
     monitorId: string;
+    projectId: string;
+    environmentId: string;
     limit?: number;
     cursor?: string;
   }) => Promise<MonitorCheckRecord[] | MonitorCheckPage>;
@@ -447,6 +449,8 @@ const monitorListQuerySchema = z.object({
 });
 
 const monitorChecksQuerySchema = z.object({
+  project_id: z.string().trim().min(1),
+  environment_id: z.string().trim().min(1),
   limit: z.coerce.number().int().min(1).max(250).optional(),
   cursor: z.string().trim().min(1).optional()
 });
@@ -2003,6 +2007,8 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     try {
       result = await options.monitors.listMonitorChecks({
         monitorId: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
         limit: query.data.limit,
         cursor: query.data.cursor
       });

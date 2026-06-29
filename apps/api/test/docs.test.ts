@@ -58,6 +58,7 @@ describe("API docs", () => {
         "/auth/login",
         "/admin/projects",
         "/admin/monitors",
+        "/admin/monitors/{id}/checks",
         "/admin/dead-letter-jobs",
         "/admin/dead-letter-jobs/{id}",
         "/admin/dead-letter-jobs/{id}/actions",
@@ -94,6 +95,22 @@ describe("API docs", () => {
       "created_to",
       "status"
     ]);
+    expect(spec.paths["/admin/monitors/{id}/checks"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "id",
+      "project_id",
+      "environment_id",
+      "limit",
+      "cursor"
+    ]);
+    expect(
+      spec.paths["/admin/monitors/{id}/checks"].get.parameters.filter((parameter: { required?: boolean }) => parameter.required)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "id", in: "path" }),
+        expect.objectContaining({ name: "project_id", in: "query" }),
+        expect.objectContaining({ name: "environment_id", in: "query" })
+      ])
+    );
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.components.schemas.EventPayload.description).toContain("tenant");
     expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");

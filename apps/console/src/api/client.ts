@@ -158,7 +158,7 @@ export type MonitorApiClient = {
   archiveMonitor: (id: string) => Promise<void>;
   listMonitorChecks: (
     id: string,
-    options?: number | { limit?: number; cursor?: string }
+    options: { projectId: string; environmentId: string; limit?: number; cursor?: string }
   ) => Promise<{ checks: MonitorCheckResponse[]; cursor?: string }>;
 };
 
@@ -635,17 +635,19 @@ function monitorListPath(query: MonitorListQuery): string {
   return `/admin/monitors?${params.toString()}`;
 }
 
-function monitorChecksPath(id: string, options?: number | { limit?: number; cursor?: string }): string {
+function monitorChecksPath(
+  id: string,
+  options: { projectId: string; environmentId: string; limit?: number; cursor?: string }
+): string {
   const params = new URLSearchParams();
-  const limit = typeof options === "number" ? options : options?.limit;
-  const cursor = typeof options === "number" ? undefined : options?.cursor;
+  params.set("project_id", options.projectId);
+  params.set("environment_id", options.environmentId);
+  const limit = options.limit;
+  const cursor = options.cursor;
   if (limit !== undefined) params.set("limit", String(limit));
   if (cursor) params.set("cursor", cursor);
-  const queryString = params.toString();
 
-  return queryString
-    ? `/admin/monitors/${encodePathSegment(id)}/checks?${queryString}`
-    : `/admin/monitors/${encodePathSegment(id)}/checks`;
+  return `/admin/monitors/${encodePathSegment(id)}/checks?${params.toString()}`;
 }
 
 export function createApiClient(

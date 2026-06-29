@@ -255,7 +255,7 @@ describe("admin monitor routes", () => {
     });
     const checksResponse = await app.inject({
       method: "GET",
-      url: "/admin/monitors/mon_1/checks?limit=10&cursor=cursor_1"
+      url: "/admin/monitors/mon_1/checks?project_id=prj_1&environment_id=env_1&limit=10&cursor=cursor_1"
     });
 
     expect(listResponse.statusCode).toBe(200);
@@ -264,7 +264,25 @@ describe("admin monitor routes", () => {
     expect(checksResponse.json().checks).toHaveLength(1);
     expect(checksResponse.json().cursor).toBe("cursor_next");
     expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", kind: "http" }]);
-    expect(receivedChecks).toEqual([{ monitorId: "mon_1", limit: 10, cursor: "cursor_1" }]);
+    expect(receivedChecks).toEqual([{ monitorId: "mon_1", projectId: "prj_1", environmentId: "env_1", limit: 10, cursor: "cursor_1" }]);
+  });
+
+  it("rejects monitor check history requests without project and environment scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      monitors: {
+        listMonitorChecks: async () => ({ checks: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/monitors/mon_1/checks?limit=10"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_monitor_request" });
   });
 });
 

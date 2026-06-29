@@ -551,25 +551,65 @@ describe("repositories", () => {
             ('traces_scope_session_time_id_idx'),
             ('spans_scope_session_time_id_idx'),
             ('source_map_artifacts_scope_created_id_idx'),
-            ('monitor_checks_monitor_checked_id_idx')
+            ('monitor_checks_monitor_checked_id_idx'),
+            ('events_scope_trace_time_id_idx'),
+            ('errors_scope_trace_time_id_idx'),
+            ('llm_calls_scope_trace_time_id_idx'),
+            ('traces_scope_trace_time_id_idx'),
+            ('spans_scope_trace_time_id_idx'),
+            ('events_scope_tenant_time_id_idx'),
+            ('errors_scope_tenant_time_id_idx'),
+            ('llm_calls_scope_tenant_time_id_idx'),
+            ('traces_scope_tenant_time_id_idx'),
+            ('spans_scope_tenant_time_id_idx'),
+            ('events_scope_user_time_id_idx'),
+            ('errors_scope_user_time_id_idx'),
+            ('llm_calls_scope_user_time_id_idx'),
+            ('traces_scope_user_time_id_idx'),
+            ('spans_scope_user_time_id_idx'),
+            ('source_map_artifacts_scope_release_created_id_idx'),
+            ('errors_group_tenant_idx'),
+            ('errors_group_user_idx'),
+            ('error_groups_scope_cursor_order_idx'),
+            ('alert_events_scope_triggered_created_id_idx')
         ) expected(index_name)
         where to_regclass(expected.index_name) is not null
       `.execute(db);
 
       expect(rows.rows.map((row) => row.index_name).sort()).toEqual(
         [
+          "alert_events_scope_triggered_created_id_idx",
+          "error_groups_scope_cursor_order_idx",
+          "errors_group_tenant_idx",
+          "errors_group_user_idx",
           "errors_scope_session_time_id_idx",
+          "errors_scope_tenant_time_id_idx",
           "errors_scope_time_id_idx",
+          "errors_scope_trace_time_id_idx",
+          "errors_scope_user_time_id_idx",
           "events_scope_session_time_id_idx",
+          "events_scope_tenant_time_id_idx",
           "events_scope_time_id_idx",
+          "events_scope_trace_time_id_idx",
+          "events_scope_user_time_id_idx",
           "llm_calls_scope_session_time_id_idx",
+          "llm_calls_scope_tenant_time_id_idx",
           "llm_calls_scope_time_id_idx",
+          "llm_calls_scope_trace_time_id_idx",
+          "llm_calls_scope_user_time_id_idx",
           "monitor_checks_monitor_checked_id_idx",
           "source_map_artifacts_scope_created_id_idx",
+          "source_map_artifacts_scope_release_created_id_idx",
           "spans_scope_session_time_id_idx",
+          "spans_scope_tenant_time_id_idx",
           "spans_scope_time_id_idx",
+          "spans_scope_trace_time_id_idx",
+          "spans_scope_user_time_id_idx",
           "traces_scope_session_time_id_idx",
-          "traces_scope_time_id_idx"
+          "traces_scope_tenant_time_id_idx",
+          "traces_scope_time_id_idx",
+          "traces_scope_trace_time_id_idx",
+          "traces_scope_user_time_id_idx"
         ].sort()
       );
       const monitorCheckIndex = await sql<{ definition: string }>`
@@ -578,6 +618,12 @@ describe("repositories", () => {
         where indexname = 'monitor_checks_monitor_checked_id_idx'
       `.execute(db);
       expect(monitorCheckIndex.rows[0]?.definition).toContain("created_at DESC");
+      const errorGroupIndex = await sql<{ definition: string }>`
+        select indexdef as definition
+        from pg_indexes
+        where indexname = 'error_groups_scope_cursor_order_idx'
+      `.execute(db);
+      expect(errorGroupIndex.rows[0]?.definition).toContain("last_seen_at DESC");
     });
   });
 
@@ -2945,19 +2991,45 @@ describe("repositories", () => {
         });
       }
 
-      const firstPage = await listMonitorChecks(db, { monitorId: monitor.id, limit: 2 });
+      const firstPage = await listMonitorChecks(db, {
+        monitorId: monitor.id,
+        projectId: "prj_monitor_checks_cursor",
+        environmentId: "env_monitor_checks_cursor",
+        limit: 2
+      });
 
       expect(firstPage.checks.map((check) => check.latencyMs)).toEqual([50, 40]);
       expect(firstPage.cursor).toEqual(expect.any(String));
 
-      const secondPage = await listMonitorChecks(db, { monitorId: monitor.id, limit: 2, cursor: firstPage.cursor });
+      const secondPage = await listMonitorChecks(db, {
+        monitorId: monitor.id,
+        projectId: "prj_monitor_checks_cursor",
+        environmentId: "env_monitor_checks_cursor",
+        limit: 2,
+        cursor: firstPage.cursor
+      });
 
       expect(secondPage.checks.map((check) => check.latencyMs)).toEqual([30]);
       expect(secondPage.cursor).toBeUndefined();
 
-      await expect(listMonitorChecks(db, { monitorId: "mon_other", limit: 2, cursor: firstPage.cursor })).rejects.toThrow(
-        /invalid_cursor_scope/
-      );
+      await expect(
+        listMonitorChecks(db, {
+          monitorId: "mon_other",
+          projectId: "prj_monitor_checks_cursor",
+          environmentId: "env_monitor_checks_cursor",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+      await expect(
+        listMonitorChecks(db, {
+          monitorId: monitor.id,
+          projectId: "prj_monitor_checks_cursor",
+          environmentId: "env_other",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
     });
   });
 

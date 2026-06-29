@@ -64,6 +64,8 @@ export type MonitorCheckPage = {
 
 type MonitorCheckCursorPayload = {
   monitorId: string;
+  projectId: string;
+  environmentId: string;
   checkedAt: string;
   createdAt: string;
   id: string;
@@ -144,9 +146,11 @@ function clampLimit(limit: number | undefined, fallback: number): number {
   return Math.min(Math.max(limit ?? fallback, 1), 250);
 }
 
-function encodeMonitorCheckCursor(row: MonitorCheckRow): string {
+function encodeMonitorCheckCursor(input: { projectId: string; environmentId: string }, row: MonitorCheckRow): string {
   const payload: MonitorCheckCursorPayload = {
     monitorId: row.monitor_id,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
     checkedAt: row.checked_at.toISOString(),
     createdAt: row.created_at.toISOString(),
     id: row.id
@@ -172,6 +176,8 @@ function decodeMonitorCheckCursor(cursor: string): MonitorCheckCursorPayload {
   const createdAt = typeof payload.createdAt === "string" ? new Date(payload.createdAt) : null;
   if (
     typeof payload.monitorId !== "string" ||
+    typeof payload.projectId !== "string" ||
+    typeof payload.environmentId !== "string" ||
     typeof payload.id !== "string" ||
     checkedAt === null ||
     Number.isNaN(checkedAt.getTime()) ||
@@ -603,32 +609,43 @@ export async function listStaleHeartbeatMonitors(
 
 export async function listMonitorChecks(
   db: Db,
-  input: { monitorId: string; limit?: number; cursor?: string }
+  input: { monitorId: string; projectId: string; environmentId: string; limit?: number; cursor?: string }
 ): Promise<MonitorCheckPage> {
   const limit = clampLimit(input.limit, 50);
   let query = db
     .selectFrom("monitor_checks")
-    .selectAll()
-    .where("monitor_id", "=", input.monitorId);
+    .innerJoin("monitors", "monitors.id", "monitor_checks.monitor_id")
+    .selectAll("monitor_checks")
+    .where("monitor_checks.monitor_id", "=", input.monitorId)
+    .where("monitors.project_id", "=", input.projectId)
+    .where("monitors.environment_id", "=", input.environmentId);
 
   if (input.cursor) {
     const cursor = decodeMonitorCheckCursor(input.cursor);
-    if (cursor.monitorId !== input.monitorId) {
+    if (
+      cursor.monitorId !== input.monitorId ||
+      cursor.projectId !== input.projectId ||
+      cursor.environmentId !== input.environmentId
+    ) {
       throw new Error("invalid_cursor_scope");
     }
     const cursorCheckedAt = new Date(cursor.checkedAt);
     const cursorCreatedAt = new Date(cursor.createdAt);
     query = query.where(sql<boolean>`(
-      checked_at < ${cursorCheckedAt}
-      or (checked_at = ${cursorCheckedAt} and created_at < ${cursorCreatedAt})
-      or (checked_at = ${cursorCheckedAt} and created_at = ${cursorCreatedAt} and id < ${cursor.id})
+      monitor_checks.checked_at < ${cursorCheckedAt}
+      or (monitor_checks.checked_at = ${cursorCheckedAt} and monitor_checks.created_at < ${cursorCreatedAt})
+      or (
+        monitor_checks.checked_at = ${cursorCheckedAt}
+        and monitor_checks.created_at = ${cursorCreatedAt}
+        and monitor_checks.id < ${cursor.id}
+      )
     )`);
   }
 
   const rows = await query
-    .orderBy("checked_at", "desc")
-    .orderBy("created_at", "desc")
-    .orderBy("id", "desc")
+    .orderBy("monitor_checks.checked_at", "desc")
+    .orderBy("monitor_checks.created_at", "desc")
+    .orderBy("monitor_checks.id", "desc")
     .limit(limit + 1)
     .execute();
 
@@ -637,7 +654,7 @@ export async function listMonitorChecks(
 
   return {
     checks: pageRows.map(toMonitorCheck),
-    cursor: rows.length > limit && lastRow ? encodeMonitorCheckCursor(lastRow) : undefined
+    cursor: rows.length > limit && lastRow ? encodeMonitorCheckCursor(input, lastRow) : undefined
   };
 }
 

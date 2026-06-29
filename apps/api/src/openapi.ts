@@ -727,7 +727,45 @@ export const openApiDocument = {
       delete: sessionRoute("Archive a monitor", "Admin route for archiving a monitor.")
     },
     "/admin/monitors/{id}/checks": {
-      get: sessionRoute("List monitor checks", "Admin route for recent HTTP or heartbeat monitor check history.")
+      get: {
+        ...sessionRoute("List monitor checks", "Admin route for recent HTTP or heartbeat monitor check history."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            description: "Monitor id."
+          },
+          {
+            name: "project_id",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+            description: "Project scope for the monitor and cursor."
+          },
+          {
+            name: "environment_id",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+            description: "Environment scope for the monitor and cursor."
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 }
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque cursor returned by the previous response. Cursors are bound to the monitor, project, and environment."
+          }
+        ]
+      }
     },
     "/admin/dead-letter-jobs": {
       get: {

@@ -1108,7 +1108,7 @@ describe("createApiClient", () => {
       name: "Worker",
       expectedIntervalMinutes: 5
     });
-    await createApiClient("/api").listMonitorChecks?.("mon/1", 10);
+    await createApiClient("/api").listMonitorChecks?.("mon/1", { projectId: "prj/1", environmentId: "env 1", limit: 10 });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -1127,7 +1127,7 @@ describe("createApiClient", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      "/api/admin/monitors/mon%2F1/checks?limit=10",
+      "/api/admin/monitors/mon%2F1/checks?project_id=prj%2F1&environment_id=env+1&limit=10",
       expect.objectContaining({ method: "GET" })
     );
   });

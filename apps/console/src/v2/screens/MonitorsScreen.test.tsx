@@ -72,7 +72,13 @@ describe("MonitorsScreen — display", () => {
     const { fireEvent } = await import("@testing-library/react");
     const row = await screen.findByText("API health");
     fireEvent.click(row);
-    await waitFor(() => expect(ctx.client.listMonitorChecks).toHaveBeenCalledWith("mon_http", 20));
+    await waitFor(() =>
+      expect(ctx.client.listMonitorChecks).toHaveBeenCalledWith("mon_http", {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        limit: 20,
+      })
+    );
     expect(await screen.findByText(/200 · 120ms/)).toBeInTheDocument();
   });
 
