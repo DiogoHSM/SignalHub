@@ -2009,7 +2009,8 @@ describe("deliverWebhook", () => {
       timeoutMs: 5000,
       nodeEnv: "production",
       resolveHostname: resolvePublicHostname,
-      requestImpl
+      requestImpl,
+      retryDelayMs: 0
     });
 
     expect(result).toEqual({
@@ -2023,6 +2024,79 @@ describe("deliverWebhook", () => {
         body: JSON.stringify(payload)
       })
     );
+  });
+
+  it("retries transient webhook responses before recording success", async () => {
+    const requestImpl = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({ status: 204 });
+    const sleeps: number[] = [];
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      retryDelayMs: 25,
+      sleepFn: async (ms) => {
+        sleeps.push(ms);
+      }
+    });
+
+    expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+    expect(requestImpl).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([25]);
+  });
+
+  it("retries transient webhook timeouts and records the final failure", async () => {
+    const requestImpl = vi.fn(async () => {
+      throw new Error("Webhook delivery timed out");
+    });
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 100,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      attempts: 2,
+      retryDelayMs: 0
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "Webhook delivery timed out"
+    });
+    expect(requestImpl).toHaveBeenCalledTimes(2);
   });
 
   it("does not follow webhook redirects and records redirect status", async () => {
@@ -2046,7 +2120,8 @@ describe("deliverWebhook", () => {
       timeoutMs: 5000,
       nodeEnv: "production",
       resolveHostname: resolvePublicHostname,
-      requestImpl
+      requestImpl,
+      retryDelayMs: 0
     });
 
     expect(result).toEqual({
@@ -2228,6 +2303,82 @@ describe("deliverWebhook", () => {
       errorMessage: "Webhook DNS resolution failed"
     });
     expect(requestImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not retry permanent connection-time DNS failures", async () => {
+    const error = new Error("host not found") as NodeJS.ErrnoException;
+    error.code = "ENOTFOUND";
+    const requestImpl = vi.fn(async () => {
+      throw error;
+    });
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      attempts: 3,
+      retryDelayMs: 0
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "Webhook DNS resolution failed"
+    });
+    expect(requestImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry deterministic webhook request construction errors", async () => {
+    const error = new Error("Invalid character in header content") as NodeJS.ErrnoException;
+    error.code = "ERR_INVALID_CHAR";
+    const requestImpl = vi.fn(async () => {
+      throw error;
+    });
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      attempts: 3,
+      retryDelayMs: 0
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "Invalid character in header content"
+    });
+    expect(requestImpl).toHaveBeenCalledTimes(1);
   });
 
   it("blocks production delivery when connection-time DNS rebinds to a private address", async () => {

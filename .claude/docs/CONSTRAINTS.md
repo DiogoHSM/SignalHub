@@ -17,6 +17,7 @@
 - Telemetry retries must not persist into project/environment scopes that were archived after the job was queued.
 - Cached source-map stack resolutions must be database-bound to the same error scope, artifact scope, release, and minified file.
 - Webhook notification targets must reject local, private, link-local, multicast, loopback, and metadata networks in every environment.
+- External operational calls must be bounded by explicit timeouts or have a documented reason. Retries are allowed only for transient transport, timeout, rate-limit, and server-side failures; deterministic validation, auth, unsafe target, and permanent client errors must fail fast.
 - `SESSION_SECRET`, `API_KEY_PEPPER`, and `BOOTSTRAP_ADMIN_PASSWORD` must be at least 32 characters outside tests.
 - Production `POSTGRES_PASSWORD` must be set and must not use the local-only Compose placeholder.
 - API and worker logs must be structured and must redact secret-bearing fields.

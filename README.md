@@ -142,7 +142,7 @@ Remote retention is handled by bucket lifecycle rules in this slice.
 
 SignalMonitor evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, error rate, trace p95 latency, LLM cost, and pending dead-letter job thresholds.
 
-Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each delivery attempt. Native email, Telegram, Discord, escalation, silencing, acknowledgement, and retry workflows are out of scope for this slice.
+Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each final delivery attempt. Webhook delivery retries transient timeout, rate-limit, and 5xx failures with bounded backoff, while unsafe targets, redirects, permanent DNS failures, and non-retryable 4xx responses fail fast. Native Telegram, Discord, escalation, silencing, and acknowledgement workflows are out of scope for this slice.
 
 Webhook secrets are write-only. Saved secret values are redacted and are never returned by the API or displayed in the console.
 
@@ -191,6 +191,8 @@ GitHub Actions example:
 ```
 
 Store upload tokens in CI secret storage. Do not expose them in browser bundles.
+
+The upload command uses a 60 second request timeout by default. Override it with `--timeout-ms <milliseconds>` or `SIGMON_UPLOAD_TIMEOUT_MS` when CI networks or large bundles need a longer bound.
 
 ## Breadcrumbs and Session Context
 

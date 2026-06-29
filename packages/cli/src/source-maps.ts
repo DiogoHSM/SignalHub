@@ -16,6 +16,7 @@ type ParsedArgs = {
   file?: string;
   bundle?: string;
   minifiedFile?: string;
+  timeoutMs?: string;
 };
 
 type ValidatedInput = ParsedArgs & {
@@ -40,7 +41,8 @@ const optionMap: Record<string, keyof ParsedArgs> = {
   "--release": "release",
   "--file": "file",
   "--bundle": "bundle",
-  "--minified-file": "minifiedFile"
+  "--minified-file": "minifiedFile",
+  "--timeout-ms": "timeoutMs"
 };
 
 function parseArgs(args: string[]): ParsedArgs {
@@ -76,7 +78,8 @@ function withEnv(parsed: ParsedArgs, env: NodeJS.ProcessEnv): ParsedArgs {
     token: parsed.token ?? env.SIGMON_SOURCE_MAP_TOKEN,
     projectId: parsed.projectId ?? env.SIGMON_PROJECT_ID,
     environmentId: parsed.environmentId ?? env.SIGMON_ENVIRONMENT_ID,
-    release: parsed.release ?? env.SIGMON_RELEASE
+    release: parsed.release ?? env.SIGMON_RELEASE,
+    timeoutMs: parsed.timeoutMs ?? env.SIGMON_UPLOAD_TIMEOUT_MS
   };
 }
 
@@ -102,6 +105,8 @@ function validate(input: ParsedArgs): asserts input is ValidatedInput {
   if (input.bundle && input.minifiedFile) {
     throw new Error("--minified-file can only be used with --file");
   }
+
+  parseUploadTimeoutMs(input.timeoutMs);
 }
 
 function uploadUrl(endpoint: string): string {
@@ -125,6 +130,37 @@ function redactMessage(message: string, token: string | undefined): string {
     return message;
   }
   return message.split(token).join("[redacted]");
+}
+
+function parseUploadTimeoutMs(value: string | undefined): number {
+  if (!value) return 60_000;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("--timeout-ms or SIGMON_UPLOAD_TIMEOUT_MS must be a positive integer");
+  }
+  return Math.min(parsed, 600_000);
+}
+
+async function uploadSourceMap(input: ValidatedInput, uploadPath: string, content: Buffer): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutMs = parseUploadTimeoutMs(input.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(uploadUrl(input.endpoint), {
+      method: "POST",
+      headers: { authorization: `Bearer ${input.token}` },
+      body: createUploadBody(input, uploadPath, content),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Source map upload timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function createUploadBody(input: ValidatedInput, uploadPath: string, content: Buffer): FormData {
@@ -159,11 +195,7 @@ export async function runSourceMapUploadCommand(args: string[], io: Io): Promise
     }
 
     const content = await readUploadFile(uploadPath);
-    const response = await fetch(uploadUrl(input.endpoint), {
-      method: "POST",
-      headers: { authorization: `Bearer ${input.token}` },
-      body: createUploadBody(input, uploadPath, content)
-    });
+    const response = await uploadSourceMap(input, uploadPath, content);
 
     if (!response.ok) {
       io.stderr(`Source map upload failed with HTTP ${response.status}.`);

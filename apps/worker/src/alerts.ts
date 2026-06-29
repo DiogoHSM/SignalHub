@@ -101,6 +101,9 @@ type WebhookRequest = (input: {
   lookup: LookupFunction;
 }) => Promise<{ status: number }>;
 
+const DEFAULT_WEBHOOK_DELIVERY_ATTEMPTS = 3;
+const DEFAULT_WEBHOOK_RETRY_DELAY_MS = 250;
+
 export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): Promise<{
   ran: boolean;
   skipped: boolean;
@@ -235,6 +238,9 @@ export async function deliverWebhook(input: {
   requestLookup?: LookupFunction;
   timeoutMs: number;
   nodeEnv: string;
+  attempts?: number;
+  retryDelayMs?: number;
+  sleepFn?: (ms: number) => Promise<void>;
 }): Promise<DeliveryResult> {
   let url: URL;
   try {
@@ -280,31 +286,51 @@ export async function deliverWebhook(input: {
     headers[input.channel.secretHeaderName] = input.channel.secretHeaderValue;
   }
 
-  try {
-    const response = await (input.requestImpl ?? defaultWebhookRequest)({
-      url,
-      headers,
-      body,
-      timeoutMs: input.timeoutMs,
-      lookup: createValidatingWebhookLookup(input.requestLookup ?? defaultWebhookLookup)
-    });
+  const requestImpl = input.requestImpl ?? defaultWebhookRequest;
+  const lookup = createValidatingWebhookLookup(input.requestLookup ?? defaultWebhookLookup);
+  const attempts = boundWebhookAttempts(input.attempts);
+  const retryDelayMs = boundRetryDelay(input.retryDelayMs);
+  const sleepFn = input.sleepFn ?? sleep;
+  let lastResult: DeliveryResult | null = null;
 
-    if (response.status >= 200 && response.status < 300) {
-      return { status: "success", responseStatus: response.status, errorMessage: null };
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await requestImpl({
+        url,
+        headers,
+        body,
+        timeoutMs: input.timeoutMs,
+        lookup
+      });
+
+      if (response.status >= 200 && response.status < 300) {
+        return { status: "success", responseStatus: response.status, errorMessage: null };
+      }
+
+      lastResult = {
+        status: "failed",
+        responseStatus: response.status,
+        errorMessage: sanitizeMessage(`Webhook returned HTTP ${response.status}`)
+      };
+      if (!isRetryableWebhookStatus(response.status) || attempt === attempts) {
+        return lastResult;
+      }
+    } catch (error) {
+      const errorMessage = sanitizeMessage(formatWebhookDeliveryError(error));
+      lastResult = {
+        status: "failed",
+        responseStatus: null,
+        errorMessage
+      };
+      if (!isRetryableWebhookError(error) || attempt === attempts) {
+        return lastResult;
+      }
     }
 
-    return {
-      status: "failed",
-      responseStatus: response.status,
-      errorMessage: sanitizeMessage(`Webhook returned HTTP ${response.status}`)
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      responseStatus: null,
-      errorMessage: sanitizeMessage(formatWebhookDeliveryError(error))
-    };
+    await sleepFn(retryDelayMs * attempt);
   }
+
+  return lastResult ?? { status: "failed", responseStatus: null, errorMessage: "Webhook delivery failed" };
 }
 
 function defaultResolveHostname(hostname: string): Promise<ResolvedAddress[]> {
@@ -451,6 +477,40 @@ function formatWebhookDeliveryError(error: unknown): string {
   }
 
   return error.message;
+}
+
+function boundWebhookAttempts(attempts: number | undefined): number {
+  if (typeof attempts !== "number" || !Number.isFinite(attempts)) {
+    return DEFAULT_WEBHOOK_DELIVERY_ATTEMPTS;
+  }
+
+  return Math.max(1, Math.min(Math.trunc(attempts), 5));
+}
+
+function boundRetryDelay(delayMs: number | undefined): number {
+  if (typeof delayMs !== "number" || !Number.isFinite(delayMs)) {
+    return DEFAULT_WEBHOOK_RETRY_DELAY_MS;
+  }
+
+  return Math.max(0, Math.min(Math.trunc(delayMs), 30_000));
+}
+
+function isRetryableWebhookStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function isRetryableWebhookError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.message === "unsafe webhook target") return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "EAI_AGAIN") return true;
+  if (code === "ECONNRESET" || code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "EPIPE") return true;
+  return /timed out/i.test(error.message);
+}
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 type IntervalHandle = ReturnType<typeof setInterval>;

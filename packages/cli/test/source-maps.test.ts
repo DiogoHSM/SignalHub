@@ -8,6 +8,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -67,7 +68,8 @@ describe("source map upload command", () => {
       "https://sigmon.example.com/v1/source-maps",
       expect.objectContaining({
         method: "POST",
-        headers: { authorization: "Bearer shsmap_secret" }
+        headers: { authorization: "Bearer shsmap_secret" },
+        signal: expect.any(AbortSignal)
       })
     );
     expect(body.get("project_id")).toBe("prj_1");
@@ -185,6 +187,44 @@ describe("source map upload command", () => {
     expect(exitCode).toBe(1);
     expect(stderr.join("\n")).toContain("Source map upload failed with HTTP 401");
     expect(stderr.join("\n")).not.toContain("shsmap_super_secret");
+  });
+
+  it("aborts source map uploads that exceed the configured timeout", async () => {
+    const file = await tempFile("app.js.map");
+    const fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+    const stderr: string[] = [];
+
+    const exitCode = await runSourceMapUploadCommand(["--file", file, "--timeout-ms", "1"], {
+      env: { ...requiredEnv(), SIGMON_SOURCE_MAP_TOKEN: "shsmap_super_secret" },
+      stdout: () => undefined,
+      stderr: (line) => stderr.push(line)
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr.join("\n")).toContain("Source map upload timed out after 1ms");
+    expect(stderr.join("\n")).not.toContain("shsmap_super_secret");
+  });
+
+  it("rejects invalid source map upload timeout values", async () => {
+    const file = await tempFile("app.js.map");
+
+    for (const timeoutMs of ["0", "0.5"]) {
+      const stderr: string[] = [];
+
+      const exitCode = await runSourceMapUploadCommand(["--file", file, "--timeout-ms", timeoutMs], {
+        env: requiredEnv(),
+        stdout: () => undefined,
+        stderr: (line) => stderr.push(line)
+      });
+
+      expect(exitCode).toBe(1);
+      expect(stderr.join("\n")).toContain("must be a positive integer");
+    }
   });
 
   it("returns failure for missing upload files", async () => {
