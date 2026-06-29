@@ -143,6 +143,7 @@ import {
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
+import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
@@ -268,8 +269,10 @@ function createGoogleAuthorizationUrl(state: string): string {
 }
 
 async function fetchGoogleUserInfo(code: string): Promise<z.infer<typeof googleUserInfoSchema>> {
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenResponse = await fetchWithTimeoutAndRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
+    attempts: 3,
+    timeoutMs: 5000,
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: config.googleOAuth.clientId,
@@ -284,7 +287,9 @@ async function fetchGoogleUserInfo(code: string): Promise<z.infer<typeof googleU
   }
 
   const token = googleTokenResponseSchema.parse(await tokenResponse.json());
-  const userInfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+  const userInfoResponse = await fetchWithTimeoutAndRetry("https://openidconnect.googleapis.com/v1/userinfo", {
+    attempts: 3,
+    timeoutMs: 5000,
     headers: { authorization: `Bearer ${token.access_token}` }
   });
   if (!userInfoResponse.ok) {
