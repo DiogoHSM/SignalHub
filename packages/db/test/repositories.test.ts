@@ -5,7 +5,12 @@ import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
-import { insertDeadLetterJob, listDeadLetterJobs } from "../src/repositories/dead-letter.js";
+import {
+  deleteDeadLetterJob,
+  getDeadLetterJob,
+  insertDeadLetterJob,
+  listDeadLetterJobs
+} from "../src/repositories/dead-letter.js";
 import {
   archiveEnvironment,
   archiveProject,
@@ -5336,6 +5341,29 @@ describe("repositories", () => {
         })
       ]);
       expect(jobs).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: first.id })]));
+    });
+  });
+
+  it("gets and deletes dead letter jobs by id", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const job = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { id: "trc_dead_letter" },
+        errorMessage: "trace insert failed"
+      });
+
+      await expect(getDeadLetterJob(db, job.id)).resolves.toMatchObject({
+        id: job.id,
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { id: "trc_dead_letter" }
+      });
+      await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(true);
+      await expect(getDeadLetterJob(db, job.id)).resolves.toBeUndefined();
+      await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(false);
     });
   });
 

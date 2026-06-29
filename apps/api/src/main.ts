@@ -45,7 +45,11 @@ import {
   recordHeartbeatCheckIn,
   updateMonitor
 } from "@sigmon/db/repositories/monitors.js";
-import { listDeadLetterJobs } from "@sigmon/db/repositories/dead-letter.js";
+import {
+  deleteDeadLetterJob,
+  getDeadLetterJob,
+  listDeadLetterJobs
+} from "@sigmon/db/repositories/dead-letter.js";
 import {
   archiveUser,
   createUser,
@@ -573,7 +577,9 @@ const app = await buildApp({
     recordHeartbeatCheckIn: (input) => recordHeartbeatCheckIn(db, input)
   },
   deadLetters: {
-    listDeadLetterJobs: (input) => listDeadLetterJobs(db, input)
+    listDeadLetterJobs: (input) => listDeadLetterJobs(db, input),
+    getDeadLetterJob: (id) => getDeadLetterJob(db, id),
+    deleteDeadLetterJob: (id) => deleteDeadLetterJob(db, id)
   },
   sourceMaps: {
     list: (filters) => listSourceMapArtifactsPage(db, filters),

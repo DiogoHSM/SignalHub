@@ -130,6 +130,8 @@ export type MonitorAdministrationDependencies = {
 
 export type DeadLetterAdministrationDependencies = {
   listDeadLetterJobs?: (input: { limit?: number }) => Promise<DeadLetterJob[]>;
+  getDeadLetterJob?: (id: string) => Promise<DeadLetterJob | null | undefined>;
+  deleteDeadLetterJob?: (id: string) => Promise<boolean>;
 };
 
 export type SourceMapUploadAttribution =
@@ -2014,5 +2016,63 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     return reply.send({ deadLetterJobs });
+  });
+
+  app.get("/admin/dead-letter-jobs/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.getDeadLetterJob) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let deadLetterJob: DeadLetterJob | null | undefined;
+    try {
+      deadLetterJob = await options.deadLetters.getDeadLetterJob(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    if (!deadLetterJob) {
+      return reply.status(404).send({ error: "dead_letter_job_not_found" });
+    }
+
+    return reply.send({ deadLetterJob });
+  });
+
+  app.delete("/admin/dead-letter-jobs/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.deleteDeadLetterJob) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let deleted: boolean;
+    try {
+      deleted = await options.deadLetters.deleteDeadLetterJob(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    if (!deleted) {
+      return reply.status(404).send({ error: "dead_letter_job_not_found" });
+    }
+
+    return reply.status(204).send();
   });
 }

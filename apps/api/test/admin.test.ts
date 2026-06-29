@@ -152,6 +152,50 @@ describe("admin routes", () => {
     expect(listDeadLetterJobs).toHaveBeenCalledWith({ limit: 25 });
   });
 
+  it("gets and deletes dead letter jobs for admins", async () => {
+    const getDeadLetterJob = vi.fn(async (id: string) =>
+      id === "dlj_1"
+        ? {
+            id: "dlj_1",
+            queueName: "telemetry",
+            jobName: "trace",
+            payload: { traceId: "trc_1" },
+            errorMessage: "insert failed",
+            createdAt: new Date("2026-06-01T13:00:00.000Z")
+          }
+        : undefined
+    );
+    const deleteDeadLetterJob = vi.fn(async (id: string) => id === "dlj_1");
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        getDeadLetterJob,
+        deleteDeadLetterJob
+      }
+    });
+
+    const getResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_1" });
+    const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/dead-letter-jobs/dlj_1" });
+    const missingResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_missing" });
+
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({
+      deadLetterJob: {
+        id: "dlj_1",
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { traceId: "trc_1" },
+        errorMessage: "insert failed",
+        createdAt: "2026-06-01T13:00:00.000Z"
+      }
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(missingResponse.statusCode).toBe(404);
+    expect(getDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+    expect(deleteDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+  });
+
   it("rejects weak admin-created passwords", async () => {
     app = await buildApp({
       readiness,

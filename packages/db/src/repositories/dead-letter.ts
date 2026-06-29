@@ -73,3 +73,18 @@ export async function listDeadLetterJobs(
 
   return rows.map(toDeadLetterJob);
 }
+
+export async function getDeadLetterJob(db: Db, id: string): Promise<DeadLetterJob | undefined> {
+  const row = await db
+    .selectFrom("dead_letter_jobs")
+    .selectAll()
+    .where("id", "=", id)
+    .executeTakeFirst();
+
+  return row ? toDeadLetterJob(row) : undefined;
+}
+
+export async function deleteDeadLetterJob(db: Db, id: string): Promise<boolean> {
+  const result = await db.deleteFrom("dead_letter_jobs").where("id", "=", id).executeTakeFirst();
+  return Number(result.numDeletedRows) > 0;
+}
