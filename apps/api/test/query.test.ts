@@ -755,27 +755,32 @@ describe("query routes", () => {
     });
   });
 
-  it("returns resolved source map frames from the query dependency", async () => {
-    const resolved = {
-      errorId: "err_1",
-      release: "2026.05.11",
-      status: "resolved" as const,
-      frames: [
-        {
-          sourceMapArtifactId: "smap_1",
-          frameIndex: 0,
-          minifiedFile: "app.min.js",
-          minifiedLine: 10,
-          minifiedColumn: 1234,
-          originalSource: "src/app.ts",
-          originalLine: 42,
-          originalColumn: 4,
-          originalName: "checkout"
-        }
-      ],
-      unresolvedFrameCount: 0
-    };
-    const resolveErrorStack = vi.fn(async () => resolved);
+  it("returns resolved source map frames without exposing source contents", async () => {
+    const map = JSON.stringify({
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/app.ts"],
+      sourcesContent: ["const secretImplementation = true;"],
+      names: ["checkout"],
+      mappings: "AAAAA"
+    });
+    const replaceErrorStackResolutions = vi.fn(async (input) => input.frames);
+    const resolveErrorStack = vi.fn((input: { errorId: string; projectId: string; environmentId: string }) =>
+      resolveErrorStackWithSourceMaps({
+        ...input,
+        getErrorForSourceMapResolution: async () => ({
+          id: "err_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "2026.05.11",
+          stack: "    at checkout (https://cdn.example.com/assets/app.min.js:1:1)"
+        }),
+        getCachedErrorStackResolution: async () => [],
+        findSourceMapArtifactForFrame: async () => ({ id: "smap_1", storagePath: "/source-maps/app.min.js.map" }),
+        readSourceMapFile: async () => map,
+        replaceErrorStackResolutions
+      })
+    );
 
     app = await buildApp({
       readiness,
@@ -791,12 +796,31 @@ describe("query routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ data: resolved });
+    expect(response.json()).toEqual({
+      data: {
+        errorId: "err_1",
+        release: "2026.05.11",
+        status: "resolved",
+        frames: [
+          expect.objectContaining({
+            sourceMapArtifactId: "smap_1",
+            frameIndex: 0,
+            minifiedFile: "app.min.js",
+            originalSource: "src/app.ts",
+            originalName: "checkout"
+          })
+        ],
+        unresolvedFrameCount: 0
+      }
+    });
+    expect(JSON.stringify(response.json())).not.toContain("sourcesContent");
+    expect(JSON.stringify(response.json())).not.toContain("secretImplementation");
     expect(resolveErrorStack).toHaveBeenCalledWith({
       errorId: "err_1",
       projectId: "prj_1",
       environmentId: "env_1"
     });
+    expect(replaceErrorStackResolutions).toHaveBeenCalledTimes(1);
   });
 
   it("returns 400 for source map resolution without scope", async () => {

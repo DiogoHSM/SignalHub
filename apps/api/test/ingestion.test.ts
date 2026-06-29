@@ -43,6 +43,8 @@ describe("ingestion routes", () => {
 
     expect(response.statusCode).toBe(429);
     expect(response.headers["x-ratelimit-limit"]).toBe("1");
+    expect(response.headers["x-ratelimit-remaining"]).toBe("0");
+    expect(Number(response.headers["x-ratelimit-reset"])).toBeGreaterThan(0);
   });
 
   it("allows browser preflight requests for configured ingestion origins", async () => {
