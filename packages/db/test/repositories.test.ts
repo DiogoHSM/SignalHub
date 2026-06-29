@@ -5407,6 +5407,168 @@ describe("repositories", () => {
     });
   });
 
+  it("filters dead letter jobs before applying cursor pagination", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await db.deleteFrom("dead_letter_jobs").execute();
+
+      const matchingOld = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "matching-old" },
+        errorMessage: "disk 100% full"
+      });
+      const matchingNew = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "matching-new" },
+        errorMessage: "DISK 100% warning"
+      });
+      const wrongQueue = await insertDeadLetterJob(db, {
+        queueName: "billing",
+        jobName: "event",
+        payload: { id: "wrong-queue" },
+        errorMessage: "disk 100% full"
+      });
+      const wrongJob = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "wrong-job" },
+        errorMessage: "disk 100% full"
+      });
+      const wildcardTrap = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "wildcard-trap" },
+        errorMessage: "disk 1000 full"
+      });
+      const underscoreTrap = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "underscore-trap" },
+        errorMessage: "disk 100a full"
+      });
+      const backslashTrap = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "backslash-trap" },
+        errorMessage: "disk path c:temp full"
+      });
+      const outOfRange = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "out-of-range" },
+        errorMessage: "disk 100% old"
+      });
+
+      const setCreatedAt = async (id: string, createdAt: string) => {
+        await db
+          .updateTable("dead_letter_jobs")
+          .set({ created_at: new Date(createdAt) })
+          .where("id", "=", id)
+          .execute();
+      };
+      await setCreatedAt(matchingOld.id, "2026-06-01T00:00:00.000Z");
+      await setCreatedAt(matchingNew.id, "2026-06-01T00:02:00.000Z");
+      await setCreatedAt(wrongQueue.id, "2026-06-01T00:03:00.000Z");
+      await setCreatedAt(wrongJob.id, "2026-06-01T00:04:00.000Z");
+      await setCreatedAt(wildcardTrap.id, "2026-06-01T00:05:00.000Z");
+      await setCreatedAt(underscoreTrap.id, "2026-06-01T00:06:00.000Z");
+      await setCreatedAt(backslashTrap.id, "2026-06-01T00:07:00.000Z");
+      await setCreatedAt(outOfRange.id, "2026-05-31T23:59:00.000Z");
+
+      const firstPage = await listDeadLetterJobs(db, {
+        limit: 1,
+        queueName: "telemetry",
+        jobName: "event",
+        error: "100%",
+        createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+        createdTo: new Date("2026-06-01T00:03:00.000Z"),
+        status: "pending"
+      });
+
+      expect(firstPage.deadLetterJobs).toEqual([
+        expect.objectContaining({
+          id: matchingNew.id,
+          payload: { id: "matching-new" },
+          errorMessage: "DISK 100% warning"
+        })
+      ]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listDeadLetterJobs(db, {
+        limit: 1,
+        cursor: firstPage.cursor,
+        queueName: "telemetry",
+        jobName: "event",
+        error: "100%",
+        createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+        createdTo: new Date("2026-06-01T00:03:00.000Z"),
+        status: "pending"
+      });
+
+      expect(secondPage.deadLetterJobs).toEqual([
+        expect.objectContaining({
+          id: matchingOld.id,
+          payload: { id: "matching-old" },
+          errorMessage: "disk 100% full"
+        })
+      ]);
+      expect(secondPage.cursor).toBeUndefined();
+      expect([...firstPage.deadLetterJobs, ...secondPage.deadLetterJobs]).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: wrongQueue.id }),
+          expect.objectContaining({ id: wrongJob.id }),
+          expect.objectContaining({ id: wildcardTrap.id }),
+          expect.objectContaining({ id: underscoreTrap.id }),
+          expect.objectContaining({ id: backslashTrap.id }),
+          expect.objectContaining({ id: outOfRange.id })
+        ])
+      );
+      await expect(
+        listDeadLetterJobs(db, {
+          limit: 1,
+          cursor: firstPage.cursor,
+          queueName: "telemetry",
+          jobName: "event",
+          error: "1000",
+          createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+          createdTo: new Date("2026-06-01T00:03:00.000Z"),
+          status: "pending"
+        })
+      ).rejects.toThrow("invalid_cursor_scope");
+
+      const underscoreMatch = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "underscore-match" },
+        errorMessage: "disk 100_ full"
+      });
+      const backslashMatch = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "backslash-match" },
+        errorMessage: String.raw`disk path c:\temp full`
+      });
+      const literalUnderscorePage = await listDeadLetterJobs(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        error: "100_"
+      });
+      expect(literalUnderscorePage.deadLetterJobs).toEqual([
+        expect.objectContaining({ id: underscoreMatch.id, errorMessage: "disk 100_ full" })
+      ]);
+      const literalBackslashPage = await listDeadLetterJobs(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        error: String.raw`c:\temp`
+      });
+      expect(literalBackslashPage.deadLetterJobs).toEqual([
+        expect.objectContaining({ id: backslashMatch.id, errorMessage: String.raw`disk path c:\temp full` })
+      ]);
+    });
+  });
+
   it("expires old dead letter jobs and records retained audit actions", async () => {
     await withDb(async (db) => {
       await migrate(db);

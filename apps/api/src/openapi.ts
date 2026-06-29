@@ -443,7 +443,7 @@ export const openApiDocument = {
           deadLetterJobId: { type: "string" },
           queueName: { type: "string" },
           jobName: { type: "string" },
-          action: { type: "string", enum: ["deleted", "replayed"] },
+          action: { type: "string", enum: ["deleted", "replayed", "expired"] },
           actorUserId: { type: "string", nullable: true },
           actorEmail: { type: "string" },
           metadata: { type: "object", additionalProperties: true },
@@ -737,6 +737,48 @@ export const openApiDocument = {
             required: false,
             schema: { type: "string" },
             description: "Opaque cursor returned by the previous response."
+          },
+          {
+            name: "queue_name",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Exact queue name to inspect, for example `telemetry`."
+          },
+          {
+            name: "job_name",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Exact worker job name to inspect, for example `event`, `error`, or `trace`."
+          },
+          {
+            name: "error",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Case-insensitive substring search over the sanitized error message."
+          },
+          {
+            name: "created_from",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "date-time" },
+            description: "Inclusive lower bound for dead-letter creation time."
+          },
+          {
+            name: "created_to",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "date-time" },
+            description: "Inclusive upper bound for dead-letter creation time."
+          },
+          {
+            name: "status",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["pending"] },
+            description: "Current active dead-letter status. Historical replay/delete/expiration status is exposed through the job actions endpoint."
           }
         ],
         responses: {

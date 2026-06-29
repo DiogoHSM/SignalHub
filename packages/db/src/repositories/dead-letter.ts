@@ -52,6 +52,12 @@ export interface DeadLetterJobActionInput {
 export interface ListDeadLetterJobsInput {
   limit?: number;
   cursor?: string;
+  queueName?: string;
+  jobName?: string;
+  error?: string;
+  createdFrom?: Date;
+  createdTo?: Date;
+  status?: "pending";
 }
 
 export interface DeadLetterJobPage {
@@ -62,6 +68,16 @@ export interface DeadLetterJobPage {
 type DeadLetterJobCursorPayload = {
   createdAt: string;
   id: string;
+  filterKey: string;
+};
+
+type DeadLetterJobCursorFilters = {
+  queueName: string | null;
+  jobName: string | null;
+  error: string | null;
+  createdFrom: string | null;
+  createdTo: string | null;
+  status: "pending" | null;
 };
 
 function toDeadLetterJob(row: DeadLetterJobRow): DeadLetterJob {
@@ -112,16 +128,34 @@ function boundedLimit(limit: number | undefined): number {
   return Math.max(1, Math.min(Math.trunc(limit), 250));
 }
 
-function encodeDeadLetterJobCursor(row: DeadLetterJobRow): string {
+function deadLetterJobCursorFilterKey(input: ListDeadLetterJobsInput): string {
+  const filters: DeadLetterJobCursorFilters = {
+    queueName: input.queueName ?? null,
+    jobName: input.jobName ?? null,
+    error: input.error ?? null,
+    createdFrom: input.createdFrom?.toISOString() ?? null,
+    createdTo: input.createdTo?.toISOString() ?? null,
+    status: input.status ?? null
+  };
+
+  return JSON.stringify(filters);
+}
+
+function encodeDeadLetterJobCursor(input: ListDeadLetterJobsInput, row: DeadLetterJobRow): string {
   const payload: DeadLetterJobCursorPayload = {
     createdAt: row.created_at.toISOString(),
-    id: row.id
+    id: row.id,
+    filterKey: deadLetterJobCursorFilterKey(input)
   };
 
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 }
 
-function decodeDeadLetterJobCursor(cursor: string): DeadLetterJobCursorPayload {
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function decodeDeadLetterJobCursor(input: ListDeadLetterJobsInput, cursor: string): DeadLetterJobCursorPayload {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
@@ -137,10 +171,14 @@ function decodeDeadLetterJobCursor(cursor: string): DeadLetterJobCursorPayload {
   const createdAt = typeof payload.createdAt === "string" ? new Date(payload.createdAt) : null;
   if (
     typeof payload.id !== "string" ||
+    typeof payload.filterKey !== "string" ||
     createdAt === null ||
     Number.isNaN(createdAt.getTime())
   ) {
     throw new Error("invalid_cursor");
+  }
+  if (payload.filterKey !== deadLetterJobCursorFilterKey(input)) {
+    throw new Error("invalid_cursor_scope");
   }
 
   return payload as DeadLetterJobCursorPayload;
@@ -155,8 +193,24 @@ export async function listDeadLetterJobs(
     .selectFrom("dead_letter_jobs")
     .selectAll();
 
+  if (input.queueName) {
+    query = query.where("queue_name", "=", input.queueName);
+  }
+  if (input.jobName) {
+    query = query.where("job_name", "=", input.jobName);
+  }
+  if (input.error) {
+    query = query.where(sql<boolean>`error_message ilike ${`%${escapeLikePattern(input.error)}%`} escape '\\'`);
+  }
+  if (input.createdFrom) {
+    query = query.where("created_at", ">=", input.createdFrom);
+  }
+  if (input.createdTo) {
+    query = query.where("created_at", "<=", input.createdTo);
+  }
+
   if (input.cursor) {
-    const cursor = decodeDeadLetterJobCursor(input.cursor);
+    const cursor = decodeDeadLetterJobCursor(input, input.cursor);
     const cursorCreatedAt = new Date(cursor.createdAt);
     query = query.where(sql<boolean>`(
       created_at < ${cursorCreatedAt}
@@ -175,7 +229,7 @@ export async function listDeadLetterJobs(
 
   return {
     deadLetterJobs: pageRows.map(toDeadLetterJob),
-    cursor: rows.length > limit && lastRow ? encodeDeadLetterJobCursor(lastRow) : undefined
+    cursor: rows.length > limit && lastRow ? encodeDeadLetterJobCursor(input, lastRow) : undefined
   };
 }
 

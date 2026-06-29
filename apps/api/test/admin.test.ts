@@ -137,7 +137,12 @@ describe("admin routes", () => {
       }
     });
 
-    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?limit=25&cursor=cursor_1" });
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/admin/dead-letter-jobs?limit=25&cursor=cursor_1&queue_name=telemetry&job_name=event" +
+        "&error=insert&created_from=2026-06-01T00%3A00%3A00.000Z&created_to=2026-06-02T00%3A00%3A00.000Z&status=pending"
+    });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
@@ -153,12 +158,59 @@ describe("admin routes", () => {
       ],
       cursor: "cursor_next"
     });
-    expect(listDeadLetterJobs).toHaveBeenCalledWith({ limit: 25, cursor: "cursor_1" });
+    expect(listDeadLetterJobs).toHaveBeenCalledWith({
+      limit: 25,
+      cursor: "cursor_1",
+      queueName: "telemetry",
+      jobName: "event",
+      error: "insert",
+      createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+      createdTo: new Date("2026-06-02T00:00:00.000Z"),
+      status: "pending"
+    });
+  });
+
+  it("returns 400 for invalid dead letter filter ranges", async () => {
+    const listDeadLetterJobs = vi.fn(async () => ({ deadLetterJobs: [] }));
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dead-letter-jobs?created_from=2026-06-02T00%3A00%3A00.000Z&created_to=2026-06-01T00%3A00%3A00.000Z"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_dead_letter_request" });
+    expect(listDeadLetterJobs).not.toHaveBeenCalled();
   });
 
   it("returns 400 for invalid dead letter cursors", async () => {
     const listDeadLetterJobs = vi.fn(async () => {
       throw new Error("invalid_cursor");
+    });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?cursor=bad" });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
+  });
+
+  it("returns 400 for mismatched dead letter cursor scopes", async () => {
+    const listDeadLetterJobs = vi.fn(async () => {
+      throw new Error("invalid_cursor_scope");
     });
     app = await buildApp({
       readiness,

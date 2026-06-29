@@ -14,7 +14,12 @@ import type {
   MonitorRecord,
   UpdateMonitorInput
 } from "@sigmon/db/repositories/monitors.js";
-import type { DeadLetterJob, DeadLetterJobAction, DeadLetterJobPage } from "@sigmon/db/repositories/dead-letter.js";
+import type {
+  DeadLetterJob,
+  DeadLetterJobAction,
+  DeadLetterJobPage,
+  ListDeadLetterJobsInput
+} from "@sigmon/db/repositories/dead-letter.js";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
@@ -129,7 +134,7 @@ export type MonitorAdministrationDependencies = {
 };
 
 export type DeadLetterAdministrationDependencies = {
-  listDeadLetterJobs?: (input: { limit?: number; cursor?: string }) => Promise<DeadLetterJob[] | DeadLetterJobPage>;
+  listDeadLetterJobs?: (input: ListDeadLetterJobsInput) => Promise<DeadLetterJob[] | DeadLetterJobPage>;
   getDeadLetterJob?: (id: string) => Promise<DeadLetterJob | null | undefined>;
   listDeadLetterJobActions?: (id: string) => Promise<DeadLetterJobAction[]>;
   deleteDeadLetterJob?: (id: string, actor: { userId: string; email: string }) => Promise<boolean>;
@@ -446,10 +451,24 @@ const monitorChecksQuerySchema = z.object({
   cursor: z.string().trim().min(1).optional()
 });
 
-const deadLetterJobsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(250).optional(),
-  cursor: z.string().trim().min(1).optional()
-});
+const deadLetterJobsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(250).optional(),
+    cursor: z.string().trim().min(1).optional(),
+    queue_name: z.string().trim().min(1).optional(),
+    job_name: z.string().trim().min(1).optional(),
+    error: z.string().trim().min(1).optional(),
+    created_from: z.coerce.date().optional(),
+    created_to: z.coerce.date().optional(),
+    status: z.enum(["pending"]).optional()
+  })
+  .refine(
+    (input) =>
+      input.created_from === undefined ||
+      input.created_to === undefined ||
+      input.created_from.getTime() <= input.created_to.getTime(),
+    { message: "created_from_after_created_to" }
+  );
 
 const sourceMapScopeQuerySchema = z.object({
   project_id: z.string().trim().min(1),
@@ -2016,10 +2035,16 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     try {
       result = await options.deadLetters.listDeadLetterJobs({
         limit: query.data.limit,
-        cursor: query.data.cursor
+        cursor: query.data.cursor,
+        queueName: query.data.queue_name,
+        jobName: query.data.job_name,
+        error: query.data.error,
+        createdFrom: query.data.created_from,
+        createdTo: query.data.created_to,
+        status: query.data.status
       });
     } catch (error) {
-      if (error instanceof Error && error.message === "invalid_cursor") {
+      if (error instanceof Error && (error.message === "invalid_cursor" || error.message === "invalid_cursor_scope")) {
         return reply.status(400).send({ error: "invalid_cursor" });
       }
       return reply.status(503).send({ error: "dead_letter_unavailable" });
