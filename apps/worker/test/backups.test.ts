@@ -383,6 +383,51 @@ describe("uploadBackupToS3", () => {
       await rm(localDir, { recursive: true, force: true });
     }
   });
+
+  it("reopens backup streams when retrying transient S3 upload failures", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const sidecarPath = `${dumpPath}.sha256`;
+    const streams: Readable[] = [];
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient s3 failure"))
+      .mockResolvedValue(undefined);
+    const createReadStreamFn = vi.fn((path: string) => {
+      const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+      streams.push(stream);
+      return stream;
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(sidecarPath, "checksum  sigmon.dump\n");
+
+      await uploadBackupToS3({
+        filePath: dumpPath,
+        key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+        s3: {
+          enabled: true,
+          endpoint: "https://example.r2.cloudflarestorage.com",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "prod/sigmon"
+        },
+        createClient: () => ({ send }),
+        createReadStreamFn
+      });
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(createReadStreamFn).toHaveBeenCalledWith(dumpPath);
+    expect(createReadStreamFn).toHaveBeenCalledWith(sidecarPath);
+    expect(createReadStreamFn.mock.calls.filter(([path]) => path === dumpPath)).toHaveLength(2);
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
+  });
 });
 
 describe("pruneLocalBackups", () => {

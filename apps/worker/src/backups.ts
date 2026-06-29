@@ -81,6 +81,8 @@ export type RunBackupOnceInput = {
 export type BackupConfig = BackupRuntimeConfig;
 export type BackupRuntime = RunBackupOnceInput;
 
+type BackupS3Client = { send: (command: PutObjectCommand) => Promise<unknown> };
+
 export function createBackupFilename(now: Date): string {
   const year = now.getUTCFullYear().toString().padStart(4, "0");
   const month = (now.getUTCMonth() + 1).toString().padStart(2, "0");
@@ -172,32 +174,62 @@ export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ buck
     forcePathStyle: true
   });
   await stat(sidecarPath);
-  const body = createReadStreamFn(input.filePath);
-  const sidecarBody = createReadStreamFn(sidecarPath);
 
-  try {
-    await client.send(
-      new PutObjectCommand({
-        Bucket: input.s3.bucket,
-        Key: input.key,
-        Body: body,
-        ContentType: "application/octet-stream"
-      })
-    );
-    await client.send(
-      new PutObjectCommand({
-        Bucket: input.s3.bucket,
-        Key: `${input.key}.sha256`,
-        Body: sidecarBody,
-        ContentType: "text/plain"
-      })
-    );
-  } finally {
-    body.destroy();
-    sidecarBody.destroy();
-  }
+  await uploadObjectToS3WithRetry({
+    client,
+    bucket: input.s3.bucket,
+    key: input.key,
+    filePath: input.filePath,
+    contentType: "application/octet-stream",
+    createReadStreamFn
+  });
+  await uploadObjectToS3WithRetry({
+    client,
+    bucket: input.s3.bucket,
+    key: `${input.key}.sha256`,
+    filePath: sidecarPath,
+    contentType: "text/plain",
+    createReadStreamFn
+  });
 
   return { bucket: input.s3.bucket, key: input.key };
+}
+
+async function uploadObjectToS3WithRetry(input: {
+  client: BackupS3Client;
+  bucket: string;
+  key: string;
+  filePath: string;
+  contentType: string;
+  createReadStreamFn: (path: string) => BackupReadStream;
+  attempts?: number;
+}): Promise<void> {
+  const attempts = input.attempts ?? 2;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const body = input.createReadStreamFn(input.filePath);
+    try {
+      await input.client.send(
+        new PutObjectCommand({
+          Bucket: input.bucket,
+          Key: input.key,
+          Body: body,
+          ContentType: input.contentType
+        })
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) {
+        throw error;
+      }
+    } finally {
+      body.destroy();
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("s3 upload failed");
 }
 
 export async function pruneLocalBackups(input: {
