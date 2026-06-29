@@ -21,6 +21,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function createAbortError(): Error {
+  return new Error("request aborted");
+}
+
 export async function fetchWithTimeoutAndRetry(
   input: string | URL | Request,
   options: FetchWithTimeoutAndRetryOptions = {}
@@ -30,14 +34,20 @@ export async function fetchWithTimeoutAndRetry(
     fetchFn = fetch,
     retryDelayMs = 100,
     timeoutMs = 5000,
-    signal: _signal,
+    signal: callerSignal,
     ...init
   } = options;
   const maxAttempts = boundedAttempts(attempts);
   let lastError: unknown;
 
+  if (callerSignal?.aborted) {
+    throw createAbortError();
+  }
+
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = typeof AbortController === "undefined" ? null : new AbortController();
+    const abortFromCaller = () => controller?.abort();
+    callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
     const timer =
       controller && timeoutMs > 0
         ? setTimeout(() => {
@@ -54,14 +64,21 @@ export async function fetchWithTimeoutAndRetry(
         return response;
       }
     } catch (error) {
+      if (callerSignal?.aborted) {
+        throw createAbortError();
+      }
       lastError = error;
       if (attempt === maxAttempts) {
         throw error;
       }
     } finally {
       if (timer) clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", abortFromCaller);
     }
 
+    if (callerSignal?.aborted) {
+      throw createAbortError();
+    }
     await sleep(retryDelayMs);
   }
 

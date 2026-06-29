@@ -39,4 +39,21 @@ describe("fetchWithTimeoutAndRetry", () => {
     expect(response.status).toBe(200);
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
+
+  it("respects caller cancellation without retrying", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchFn = vi.fn();
+
+    await expect(
+      fetchWithTimeoutAndRetry("https://example.com", {
+        attempts: 3,
+        retryDelayMs: 0,
+        timeoutMs: 1000,
+        signal: controller.signal,
+        fetchFn
+      })
+    ).rejects.toThrow(/aborted/i);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
 });
