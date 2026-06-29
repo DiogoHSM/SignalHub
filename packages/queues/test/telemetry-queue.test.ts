@@ -1,6 +1,6 @@
 import { GenericContainer, Wait } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTelemetryQueue, enqueueTelemetryJob } from "../src/telemetry-queue.js";
+import { createTelemetryQueue, enqueueTelemetryJob, replayTelemetryJob } from "../src/telemetry-queue.js";
 import type { TelemetryJobPayload } from "../src/telemetry-queue.js";
 
 let container: Awaited<ReturnType<GenericContainer["start"]>>;
@@ -64,6 +64,29 @@ describe("telemetry queue", () => {
       expect(first.id).toBe("event|evt_dedupe");
       expect(second.id).toBe("event|evt_dedupe");
       expect(await queue.count()).toBe(1);
+    } finally {
+      await queue.obliterate({ force: true });
+      await queue.close();
+    }
+  });
+
+  it("uses a replay-scoped job id so failed originals do not block requeue", async () => {
+    const queue = createTelemetryQueue(redisUrl);
+    const payload: TelemetryJobPayload = {
+      kind: "event",
+      id: "evt_replay",
+      projectId: "project_1",
+      environmentId: "environment_1",
+      payload: { name: "dashboard_created" }
+    };
+
+    try {
+      const original = await enqueueTelemetryJob(queue, payload);
+      const replay = await replayTelemetryJob(queue, payload, "dlj_1");
+
+      expect(original.id).toBe("event|evt_replay");
+      expect(replay.id).toBe("replay|dlj_1|event|evt_replay");
+      expect(await queue.count()).toBe(2);
     } finally {
       await queue.obliterate({ force: true });
       await queue.close();

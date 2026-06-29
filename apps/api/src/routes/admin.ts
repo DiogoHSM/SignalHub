@@ -132,6 +132,7 @@ export type DeadLetterAdministrationDependencies = {
   listDeadLetterJobs?: (input: { limit?: number }) => Promise<DeadLetterJob[]>;
   getDeadLetterJob?: (id: string) => Promise<DeadLetterJob | null | undefined>;
   deleteDeadLetterJob?: (id: string) => Promise<boolean>;
+  replayDeadLetterJob?: (id: string) => Promise<"replayed" | "not_found" | "invalid_payload" | "unsupported_queue">;
 };
 
 export type SourceMapUploadAttribution =
@@ -2074,5 +2075,42 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     return reply.status(204).send();
+  });
+
+  app.post("/admin/dead-letter-jobs/:id/replay", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.replayDeadLetterJob) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let result: Awaited<ReturnType<NonNullable<DeadLetterAdministrationDependencies["replayDeadLetterJob"]>>>;
+    try {
+      result = await options.deadLetters.replayDeadLetterJob(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    if (result === "not_found") {
+      return reply.status(404).send({ error: "dead_letter_job_not_found" });
+    }
+
+    if (result === "invalid_payload") {
+      return reply.status(400).send({ error: "dead_letter_invalid_payload" });
+    }
+
+    if (result === "unsupported_queue") {
+      return reply.status(400).send({ error: "dead_letter_unsupported_queue" });
+    }
+
+    return reply.status(202).send({ replayed: true, id: params.data.id });
   });
 }

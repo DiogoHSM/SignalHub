@@ -433,6 +433,14 @@ export const openApiDocument = {
         properties: {
           deadLetterJob: { $ref: "#/components/schemas/DeadLetterJob" }
         }
+      },
+      DeadLetterReplayResponse: {
+        type: "object",
+        required: ["replayed", "id"],
+        properties: {
+          replayed: { type: "boolean", const: true },
+          id: { type: "string" }
+        }
       }
     },
     responses: {
@@ -745,6 +753,33 @@ export const openApiDocument = {
         ],
         responses: {
           "204": { description: "Dead-letter job deleted" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Dead-letter job not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/dead-letter-jobs/{id}/replay": {
+      post: {
+        ...sessionRoute(
+          "Replay a dead-letter job",
+          "Admin route for re-enqueueing a sanitized telemetry dead-letter job and clearing it after the enqueue succeeds."
+        ),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "202": {
+            description: "Dead-letter job re-enqueued",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterReplayResponse" } } }
+          },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },

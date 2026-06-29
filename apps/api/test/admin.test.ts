@@ -196,6 +196,48 @@ describe("admin routes", () => {
     expect(deleteDeadLetterJob).toHaveBeenCalledWith("dlj_1");
   });
 
+  it("replays dead letter jobs for admins", async () => {
+    const replayDeadLetterJob = vi.fn(async (id: string): Promise<"replayed" | "not_found"> =>
+      id === "dlj_1" ? "replayed" : "not_found"
+    );
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        replayDeadLetterJob
+      }
+    });
+
+    const response = await app.inject({ method: "POST", url: "/admin/dead-letter-jobs/dlj_1/replay" });
+    const missingResponse = await app.inject({ method: "POST", url: "/admin/dead-letter-jobs/dlj_missing/replay" });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ replayed: true, id: "dlj_1" });
+    expect(missingResponse.statusCode).toBe(404);
+    expect(replayDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+  });
+
+  it("rejects dead letter replay when the stored job is not replayable", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        replayDeadLetterJob: async (id) => (id === "dlj_invalid" ? "invalid_payload" : "unsupported_queue")
+      }
+    });
+
+    const invalidResponse = await app.inject({ method: "POST", url: "/admin/dead-letter-jobs/dlj_invalid/replay" });
+    const unsupportedResponse = await app.inject({
+      method: "POST",
+      url: "/admin/dead-letter-jobs/dlj_unsupported/replay"
+    });
+
+    expect(invalidResponse.statusCode).toBe(400);
+    expect(invalidResponse.json()).toEqual({ error: "dead_letter_invalid_payload" });
+    expect(unsupportedResponse.statusCode).toBe(400);
+    expect(unsupportedResponse.json()).toEqual({ error: "dead_letter_unsupported_queue" });
+  });
+
   it("rejects weak admin-created passwords", async () => {
     app = await buildApp({
       readiness,

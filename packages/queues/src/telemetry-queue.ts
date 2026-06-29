@@ -37,3 +37,7 @@ export async function enqueueTelemetryJob(queue: TelemetryQueue, payload: Teleme
   // BullMQ reserves ":" in custom IDs, so keep the kind/id pair deterministic with a safe delimiter.
   return queue.add(payload.kind, payload, { jobId: `${payload.kind}|${payload.id}` });
 }
+
+export async function replayTelemetryJob(queue: TelemetryQueue, payload: TelemetryJobPayload, replayId: string) {
+  return queue.add(payload.kind, payload, { jobId: `replay|${replayId}|${payload.kind}|${payload.id}` });
+}

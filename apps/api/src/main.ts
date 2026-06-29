@@ -117,7 +117,8 @@ import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositorie
 import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositories/identity-profiles.js";
 import { getFleetRollup, getProjectFleetEnvironments } from "@sigmon/db/repositories/fleet-query.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
-import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
+import { createTelemetryQueue, enqueueTelemetryJob, replayTelemetryJob } from "@sigmon/queues";
+import type { TelemetryJobPayload } from "@sigmon/queues";
 import { hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
 import { verifyApiKey } from "@sigmon/telemetry/api-keys";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -233,6 +234,14 @@ const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null
 });
 const telemetryQueue = createTelemetryQueue(config.redisUrl);
+
+const deadLetterTelemetryPayloadSchema = z.object({
+  kind: z.enum(["event", "error", "llm", "trace", "span", "breadcrumb"]),
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  environmentId: z.string().min(1),
+  payload: z.record(z.string(), z.unknown())
+});
 const retentionPolicy = {
   eventsDays: config.retention.eventsDays,
   errorsDays: config.retention.errorsDays,
@@ -584,7 +593,19 @@ const app = await buildApp({
   deadLetters: {
     listDeadLetterJobs: (input) => listDeadLetterJobs(db, input),
     getDeadLetterJob: (id) => getDeadLetterJob(db, id),
-    deleteDeadLetterJob: (id) => deleteDeadLetterJob(db, id)
+    deleteDeadLetterJob: (id) => deleteDeadLetterJob(db, id),
+    replayDeadLetterJob: async (id) => {
+      const deadLetterJob = await getDeadLetterJob(db, id);
+      if (!deadLetterJob) return "not_found";
+      if (deadLetterJob.queueName !== "telemetry") return "unsupported_queue";
+
+      const payload = deadLetterTelemetryPayloadSchema.safeParse(deadLetterJob.payload);
+      if (!payload.success) return "invalid_payload";
+
+      await replayTelemetryJob(telemetryQueue, payload.data as TelemetryJobPayload, id);
+      await deleteDeadLetterJob(db, id);
+      return "replayed";
+    }
   },
   sourceMaps: {
     list: (filters) => listSourceMapArtifactsPage(db, filters),
