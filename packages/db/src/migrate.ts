@@ -22,7 +22,8 @@ const migrations = [
   { name: "0016_system_health_samples.sql", url: new URL("../migrations/0016_system_health_samples.sql", import.meta.url) },
   { name: "0017_query_pagination_indexes.sql", url: new URL("../migrations/0017_query_pagination_indexes.sql", import.meta.url) },
   { name: "0018_dead_letter_actions.sql", url: new URL("../migrations/0018_dead_letter_actions.sql", import.meta.url) },
-  { name: "0019_dead_letter_retention.sql", url: new URL("../migrations/0019_dead_letter_retention.sql", import.meta.url) }
+  { name: "0019_dead_letter_retention.sql", url: new URL("../migrations/0019_dead_letter_retention.sql", import.meta.url) },
+  { name: "0020_dead_letter_scoped_alerts.sql", url: new URL("../migrations/0020_dead_letter_scoped_alerts.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

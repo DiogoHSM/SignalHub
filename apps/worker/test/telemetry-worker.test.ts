@@ -425,6 +425,8 @@ describe("buildDeadLetterJobInput", () => {
         error: new Error("authorization: Bearer worker-token")
       })
     ).toEqual({
+      projectId: null,
+      environmentId: null,
       queueName: "telemetry",
       jobName: "event",
       payload: {
@@ -436,6 +438,28 @@ describe("buildDeadLetterJobInput", () => {
         }
       },
       errorMessage: "authorization: [REDACTED]"
+    });
+  });
+
+  it("preserves project and environment scope from telemetry jobs", () => {
+    expect(
+      buildDeadLetterJobInput({
+        queueName: "telemetry",
+        jobName: "error",
+        payload: {
+          id: "job_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          kind: "error",
+          payload: { message: "failed" }
+        },
+        error: new Error("insert failed")
+      })
+    ).toMatchObject({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      queueName: "telemetry",
+      jobName: "error"
     });
   });
 });

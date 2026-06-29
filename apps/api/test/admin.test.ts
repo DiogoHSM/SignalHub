@@ -120,6 +120,8 @@ describe("admin routes", () => {
       deadLetterJobs: [
         {
           id: "dlj_1",
+          projectId: null,
+          environmentId: null,
           queueName: "telemetry",
           jobName: "event",
           payload: { eventId: "evt_1" },
@@ -149,6 +151,8 @@ describe("admin routes", () => {
       deadLetterJobs: [
         {
           id: "dlj_1",
+          projectId: null,
+          environmentId: null,
           queueName: "telemetry",
           jobName: "event",
           payload: { eventId: "evt_1" },
@@ -231,6 +235,8 @@ describe("admin routes", () => {
       id === "dlj_1"
         ? {
             id: "dlj_1",
+            projectId: null,
+            environmentId: null,
             queueName: "telemetry",
             jobName: "trace",
             payload: { traceId: "trc_1" },
@@ -276,6 +282,8 @@ describe("admin routes", () => {
     expect(getResponse.json()).toEqual({
       deadLetterJob: {
         id: "dlj_1",
+        projectId: null,
+        environmentId: null,
         queueName: "telemetry",
         jobName: "trace",
         payload: { traceId: "trc_1" },

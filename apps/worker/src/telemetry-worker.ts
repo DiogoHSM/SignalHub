@@ -58,8 +58,27 @@ export function buildDeadLetterJobInput(input: {
   error: unknown;
 }): InsertDeadLetterJobInput {
   const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
+  const projectId =
+    typeof input.payload === "object" &&
+    input.payload !== null &&
+    typeof (input.payload as { projectId?: unknown }).projectId === "string" &&
+    (input.payload as { projectId: string }).projectId.length > 0
+      ? (input.payload as { projectId: string }).projectId
+      : null;
+  const environmentId =
+    typeof input.payload === "object" &&
+    input.payload !== null &&
+    typeof (input.payload as { environmentId?: unknown }).environmentId === "string" &&
+    (input.payload as { environmentId: string }).environmentId.length > 0
+      ? (input.payload as { environmentId: string }).environmentId
+      : null;
+  const scope =
+    projectId !== null && environmentId !== null
+      ? { projectId, environmentId }
+      : { projectId: null, environmentId: null };
 
   return {
+    ...scope,
     queueName: input.queueName,
     jobName: input.jobName,
     payload: sanitizeValue(input.payload),

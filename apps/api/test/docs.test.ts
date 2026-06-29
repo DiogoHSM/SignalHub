@@ -98,6 +98,8 @@ describe("API docs", () => {
     expect(spec.components.schemas.EventPayload.description).toContain("tenant");
     expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");
     expect(spec.components.schemas.DeadLetterJob.properties.payload.description).toContain("sanitized");
+    expect(spec.components.schemas.DeadLetterJob.properties.projectId.type).toEqual(["string", "null"]);
+    expect(spec.components.schemas.DeadLetterJob.properties.environmentId.type).toEqual(["string", "null"]);
     expect(spec.components.schemas.DeadLetterJobAction.properties.action.enum).toEqual(["deleted", "replayed", "expired"]);
     expect(spec.components.schemas.UserIdentifyPayload.description).toContain("last_seen_at");
     expect(spec.components.schemas.TenantIdentifyPayload.properties.traits.examples[0]).toMatchObject({

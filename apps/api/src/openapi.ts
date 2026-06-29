@@ -403,9 +403,17 @@ export const openApiDocument = {
       },
       DeadLetterJob: {
         type: "object",
-        required: ["id", "queueName", "jobName", "payload", "errorMessage", "createdAt"],
+        required: ["id", "projectId", "environmentId", "queueName", "jobName", "payload", "errorMessage", "createdAt"],
         properties: {
           id: { type: "string" },
+          projectId: {
+            type: ["string", "null"],
+            description: "Project scope captured from the failed telemetry job when available."
+          },
+          environmentId: {
+            type: ["string", "null"],
+            description: "Environment scope captured from the failed telemetry job when available."
+          },
           queueName: { type: "string", examples: ["telemetry"] },
           jobName: { type: "string", examples: ["event"] },
           payload: {

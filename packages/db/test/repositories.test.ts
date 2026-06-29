@@ -370,6 +370,17 @@ describe("repositories", () => {
       await sql`select route_pattern, minimum_sample_size from alert_rules limit 0`.execute(db);
       await sql`select id, kind, status from monitors limit 0`.execute(db);
       await sql`select monitor_id, status, latency_ms from monitor_checks limit 0`.execute(db);
+      await sql`select project_id, environment_id from dead_letter_jobs limit 0`.execute(db);
+      await insertProjectAndEnvironment(db, "prj_alert_migration", "env_alert_migration");
+      await sql`
+        insert into alert_rules (
+          id, project_id, environment_id, name, type, severity, window_minutes, threshold, cooldown_minutes
+        )
+        values (
+          'rule_dead_letter_migration', 'prj_alert_migration', 'env_alert_migration', 'Dead letters',
+          'dead_letter_count', 'warning', 5, 1, 10
+        )
+      `.execute(db);
     });
   });
 
@@ -4617,6 +4628,7 @@ describe("repositories", () => {
 
       const project = await createProject(db, { name: "Alert Evaluation Project" });
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnvironment = await createEnvironment(db, { projectId: project.id, name: "staging" });
 
       await insertError(db, {
         id: "err_critical",
@@ -4667,6 +4679,30 @@ describe("repositories", () => {
         status: "success",
         costUsd: "1.25"
       });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "dead-letter-alert-1" },
+        errorMessage: "event insert failed"
+      });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "dead-letter-alert-2" },
+        errorMessage: "error insert failed"
+      });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: otherEnvironment.id,
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "dead-letter-other-env" },
+        errorMessage: "other environment failed"
+      });
 
       const criticalResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -4712,6 +4748,15 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(errorRateResult.observedValue).toBe("200");
+
+      const deadLetterResult = await evaluateAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        type: "dead_letter_count",
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z")
+      });
+      expect(deadLetterResult.observedValue).toBe("2");
     });
   });
 
@@ -5340,6 +5385,8 @@ describe("repositories", () => {
 
       expect(job).toMatchObject({
         id: expect.stringMatching(/^dlj_/),
+        projectId: null,
+        environmentId: null,
         queueName: "telemetry",
         jobName: "event",
         payload: { metadata: { authorization: "[REDACTED]" } },
@@ -5698,21 +5745,37 @@ describe("repositories", () => {
     await withDb(async (db) => {
       await migrate(db);
 
+      const project = await createProject(db, { name: "Dead Letter Count Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnvironment = await createEnvironment(db, { projectId: project.id, name: "staging" });
       const before = await countDeadLetterJobs(db);
       await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
         queueName: "telemetry",
         jobName: "event",
         payload: { id: "evt_dead_letter" },
         errorMessage: "event insert failed"
       });
       await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
         queueName: "telemetry",
         jobName: "trace",
         payload: { id: "trc_dead_letter" },
         errorMessage: "trace insert failed"
       });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: otherEnvironment.id,
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "other_env_dead_letter" },
+        errorMessage: "event insert failed"
+      });
 
-      await expect(countDeadLetterJobs(db)).resolves.toBe(before + 2);
+      await expect(countDeadLetterJobs(db)).resolves.toBe(before + 3);
+      await expect(countDeadLetterJobs(db, { projectId: project.id, environmentId: environment.id })).resolves.toBe(2);
     });
   });
 

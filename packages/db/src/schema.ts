@@ -255,6 +255,8 @@ export interface SpansTable {
 
 export interface DeadLetterJobsTable {
   id: string;
+  project_id: string | null;
+  environment_id: string | null;
   queue_name: string;
   job_name: string;
   payload: JsonColumn;
@@ -335,7 +337,13 @@ export interface SystemHealthSamplesTable {
   queue_failed: DefaultedInteger;
 }
 
-export type AlertRuleType = "critical_errors" | "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost";
+export type AlertRuleType =
+  | "critical_errors"
+  | "error_count"
+  | "error_rate"
+  | "trace_p95_latency"
+  | "llm_cost"
+  | "dead_letter_count";
 export type AlertSeverity = "info" | "warning" | "critical";
 
 export interface NotificationChannelsTable {

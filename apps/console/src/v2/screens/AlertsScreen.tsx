@@ -182,6 +182,7 @@ const RULE_TYPE_OPTIONS: AlertRuleResponse["type"][] = [
   "error_rate",
   "trace_p95_latency",
   "llm_cost",
+  "dead_letter_count",
 ];
 
 const ROUTE_PATTERN_TYPES = new Set<AlertRuleResponse["type"]>(["error_count", "error_rate", "trace_p95_latency"]);

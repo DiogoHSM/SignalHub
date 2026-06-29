@@ -1030,7 +1030,13 @@ export type CreateNotificationChannelInput =
 
 export type UpdateNotificationChannelInput = Partial<CreateNotificationChannelInput>;
 
-export type AlertRuleType = "critical_errors" | "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost";
+export type AlertRuleType =
+  | "critical_errors"
+  | "error_count"
+  | "error_rate"
+  | "trace_p95_latency"
+  | "llm_cost"
+  | "dead_letter_count";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 

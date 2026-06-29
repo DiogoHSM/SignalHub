@@ -365,7 +365,7 @@ const alertRuleBaseSchema = z.object({
   environmentId: z.string().trim().min(1),
   notificationChannelId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(256),
-  type: z.enum(["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost"]),
+  type: z.enum(["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost", "dead_letter_count"]),
   severity: z.enum(["info", "warning", "critical"]),
   windowMinutes: z.number().int().min(1),
   threshold: thresholdSchema,

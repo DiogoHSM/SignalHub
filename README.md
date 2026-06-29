@@ -138,7 +138,7 @@ Remote retention is handled by bucket lifecycle rules in this slice.
 
 ## Simple Alerts
 
-SignalMonitor evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
+SignalMonitor evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, error rate, trace p95 latency, LLM cost, and pending dead-letter job thresholds.
 
 Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each delivery attempt. Native email, Telegram, Discord, escalation, silencing, acknowledgement, and retry workflows are out of scope for this slice.
 

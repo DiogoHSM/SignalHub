@@ -58,7 +58,8 @@ const ruleTypeLabels: Record<AlertRuleType, string> = {
   error_count: "Error count",
   error_rate: "Error rate",
   trace_p95_latency: "Trace p95 latency",
-  llm_cost: "LLM cost"
+  llm_cost: "LLM cost",
+  dead_letter_count: "Dead-letter jobs"
 };
 
 const thresholdHelpText: Record<AlertRuleType, string> = {
@@ -66,7 +67,8 @@ const thresholdHelpText: Record<AlertRuleType, string> = {
   error_count: "Threshold is a count of errors in the window.",
   error_rate: "Threshold is an error-rate percentage, for example 5 for 5%.",
   trace_p95_latency: "Threshold is trace p95 latency in milliseconds.",
-  llm_cost: "Threshold is LLM cost in USD."
+  llm_cost: "Threshold is LLM cost in USD.",
+  dead_letter_count: "Threshold is the current count of pending dead-letter jobs for the environment."
 };
 
 function statusClass(status: string | null | undefined): string {
@@ -823,7 +825,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 ))}
               </select>
             </label>
-            <p className="muted-text">Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.</p>
+            <p className="muted-text">
+              Error-rate thresholds are percentages, trace p95 thresholds are milliseconds, and dead-letter thresholds are pending job counts.
+            </p>
             <label>
               Severity
               <select

@@ -10,6 +10,8 @@ type DeadLetterDb = Db | Transaction<Database>;
 
 export interface DeadLetterJob {
   id: string;
+  projectId: string | null;
+  environmentId: string | null;
   queueName: string;
   jobName: string;
   payload: unknown;
@@ -18,6 +20,8 @@ export interface DeadLetterJob {
 }
 
 export interface InsertDeadLetterJobInput {
+  projectId?: string | null;
+  environmentId?: string | null;
   queueName: string;
   jobName: string;
   payload: unknown;
@@ -83,6 +87,8 @@ type DeadLetterJobCursorFilters = {
 function toDeadLetterJob(row: DeadLetterJobRow): DeadLetterJob {
   return {
     id: row.id,
+    projectId: row.project_id,
+    environmentId: row.environment_id,
     queueName: row.queue_name,
     jobName: row.job_name,
     payload: row.payload,
@@ -110,6 +116,8 @@ export async function insertDeadLetterJob(db: DeadLetterDb, input: InsertDeadLet
     .insertInto("dead_letter_jobs")
     .values({
       id: createId("dlj"),
+      project_id: input.projectId ?? null,
+      environment_id: input.environmentId ?? null,
       queue_name: input.queueName,
       job_name: input.jobName,
       payload: input.payload,
@@ -278,10 +286,22 @@ export async function recordDeadLetterJobAction(
   return toDeadLetterJobAction(row);
 }
 
-export async function countDeadLetterJobs(db: DeadLetterDb): Promise<number> {
-  const row = await db
+export async function countDeadLetterJobs(
+  db: DeadLetterDb,
+  input: { projectId?: string; environmentId?: string } = {}
+): Promise<number> {
+  let query = db
     .selectFrom("dead_letter_jobs")
-    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .select((eb) => eb.fn.countAll<string>().as("count"));
+
+  if (input.projectId) {
+    query = query.where("project_id", "=", input.projectId);
+  }
+  if (input.environmentId) {
+    query = query.where("environment_id", "=", input.environmentId);
+  }
+
+  const row = await query
     .executeTakeFirstOrThrow();
   const count = Number(row.count);
   return Number.isSafeInteger(count) && count >= 0 ? count : 0;

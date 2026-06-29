@@ -6,6 +6,8 @@ import type { TelemetryJobPayload } from "@sigmon/queues";
 function deadLetterJob(overrides: Partial<DeadLetterJob> = {}): DeadLetterJob {
   return {
     id: "dlj_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
     queueName: "telemetry",
     jobName: "event",
     payload: {

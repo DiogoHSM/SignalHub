@@ -593,7 +593,11 @@ describe("AlertsPanel", () => {
     render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
 
     await userEvent.type(await screen.findByLabelText("Rule name"), "Critical errors");
-    expect(screen.getByText("Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Error-rate thresholds are percentages, trace p95 thresholds are milliseconds, and dead-letter thresholds are pending job counts."
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText("Threshold is a count of critical or fatal errors in the window.")).toBeInTheDocument();
     expect(screen.getByLabelText("Window (minutes)")).toBeInTheDocument();
     expect(screen.getByLabelText("Threshold")).toBeInTheDocument();
@@ -723,8 +727,16 @@ describe("AlertsPanel", () => {
     await screen.findByLabelText("Rule type");
     await userEvent.selectOptions(screen.getByLabelText("Rule type"), "trace_p95_latency");
 
-    expect(screen.getByText("Error-rate thresholds are percentages. Trace p95 latency thresholds are milliseconds.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Error-rate thresholds are percentages, trace p95 thresholds are milliseconds, and dead-letter thresholds are pending job counts."
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText("Threshold is trace p95 latency in milliseconds.")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Rule type"), "dead_letter_count");
+
+    expect(screen.getByText("Threshold is the current count of pending dead-letter jobs for the environment.")).toBeInTheDocument();
   });
 
   it("does not render a stale created alert rule after switching environments", async () => {

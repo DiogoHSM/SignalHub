@@ -703,6 +703,17 @@ export async function evaluateAlertRule(
     return { observedValue: result.rows[0]?.value ?? "0" };
   }
 
+  if (input.type === "dead_letter_count") {
+    const row = await db
+      .selectFrom("dead_letter_jobs")
+      .select(({ fn }) => fn.countAll<string>().as("value"))
+      .where("project_id", "=", input.projectId)
+      .where("environment_id", "=", input.environmentId)
+      .executeTakeFirstOrThrow();
+
+    return { observedValue: normalizeNumeric(row.value ?? "0") };
+  }
+
   throw new Error(`unsupported_alert_rule_type:${input.type}`);
 }
 
