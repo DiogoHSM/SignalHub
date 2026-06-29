@@ -556,6 +556,12 @@ describe("repositories", () => {
           "traces_scope_time_id_idx"
         ].sort()
       );
+      const monitorCheckIndex = await sql<{ definition: string }>`
+        select indexdef as definition
+        from pg_indexes
+        where indexname = 'monitor_checks_monitor_checked_id_idx'
+      `.execute(db);
+      expect(monitorCheckIndex.rows[0]?.definition).toContain("created_at DESC");
     });
   });
 

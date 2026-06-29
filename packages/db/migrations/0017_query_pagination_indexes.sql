@@ -38,4 +38,4 @@ CREATE INDEX IF NOT EXISTS source_map_artifacts_scope_created_id_idx
   WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS monitor_checks_monitor_checked_id_idx
-  ON monitor_checks(monitor_id, checked_at DESC, id DESC);
+  ON monitor_checks(monitor_id, checked_at DESC, created_at DESC, id DESC);
