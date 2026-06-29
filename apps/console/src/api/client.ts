@@ -156,7 +156,10 @@ export type MonitorApiClient = {
   createHeartbeatMonitor: (input: CreateHeartbeatMonitorInput) => Promise<{ monitor: MonitorResponse; secret: string }>;
   updateMonitor: (id: string, input: Partial<CreateHttpMonitorInput & CreateHeartbeatMonitorInput>) => Promise<{ monitor: MonitorResponse }>;
   archiveMonitor: (id: string) => Promise<void>;
-  listMonitorChecks: (id: string, limit?: number) => Promise<{ checks: MonitorCheckResponse[] }>;
+  listMonitorChecks: (
+    id: string,
+    options?: number | { limit?: number; cursor?: string }
+  ) => Promise<{ checks: MonitorCheckResponse[]; cursor?: string }>;
 };
 
 export type ErrorGroupApiClient = {
@@ -632,9 +635,12 @@ function monitorListPath(query: MonitorListQuery): string {
   return `/admin/monitors?${params.toString()}`;
 }
 
-function monitorChecksPath(id: string, limit?: number): string {
+function monitorChecksPath(id: string, options?: number | { limit?: number; cursor?: string }): string {
   const params = new URLSearchParams();
+  const limit = typeof options === "number" ? options : options?.limit;
+  const cursor = typeof options === "number" ? undefined : options?.cursor;
   if (limit !== undefined) params.set("limit", String(limit));
+  if (cursor) params.set("cursor", cursor);
   const queryString = params.toString();
 
   return queryString
@@ -858,8 +864,8 @@ export function createApiClient(
       }),
     archiveMonitor: (id) =>
       request<void>(path(apiBasePath, `/admin/monitors/${encodePathSegment(id)}`), { method: "DELETE" }),
-    listMonitorChecks: (id, limit) =>
-      request<{ checks: MonitorCheckResponse[] }>(path(apiBasePath, monitorChecksPath(id, limit))),
+    listMonitorChecks: (id, options) =>
+      request<{ checks: MonitorCheckResponse[]; cursor?: string }>(path(apiBasePath, monitorChecksPath(id, options))),
     listAlertEvents: (query) =>
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>

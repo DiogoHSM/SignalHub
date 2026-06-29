@@ -9,6 +9,7 @@ import type {
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
   MonitorCheckRecord,
+  MonitorCheckPage,
   MonitorKind,
   MonitorRecord,
   UpdateMonitorInput
@@ -120,7 +121,11 @@ export type MonitorAdministrationDependencies = {
   createHeartbeatMonitor?: (input: CreateHeartbeatMonitorInput) => Promise<MonitorRecord>;
   updateMonitor?: (id: string, input: UpdateMonitorInput) => Promise<MonitorRecord | null | undefined>;
   archiveMonitor?: (id: string) => Promise<void>;
-  listMonitorChecks?: (input: { monitorId: string; limit?: number }) => Promise<MonitorCheckRecord[]>;
+  listMonitorChecks?: (input: {
+    monitorId: string;
+    limit?: number;
+    cursor?: string;
+  }) => Promise<MonitorCheckRecord[] | MonitorCheckPage>;
 };
 
 export type DeadLetterAdministrationDependencies = {
@@ -430,7 +435,8 @@ const monitorListQuerySchema = z.object({
 });
 
 const monitorChecksQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(250).optional()
+  limit: z.coerce.number().int().min(1).max(250).optional(),
+  cursor: z.string().trim().min(1).optional()
 });
 
 const deadLetterJobsQuerySchema = z.object({
@@ -1966,17 +1972,21 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_monitor_request" });
     }
 
-    let checks: MonitorCheckRecord[];
+    let result: MonitorCheckRecord[] | MonitorCheckPage;
     try {
-      checks = await options.monitors.listMonitorChecks({
+      result = await options.monitors.listMonitorChecks({
         monitorId: params.data.id,
-        limit: query.data.limit
+        limit: query.data.limit,
+        cursor: query.data.cursor
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && (error.message === "invalid_cursor" || error.message === "invalid_cursor_scope")) {
+        return reply.status(400).send({ error: "invalid_cursor" });
+      }
       return reply.status(503).send({ error: "monitors_unavailable" });
     }
 
-    return reply.send({ checks });
+    return reply.send(Array.isArray(result) ? { checks: result } : result);
   });
 
   app.get("/admin/dead-letter-jobs", async (request, reply) => {

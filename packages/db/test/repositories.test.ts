@@ -42,6 +42,7 @@ import {
   createHeartbeatMonitor,
   createHttpMonitor,
   listDueHttpMonitors,
+  listMonitorChecks,
   listMonitors,
   listStaleHeartbeatMonitors,
   recordHeartbeatCheckIn,
@@ -2803,6 +2804,57 @@ describe("repositories", () => {
       const monitors = await listMonitors(db, { projectId: "prj_monitor", environmentId: "env_monitor" });
       expect(monitors).toHaveLength(1);
       expect(monitors[0]).toMatchObject({ id: monitor.id, status: "up", lastCheckStatus: "success" });
+    });
+  });
+
+  it("paginates monitor checks with checked-at cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_monitor_checks_cursor", "env_monitor_checks_cursor");
+
+      const monitor = await createHttpMonitor(db, {
+        projectId: "prj_monitor_checks_cursor",
+        environmentId: "env_monitor_checks_cursor",
+        name: "Cursor monitor",
+        url: "https://cursor.example.com/health",
+        method: "GET",
+        intervalMinutes: 5,
+        timeoutMs: 3000,
+        expectedStatus: "2xx",
+        bodyContains: null,
+        failureThreshold: 2,
+        recoveryThreshold: 1,
+        enabled: true
+      });
+
+      for (const [checkedAt, latencyMs] of [
+        ["2026-05-24T12:00:00.000Z", 30],
+        ["2026-05-24T12:01:00.000Z", 40],
+        ["2026-05-24T12:02:00.000Z", 50]
+      ] as const) {
+        await recordMonitorCheck(db, {
+          monitorId: monitor.id,
+          checkedAt: new Date(checkedAt),
+          status: "success",
+          latencyMs,
+          responseStatus: 200,
+          errorMessage: null
+        });
+      }
+
+      const firstPage = await listMonitorChecks(db, { monitorId: monitor.id, limit: 2 });
+
+      expect(firstPage.checks.map((check) => check.latencyMs)).toEqual([50, 40]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listMonitorChecks(db, { monitorId: monitor.id, limit: 2, cursor: firstPage.cursor });
+
+      expect(secondPage.checks.map((check) => check.latencyMs)).toEqual([30]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(listMonitorChecks(db, { monitorId: "mon_other", limit: 2, cursor: firstPage.cursor })).rejects.toThrow(
+        /invalid_cursor_scope/
+      );
     });
   });
 

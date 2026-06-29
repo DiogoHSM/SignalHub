@@ -57,6 +57,18 @@ export type MonitorCheckRecord = {
   createdAt: Date;
 };
 
+export type MonitorCheckPage = {
+  checks: MonitorCheckRecord[];
+  cursor?: string;
+};
+
+type MonitorCheckCursorPayload = {
+  monitorId: string;
+  checkedAt: string;
+  createdAt: string;
+  id: string;
+};
+
 export type MonitorAlertEventRecord = {
   id: string;
   monitorId: string;
@@ -130,6 +142,46 @@ export type RecordMonitorCheckInput = {
 
 function clampLimit(limit: number | undefined, fallback: number): number {
   return Math.min(Math.max(limit ?? fallback, 1), 250);
+}
+
+function encodeMonitorCheckCursor(row: MonitorCheckRow): string {
+  const payload: MonitorCheckCursorPayload = {
+    monitorId: row.monitor_id,
+    checkedAt: row.checked_at.toISOString(),
+    createdAt: row.created_at.toISOString(),
+    id: row.id
+  };
+
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeMonitorCheckCursor(cursor: string): MonitorCheckCursorPayload {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("invalid_cursor");
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("invalid_cursor");
+  }
+
+  const payload = parsed as Partial<MonitorCheckCursorPayload>;
+  const checkedAt = typeof payload.checkedAt === "string" ? new Date(payload.checkedAt) : null;
+  const createdAt = typeof payload.createdAt === "string" ? new Date(payload.createdAt) : null;
+  if (
+    typeof payload.monitorId !== "string" ||
+    typeof payload.id !== "string" ||
+    checkedAt === null ||
+    Number.isNaN(checkedAt.getTime()) ||
+    createdAt === null ||
+    Number.isNaN(createdAt.getTime())
+  ) {
+    throw new Error("invalid_cursor");
+  }
+
+  return payload as MonitorCheckCursorPayload;
 }
 
 function toMonitor(row: MonitorRow): MonitorRecord {
@@ -551,19 +603,42 @@ export async function listStaleHeartbeatMonitors(
 
 export async function listMonitorChecks(
   db: Db,
-  input: { monitorId: string; limit?: number }
-): Promise<MonitorCheckRecord[]> {
+  input: { monitorId: string; limit?: number; cursor?: string }
+): Promise<MonitorCheckPage> {
   const limit = clampLimit(input.limit, 50);
-  const rows = await db
+  let query = db
     .selectFrom("monitor_checks")
     .selectAll()
-    .where("monitor_id", "=", input.monitorId)
+    .where("monitor_id", "=", input.monitorId);
+
+  if (input.cursor) {
+    const cursor = decodeMonitorCheckCursor(input.cursor);
+    if (cursor.monitorId !== input.monitorId) {
+      throw new Error("invalid_cursor_scope");
+    }
+    const cursorCheckedAt = new Date(cursor.checkedAt);
+    const cursorCreatedAt = new Date(cursor.createdAt);
+    query = query.where(sql<boolean>`(
+      checked_at < ${cursorCheckedAt}
+      or (checked_at = ${cursorCheckedAt} and created_at < ${cursorCreatedAt})
+      or (checked_at = ${cursorCheckedAt} and created_at = ${cursorCreatedAt} and id < ${cursor.id})
+    )`);
+  }
+
+  const rows = await query
     .orderBy("checked_at", "desc")
     .orderBy("created_at", "desc")
-    .limit(limit)
+    .orderBy("id", "desc")
+    .limit(limit + 1)
     .execute();
 
-  return rows.map(toMonitorCheck);
+  const pageRows = rows.slice(0, limit);
+  const lastRow = pageRows.at(-1);
+
+  return {
+    checks: pageRows.map(toMonitorCheck),
+    cursor: rows.length > limit && lastRow ? encodeMonitorCheckCursor(lastRow) : undefined
+  };
 }
 
 export async function recordMonitorAlertEvent(

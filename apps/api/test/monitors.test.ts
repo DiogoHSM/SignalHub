@@ -244,7 +244,7 @@ describe("admin monitor routes", () => {
         },
         listMonitorChecks: async (input) => {
           receivedChecks.push(input);
-          return [check()];
+          return { checks: [check()], cursor: "cursor_next" };
         }
       }
     });
@@ -255,15 +255,16 @@ describe("admin monitor routes", () => {
     });
     const checksResponse = await app.inject({
       method: "GET",
-      url: "/admin/monitors/mon_1/checks?limit=10"
+      url: "/admin/monitors/mon_1/checks?limit=10&cursor=cursor_1"
     });
 
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json().monitors[0].secretHash).toBeUndefined();
     expect(checksResponse.statusCode).toBe(200);
     expect(checksResponse.json().checks).toHaveLength(1);
+    expect(checksResponse.json().cursor).toBe("cursor_next");
     expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", kind: "http" }]);
-    expect(receivedChecks).toEqual([{ monitorId: "mon_1", limit: 10 }]);
+    expect(receivedChecks).toEqual([{ monitorId: "mon_1", limit: 10, cursor: "cursor_1" }]);
   });
 });
 
