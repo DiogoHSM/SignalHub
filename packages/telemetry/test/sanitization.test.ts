@@ -95,6 +95,26 @@ describe("sanitizeValue", () => {
       keynote_title: "visible"
     });
   });
+
+  it("masks high-risk personal and payment identifiers", () => {
+    const sanitized = sanitizeValue({
+      cpf: "123.456.789-09",
+      credit_card: "4111111111111111",
+      nested: {
+        document: "visible",
+        items: [{ creditCard: "5555555555554444" }]
+      }
+    });
+
+    expect(sanitized).toEqual({
+      cpf: "[REDACTED]",
+      credit_card: "[REDACTED]",
+      nested: {
+        document: "visible",
+        items: [{ creditCard: "[REDACTED]" }]
+      }
+    });
+  });
 });
 
 describe("sanitizePreviewText", () => {

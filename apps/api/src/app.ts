@@ -53,6 +53,10 @@ export type BuildAppOptions = {
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
   isBrowserCorsOriginAllowed?: (origin: string) => Promise<boolean>;
+  rateLimit?: {
+    max: number;
+    timeWindow: number | string;
+  };
 };
 
 const browserIngestionCorsPaths = new Set([
@@ -182,7 +186,7 @@ export async function buildApp(options: BuildAppOptions) {
       parts: 6
     }
   });
-  await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });
+  await app.register(rateLimit, options.rateLimit ?? { max: 1000, timeWindow: "1 minute" });
 
   registerRequestContext(app);
   await registerDocsRoutes(app);

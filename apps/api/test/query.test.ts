@@ -331,6 +331,7 @@ describe("source map helpers", () => {
           version: 3,
           file: "app.min.js",
           sources: ["src/app.ts"],
+          sourcesContent: ["const secretImplementation = true;"],
           names: ["checkout"],
           mappings: "AAAAA"
         })
@@ -341,6 +342,7 @@ describe("source map helpers", () => {
           version: 3,
           file: "vendor.min.js",
           sources: ["src/vendor.ts"],
+          sourcesContent: ["const vendorSecretImplementation = true;"],
           names: ["vendor"],
           mappings: "AAAAA"
         })
@@ -375,6 +377,7 @@ describe("source map helpers", () => {
     expect(resolution?.status).toBe("resolved");
     expect(resolution?.unresolvedFrameCount).toBe(0);
     expect(resolution?.frames).toHaveLength(2);
+    expect(JSON.stringify(resolution?.frames)).not.toContain("secretImplementation");
     expect(replaceErrorStackResolutions).toHaveBeenCalledTimes(1);
     expect(replaceErrorStackResolutions).toHaveBeenCalledWith({
       errorId: "err_1",

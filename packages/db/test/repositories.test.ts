@@ -1600,6 +1600,91 @@ describe("repositories", () => {
     });
   });
 
+  it("ignores duplicate llm call ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent LLM Calls" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "llm_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        status: "success"
+      };
+
+      try {
+        await insertLlmCall(db, input);
+        await insertLlmCall(db, input);
+
+        const rows = await db.selectFrom("llm_calls").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("llm_calls").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
+  it("ignores duplicate span ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Spans" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "spn_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        traceId: "trc_retry_parent",
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        name: "retry.span",
+        status: "ok",
+        startedAt: new Date("2026-05-23T12:00:00.000Z")
+      };
+
+      try {
+        await insertSpan(db, input);
+        await insertSpan(db, input);
+
+        const rows = await db.selectFrom("spans").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("spans").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
+  it("ignores duplicate breadcrumb ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Breadcrumbs" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "brd_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        type: "custom" as const,
+        message: "retry breadcrumb",
+        level: "info" as const
+      };
+
+      try {
+        await insertBreadcrumb(db, input);
+        await insertBreadcrumb(db, input);
+
+        const rows = await db.selectFrom("breadcrumbs").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("breadcrumbs").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
   it("creates lists and soft deletes source map artifacts", async () => {
     await withDb(async (db) => {
       await migrate(db);
