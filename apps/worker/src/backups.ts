@@ -156,6 +156,7 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
   try {
     await execFileFn("pg_dump", args, options);
   } catch {
+    await unlinkIfExists(input.outputPath);
     throw new Error("pg_dump failed");
   }
 }

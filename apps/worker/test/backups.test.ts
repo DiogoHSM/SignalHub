@@ -246,6 +246,28 @@ describe("dumpPostgresDatabase", () => {
       })
     ).rejects.not.toThrow(databaseUrl);
   });
+
+  it("removes a partial dump file when pg_dump fails", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-dump-"));
+    const dumpPath = join(localDir, "sigmon-partial.dump");
+    const execFileFn = vi.fn(async () => {
+      await writeFile(dumpPath, "partial backup content");
+      throw new Error("pg_dump timed out");
+    });
+
+    try {
+      await expect(
+        dumpPostgresDatabase({
+          databaseUrl: "postgres://user:secret@localhost:5432/sigmon",
+          outputPath: dumpPath,
+          execFileFn
+        })
+      ).rejects.toThrow("pg_dump failed");
+      await expect(stat(dumpPath)).rejects.toThrow();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("uploadBackupToS3", () => {
