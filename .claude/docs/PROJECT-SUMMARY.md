@@ -39,10 +39,11 @@ Implemented capabilities:
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
 - Internal alert history with optional generic webhook notification channels and recorded delivery attempts.
+- Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, and controlled replay.
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
 - Structured API and worker logs redact secret-bearing fields, and unhandled API errors return sanitized JSON.
-- API startup cleanup, ordered bounded shutdown, Docker non-root `tini` runtime, cache-friendly Docker dependency layer, Compose service healthchecks, backup SHA-256 verification, SDK browser/node entrypoints, security headers, and hardened production session cookies.
+- API startup cleanup, ordered bounded shutdown, Docker non-root `tini` runtime, cache-friendly Docker dependency layer, Compose service healthchecks, backup SHA-256 verification, failed-dump cleanup, classified S3 backup retries, SDK browser/node entrypoints, security headers, and hardened production session cookies.
 - Health and readiness endpoints.
 - Read-only operator doctor command for local and Docker Compose validation.
 - Docker Compose install hardening for the supported production-oriented self-hosted path.

@@ -105,6 +105,8 @@ The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`,
 
 Docker Compose mounts the `backup_data` volume at `/var/lib/sigmon/backups` in the worker container. Each dump gets a SHA-256 sidecar file, and restore verifies the sidecar when present before running `pg_restore`. Local retention deletes old local backup files and sidecars according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files and sidecars remain on local storage and, optionally, remote object storage.
 
+Failed `pg_dump` runs remove partial dump files before recording the sanitized failure. S3-compatible uploads retry transient network, timeout, rate-limit, and 5xx failures with a short bounded backoff; permanent 4xx authorization/configuration failures fail fast.
+
 Run a manual backup with:
 
 ```sh
@@ -140,6 +142,10 @@ SignalMonitor evaluates simple project/environment-scoped alert rules from the w
 Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each delivery attempt. Native email, Telegram, Discord, escalation, silencing, acknowledgement, and retry workflows are out of scope for this slice.
 
 Webhook secrets are write-only. Saved secret values are redacted and are never returned by the API or displayed in the console.
+
+## Dead-Letter Jobs
+
+Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter jobs for admin inspection. Admins can list, inspect, delete, or replay telemetry dead-letter jobs through the session-authenticated `/admin/dead-letter-jobs` API. Replay validates the stored telemetry envelope and kind-specific payload before re-enqueueing, uses a fresh replay job id for each attempt, and deletes the dead-letter row only after enqueue succeeds.
 
 ## Source Maps
 

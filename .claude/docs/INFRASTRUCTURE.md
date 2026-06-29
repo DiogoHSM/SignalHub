@@ -56,6 +56,8 @@ Postgres data is stored in `postgres_data`. Redis uses append-only persistence a
 
 Optional remote backup storage can use an S3-compatible private bucket such as Cloudflare R2. The worker uploads backup dumps and SHA-256 sidecars when `BACKUPS_S3_ENABLED=true`; remote retention is controlled by bucket lifecycle rules.
 
+Backup uploads retry transient network, timeout, rate-limit, and 5xx failures with bounded backoff. Permanent 4xx S3 failures fail fast so credential and bucket policy problems are visible instead of being retried blindly. Failed `pg_dump` runs remove partial dump files from the backup volume.
+
 Source-map storage does not use object storage in this release line. The API owns local source-map writes, reads, and deletes under `SOURCE_MAPS_LOCAL_DIR`.
 
 The worker prunes local source-map artifacts according to `SOURCE_MAPS_RETENTION_*`. Cleanup operates only under `SOURCE_MAPS_LOCAL_DIR`; object storage for source maps remains deferred.

@@ -196,6 +196,10 @@ API and worker processes use structured logs with secret-bearing fields redacted
 
 Backups write SHA-256 sidecar files next to local dump files and upload matching sidecars when S3-compatible upload is enabled. Restore verifies the sidecar when present before running `pg_restore`.
 
+Failed backup dumps are cleaned up before the failed run is recorded. S3-compatible backup upload retries are limited to retryable transport, timeout, rate-limit, and server-side failures, with a short bounded backoff; permanent client/auth failures are not retried.
+
+Worker jobs that permanently fail are copied into `dead_letter_jobs` with sanitized payload and error details. Admin APIs expose list, detail, delete, and replay workflows for these rows. Replay is limited to telemetry queue payloads, validates the outer job envelope and the kind-specific telemetry payload, enqueues with a fresh replay-scoped BullMQ job id, and deletes the dead-letter row only after enqueue succeeds. The original telemetry id is preserved so repository-level idempotency still prevents duplicate persisted telemetry.
+
 The Docker runtime runs under the non-root `sigmon` user with `tini` as PID 1. Docker Compose defines healthchecks for Postgres, Redis, API, and worker.
 
 API responses include baseline HTTP security headers: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Content-Security-Policy`, and production `Strict-Transport-Security`.
