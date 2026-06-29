@@ -1592,6 +1592,15 @@ describe("repositories", () => {
           cursor: firstPage.cursor
         })
       ).rejects.toThrow(/invalid_cursor_scope/);
+      await expect(
+        listEvents(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          eventName: "cursor.oldest",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
     });
   });
 
@@ -4093,6 +4102,15 @@ describe("repositories", () => {
         listErrorGroupsPage(db, {
           projectId: "prj_error_group_cursor_other",
           environmentId: "env_error_group_cursor_other",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+      await expect(
+        listErrorGroupsPage(db, {
+          projectId: "prj_error_group_cursor",
+          environmentId: "env_error_group_cursor",
+          status: "resolved",
           limit: 2,
           cursor: firstPage.cursor
         })

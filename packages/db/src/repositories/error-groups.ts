@@ -70,6 +70,7 @@ export type ErrorGroupFilters = {
 type ErrorGroupCursorPayload = {
   projectId: string;
   environmentId: string;
+  filterKey: string;
   regressionSort: number;
   severitySort: number;
   statusSort: number;
@@ -216,13 +217,24 @@ function regressionSortValue(row: ErrorGroupRow): number {
   return row.status === "open" && row.last_regressed_at !== null ? 0 : 1;
 }
 
-function encodeErrorGroupCursor(
-  row: ErrorGroupRow,
-  scope: Pick<ErrorGroupFilters, "projectId" | "environmentId">
-): string {
+function errorGroupCursorFilterKey(filters: ErrorGroupFilters): string {
+  return JSON.stringify({
+    status: filters.status ?? null,
+    severity: filters.severity ?? null,
+    fingerprint: filters.fingerprint ?? null,
+    tenantId: filters.tenantId ?? null,
+    userId: filters.userId ?? null,
+    release: filters.release ?? null,
+    from: filters.from?.toISOString() ?? null,
+    to: filters.to?.toISOString() ?? null
+  });
+}
+
+function encodeErrorGroupCursor(row: ErrorGroupRow, filters: ErrorGroupFilters): string {
   const payload: ErrorGroupCursorPayload = {
-    projectId: scope.projectId,
-    environmentId: scope.environmentId,
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    filterKey: errorGroupCursorFilterKey(filters),
     regressionSort: regressionSortValue(row),
     severitySort: severitySortValue(row.severity),
     statusSort: statusSortValue(row.status),
@@ -250,6 +262,7 @@ function decodeErrorGroupCursor(cursor: string): ErrorGroupCursorPayload {
   if (
     typeof payload.projectId !== "string" ||
     typeof payload.environmentId !== "string" ||
+    typeof payload.filterKey !== "string" ||
     typeof payload.regressionSort !== "number" ||
     typeof payload.severitySort !== "number" ||
     typeof payload.statusSort !== "number" ||
@@ -445,7 +458,11 @@ export async function listErrorGroupsPage(db: Db, filters: ErrorGroupFilters): P
   }
   if (filters.cursor) {
     const cursor = decodeErrorGroupCursor(filters.cursor);
-    if (cursor.projectId !== filters.projectId || cursor.environmentId !== filters.environmentId) {
+    if (
+      cursor.projectId !== filters.projectId ||
+      cursor.environmentId !== filters.environmentId ||
+      cursor.filterKey !== errorGroupCursorFilterKey(filters)
+    ) {
       throw new Error("invalid_cursor_scope");
     }
 

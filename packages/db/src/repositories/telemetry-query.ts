@@ -559,15 +559,36 @@ function resolveLimit(limit: number | undefined): number {
 type TimestampCursor = {
   projectId: string;
   environmentId: string;
+  filterKey: string;
   timestamp: Date;
   id: string;
 };
+
+function telemetryCursorFilterKey(filters: TelemetryFilters): string {
+  return JSON.stringify({
+    tenantId: filters.tenantId ?? null,
+    userId: filters.userId ?? null,
+    sessionId: filters.sessionId ?? null,
+    traceId: filters.traceId ?? null,
+    eventName: filters.eventName ?? null,
+    provider: filters.provider ?? null,
+    model: filters.model ?? null,
+    promptName: filters.promptName ?? null,
+    severity: filters.severity ?? null,
+    status: filters.status ?? null,
+    fingerprint: filters.fingerprint ?? null,
+    errorGroupId: filters.errorGroupId ?? null,
+    from: filters.from?.toISOString() ?? null,
+    to: filters.to?.toISOString() ?? null
+  });
+}
 
 function encodeTimestampCursor(filters: TelemetryFilters, row: { id: string; timestamp: Date | string }): string {
   return Buffer.from(
     JSON.stringify({
       projectId: filters.projectId,
       environmentId: filters.environmentId,
+      filterKey: telemetryCursorFilterKey(filters),
       timestamp: toIso(row.timestamp),
       id: row.id
     })
@@ -593,17 +614,22 @@ function decodeTimestampCursor(filters: TelemetryFilters): TimestampCursor | und
   const cursor = decoded as Record<string, unknown>;
   const projectId = typeof cursor.projectId === "string" ? cursor.projectId : "";
   const environmentId = typeof cursor.environmentId === "string" ? cursor.environmentId : "";
+  const filterKey = typeof cursor.filterKey === "string" ? cursor.filterKey : "";
   const timestamp = typeof cursor.timestamp === "string" ? new Date(cursor.timestamp) : null;
   const id = typeof cursor.id === "string" ? cursor.id : "";
 
-  if (!projectId || !environmentId || !timestamp || Number.isNaN(timestamp.getTime()) || !id) {
+  if (!projectId || !environmentId || !filterKey || !timestamp || Number.isNaN(timestamp.getTime()) || !id) {
     throw new Error("invalid_cursor");
   }
-  if (projectId !== filters.projectId || environmentId !== filters.environmentId) {
+  if (
+    projectId !== filters.projectId ||
+    environmentId !== filters.environmentId ||
+    filterKey !== telemetryCursorFilterKey(filters)
+  ) {
     throw new Error("invalid_cursor_scope");
   }
 
-  return { projectId, environmentId, timestamp, id };
+  return { projectId, environmentId, filterKey, timestamp, id };
 }
 
 function listResult<Row extends { id: string; timestamp: Date | string }, T>(
