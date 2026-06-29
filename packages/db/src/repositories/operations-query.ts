@@ -240,61 +240,61 @@ function resolveStatus(input: {
 export async function getOperations(db: Db, filters: OperationsFilters): Promise<OperationsResponse> {
   const { from, to } = resolveOperationsRange(filters.window, filters.now);
 
-  const monitorRows = await db
-    .selectFrom("monitors")
-    .select([
-      "id",
-      "kind",
-      "name",
-      "enabled",
-      "status",
-      "last_checked_at",
-      "last_heartbeat_at",
-      "last_check_latency_ms",
-      "last_check_error_message"
-    ])
-    .where("project_id", "=", filters.projectId)
-    .where("environment_id", "=", filters.environmentId)
-    .where("archived_at", "is", null)
-    .orderBy(
-      sql<number>`case status when 'down' then 0 when 'degraded' then 1 when 'unknown' then 2 when 'up' then 3 when 'paused' then 4 else 5 end`
-    )
-    .orderBy("updated_at", "desc")
-    .limit(10)
-    .execute() as MonitorRow[];
-
-  const alertRuleRow = await db
-    .selectFrom("alert_rules")
-    .select(({ fn }) => [
-      fn.countAll<string>().as("total"),
-      sql<string>`count(*) filter (where enabled = true)`.as("enabled")
-    ])
-    .where("project_id", "=", filters.projectId)
-    .where("environment_id", "=", filters.environmentId)
-    .where("archived_at", "is", null)
-    .executeTakeFirstOrThrow();
-
-  const alertEventResult = await sql<AlertEventRow>`
-    select alert_events.id,
-      alert_events.severity,
-      alert_events.triggered_at,
-      alert_events.message,
-      latest_delivery.status as latest_delivery_status
-    from alert_events
-    left join lateral (
-      select status
-      from notification_deliveries
-      where notification_deliveries.alert_event_id = alert_events.id
-      order by attempted_at desc, created_at desc
-      limit 1
-    ) latest_delivery on true
-    where alert_events.project_id = ${filters.projectId}
-      and alert_events.environment_id = ${filters.environmentId}
-      and alert_events.triggered_at >= ${from}
-      and alert_events.triggered_at <= ${to}
-    order by alert_events.triggered_at desc, alert_events.created_at desc
-    limit 10
-  `.execute(db);
+  const [monitorRows, alertRuleRow, alertEventResult] = await Promise.all([
+    db
+      .selectFrom("monitors")
+      .select([
+        "id",
+        "kind",
+        "name",
+        "enabled",
+        "status",
+        "last_checked_at",
+        "last_heartbeat_at",
+        "last_check_latency_ms",
+        "last_check_error_message"
+      ])
+      .where("project_id", "=", filters.projectId)
+      .where("environment_id", "=", filters.environmentId)
+      .where("archived_at", "is", null)
+      .orderBy(
+        sql<number>`case status when 'down' then 0 when 'degraded' then 1 when 'unknown' then 2 when 'up' then 3 when 'paused' then 4 else 5 end`
+      )
+      .orderBy("updated_at", "desc")
+      .limit(10)
+      .execute() as Promise<MonitorRow[]>,
+    db
+      .selectFrom("alert_rules")
+      .select(({ fn }) => [
+        fn.countAll<string>().as("total"),
+        sql<string>`count(*) filter (where enabled = true)`.as("enabled")
+      ])
+      .where("project_id", "=", filters.projectId)
+      .where("environment_id", "=", filters.environmentId)
+      .where("archived_at", "is", null)
+      .executeTakeFirstOrThrow(),
+    sql<AlertEventRow>`
+      select alert_events.id,
+        alert_events.severity,
+        alert_events.triggered_at,
+        alert_events.message,
+        latest_delivery.status as latest_delivery_status
+      from alert_events
+      left join lateral (
+        select status
+        from notification_deliveries
+        where notification_deliveries.alert_event_id = alert_events.id
+        order by attempted_at desc, created_at desc
+        limit 1
+      ) latest_delivery on true
+      where alert_events.project_id = ${filters.projectId}
+        and alert_events.environment_id = ${filters.environmentId}
+        and alert_events.triggered_at >= ${from}
+        and alert_events.triggered_at <= ${to}
+      order by alert_events.triggered_at desc, alert_events.created_at desc
+      limit 10
+    `.execute(db)
+  ]);
 
   const alertSummary = alertEventResult.rows.reduce(
     (summary, row) => {
