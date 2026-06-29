@@ -1072,7 +1072,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
   const bucketExpr = bucketExpression(bucket);
   const bucketStarts = makeBucketStarts(from, to, bucket);
 
-  const kpiRows = await sql<{
+  const kpiRowsPromise = sql<{
     events: unknown;
     active_users: unknown;
     active_tenants: unknown;
@@ -1142,9 +1142,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
       (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
   `.execute(db);
-  const kpiRow = kpiRows.rows[0];
 
-  const usageTrendRows = await sql<{
+  const usageTrendRowsPromise = sql<{
     bucket_start: Date | string;
     events: unknown;
     traces: unknown;
@@ -1180,7 +1179,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const errorTrendRows = await sql<{
+  const errorTrendRowsPromise = sql<{
     bucket_start: Date | string;
     errors: unknown;
     open_errors: unknown;
@@ -1199,7 +1198,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const latencyTrendRows = await sql<{
+  const latencyTrendRowsPromise = sql<{
     bucket_start: Date | string;
     average_trace_duration_ms: unknown;
     p95_trace_duration_ms: unknown;
@@ -1216,7 +1215,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const aiCostTrendRows = await sql<{
+  const aiCostTrendRowsPromise = sql<{
     bucket_start: Date | string;
     llm_cost_usd: string;
     llm_calls: unknown;
@@ -1233,12 +1232,21 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
+  const [kpiRows, usageTrendRows, errorTrendRows, latencyTrendRows, aiCostTrendRows] = await Promise.all([
+    kpiRowsPromise,
+    usageTrendRowsPromise,
+    errorTrendRowsPromise,
+    latencyTrendRowsPromise,
+    aiCostTrendRowsPromise
+  ]);
+  const kpiRow = kpiRows.rows[0];
+
   const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
   const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
   const latencyByBucket = new Map(latencyTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
   const aiCostByBucket = new Map(aiCostTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
 
-  const topEventsRows = await sql<{ name: string; total: unknown }>`
+  const topEventsRowsPromise = sql<{ name: string; total: unknown }>`
     select name, count(*) as total
     from events
     where project_id = ${filters.projectId}
@@ -1250,7 +1258,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByUsageRows = await sql<{ tenant_id: string; total: unknown }>`
+  const tenantsByUsageRowsPromise = sql<{ tenant_id: string; total: unknown }>`
     with usage_rows as (
       select tenant_id from events
       where project_id = ${filters.projectId}
@@ -1284,7 +1292,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByErrorsRows = await sql<{ tenant_id: string; total: unknown }>`
+  const tenantsByErrorsRowsPromise = sql<{ tenant_id: string; total: unknown }>`
     select tenant_id, count(*) as total
     from errors
     where project_id = ${filters.projectId}
@@ -1297,7 +1305,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByLlmCallsRows = await sql<{ tenant_id: string; total: unknown }>`
+  const tenantsByLlmCallsRowsPromise = sql<{ tenant_id: string; total: unknown }>`
     select tenant_id, count(*) as total
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1310,7 +1318,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByLlmCostRows = await sql<{ tenant_id: string; total_cost_usd: string }>`
+  const tenantsByLlmCostRowsPromise = sql<{ tenant_id: string; total_cost_usd: string }>`
     select tenant_id, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1323,7 +1331,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const llmProvidersRows = await sql<{ provider: string; total: unknown; total_cost_usd: string }>`
+  const llmProvidersRowsPromise = sql<{ provider: string; total: unknown; total_cost_usd: string }>`
     select provider, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1335,7 +1343,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const llmModelsRows = await sql<{ model: string; total: unknown; total_cost_usd: string }>`
+  const llmModelsRowsPromise = sql<{ model: string; total: unknown; total_cost_usd: string }>`
     select model, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1347,7 +1355,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const llmPromptsRows = await sql<{ prompt_name: string; total: unknown; total_cost_usd: string }>`
+  const llmPromptsRowsPromise = sql<{ prompt_name: string; total: unknown; total_cost_usd: string }>`
     select coalesce(prompt_name, 'Unspecified') as prompt_name, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1359,7 +1367,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const errorSeverityRows = await sql<{ severity: string; total: unknown }>`
+  const errorSeverityRowsPromise = sql<{ severity: string; total: unknown }>`
     select severity, count(*) as total
     from errors
     where project_id = ${filters.projectId}
@@ -1371,7 +1379,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const errorStatusRows = await sql<{ status: string; total: unknown }>`
+  const errorStatusRowsPromise = sql<{ status: string; total: unknown }>`
     select status, count(*) as total
     from errors
     where project_id = ${filters.projectId}
@@ -1383,7 +1391,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const recentErrorRows = await sql<{
+  const recentErrorRowsPromise = sql<{
     id: string;
     timestamp: Date | string;
     message: string;
@@ -1404,7 +1412,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const recentFailedTraceRows = await sql<{
+  const recentFailedTraceRowsPromise = sql<{
     id: string;
     timestamp: Date | string;
     name: string;
@@ -1424,7 +1432,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const recentFailedLlmCallRows = await sql<{
+  const recentFailedLlmCallRowsPromise = sql<{
     id: string;
     timestamp: Date | string;
     provider: string;
@@ -1446,6 +1454,36 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     order by timestamp desc, id asc
     limit 5
   `.execute(db);
+
+  const [
+    topEventsRows,
+    tenantsByUsageRows,
+    tenantsByErrorsRows,
+    tenantsByLlmCallsRows,
+    tenantsByLlmCostRows,
+    llmProvidersRows,
+    llmModelsRows,
+    llmPromptsRows,
+    errorSeverityRows,
+    errorStatusRows,
+    recentErrorRows,
+    recentFailedTraceRows,
+    recentFailedLlmCallRows
+  ] = await Promise.all([
+    topEventsRowsPromise,
+    tenantsByUsageRowsPromise,
+    tenantsByErrorsRowsPromise,
+    tenantsByLlmCallsRowsPromise,
+    tenantsByLlmCostRowsPromise,
+    llmProvidersRowsPromise,
+    llmModelsRowsPromise,
+    llmPromptsRowsPromise,
+    errorSeverityRowsPromise,
+    errorStatusRowsPromise,
+    recentErrorRowsPromise,
+    recentFailedTraceRowsPromise,
+    recentFailedLlmCallRowsPromise
+  ]);
 
   const trends: OverviewResponse["trends"] = {
     usage: bucketStarts.map((bucketStart) => {
