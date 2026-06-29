@@ -238,7 +238,7 @@ The console also includes a read-only Users view for user-first investigation. I
 
 The console includes a read-only `Overview` mode for the selected project and environment. It uses `GET /query/overview` to load KPIs, UTC-bucketed mini trends, top lists, and recent important signals for `24h`, `7d`, or `30d` windows.
 
-Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
+Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. Independent KPI, trend, top-list, and recent-signal queries are dispatched together rather than awaited in serial, and bigint/numeric aggregate values pass through finite safe-number helpers before becoming JavaScript numbers. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
 
 ## Operations Console
 

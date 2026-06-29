@@ -789,13 +789,13 @@ export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise
 export async function getEventAggregates(db: Db, filters: TelemetryFilters): Promise<CountAggregate & { byName: Record<string, number> }> {
   let totalQuery = db
     .selectFrom("events")
-    .select(sql<unknown>`count(*)`.as("total"))
+    .select(sql<string>`count(*)`.as("total"))
     .where("project_id", "=", filters.projectId)
     .where("environment_id", "=", filters.environmentId);
 
   let byNameQuery = db
     .selectFrom("events")
-    .select(["name", sql<unknown>`count(*)`.as("total")])
+    .select(["name", sql<string>`count(*)`.as("total")])
     .where("project_id", "=", filters.projectId)
     .where("environment_id", "=", filters.environmentId)
     .groupBy("name");
@@ -825,8 +825,7 @@ export async function getEventAggregates(db: Db, filters: TelemetryFilters): Pro
     byNameQuery = byNameQuery.where("timestamp", "<", filters.to);
   }
 
-  const totalRow = await totalQuery.executeTakeFirstOrThrow();
-  const byNameRows = await byNameQuery.execute();
+  const [totalRow, byNameRows] = await Promise.all([totalQuery.executeTakeFirstOrThrow(), byNameQuery.execute()]);
 
   return {
     total: toNumber(totalRow.total),
@@ -1264,20 +1263,6 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const [kpiRows, usageTrendRows, errorTrendRows, latencyTrendRows, aiCostTrendRows] = await Promise.all([
-    kpiRowsPromise,
-    usageTrendRowsPromise,
-    errorTrendRowsPromise,
-    latencyTrendRowsPromise,
-    aiCostTrendRowsPromise
-  ]);
-  const kpiRow = kpiRows.rows[0];
-
-  const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-  const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-  const latencyByBucket = new Map(latencyTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-  const aiCostByBucket = new Map(aiCostTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-
   const topEventsRowsPromise = sql<{ name: string; total: unknown }>`
     select name, count(*) as total
     from events
@@ -1488,6 +1473,11 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
   `.execute(db);
 
   const [
+    kpiRows,
+    usageTrendRows,
+    errorTrendRows,
+    latencyTrendRows,
+    aiCostTrendRows,
     topEventsRows,
     tenantsByUsageRows,
     tenantsByErrorsRows,
@@ -1502,6 +1492,11 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     recentFailedTraceRows,
     recentFailedLlmCallRows
   ] = await Promise.all([
+    kpiRowsPromise,
+    usageTrendRowsPromise,
+    errorTrendRowsPromise,
+    latencyTrendRowsPromise,
+    aiCostTrendRowsPromise,
     topEventsRowsPromise,
     tenantsByUsageRowsPromise,
     tenantsByErrorsRowsPromise,
@@ -1516,6 +1511,12 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     recentFailedTraceRowsPromise,
     recentFailedLlmCallRowsPromise
   ]);
+  const kpiRow = kpiRows.rows[0];
+
+  const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const latencyByBucket = new Map(latencyTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const aiCostByBucket = new Map(aiCostTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
 
   const trends: OverviewResponse["trends"] = {
     usage: bucketStarts.map((bucketStart) => {
