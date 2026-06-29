@@ -2014,6 +2014,26 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("returns 400 for invalid raw occurrence cursors", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listErrors: async () => {
+          throw new Error("invalid_cursor_scope");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/error-groups/egrp_1/errors?project_id=prj_1&environment_id=env_1&cursor=bad"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
+  });
+
   it("updates an error group status", async () => {
     const received: unknown[] = [];
 

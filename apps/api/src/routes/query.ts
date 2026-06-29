@@ -1334,7 +1334,10 @@ async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: 
 
   try {
     return sendListResult(reply, await options.query.listErrors({ ...filters, errorGroupId: params.data.id }));
-  } catch {
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return reply.status(400).send({ error: "invalid_cursor" });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }
