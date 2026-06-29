@@ -164,6 +164,7 @@ Alerts:
 
 - `GET /alerts/events`
 - `GET /alerts/events/:id`
+- `GET /alerts/suggestions`
 
 ## Deferred Boundaries
 
@@ -240,5 +241,7 @@ Operations aggregates are computed in `packages/db/src/repositories/operations-q
 ## Alerts Console
 
 The console includes an operational `Alerts` mode for the active project and environment. It uses admin routes to manage alert rules and generic webhook notification channels, and read routes to show recent alert history and delivery status. Webhook secret header values are write-only and redacted after save.
+
+The console also surfaces deterministic alert-rule suggestions via the read-only `GET /alerts/suggestions` route, backed by `buildAlertSuggestions()` in `packages/db/src/repositories/alerts.ts`. It derives candidate rules from the trailing 24h of telemetry (critical errors, route-scoped error spikes, trace p95 latency, and LLM cost), deduped against active rules, with thresholds set at a margin above observed values. Suggestions are metadata only; a one-click create issues a normal alert-rule mutation with no channel attached. Channel test-send is deferred — the per-channel Test control ships as a disabled affordance.
 
 The console includes an admin `Artifacts` mode for the active project and environment. It uses `/admin/source-maps` to list, upload, filter, and delete local source-map artifacts. Supported uploads are single `.map` files and `.zip` bundles. It also uses `/admin/source-map-upload-tokens` to create, list, and revoke CI-only source-map upload tokens. Object storage, source-code browsing, indexed source maps, and cross-release guessing are deferred.
