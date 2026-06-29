@@ -400,6 +400,39 @@ export const openApiDocument = {
             description: "Heartbeat secret returned only when creating a heartbeat monitor."
           }
         }
+      },
+      DeadLetterJob: {
+        type: "object",
+        required: ["id", "queueName", "jobName", "payload", "errorMessage", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          queueName: { type: "string", examples: ["telemetry"] },
+          jobName: { type: "string", examples: ["event"] },
+          payload: {
+            type: "object",
+            description: "sanitized failed job payload retained for operator inspection.",
+            additionalProperties: true
+          },
+          errorMessage: { type: "string", description: "Sanitized failure message." },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
+      DeadLetterJobListResponse: {
+        type: "object",
+        required: ["deadLetterJobs"],
+        properties: {
+          deadLetterJobs: {
+            type: "array",
+            items: { $ref: "#/components/schemas/DeadLetterJob" }
+          }
+        }
+      },
+      DeadLetterJobResponse: {
+        type: "object",
+        required: ["deadLetterJob"],
+        properties: {
+          deadLetterJob: { $ref: "#/components/schemas/DeadLetterJob" }
+        }
       }
     },
     responses: {
@@ -653,6 +686,72 @@ export const openApiDocument = {
     },
     "/admin/monitors/{id}/checks": {
       get: sessionRoute("List monitor checks", "Admin route for recent HTTP or heartbeat monitor check history.")
+    },
+    "/admin/dead-letter-jobs": {
+      get: {
+        ...sessionRoute("List dead-letter jobs", "Admin route for inspecting sanitized jobs that failed permanently in workers."),
+        parameters: [
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", minimum: 1, maximum: 250, default: 50 }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Dead-letter jobs returned newest first",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterJobListResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/dead-letter-jobs/{id}": {
+      get: {
+        ...sessionRoute("Get a dead-letter job", "Admin route for inspecting one sanitized permanently failed worker job."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Dead-letter job returned",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterJobResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Dead-letter job not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        ...sessionRoute("Delete a dead-letter job", "Admin route for clearing a dead-letter job after inspection or manual remediation."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "204": { description: "Dead-letter job deleted" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Dead-letter job not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")
