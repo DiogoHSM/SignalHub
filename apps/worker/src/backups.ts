@@ -204,8 +204,10 @@ async function uploadObjectToS3WithRetry(input: {
   contentType: string;
   createReadStreamFn: (path: string) => BackupReadStream;
   attempts?: number;
+  baseDelayMs?: number;
 }): Promise<void> {
   const attempts = input.attempts ?? 2;
+  const baseDelayMs = input.baseDelayMs ?? 100;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -225,6 +227,7 @@ async function uploadObjectToS3WithRetry(input: {
       if (attempt === attempts || !isRetryableS3Error(error)) {
         throw error;
       }
+      await sleep(Math.min(baseDelayMs * attempt, 1_000));
     } finally {
       body.destroy();
     }
@@ -244,6 +247,10 @@ function readS3StatusCode(error: unknown): number | null {
   const metadata = (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata;
   if (typeof metadata?.httpStatusCode !== "number") return null;
   return metadata.httpStatusCode;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function pruneLocalBackups(input: {
