@@ -424,7 +424,8 @@ export const openApiDocument = {
           deadLetterJobs: {
             type: "array",
             items: { $ref: "#/components/schemas/DeadLetterJob" }
-          }
+          },
+          cursor: { type: "string", nullable: true, description: "Opaque cursor for the next newest-first page." }
         }
       },
       DeadLetterJobResponse: {
@@ -704,6 +705,13 @@ export const openApiDocument = {
             in: "query",
             required: false,
             schema: { type: "integer", minimum: 1, maximum: 250, default: 50 }
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque cursor returned by the previous response."
           }
         ],
         responses: {

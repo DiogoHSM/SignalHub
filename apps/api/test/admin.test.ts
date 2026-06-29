@@ -116,16 +116,19 @@ describe("admin routes", () => {
   });
 
   it("lists dead letter jobs for admins", async () => {
-    const listDeadLetterJobs = vi.fn(async ({ limit }: { limit?: number }) => [
-      {
-        id: "dlj_1",
-        queueName: "telemetry",
-        jobName: "event",
-        payload: { eventId: "evt_1" },
-        errorMessage: "insert failed",
-        createdAt: new Date("2026-06-01T12:00:00.000Z")
-      }
-    ]);
+    const listDeadLetterJobs = vi.fn(async () => ({
+      deadLetterJobs: [
+        {
+          id: "dlj_1",
+          queueName: "telemetry",
+          jobName: "event",
+          payload: { eventId: "evt_1" },
+          errorMessage: "insert failed",
+          createdAt: new Date("2026-06-01T12:00:00.000Z")
+        }
+      ],
+      cursor: "cursor_next"
+    }));
     app = await buildApp({
       readiness,
       auth: adminAuth,
@@ -134,7 +137,7 @@ describe("admin routes", () => {
       }
     });
 
-    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?limit=25" });
+    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?limit=25&cursor=cursor_1" });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
@@ -147,9 +150,28 @@ describe("admin routes", () => {
           errorMessage: "insert failed",
           createdAt: "2026-06-01T12:00:00.000Z"
         }
-      ]
+      ],
+      cursor: "cursor_next"
     });
-    expect(listDeadLetterJobs).toHaveBeenCalledWith({ limit: 25 });
+    expect(listDeadLetterJobs).toHaveBeenCalledWith({ limit: 25, cursor: "cursor_1" });
+  });
+
+  it("returns 400 for invalid dead letter cursors", async () => {
+    const listDeadLetterJobs = vi.fn(async () => {
+      throw new Error("invalid_cursor");
+    });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?cursor=bad" });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
   });
 
   it("gets and deletes dead letter jobs for admins", async () => {

@@ -14,7 +14,7 @@ import type {
   MonitorRecord,
   UpdateMonitorInput
 } from "@sigmon/db/repositories/monitors.js";
-import type { DeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
+import type { DeadLetterJob, DeadLetterJobPage } from "@sigmon/db/repositories/dead-letter.js";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
@@ -129,7 +129,7 @@ export type MonitorAdministrationDependencies = {
 };
 
 export type DeadLetterAdministrationDependencies = {
-  listDeadLetterJobs?: (input: { limit?: number }) => Promise<DeadLetterJob[]>;
+  listDeadLetterJobs?: (input: { limit?: number; cursor?: string }) => Promise<DeadLetterJob[] | DeadLetterJobPage>;
   getDeadLetterJob?: (id: string) => Promise<DeadLetterJob | null | undefined>;
   deleteDeadLetterJob?: (id: string) => Promise<boolean>;
   replayDeadLetterJob?: (id: string) => Promise<"replayed" | "not_found" | "invalid_payload" | "unsupported_queue">;
@@ -443,7 +443,8 @@ const monitorChecksQuerySchema = z.object({
 });
 
 const deadLetterJobsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(250).optional()
+  limit: z.coerce.number().int().min(1).max(250).optional(),
+  cursor: z.string().trim().min(1).optional()
 });
 
 const sourceMapScopeQuerySchema = z.object({
@@ -2007,16 +2008,20 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_dead_letter_request" });
     }
 
-    let deadLetterJobs: DeadLetterJob[];
+    let result: Awaited<ReturnType<NonNullable<DeadLetterAdministrationDependencies["listDeadLetterJobs"]>>>;
     try {
-      deadLetterJobs = await options.deadLetters.listDeadLetterJobs({
-        limit: query.data.limit
+      result = await options.deadLetters.listDeadLetterJobs({
+        limit: query.data.limit,
+        cursor: query.data.cursor
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === "invalid_cursor") {
+        return reply.status(400).send({ error: "invalid_cursor" });
+      }
       return reply.status(503).send({ error: "dead_letter_unavailable" });
     }
 
-    return reply.send({ deadLetterJobs });
+    return reply.send(Array.isArray(result) ? { deadLetterJobs: result } : result);
   });
 
   app.get("/admin/dead-letter-jobs/:id", async (request, reply) => {

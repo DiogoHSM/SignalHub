@@ -5340,6 +5340,7 @@ describe("repositories", () => {
   it("lists dead letter jobs newest first with a bounded limit", async () => {
     await withDb(async (db) => {
       await migrate(db);
+      await db.deleteFrom("dead_letter_jobs").execute();
 
       const first = await insertDeadLetterJob(db, {
         queueName: "telemetry",
@@ -5353,10 +5354,20 @@ describe("repositories", () => {
         payload: { id: "new" },
         errorMessage: "new failure"
       });
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-06-01T00:00:00.000Z") })
+        .where("id", "=", first.id)
+        .execute();
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-06-01T00:01:00.000Z") })
+        .where("id", "=", second.id)
+        .execute();
 
-      const jobs = await listDeadLetterJobs(db, { limit: 1 });
+      const firstPage = await listDeadLetterJobs(db, { limit: 1 });
 
-      expect(jobs).toEqual([
+      expect(firstPage.deadLetterJobs).toEqual([
         expect.objectContaining({
           id: second.id,
           queueName: "telemetry",
@@ -5365,7 +5376,22 @@ describe("repositories", () => {
           errorMessage: "new failure"
         })
       ]);
-      expect(jobs).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: first.id })]));
+      expect(firstPage.deadLetterJobs).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: first.id })]));
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listDeadLetterJobs(db, { limit: 1, cursor: firstPage.cursor });
+      expect(secondPage.deadLetterJobs).toEqual([
+        expect.objectContaining({
+          id: first.id,
+          queueName: "telemetry",
+          jobName: "event",
+          payload: { id: "old" },
+          errorMessage: "old failure"
+        })
+      ]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(listDeadLetterJobs(db, { cursor: "not-json" })).rejects.toThrow("invalid_cursor");
     });
   });
 
