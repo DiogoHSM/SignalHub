@@ -123,6 +123,7 @@ export type ErrorGroupFilters = {
   from?: Date;
   to?: Date;
   limit: number;
+  cursor?: string;
 };
 
 export type ErrorGroupScope = {
@@ -441,6 +442,7 @@ function parseErrorGroupFilters(query: unknown): ErrorGroupFilters | undefined {
   const tenantId = optionalNonEmpty(raw, "tenant_id");
   const userId = optionalNonEmpty(raw, "user_id");
   const release = optionalNonEmpty(raw, "release");
+  const cursor = optionalNonEmpty(raw, "cursor");
 
   if (status) {
     filters.status = status as ErrorGroupStatus;
@@ -465,6 +467,9 @@ function parseErrorGroupFilters(query: unknown): ErrorGroupFilters | undefined {
   }
   if (to) {
     filters.to = to;
+  }
+  if (cursor) {
+    filters.cursor = cursor;
   }
 
   return filters;
@@ -1252,7 +1257,10 @@ async function handleErrorGroupListRoute(request: FastifyRequest, reply: Fastify
 
   try {
     return sendListResult(reply, await options.query.listErrorGroups(filters));
-  } catch {
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return reply.status(400).send({ error: "invalid_cursor" });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }

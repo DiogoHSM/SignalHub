@@ -64,6 +64,22 @@ export type ErrorGroupFilters = {
   from?: Date;
   to?: Date;
   limit?: number;
+  cursor?: string;
+};
+
+type ErrorGroupCursorPayload = {
+  projectId: string;
+  environmentId: string;
+  regressionSort: number;
+  severitySort: number;
+  statusSort: number;
+  lastSeenAt: string;
+  id: string;
+};
+
+export type ErrorGroupPage = {
+  data: ErrorGroupRecord[];
+  cursor?: string;
 };
 
 export type UpsertErrorGroupInput = {
@@ -165,6 +181,91 @@ function resolveLimit(limit: number | undefined): number {
   if (limit === undefined || !Number.isFinite(limit)) return 50;
   return Math.min(500, Math.max(1, Math.trunc(limit)));
 }
+
+function severitySortValue(severity: string): number {
+  switch (severity) {
+    case "fatal":
+      return 0;
+    case "critical":
+      return 1;
+    case "error":
+      return 2;
+    case "warning":
+      return 3;
+    case "info":
+      return 4;
+    case "debug":
+      return 5;
+    default:
+      return 6;
+  }
+}
+
+function statusSortValue(status: ErrorGroupStatus): number {
+  switch (status) {
+    case "open":
+      return 0;
+    case "investigating":
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function regressionSortValue(row: ErrorGroupRow): number {
+  return row.status === "open" && row.last_regressed_at !== null ? 0 : 1;
+}
+
+function encodeErrorGroupCursor(
+  row: ErrorGroupRow,
+  scope: Pick<ErrorGroupFilters, "projectId" | "environmentId">
+): string {
+  const payload: ErrorGroupCursorPayload = {
+    projectId: scope.projectId,
+    environmentId: scope.environmentId,
+    regressionSort: regressionSortValue(row),
+    severitySort: severitySortValue(row.severity),
+    statusSort: statusSortValue(row.status),
+    lastSeenAt: row.last_seen_at.toISOString(),
+    id: row.id
+  };
+
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeErrorGroupCursor(cursor: string): ErrorGroupCursorPayload {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("invalid_cursor");
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("invalid_cursor");
+  }
+
+  const payload = parsed as Partial<ErrorGroupCursorPayload>;
+  const lastSeenAt = typeof payload.lastSeenAt === "string" ? new Date(payload.lastSeenAt) : null;
+  if (
+    typeof payload.projectId !== "string" ||
+    typeof payload.environmentId !== "string" ||
+    typeof payload.regressionSort !== "number" ||
+    typeof payload.severitySort !== "number" ||
+    typeof payload.statusSort !== "number" ||
+    typeof payload.id !== "string" ||
+    lastSeenAt === null ||
+    Number.isNaN(lastSeenAt.getTime())
+  ) {
+    throw new Error("invalid_cursor");
+  }
+
+  return payload as ErrorGroupCursorPayload;
+}
+
+const regressionSortSql = sql<number>`case when status = 'open' and last_regressed_at is not null then 0 else 1 end`;
+const severitySortSql = sql<number>`case severity when 'fatal' then 0 when 'critical' then 1 when 'error' then 2 when 'warning' then 3 when 'info' then 4 when 'debug' then 5 else 6 end`;
+const statusSortSql = sql<number>`case status when 'open' then 0 when 'investigating' then 1 else 2 end`;
 
 export async function upsertErrorGroupForOccurrence(
   db: DbExecutor,
@@ -299,16 +400,99 @@ export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promi
   }
 
   const rows = await query
-    .orderBy(sql<number>`case when status = 'open' and last_regressed_at is not null then 0 else 1 end`)
-    .orderBy(
-      sql<number>`case severity when 'fatal' then 0 when 'critical' then 1 when 'error' then 2 when 'warning' then 3 when 'info' then 4 when 'debug' then 5 else 6 end`
-    )
-    .orderBy(sql<number>`case status when 'open' then 0 when 'investigating' then 1 else 2 end`)
+    .orderBy(regressionSortSql)
+    .orderBy(severitySortSql)
+    .orderBy(statusSortSql)
     .orderBy("last_seen_at", "desc")
+    .orderBy("id", "desc")
     .limit(resolveLimit(filters.limit))
     .execute();
 
   return rows.map(toGroup);
+}
+
+export async function listErrorGroupsPage(db: Db, filters: ErrorGroupFilters): Promise<ErrorGroupPage> {
+  const limit = resolveLimit(filters.limit);
+  let query = db
+    .selectFrom("error_groups")
+    .selectAll()
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId);
+
+  if (filters.status) query = query.where("status", "=", filters.status);
+  if (filters.severity) query = query.where("severity", "=", filters.severity);
+  if (filters.fingerprint) query = query.where("grouping_fingerprint", "=", filters.fingerprint);
+  if (filters.release) query = query.where("latest_release", "=", filters.release);
+  if (filters.from) query = query.where("last_seen_at", ">=", filters.from);
+  if (filters.to) query = query.where("last_seen_at", "<", filters.to);
+  if (filters.tenantId) {
+    query = query.where(
+      sql<boolean>`exists (
+        select 1 from errors
+        where errors.error_group_id = error_groups.id
+          and errors.tenant_id = ${filters.tenantId}
+      )`
+    );
+  }
+  if (filters.userId) {
+    query = query.where(
+      sql<boolean>`exists (
+        select 1 from errors
+        where errors.error_group_id = error_groups.id
+          and errors.user_id = ${filters.userId}
+      )`
+    );
+  }
+  if (filters.cursor) {
+    const cursor = decodeErrorGroupCursor(filters.cursor);
+    if (cursor.projectId !== filters.projectId || cursor.environmentId !== filters.environmentId) {
+      throw new Error("invalid_cursor_scope");
+    }
+
+    const cursorLastSeenAt = new Date(cursor.lastSeenAt);
+    query = query.where(sql<boolean>`(
+      ${regressionSortSql} > ${cursor.regressionSort}
+      or (
+        ${regressionSortSql} = ${cursor.regressionSort}
+        and ${severitySortSql} > ${cursor.severitySort}
+      )
+      or (
+        ${regressionSortSql} = ${cursor.regressionSort}
+        and ${severitySortSql} = ${cursor.severitySort}
+        and ${statusSortSql} > ${cursor.statusSort}
+      )
+      or (
+        ${regressionSortSql} = ${cursor.regressionSort}
+        and ${severitySortSql} = ${cursor.severitySort}
+        and ${statusSortSql} = ${cursor.statusSort}
+        and last_seen_at < ${cursorLastSeenAt}
+      )
+      or (
+        ${regressionSortSql} = ${cursor.regressionSort}
+        and ${severitySortSql} = ${cursor.severitySort}
+        and ${statusSortSql} = ${cursor.statusSort}
+        and last_seen_at = ${cursorLastSeenAt}
+        and id < ${cursor.id}
+      )
+    )`);
+  }
+
+  const rows = await query
+    .orderBy(regressionSortSql)
+    .orderBy(severitySortSql)
+    .orderBy(statusSortSql)
+    .orderBy("last_seen_at", "desc")
+    .orderBy("id", "desc")
+    .limit(limit + 1)
+    .execute();
+
+  const pageRows = rows.slice(0, limit);
+  const lastRow = pageRows.at(-1);
+
+  return {
+    data: pageRows.map(toGroup),
+    cursor: rows.length > limit && lastRow ? encodeErrorGroupCursor(lastRow, filters) : undefined
+  };
 }
 
 export async function getErrorGroup(

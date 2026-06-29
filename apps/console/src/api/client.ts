@@ -421,6 +421,7 @@ function errorGroupQueryPath(query: ErrorGroupQuery): string {
   if (query.from) params.set("from", query.from instanceof Date ? query.from.toISOString() : query.from);
   if (query.to) params.set("to", query.to instanceof Date ? query.to.toISOString() : query.to);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
 
   return `/query/error-groups?${params.toString()}`;
 }

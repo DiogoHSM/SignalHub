@@ -128,6 +128,7 @@ export type ErrorGroupQuery = {
   from?: Date | string;
   to?: Date | string;
   limit?: number;
+  cursor?: string;
 };
 
 export type IncidentMttrQuery = {

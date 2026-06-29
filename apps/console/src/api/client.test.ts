@@ -656,11 +656,12 @@ describe("createApiClient", () => {
       release: "web@1.2.3",
       from: "2026-05-05T12:00:00.000Z",
       to: "2026-05-05T13:00:00.000Z",
-      limit: 25
+      limit: 25,
+      cursor: "cursor/next"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/query/error-groups?project_id=prj%2F1&environment_id=env+1&tenant_id=tenant%2F1&user_id=user+1&status=investigating&severity=fatal&fingerprint=fp%2Fcheckout&release=web%401.2.3&from=2026-05-05T12%3A00%3A00.000Z&to=2026-05-05T13%3A00%3A00.000Z&limit=25",
+      "/api/query/error-groups?project_id=prj%2F1&environment_id=env+1&tenant_id=tenant%2F1&user_id=user+1&status=investigating&severity=fatal&fingerprint=fp%2Fcheckout&release=web%401.2.3&from=2026-05-05T12%3A00%3A00.000Z&to=2026-05-05T13%3A00%3A00.000Z&limit=25&cursor=cursor%2Fnext",
       expect.objectContaining({ method: "GET" })
     );
   });

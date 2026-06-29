@@ -98,7 +98,7 @@ import { getOperations } from "@sigmon/db/repositories/operations-query.js";
 import { getSessionTimeline } from "@sigmon/db/repositories/session-timeline.js";
 import {
   getErrorGroup,
-  listErrorGroups,
+  listErrorGroupsPage,
   updateErrorGroupStatus,
   updateErrorGroupTriage
 } from "@sigmon/db/repositories/error-groups.js";
@@ -488,7 +488,7 @@ const app = await buildApp({
   query: {
     listEvents: (filters) => listEvents(db, filters),
     listErrors: (filters) => listErrors(db, filters),
-    listErrorGroups: (filters) => listErrorGroups(db, filters),
+    listErrorGroups: (filters) => listErrorGroupsPage(db, filters),
     getErrorGroup: (id, filters) => getErrorGroup(db, { id, ...filters }),
     getErrorGroupIncident: (id, filters) => getErrorGroupIncident(db, { groupId: id, ...filters }),
     updateErrorGroupTriage: (id, input) => updateErrorGroupTriage(db, { id, ...input }),

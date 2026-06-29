@@ -103,6 +103,7 @@ import {
   extractTopStackFrame,
   getErrorGroup,
   listErrorGroups,
+  listErrorGroupsPage,
   normalizeErrorGroupingInput,
   updateErrorGroupStatus,
   updateErrorGroupTriage
@@ -3847,6 +3848,67 @@ describe("repositories", () => {
           lastRegressedAt: expect.any(Date)
         })
       );
+    });
+  });
+
+  it("paginates error groups with scoped stable cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_error_group_cursor', 'Error Group Cursor')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_error_group_cursor', 'prj_error_group_cursor', 'production')
+      `.execute(db);
+      await sql`insert into projects (id, name) values ('prj_error_group_cursor_other', 'Other')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_error_group_cursor_other', 'prj_error_group_cursor_other', 'production')
+      `.execute(db);
+
+      for (const [id, timestamp, fingerprint] of [
+        ["err_group_cursor_1", "2026-05-10T12:00:00.000Z", "group-cursor-oldest"],
+        ["err_group_cursor_2", "2026-05-10T12:01:00.000Z", "group-cursor-middle"],
+        ["err_group_cursor_3", "2026-05-10T12:02:00.000Z", "group-cursor-newest"]
+      ] as const) {
+        await insertError(db, {
+          id,
+          projectId: "prj_error_group_cursor",
+          environmentId: "env_error_group_cursor",
+          timestamp: new Date(timestamp),
+          receivedAt: new Date(timestamp),
+          message: `Cursor ${fingerprint}`,
+          severity: "error",
+          fingerprint
+        });
+      }
+
+      const firstPage = await listErrorGroupsPage(db, {
+        projectId: "prj_error_group_cursor",
+        environmentId: "env_error_group_cursor",
+        limit: 2
+      });
+
+      expect(firstPage.data.map((group) => group.latestErrorId)).toEqual(["err_group_cursor_3", "err_group_cursor_2"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listErrorGroupsPage(db, {
+        projectId: "prj_error_group_cursor",
+        environmentId: "env_error_group_cursor",
+        limit: 2,
+        cursor: firstPage.cursor
+      });
+
+      expect(secondPage.data.map((group) => group.latestErrorId)).toEqual(["err_group_cursor_1"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(
+        listErrorGroupsPage(db, {
+          projectId: "prj_error_group_cursor_other",
+          environmentId: "env_error_group_cursor_other",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
     });
   });
 
