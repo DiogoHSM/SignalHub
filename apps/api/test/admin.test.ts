@@ -1215,6 +1215,37 @@ describe("admin routes", () => {
     expect((uploadCalls[0] as { content: Buffer }).content).toEqual(Buffer.from(sourceMap));
   });
 
+  it("returns 404 when admin source map uploads target an inactive scope", async () => {
+    const sourceMap = JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" });
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_archived" },
+      { name: "environment_id", value: "env_archived" },
+      { name: "release", value: "2026.05.10" },
+      { name: "minified_file", value: "app.min.js" },
+      { name: "file", filename: "app.min.js.map", contentType: "application/json", content: sourceMap }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        uploadMap: async () => {
+          throw new Error("active_source_map_scope_not_found");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "invalid_source_map_request" });
+  });
+
   it("returns 400 when source map upload content is invalid", async () => {
     const { headers, payload } = createMultipartPayload([
       { name: "project_id", value: "prj_1" },

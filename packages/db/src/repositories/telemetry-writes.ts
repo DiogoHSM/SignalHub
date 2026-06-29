@@ -101,6 +101,22 @@ function inserted(result: { id: string }[]): boolean {
   return result.length > 0;
 }
 
+async function assertActiveTelemetryScope(db: Db, input: TelemetryBaseInput): Promise<void> {
+  const activeScope = await db
+    .selectFrom("environments")
+    .innerJoin("projects", "projects.id", "environments.project_id")
+    .select("environments.id")
+    .where("environments.project_id", "=", input.projectId)
+    .where("environments.id", "=", input.environmentId)
+    .where("environments.archived_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .executeTakeFirst();
+
+  if (!activeScope) {
+    throw new Error("active_telemetry_scope_not_found");
+  }
+}
+
 async function touchProfiles(db: Db, input: TelemetryBaseInput): Promise<void> {
   if (input.userId) {
     await touchUserProfileLastSeen(db, {
@@ -123,6 +139,11 @@ async function touchProfiles(db: Db, input: TelemetryBaseInput): Promise<void> {
 
 export async function insertEvent(db: Db, input: InsertEventInput): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("events").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
     const result = await trx
       .insertInto("events")
       .values({
@@ -144,6 +165,8 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
   await db.transaction().execute(async (trx) => {
     const existing = await trx.selectFrom("errors").select("id").where("id", "=", input.id).executeTakeFirst();
     if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
 
     const grouping = await upsertErrorGroupForOccurrence(trx, {
       projectId: input.projectId,
@@ -187,6 +210,11 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
 
 export async function insertLlmCall(db: Db, input: InsertLlmCallInput): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("llm_calls").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
     const result = await trx
       .insertInto("llm_calls")
       .values({
@@ -215,6 +243,11 @@ export async function insertLlmCall(db: Db, input: InsertLlmCallInput): Promise<
 
 export async function insertTrace(db: Db, input: InsertTraceInput): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("traces").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
     const result = await trx
       .insertInto("traces")
       .values({
@@ -237,6 +270,11 @@ export async function insertTrace(db: Db, input: InsertTraceInput): Promise<void
 
 export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("spans").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
     const result = await trx
       .insertInto("spans")
       .values({
@@ -265,6 +303,11 @@ export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> 
 
 export async function insertBreadcrumb(db: Db, input: InsertBreadcrumbInput): Promise<void> {
   await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("breadcrumbs").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
     const result = await trx
       .insertInto("breadcrumbs")
       .values({

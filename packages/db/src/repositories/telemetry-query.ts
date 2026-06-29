@@ -292,10 +292,16 @@ export async function getErrorForSourceMapResolution(
 ): Promise<ErrorForSourceMapResolution | null> {
   const row = await db
     .selectFrom("errors")
-    .select(["id", "project_id", "environment_id", "release", "stack"])
-    .where("id", "=", input.id)
-    .where("project_id", "=", input.projectId)
-    .where("environment_id", "=", input.environmentId)
+    .innerJoin("projects", "projects.id", "errors.project_id")
+    .innerJoin("environments", (join) =>
+      join.onRef("environments.project_id", "=", "errors.project_id").onRef("environments.id", "=", "errors.environment_id")
+    )
+    .select(["errors.id", "errors.project_id", "errors.environment_id", "errors.release", "errors.stack"])
+    .where("errors.id", "=", input.id)
+    .where("errors.project_id", "=", input.projectId)
+    .where("errors.environment_id", "=", input.environmentId)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
     .executeTakeFirst();
 
   return row

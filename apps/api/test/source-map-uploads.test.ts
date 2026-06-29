@@ -346,4 +346,25 @@ describe("source map CI uploads", () => {
     expect(response.statusCode).toBe(413);
     expect(response.json()).toEqual({ error: "invalid_source_map_request" });
   });
+
+  it("maps archived source map upload scopes to not found", async () => {
+    app = await appWithUpload({
+      sourceMapUploads: {
+        verifyToken: vi.fn().mockResolvedValue({ id: "smtok_1", projectId: "prj_1", environmentId: "env_1" }),
+        uploadMap: vi.fn().mockRejectedValue(new Error("active_source_map_scope_not_found")),
+        uploadBundle: vi.fn()
+      }
+    });
+    const body = singleSourceMapBody();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/source-maps",
+      headers: { ...body.headers, authorization: "Bearer shsmap_valid" },
+      payload: body.payload
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "invalid_source_map_request" });
+  });
 });

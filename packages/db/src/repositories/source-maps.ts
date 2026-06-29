@@ -299,14 +299,22 @@ export async function findSourceMapArtifactForFrame(
 ): Promise<SourceMapArtifactRecord | null> {
   const row = await db
     .selectFrom("source_map_artifacts")
-    .selectAll()
-    .where("project_id", "=", input.projectId)
-    .where("environment_id", "=", input.environmentId)
-    .where("release", "=", input.release)
-    .where("minified_file", "=", input.minifiedFile)
-    .where("deleted_at", "is", null)
-    .orderBy("created_at", "desc")
-    .orderBy("id", "desc")
+    .innerJoin("projects", "projects.id", "source_map_artifacts.project_id")
+    .innerJoin("environments", (join) =>
+      join
+        .onRef("environments.project_id", "=", "source_map_artifacts.project_id")
+        .onRef("environments.id", "=", "source_map_artifacts.environment_id")
+    )
+    .selectAll("source_map_artifacts")
+    .where("source_map_artifacts.project_id", "=", input.projectId)
+    .where("source_map_artifacts.environment_id", "=", input.environmentId)
+    .where("source_map_artifacts.release", "=", input.release)
+    .where("source_map_artifacts.minified_file", "=", input.minifiedFile)
+    .where("source_map_artifacts.deleted_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
+    .orderBy("source_map_artifacts.created_at", "desc")
+    .orderBy("source_map_artifacts.id", "desc")
     .executeTakeFirst();
 
   return row ? toSourceMapArtifact(row) : null;

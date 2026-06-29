@@ -753,7 +753,9 @@ const SOURCE_MAP_PAYLOAD_TOO_LARGE_ERRORS = new Set([
   "source_map_zip_too_many_entries"
 ]);
 
-export function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
+const SOURCE_MAP_NOT_FOUND_ERRORS = new Set(["active_source_map_scope_not_found"]);
+
+export function sourceMapUploadErrorStatus(error: unknown): 400 | 404 | 413 | undefined {
   if (!error || typeof error !== "object" || !("message" in error) || typeof error.message !== "string") {
     return undefined;
   }
@@ -764,6 +766,10 @@ export function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefine
 
   if (SOURCE_MAP_PAYLOAD_TOO_LARGE_ERRORS.has(error.message)) {
     return 413;
+  }
+
+  if (SOURCE_MAP_NOT_FOUND_ERRORS.has(error.message)) {
+    return 404;
   }
 
   const code = "code" in error && typeof error.code === "string" ? error.code : "";

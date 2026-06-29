@@ -28,6 +28,8 @@ The intended public website and domain is `sigmon.app`; the future deployed app 
 
 SignalMonitor does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, product object storage, or stored log telemetry.
 
+Archived projects and environments are inactive scopes. Their ingestion API keys and source-map upload tokens are no longer valid for new writes, and queued telemetry retries are rejected before persistence if the target project or environment has been archived.
+
 ## Prerequisites
 
 - Node.js 22.x is the release baseline. Newer Node.js versions may work for local drills, but 22.x is the supported target.
@@ -150,9 +152,9 @@ Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter j
 
 ## Source Maps
 
-Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by project, environment, release, and minified filename; SignalMonitor does not guess across releases.
+Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by active project, active environment, release, and minified filename; SignalMonitor does not guess across scopes or releases.
 
-Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/sigmon/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
+Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/sigmon/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Cached stack resolutions are constrained to the same error scope, artifact scope, release, and minified file. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
 
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 

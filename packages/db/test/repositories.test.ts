@@ -87,6 +87,7 @@ import {
   getLlmCostByModel,
   getLlmSummary,
   getOverview,
+  getErrorForSourceMapResolution,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -123,6 +124,7 @@ import { getErrorGroupIncident, suggestErrorGroupPriority } from "../src/reposit
 import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
+  findSourceMapArtifactForFrame,
   getCachedErrorStackResolution,
   listExpiredSourceMapArtifacts,
   listSourceMapArtifacts,
@@ -2360,6 +2362,131 @@ describe("repositories", () => {
 
       await db.deleteFrom("source_map_artifacts").where("id", "in", [artifact.id, otherArtifact.id]).execute();
       await sql`delete from errors where id = 'err_1'`.execute(db);
+    });
+  });
+
+  it("enforces source-map stack resolution scope at the database boundary", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+      await sql`insert into projects (id, name) values ('prj_stack_scope_other', 'Stack Scope Other') on conflict (id) do nothing`.execute(
+        db
+      );
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_stack_scope_other', 'prj_stack_scope_other', 'Production')
+        on conflict (id) do nothing
+      `.execute(db);
+      await insertSourceMapError(db, {
+        id: "err_stack_scope_boundary",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@scope"
+      });
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@scope",
+        minifiedFile: "scope.min.js",
+        originalFilename: "scope.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "scope-boundary",
+        storagePath: "/tmp/scope.min.js.map",
+        uploadedByUserId: user.id
+      });
+      const otherArtifact = await createSourceMapArtifact(db, {
+        projectId: "prj_stack_scope_other",
+        environmentId: "env_stack_scope_other",
+        release: "web@scope",
+        minifiedFile: "scope.min.js",
+        originalFilename: "scope.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "scope-boundary-other",
+        storagePath: "/tmp/scope-other.min.js.map",
+        uploadedByUserId: user.id
+      });
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_error', 'err_stack_scope_boundary', 'prj_stack_scope_other', 'env_stack_scope_other', 'web@scope', ${otherArtifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_artifact', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@scope', ${otherArtifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_release', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@other', ${artifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_file', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@scope', ${artifact.id}, 0, 'wrong.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_valid', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@scope', ${artifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).resolves.toBeDefined();
+    });
+  });
+
+  it("does not resolve source maps for archived project or environment scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const user = await seedSourceMapUser(db);
+      const project = await createProject(db, { name: "Archived Source Map Resolution Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await createSourceMapArtifact(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        release: "web@archived",
+        minifiedFile: "archived.min.js",
+        originalFilename: "archived.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "archived-scope",
+        storagePath: "/tmp/archived.min.js.map",
+        uploadedByUserId: user.id
+      });
+      await insertSourceMapError(db, {
+        id: "err_source_map_archived_scope",
+        projectId: project.id,
+        environmentId: environment.id,
+        release: "web@archived"
+      });
+
+      await archiveEnvironment(db, environment.id);
+      await expect(
+        getErrorForSourceMapResolution(db, {
+          id: "err_source_map_archived_scope",
+          projectId: project.id,
+          environmentId: environment.id
+        })
+      ).resolves.toBeNull();
+      await expect(
+        findSourceMapArtifactForFrame(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          release: "web@archived",
+          minifiedFile: "archived.min.js"
+        })
+      ).resolves.toBeNull();
     });
   });
 
@@ -6002,6 +6129,138 @@ describe("repositories", () => {
           hash: "hash"
         })
       ).rejects.toThrow("active_api_key_scope_not_found");
+    });
+  });
+
+  it("rejects telemetry writes under archived project or environment scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const archivedProject = await createProject(db, { name: "Archived Telemetry Write Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const activeProject = await createProject(db, { name: "Archived Telemetry Write Environment Project" });
+      const archivedEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "archived" });
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      const base = {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        timestamp: new Date("2026-05-02T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T12:00:01.000Z")
+      };
+      const archivedEnvironmentBase = {
+        ...base,
+        projectId: activeProject.id,
+        environmentId: archivedEnvironment.id
+      };
+      const writes = [
+        () => insertEvent(db, { ...base, id: "evt_archived_scope", name: "archived.scope" }),
+        () => insertError(db, { ...base, id: "err_archived_scope", message: "archived", severity: "error" }),
+        () =>
+          insertLlmCall(db, {
+            ...base,
+            id: "llm_archived_scope",
+            provider: "openai",
+            model: "gpt-5",
+            status: "success"
+          }),
+        () =>
+          insertTrace(db, {
+            ...base,
+            id: "trc_archived_scope",
+            name: "archived trace",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertSpan(db, {
+            ...base,
+            id: "spn_archived_scope",
+            traceId: "trc_archived_scope",
+            name: "archived span",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertBreadcrumb(db, {
+            ...base,
+            id: "brd_archived_scope",
+            type: "custom" as const,
+            message: "archived",
+            level: "info" as const
+          }),
+        () => insertEvent(db, { ...archivedEnvironmentBase, id: "evt_archived_environment", name: "archived.environment" })
+      ];
+
+      for (const write of writes) {
+        await expect(write()).rejects.toThrow("active_telemetry_scope_not_found");
+      }
+    });
+  });
+
+  it("keeps duplicate telemetry retries idempotent after the scope is archived", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Archived Idempotent Retry Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-02T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T12:00:01.000Z")
+      };
+      const writes = [
+        () => insertEvent(db, { ...base, id: "evt_archived_retry", name: "archived.retry" }),
+        () => insertError(db, { ...base, id: "err_archived_retry", message: "archived retry", severity: "error" }),
+        () =>
+          insertLlmCall(db, {
+            ...base,
+            id: "llm_archived_retry",
+            provider: "openai",
+            model: "gpt-5",
+            status: "success"
+          }),
+        () =>
+          insertTrace(db, {
+            ...base,
+            id: "trc_archived_retry",
+            name: "archived retry trace",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertSpan(db, {
+            ...base,
+            id: "spn_archived_retry",
+            traceId: "trc_archived_retry",
+            name: "archived retry span",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertBreadcrumb(db, {
+            ...base,
+            id: "brd_archived_retry",
+            type: "custom" as const,
+            message: "archived retry",
+            level: "info" as const
+          })
+      ];
+
+      for (const write of writes) {
+        await expect(write()).resolves.toBeUndefined();
+      }
+
+      await archiveProject(db, project.id);
+
+      for (const write of writes) {
+        await expect(write()).resolves.toBeUndefined();
+      }
     });
   });
 

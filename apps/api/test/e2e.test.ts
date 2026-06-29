@@ -7,6 +7,7 @@ import { createApiKey, hashApiKey, verifyApiKey as verifyTelemetryApiKey } from 
 import { createDb, type Db } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
 import {
+  archiveEnvironment,
   createApiKeyRecord,
   createEnvironment,
   createProject,
@@ -142,6 +143,32 @@ describe("telemetry core e2e", () => {
         expect(response.statusCode).toBe(202);
         return response.json<{ id: string }>().id;
       };
+
+      const archivedProject = await createProject(db, { name: "Archived E2E Project" });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedApiKey = createApiKey();
+      await createApiKeyRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived E2E ingest",
+        prefix: archivedApiKey.prefix,
+        hash: await hashApiKey(archivedApiKey.secret, apiKeyPepper)
+      });
+      await archiveEnvironment(db, archivedEnvironment.id);
+      const archivedResponse = await app.inject({
+        method: "POST",
+        url: "/v1/events",
+        headers: { authorization: `Bearer ${archivedApiKey.secret}` },
+        payload: {
+          name: "archived.scope",
+          timestamp: "2026-05-02T12:00:00.000Z"
+        }
+      });
+      expect(archivedResponse.statusCode).toBe(401);
+      expect(archivedResponse.json()).toEqual({ error: "invalid_api_key" });
 
       const eventPayload = {
         timestamp: "2026-05-02T12:00:00.000Z",
