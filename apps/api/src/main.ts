@@ -45,6 +45,7 @@ import {
   recordHeartbeatCheckIn,
   updateMonitor
 } from "@sigmon/db/repositories/monitors.js";
+import { listDeadLetterJobs } from "@sigmon/db/repositories/dead-letter.js";
 import {
   archiveUser,
   createUser,
@@ -570,6 +571,9 @@ const app = await buildApp({
     listMonitorChecks: (input) => listMonitorChecks(db, input),
     verifyHeartbeatSecret: (hash, secret) => verifyApiKey(hash, secret, config.apiKeyPepper),
     recordHeartbeatCheckIn: (input) => recordHeartbeatCheckIn(db, input)
+  },
+  deadLetters: {
+    listDeadLetterJobs: (input) => listDeadLetterJobs(db, input)
   },
   sourceMaps: {
     list: (filters) => listSourceMapArtifacts(db, filters),

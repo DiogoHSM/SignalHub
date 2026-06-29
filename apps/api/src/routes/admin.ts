@@ -13,6 +13,7 @@ import type {
   MonitorRecord,
   UpdateMonitorInput
 } from "@sigmon/db/repositories/monitors.js";
+import type { DeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
@@ -122,6 +123,10 @@ export type MonitorAdministrationDependencies = {
   listMonitorChecks?: (input: { monitorId: string; limit?: number }) => Promise<MonitorCheckRecord[]>;
 };
 
+export type DeadLetterAdministrationDependencies = {
+  listDeadLetterJobs?: (input: { limit?: number }) => Promise<DeadLetterJob[]>;
+};
+
 export type SourceMapUploadAttribution =
   | { uploadedByUserId: string; uploadedByTokenId?: never }
   | { uploadedByUserId?: never; uploadedByTokenId: string };
@@ -202,6 +207,7 @@ export type AdminRouteOptions = {
   adminResources?: AdminResourceDependencies;
   alerts?: AlertAdministrationDependencies;
   monitors?: MonitorAdministrationDependencies;
+  deadLetters?: DeadLetterAdministrationDependencies;
   sourceMaps?: SourceMapAdministrationDependencies;
   sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
@@ -414,6 +420,10 @@ const monitorListQuerySchema = z.object({
 });
 
 const monitorChecksQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(250).optional()
+});
+
+const deadLetterJobsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(250).optional()
 });
 
@@ -1950,5 +1960,32 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     return reply.send({ checks });
+  });
+
+  app.get("/admin/dead-letter-jobs", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.listDeadLetterJobs) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const query = deadLetterJobsQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let deadLetterJobs: DeadLetterJob[];
+    try {
+      deadLetterJobs = await options.deadLetters.listDeadLetterJobs({
+        limit: query.data.limit
+      });
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    return reply.send({ deadLetterJobs });
   });
 }

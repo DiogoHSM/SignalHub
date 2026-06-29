@@ -5,7 +5,7 @@ import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
-import { insertDeadLetterJob } from "../src/repositories/dead-letter.js";
+import { insertDeadLetterJob, listDeadLetterJobs } from "../src/repositories/dead-letter.js";
 import {
   archiveEnvironment,
   archiveProject,
@@ -5059,6 +5059,38 @@ describe("repositories", () => {
         errorMessage: "authorization: [REDACTED]",
         createdAt: expect.any(Date)
       });
+    });
+  });
+
+  it("lists dead letter jobs newest first with a bounded limit", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const first = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "old" },
+        errorMessage: "old failure"
+      });
+      const second = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "new" },
+        errorMessage: "new failure"
+      });
+
+      const jobs = await listDeadLetterJobs(db, { limit: 1 });
+
+      expect(jobs).toEqual([
+        expect.objectContaining({
+          id: second.id,
+          queueName: "telemetry",
+          jobName: "error",
+          payload: { id: "new" },
+          errorMessage: "new failure"
+        })
+      ]);
+      expect(jobs).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: first.id })]));
     });
   });
 

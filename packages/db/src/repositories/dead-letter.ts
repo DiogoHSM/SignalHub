@@ -21,6 +21,10 @@ export interface InsertDeadLetterJobInput {
   errorMessage: string;
 }
 
+export interface ListDeadLetterJobsInput {
+  limit?: number;
+}
+
 function toDeadLetterJob(row: DeadLetterJobRow): DeadLetterJob {
   return {
     id: row.id,
@@ -46,4 +50,26 @@ export async function insertDeadLetterJob(db: Db, input: InsertDeadLetterJobInpu
     .executeTakeFirstOrThrow();
 
   return toDeadLetterJob(row);
+}
+
+function boundedLimit(limit: number | undefined): number {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) {
+    return 50;
+  }
+  return Math.max(1, Math.min(Math.trunc(limit), 250));
+}
+
+export async function listDeadLetterJobs(
+  db: Db,
+  input: ListDeadLetterJobsInput = {}
+): Promise<DeadLetterJob[]> {
+  const rows = await db
+    .selectFrom("dead_letter_jobs")
+    .selectAll()
+    .orderBy("created_at", "desc")
+    .orderBy("id", "desc")
+    .limit(boundedLimit(input.limit))
+    .execute();
+
+  return rows.map(toDeadLetterJob);
 }

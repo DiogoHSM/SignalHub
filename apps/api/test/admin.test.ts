@@ -115,6 +115,43 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(403);
   });
 
+  it("lists dead letter jobs for admins", async () => {
+    const listDeadLetterJobs = vi.fn(async ({ limit }: { limit?: number }) => [
+      {
+        id: "dlj_1",
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { eventId: "evt_1" },
+        errorMessage: "insert failed",
+        createdAt: new Date("2026-06-01T12:00:00.000Z")
+      }
+    ]);
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?limit=25" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      deadLetterJobs: [
+        {
+          id: "dlj_1",
+          queueName: "telemetry",
+          jobName: "event",
+          payload: { eventId: "evt_1" },
+          errorMessage: "insert failed",
+          createdAt: "2026-06-01T12:00:00.000Z"
+        }
+      ]
+    });
+    expect(listDeadLetterJobs).toHaveBeenCalledWith({ limit: 25 });
+  });
+
   it("rejects weak admin-created passwords", async () => {
     app = await buildApp({
       readiness,
