@@ -457,19 +457,25 @@ function toSpan(row: SpanRow): SpanRecord {
   };
 }
 
+function toFiniteSafeNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+      return null;
+    }
+    return Number(value);
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && Math.abs(parsed) <= Number.MAX_SAFE_INTEGER ? parsed : null;
+}
+
 function toNumber(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "bigint") return Number(value);
-  if (typeof value === "string") return Number(value);
-  return 0;
+  return toFiniteSafeNumber(value) ?? 0;
 }
 
 function toRoundedOrNull(value: unknown): number | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.round(n) : null;
+  const n = toFiniteSafeNumber(value);
+  return n === null ? null : Math.round(n);
 }
 
 export function buildBucketAxis(from: Date, to: Date, bucket: OverviewTrendBucket): string[] {
@@ -1570,3 +1576,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     }
   };
 }
+
+export const __test = {
+  toNumber,
+  toRoundedOrNull
+};

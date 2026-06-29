@@ -148,16 +148,24 @@ function resolveOperationsRange(window: OperationsWindow, now = new Date()): { f
   return { from, to };
 }
 
-function toNumber(value: unknown): number {
-  if (value === null || value === undefined) return 0;
+function toFiniteSafeNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+      return null;
+    }
+    return Number(value);
+  }
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) && Math.abs(parsed) <= Number.MAX_SAFE_INTEGER ? parsed : null;
+}
+
+function toNumber(value: unknown): number {
+  return toFiniteSafeNumber(value) ?? 0;
 }
 
 function toNullableNumber(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return toFiniteSafeNumber(value);
 }
 
 function toIso(value: Date | string | null): string | null {
@@ -540,3 +548,8 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
     setupGaps
   };
 }
+
+export const __test = {
+  toNumber,
+  toNullableNumber
+};
