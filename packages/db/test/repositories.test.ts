@@ -8,9 +8,12 @@ import { migrate } from "../src/migrate.js";
 import {
   deleteDeadLetterJob,
   countDeadLetterJobs,
+  deleteDeadLetterJobWithAction,
   getDeadLetterJob,
   insertDeadLetterJob,
-  listDeadLetterJobs
+  listDeadLetterJobActions,
+  listDeadLetterJobs,
+  recordDeadLetterJobAction
 } from "../src/repositories/dead-letter.js";
 import {
   archiveEnvironment,
@@ -5415,6 +5418,59 @@ describe("repositories", () => {
       await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(true);
       await expect(getDeadLetterJob(db, job.id)).resolves.toBeUndefined();
       await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(false);
+    });
+  });
+
+  it("records dead letter job actions and preserves audit history when deleting", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const job = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "evt_dead_letter_action" },
+        errorMessage: "insert failed"
+      });
+
+      const action = await recordDeadLetterJobAction(db, job, {
+        action: "replayed",
+        actor: { userId: null, email: "admin@example.com" },
+        metadata: { replayAttemptId: "rpl_1" }
+      });
+
+      expect(action).toMatchObject({
+        id: expect.stringMatching(/^dla_/),
+        deadLetterJobId: job.id,
+        queueName: "telemetry",
+        jobName: "event",
+        action: "replayed",
+        actorUserId: null,
+        actorEmail: "admin@example.com",
+        metadata: { replayAttemptId: "rpl_1" },
+        createdAt: expect.any(Date)
+      });
+
+      await expect(listDeadLetterJobActions(db, job.id)).resolves.toEqual([
+        expect.objectContaining({ id: action.id, action: "replayed" })
+      ]);
+
+      await expect(
+        deleteDeadLetterJobWithAction(db, job.id, {
+          action: "deleted",
+          actor: { userId: null, email: "admin@example.com" }
+        })
+      ).resolves.toBe(true);
+      await expect(getDeadLetterJob(db, job.id)).resolves.toBeUndefined();
+      await expect(deleteDeadLetterJobWithAction(db, job.id, { action: "deleted", actor: { userId: null, email: "admin@example.com" } })).resolves.toBe(false);
+
+      const actions = await listDeadLetterJobActions(db, job.id);
+      expect(actions.map((row) => row.action)).toEqual(["deleted", "replayed"]);
+      expect(actions[0]).toMatchObject({
+        deadLetterJobId: job.id,
+        queueName: "telemetry",
+        jobName: "event",
+        actorEmail: "admin@example.com"
+      });
     });
   });
 

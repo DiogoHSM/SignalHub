@@ -39,7 +39,7 @@ Implemented capabilities:
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
 - Internal alert history with optional generic webhook notification channels and recorded delivery attempts.
-- Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, and controlled replay.
+- Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, controlled replay, and retained replay/delete audit actions.
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
 - Structured API and worker logs redact secret-bearing fields, and unhandled API errors return sanitized JSON.

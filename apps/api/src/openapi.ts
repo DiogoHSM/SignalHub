@@ -435,6 +435,31 @@ export const openApiDocument = {
           deadLetterJob: { $ref: "#/components/schemas/DeadLetterJob" }
         }
       },
+      DeadLetterJobAction: {
+        type: "object",
+        required: ["id", "deadLetterJobId", "queueName", "jobName", "action", "actorEmail", "metadata", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          deadLetterJobId: { type: "string" },
+          queueName: { type: "string" },
+          jobName: { type: "string" },
+          action: { type: "string", enum: ["deleted", "replayed"] },
+          actorUserId: { type: "string", nullable: true },
+          actorEmail: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
+      DeadLetterJobActionsResponse: {
+        type: "object",
+        required: ["actions"],
+        properties: {
+          actions: {
+            type: "array",
+            items: { $ref: "#/components/schemas/DeadLetterJobAction" }
+          }
+        }
+      },
       DeadLetterReplayResponse: {
         type: "object",
         required: ["replayed", "id"],
@@ -765,6 +790,29 @@ export const openApiDocument = {
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
           "404": { description: "Dead-letter job not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/dead-letter-jobs/{id}/actions": {
+      get: {
+        ...sessionRoute("List dead-letter job actions", "Admin route for inspecting replay/delete audit actions for a dead-letter job id."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Dead-letter job actions returned",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterJobActionsResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }

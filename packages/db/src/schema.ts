@@ -262,6 +262,18 @@ export interface DeadLetterJobsTable {
   created_at: Timestamp;
 }
 
+export interface DeadLetterJobActionsTable {
+  id: string;
+  dead_letter_job_id: string;
+  queue_name: string;
+  job_name: string;
+  action: "deleted" | "replayed";
+  actor_user_id: string | null;
+  actor_email: string;
+  metadata: JsonColumn;
+  created_at: Timestamp;
+}
+
 export interface RetentionRunsTable {
   id: ColumnType<string, string | undefined, string>;
   started_at: Timestamp;
@@ -499,6 +511,7 @@ export interface Database {
   traces: TracesTable;
   spans: SpansTable;
   dead_letter_jobs: DeadLetterJobsTable;
+  dead_letter_job_actions: DeadLetterJobActionsTable;
   retention_runs: RetentionRunsTable;
   backup_runs: BackupRunsTable;
   system_heartbeats: SystemHeartbeatsTable;

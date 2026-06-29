@@ -94,6 +94,26 @@ describe("replayDeadLetterTelemetryJob", () => {
     expect(enqueueReplay.mock.calls.map(([, replayId]) => replayId)).toEqual(["dlj_1|rpl_1", "dlj_1|rpl_2"]);
   });
 
+  it("does not report replay success when cleanup loses a concurrent delete race", async () => {
+    const enqueueReplay = vi.fn(async () => undefined);
+    const deleteDeadLetterJob = vi.fn(async () => false);
+
+    await expect(
+      replayDeadLetterTelemetryJob(
+        {
+          getDeadLetterJob: async () => deadLetterJob(),
+          enqueueReplay,
+          deleteDeadLetterJob,
+          createReplayAttemptId: () => "rpl_1"
+        },
+        "dlj_1"
+      )
+    ).resolves.toBe("not_found");
+
+    expect(enqueueReplay).toHaveBeenCalledOnce();
+    expect(deleteDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+  });
+
   it("rejects malformed inner telemetry payloads without deleting the dead-letter row", async () => {
     const enqueueReplay = vi.fn(async () => undefined);
     const deleteDeadLetterJob = vi.fn(async () => true);

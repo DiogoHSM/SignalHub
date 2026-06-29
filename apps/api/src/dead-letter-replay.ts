@@ -39,8 +39,8 @@ export async function replayDeadLetterTelemetryJob(
   if (!payload) return "invalid_payload";
 
   await dependencies.enqueueReplay(payload, `${id}|${dependencies.createReplayAttemptId()}`);
-  await dependencies.deleteDeadLetterJob(id);
-  return "replayed";
+  const deleted = await dependencies.deleteDeadLetterJob(id);
+  return deleted ? "replayed" : "not_found";
 }
 
 function parseDeadLetterTelemetryPayload(payload: unknown): TelemetryJobPayload | null {

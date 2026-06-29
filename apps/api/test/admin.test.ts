@@ -187,17 +187,36 @@ describe("admin routes", () => {
           }
         : undefined
     );
+    const listDeadLetterJobActions = vi.fn(async (id: string) =>
+      id === "dlj_1"
+        ? [
+            {
+              id: "dla_1",
+              deadLetterJobId: "dlj_1",
+              queueName: "telemetry",
+              jobName: "trace",
+              action: "deleted" as const,
+              actorUserId: "usr_1",
+              actorEmail: "admin@example.com",
+              metadata: {},
+              createdAt: new Date("2026-06-01T14:00:00.000Z")
+            }
+          ]
+        : []
+    );
     const deleteDeadLetterJob = vi.fn(async (id: string) => id === "dlj_1");
     app = await buildApp({
       readiness,
       auth: adminAuth,
       deadLetters: {
         getDeadLetterJob,
+        listDeadLetterJobActions,
         deleteDeadLetterJob
       }
     });
 
     const getResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_1" });
+    const actionsResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_1/actions" });
     const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/dead-letter-jobs/dlj_1" });
     const missingResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_missing" });
 
@@ -212,10 +231,27 @@ describe("admin routes", () => {
         createdAt: "2026-06-01T13:00:00.000Z"
       }
     });
+    expect(actionsResponse.statusCode).toBe(200);
+    expect(actionsResponse.json()).toEqual({
+      actions: [
+        {
+          id: "dla_1",
+          deadLetterJobId: "dlj_1",
+          queueName: "telemetry",
+          jobName: "trace",
+          action: "deleted",
+          actorUserId: "usr_1",
+          actorEmail: "admin@example.com",
+          metadata: {},
+          createdAt: "2026-06-01T14:00:00.000Z"
+        }
+      ]
+    });
     expect(deleteResponse.statusCode).toBe(204);
     expect(missingResponse.statusCode).toBe(404);
     expect(getDeadLetterJob).toHaveBeenCalledWith("dlj_1");
-    expect(deleteDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+    expect(listDeadLetterJobActions).toHaveBeenCalledWith("dlj_1");
+    expect(deleteDeadLetterJob).toHaveBeenCalledWith("dlj_1", { userId: "usr_1", email: "admin@example.com" });
   });
 
   it("replays dead letter jobs for admins", async () => {
@@ -236,7 +272,7 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(202);
     expect(response.json()).toEqual({ replayed: true, id: "dlj_1" });
     expect(missingResponse.statusCode).toBe(404);
-    expect(replayDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+    expect(replayDeadLetterJob).toHaveBeenCalledWith("dlj_1", { userId: "usr_1", email: "admin@example.com" });
   });
 
   it("rejects dead letter replay when the stored job is not replayable", async () => {

@@ -14,7 +14,7 @@ import type {
   MonitorRecord,
   UpdateMonitorInput
 } from "@sigmon/db/repositories/monitors.js";
-import type { DeadLetterJob, DeadLetterJobPage } from "@sigmon/db/repositories/dead-letter.js";
+import type { DeadLetterJob, DeadLetterJobAction, DeadLetterJobPage } from "@sigmon/db/repositories/dead-letter.js";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
@@ -131,8 +131,12 @@ export type MonitorAdministrationDependencies = {
 export type DeadLetterAdministrationDependencies = {
   listDeadLetterJobs?: (input: { limit?: number; cursor?: string }) => Promise<DeadLetterJob[] | DeadLetterJobPage>;
   getDeadLetterJob?: (id: string) => Promise<DeadLetterJob | null | undefined>;
-  deleteDeadLetterJob?: (id: string) => Promise<boolean>;
-  replayDeadLetterJob?: (id: string) => Promise<"replayed" | "not_found" | "invalid_payload" | "unsupported_queue">;
+  listDeadLetterJobActions?: (id: string) => Promise<DeadLetterJobAction[]>;
+  deleteDeadLetterJob?: (id: string, actor: { userId: string; email: string }) => Promise<boolean>;
+  replayDeadLetterJob?: (
+    id: string,
+    actor: { userId: string; email: string }
+  ) => Promise<"replayed" | "not_found" | "invalid_payload" | "unsupported_queue">;
 };
 
 export type SourceMapUploadAttribution =
@@ -2053,6 +2057,31 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     return reply.send({ deadLetterJob });
   });
 
+  app.get("/admin/dead-letter-jobs/:id/actions", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.listDeadLetterJobActions) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let actions: DeadLetterJobAction[];
+    try {
+      actions = await options.deadLetters.listDeadLetterJobActions(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    return reply.send({ actions });
+  });
+
   app.delete("/admin/dead-letter-jobs/:id", async (request, reply) => {
     const admin = await requireAdmin(request, reply, options.auth);
     if (!admin) {
@@ -2070,7 +2099,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     let deleted: boolean;
     try {
-      deleted = await options.deadLetters.deleteDeadLetterJob(params.data.id);
+      deleted = await options.deadLetters.deleteDeadLetterJob(params.data.id, { userId: admin.id, email: admin.email });
     } catch {
       return reply.status(503).send({ error: "dead_letter_unavailable" });
     }
@@ -2099,7 +2128,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     let result: Awaited<ReturnType<NonNullable<DeadLetterAdministrationDependencies["replayDeadLetterJob"]>>>;
     try {
-      result = await options.deadLetters.replayDeadLetterJob(params.data.id);
+      result = await options.deadLetters.replayDeadLetterJob(params.data.id, { userId: admin.id, email: admin.email });
     } catch {
       return reply.status(503).send({ error: "dead_letter_unavailable" });
     }

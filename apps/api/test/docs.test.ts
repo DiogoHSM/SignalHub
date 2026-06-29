@@ -60,6 +60,7 @@ describe("API docs", () => {
         "/admin/monitors",
         "/admin/dead-letter-jobs",
         "/admin/dead-letter-jobs/{id}",
+        "/admin/dead-letter-jobs/{id}/actions",
         "/admin/dead-letter-jobs/{id}/replay",
         "/query/events",
         "/system/health"
@@ -81,11 +82,13 @@ describe("API docs", () => {
     expect(spec.paths["/admin/dead-letter-jobs"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.paths["/admin/dead-letter-jobs/{id}"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.paths["/admin/dead-letter-jobs/{id}"].delete.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/admin/dead-letter-jobs/{id}/actions"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.paths["/admin/dead-letter-jobs/{id}/replay"].post.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.components.schemas.EventPayload.description).toContain("tenant");
     expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");
     expect(spec.components.schemas.DeadLetterJob.properties.payload.description).toContain("sanitized");
+    expect(spec.components.schemas.DeadLetterJobAction.properties.action.enum).toEqual(["deleted", "replayed"]);
     expect(spec.components.schemas.UserIdentifyPayload.description).toContain("last_seen_at");
     expect(spec.components.schemas.TenantIdentifyPayload.properties.traits.examples[0]).toMatchObject({
       name: "MicroERP",

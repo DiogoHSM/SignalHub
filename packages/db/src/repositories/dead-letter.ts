@@ -2,9 +2,10 @@ import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
-import type { DeadLetterJobsTable } from "../schema.js";
+import type { DeadLetterJobActionsTable, DeadLetterJobsTable } from "../schema.js";
 
 type DeadLetterJobRow = Selectable<DeadLetterJobsTable>;
+type DeadLetterJobActionRow = Selectable<DeadLetterJobActionsTable>;
 
 export interface DeadLetterJob {
   id: string;
@@ -20,6 +21,31 @@ export interface InsertDeadLetterJobInput {
   jobName: string;
   payload: unknown;
   errorMessage: string;
+}
+
+export type DeadLetterJobActionType = "deleted" | "replayed";
+
+export interface DeadLetterJobAction {
+  id: string;
+  deadLetterJobId: string;
+  queueName: string;
+  jobName: string;
+  action: DeadLetterJobActionType;
+  actorUserId: string | null;
+  actorEmail: string;
+  metadata: unknown;
+  createdAt: Date;
+}
+
+export interface DeadLetterJobActor {
+  userId: string | null;
+  email: string;
+}
+
+export interface DeadLetterJobActionInput {
+  action: DeadLetterJobActionType;
+  actor: DeadLetterJobActor;
+  metadata?: unknown;
 }
 
 export interface ListDeadLetterJobsInput {
@@ -44,6 +70,20 @@ function toDeadLetterJob(row: DeadLetterJobRow): DeadLetterJob {
     jobName: row.job_name,
     payload: row.payload,
     errorMessage: row.error_message,
+    createdAt: row.created_at
+  };
+}
+
+function toDeadLetterJobAction(row: DeadLetterJobActionRow): DeadLetterJobAction {
+  return {
+    id: row.id,
+    deadLetterJobId: row.dead_letter_job_id,
+    queueName: row.queue_name,
+    jobName: row.job_name,
+    action: row.action,
+    actorUserId: row.actor_user_id,
+    actorEmail: row.actor_email,
+    metadata: row.metadata,
     createdAt: row.created_at
   };
 }
@@ -148,6 +188,41 @@ export async function getDeadLetterJob(db: Db, id: string): Promise<DeadLetterJo
   return row ? toDeadLetterJob(row) : undefined;
 }
 
+export async function listDeadLetterJobActions(db: Db, deadLetterJobId: string): Promise<DeadLetterJobAction[]> {
+  const rows = await db
+    .selectFrom("dead_letter_job_actions")
+    .selectAll()
+    .where("dead_letter_job_id", "=", deadLetterJobId)
+    .orderBy("created_at", "desc")
+    .orderBy("id", "desc")
+    .execute();
+
+  return rows.map(toDeadLetterJobAction);
+}
+
+export async function recordDeadLetterJobAction(
+  db: Db,
+  deadLetterJob: DeadLetterJob,
+  input: DeadLetterJobActionInput
+): Promise<DeadLetterJobAction> {
+  const row = await db
+    .insertInto("dead_letter_job_actions")
+    .values({
+      id: createId("dla"),
+      dead_letter_job_id: deadLetterJob.id,
+      queue_name: deadLetterJob.queueName,
+      job_name: deadLetterJob.jobName,
+      action: input.action,
+      actor_user_id: input.actor.userId,
+      actor_email: input.actor.email,
+      metadata: input.metadata ?? {}
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  return toDeadLetterJobAction(row);
+}
+
 export async function countDeadLetterJobs(db: Db): Promise<number> {
   const row = await db
     .selectFrom("dead_letter_jobs")
@@ -160,4 +235,31 @@ export async function countDeadLetterJobs(db: Db): Promise<number> {
 export async function deleteDeadLetterJob(db: Db, id: string): Promise<boolean> {
   const result = await db.deleteFrom("dead_letter_jobs").where("id", "=", id).executeTakeFirst();
   return Number(result.numDeletedRows) > 0;
+}
+
+export async function deleteDeadLetterJobWithAction(
+  db: Db,
+  id: string,
+  input: DeadLetterJobActionInput
+): Promise<boolean> {
+  return db.transaction().execute(async (trx) => {
+    const row = await trx
+      .selectFrom("dead_letter_jobs")
+      .selectAll()
+      .where("id", "=", id)
+      .forUpdate()
+      .executeTakeFirst();
+
+    if (!row) {
+      return false;
+    }
+
+    const deadLetterJob = toDeadLetterJob(row);
+    const result = await trx.deleteFrom("dead_letter_jobs").where("id", "=", id).executeTakeFirst();
+    if (Number(result.numDeletedRows) === 0) {
+      return false;
+    }
+    await recordDeadLetterJobAction(trx, deadLetterJob, input);
+    return true;
+  });
 }

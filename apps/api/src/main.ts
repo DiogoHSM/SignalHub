@@ -47,8 +47,9 @@ import {
 } from "@sigmon/db/repositories/monitors.js";
 import {
   countDeadLetterJobs,
-  deleteDeadLetterJob,
+  deleteDeadLetterJobWithAction,
   getDeadLetterJob,
+  listDeadLetterJobActions,
   listDeadLetterJobs
 } from "@sigmon/db/repositories/dead-letter.js";
 import {
@@ -588,13 +589,22 @@ const app = await buildApp({
   deadLetters: {
     listDeadLetterJobs: (input) => listDeadLetterJobs(db, input),
     getDeadLetterJob: (id) => getDeadLetterJob(db, id),
-    deleteDeadLetterJob: (id) => deleteDeadLetterJob(db, id),
-    replayDeadLetterJob: (id) =>
+    listDeadLetterJobActions: (id) => listDeadLetterJobActions(db, id),
+    deleteDeadLetterJob: (id, actor) =>
+      deleteDeadLetterJobWithAction(db, id, {
+        action: "deleted",
+        actor
+      }),
+    replayDeadLetterJob: (id, actor) =>
       replayDeadLetterTelemetryJob(
         {
           getDeadLetterJob: (jobId) => getDeadLetterJob(db, jobId),
           enqueueReplay: (payload, replayId) => replayTelemetryJob(telemetryQueue, payload, replayId),
-          deleteDeadLetterJob: (jobId) => deleteDeadLetterJob(db, jobId),
+          deleteDeadLetterJob: (jobId) =>
+            deleteDeadLetterJobWithAction(db, jobId, {
+              action: "replayed",
+              actor
+            }),
           createReplayAttemptId: () => createId("rpl")
         },
         id

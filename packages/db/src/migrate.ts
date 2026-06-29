@@ -20,7 +20,8 @@ const migrations = [
   { name: "0014_project_browser_origins.sql", url: new URL("../migrations/0014_project_browser_origins.sql", import.meta.url) },
   { name: "0015_incident_triage.sql", url: new URL("../migrations/0015_incident_triage.sql", import.meta.url) },
   { name: "0016_system_health_samples.sql", url: new URL("../migrations/0016_system_health_samples.sql", import.meta.url) },
-  { name: "0017_query_pagination_indexes.sql", url: new URL("../migrations/0017_query_pagination_indexes.sql", import.meta.url) }
+  { name: "0017_query_pagination_indexes.sql", url: new URL("../migrations/0017_query_pagination_indexes.sql", import.meta.url) },
+  { name: "0018_dead_letter_actions.sql", url: new URL("../migrations/0018_dead_letter_actions.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

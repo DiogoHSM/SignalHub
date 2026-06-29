@@ -145,7 +145,7 @@ Webhook secrets are write-only. Saved secret values are redacted and are never r
 
 ## Dead-Letter Jobs
 
-Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter jobs for admin inspection. Admins can list, inspect, delete, or replay telemetry dead-letter jobs through the session-authenticated `/admin/dead-letter-jobs` API. Replay validates the stored telemetry envelope and kind-specific payload before re-enqueueing, uses a fresh replay job id for each attempt, and deletes the dead-letter row only after enqueue succeeds.
+Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter jobs for admin inspection. Admins can list, inspect, delete, replay, and inspect replay/delete audit actions for telemetry dead-letter jobs through the session-authenticated `/admin/dead-letter-jobs` API. Replay validates the stored telemetry envelope and kind-specific payload before re-enqueueing, uses a fresh replay job id for each attempt, and deletes the dead-letter row only after enqueue succeeds. Delete and replay cleanup record the acting admin in a retained `dead_letter_job_actions` audit trail.
 
 ## Source Maps
 
