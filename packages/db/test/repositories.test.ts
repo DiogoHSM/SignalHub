@@ -7,6 +7,7 @@ import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import {
   deleteDeadLetterJob,
+  countDeadLetterJobs,
   getDeadLetterJob,
   insertDeadLetterJob,
   listDeadLetterJobs
@@ -5388,6 +5389,28 @@ describe("repositories", () => {
       await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(true);
       await expect(getDeadLetterJob(db, job.id)).resolves.toBeUndefined();
       await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(false);
+    });
+  });
+
+  it("counts dead letter jobs for operational health", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const before = await countDeadLetterJobs(db);
+      await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "evt_dead_letter" },
+        errorMessage: "event insert failed"
+      });
+      await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { id: "trc_dead_letter" },
+        errorMessage: "trace insert failed"
+      });
+
+      await expect(countDeadLetterJobs(db)).resolves.toBe(before + 2);
     });
   });
 

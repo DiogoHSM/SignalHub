@@ -174,7 +174,7 @@ function makeHealthSnapshot(overrides: Partial<SystemHealthSnapshot["services"]>
       storage: { backupS3Enabled: false, sourceMapRetentionEnabled: false }
     },
     queues: {
-      telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 100, failed: 0, delayed: 0 }
+      telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 100, failed: 0, delayed: 0, deadLettered: 0 }
     },
     ingestion: { lastEventAt: null, lastErrorAt: null, lastTraceAt: null, lastSpanAt: null, lastLlmCallAt: null },
     retention: {

@@ -204,7 +204,7 @@ The Docker runtime runs under the non-root `sigmon` user with `tini` as PID 1. D
 
 API responses include baseline HTTP security headers: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Content-Security-Policy`, and production `Strict-Transport-Security`.
 
-`GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, ingestion freshness, retention policy/run status, and backup status.
+`GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, dead-letter count, ingestion freshness, retention policy/run status, and backup status. A nonzero dead-letter count marks the queue and overall system as degraded so operators see permanently failed jobs without opening the admin API first.
 
 ## Investigation Console
 

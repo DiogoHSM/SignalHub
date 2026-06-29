@@ -84,6 +84,15 @@ export async function getDeadLetterJob(db: Db, id: string): Promise<DeadLetterJo
   return row ? toDeadLetterJob(row) : undefined;
 }
 
+export async function countDeadLetterJobs(db: Db): Promise<number> {
+  const row = await db
+    .selectFrom("dead_letter_jobs")
+    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .executeTakeFirstOrThrow();
+  const count = Number(row.count);
+  return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+
 export async function deleteDeadLetterJob(db: Db, id: string): Promise<boolean> {
   const result = await db.deleteFrom("dead_letter_jobs").where("id", "=", id).executeTakeFirst();
   return Number(result.numDeletedRows) > 0;

@@ -10,6 +10,7 @@ export type SystemQueueCounts = {
   completed: number;
   failed: number;
   delayed: number;
+  deadLettered: number;
 };
 
 export type BackgroundComponentHealth = {

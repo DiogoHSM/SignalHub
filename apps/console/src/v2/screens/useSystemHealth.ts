@@ -22,7 +22,15 @@ export type ServiceCardVM = {
   spark: number[] | null;
 };
 
-export type QueueRowVM = { name: string; waiting: number; active: number; completed: string; failed: number; tone: ServiceTone };
+export type QueueRowVM = {
+  name: string;
+  waiting: number;
+  active: number;
+  completed: string;
+  failed: number;
+  deadLettered: number;
+  tone: ServiceTone;
+};
 export type RetentionRowVM = { label: string; retentionLabel: string; deleted: number };
 export type RetentionVM = { enabled: boolean; subLabel: string; rows: RetentionRowVM[] };
 export type BackupsVM = {
@@ -151,7 +159,8 @@ export function buildSystemVM(
     active: q.active,
     completed: formatCompact(q.completed),
     failed: q.failed,
-    tone: q.failed > 0 ? "warn" : "ok",
+    deadLettered: q.deadLettered,
+    tone: q.failed > 0 || q.deadLettered > 0 ? "warn" : "ok",
   }));
 
   const r = health.retention;
@@ -185,13 +194,20 @@ export function buildSystemVM(
   let banner: SystemBannerVM | null = null;
   const critical = services.find((s) => s.tone === "critical");
   const queueUnhealthy = Object.values(health.queues).some((q) => q.status === "unhealthy");
-  const queueFailing = queues.find((q) => q.failed > 0);
+  const queueFailing = queues.find((q) => q.failed > 0 || q.deadLettered > 0);
   const degraded = services.find((s) => s.tone === "warn");
   if (critical) {
     banner = { tone: "critical", title: `${critical.name} unhealthy`, detail: SERVICE_DETAIL[critical.name] ?? `${critical.name} is unhealthy.` };
   } else if (queueUnhealthy || queueFailing) {
     const q = queueFailing ?? queues[0];
-    banner = { tone: "warn", title: "Queue backlog", detail: `${q.name} queue has ${q.failed} failed job(s).` };
+    banner = {
+      tone: "warn",
+      title: q.deadLettered > 0 ? "Dead-letter jobs" : "Queue backlog",
+      detail:
+        q.deadLettered > 0
+          ? `${q.name} queue has ${q.deadLettered} dead-letter job(s) to inspect.`
+          : `${q.name} queue has ${q.failed} failed job(s).`,
+    };
   } else if (r.lastRun?.status === "failed") {
     banner = { tone: "warn", title: "Retention run failed", detail: r.lastRun.errorMessage ?? "The last retention run failed." };
   } else if (backups.failure || backups.stale) {

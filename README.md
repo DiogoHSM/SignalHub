@@ -97,7 +97,7 @@ Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENA
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
-The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split EasyPanel services can be checked independently.
+The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, dead-letter count, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split EasyPanel services can be checked independently.
 
 ## Backups and Restore
 

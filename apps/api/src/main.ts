@@ -46,6 +46,7 @@ import {
   updateMonitor
 } from "@sigmon/db/repositories/monitors.js";
 import {
+  countDeadLetterJobs,
   deleteDeadLetterJob,
   getDeadLetterJob,
   listDeadLetterJobs
@@ -413,6 +414,7 @@ function getSystemHealth() {
     postgresPing: () => sql`select 1`.execute(db),
     redisPing: () => redis.ping(),
     getQueueCounts: () => telemetryQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
+    getDeadLetterCount: () => countDeadLetterJobs(db),
     getHeartbeats: async () => {
       const [worker, scheduler] = await Promise.all([getHeartbeat(db, "worker"), getHeartbeat(db, "scheduler")]);
       return { worker, scheduler };

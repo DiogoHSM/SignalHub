@@ -413,7 +413,7 @@ describe("createApiClient", () => {
               }
             },
             queues: {
-              telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 }
+              telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0, deadLettered: 0 }
             },
             ingestion: {
               lastEventAt: null,

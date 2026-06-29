@@ -260,7 +260,7 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
         sourceMapRetentionEnabled: true
       }
     },
-    queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0 } },
+    queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0, deadLettered: 0 } },
     ingestion: {
       lastEventAt: null,
       lastErrorAt: null,

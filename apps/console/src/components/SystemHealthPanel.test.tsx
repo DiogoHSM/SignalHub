@@ -75,7 +75,7 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
       scheduler: { status: "healthy", expected: true, role: "scheduler", lastHeartbeatAt: "2026-05-06T11:59:50.000Z" }
     },
     queues: {
-      telemetry: { status: "healthy", errorMessage: null, waiting: 1, active: 2, completed: 30, failed: 0, delayed: 3 }
+      telemetry: { status: "healthy", errorMessage: null, waiting: 1, active: 2, completed: 30, failed: 0, delayed: 3, deadLettered: 0 }
     },
     ingestion: {
       lastEventAt: "2026-05-06T11:58:00.000Z",
@@ -201,6 +201,7 @@ describe("SystemHealthPanel", () => {
     expect(screen.getByRole("heading", { name: "Retention" })).toBeInTheDocument();
     expect(screen.getByText(/^Generated /)).toBeInTheDocument();
     expect(screen.getByText("Waiting")).toBeInTheDocument();
+    expect(screen.getByText("Dead letters")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getAllByText("No data")).toHaveLength(2);
     const retentionCard = screen.getByRole("heading", { name: "Retention" }).closest("article");
@@ -282,7 +283,8 @@ describe("SystemHealthPanel", () => {
               active: 0,
               completed: 0,
               failed: 0,
-              delayed: 0
+              delayed: 0,
+              deadLettered: 0
             }
           },
           retention: {
@@ -483,7 +485,8 @@ describe("SystemHealthPanel", () => {
               active: 0,
               completed: 0,
               failed: 0,
-              delayed: 0
+              delayed: 0,
+              deadLettered: 0
             }
           }
         })

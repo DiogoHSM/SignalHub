@@ -3,7 +3,7 @@ import type { ScreenCtx } from "./registry";
 import { useSystemHealth } from "./useSystemHealth";
 import type { QueueRowVM, ServiceCardVM, ServiceTone, SystemVM } from "./useSystemHealth";
 
-const QUEUE_GRID = "1.4fr 70px 70px 80px 70px";
+const QUEUE_GRID = "1.4fr 70px 70px 80px 70px 70px";
 const RETENTION_GRID = "1fr 56px 90px";
 
 function toneTagClass(tone: ServiceTone): string {
@@ -50,6 +50,7 @@ function QueueRow({ row }: { row: QueueRowVM }) {
       <span style={{ fontSize: 12, color: row.active > 0 ? "var(--accent)" : "var(--fg-muted)" }}>{row.active} act</span>
       <span className="sh-mono" style={{ fontSize: 12 }}>{row.completed}</span>
       <span style={{ fontSize: 12, color: row.failed > 0 ? "var(--sev-warning)" : "var(--fg-muted)" }}>{row.failed} fail</span>
+      <span style={{ fontSize: 12, color: row.deadLettered > 0 ? "var(--sev-warning)" : "var(--fg-muted)" }}>{row.deadLettered} DLQ</span>
     </div>
   );
 }

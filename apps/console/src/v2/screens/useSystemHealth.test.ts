@@ -19,7 +19,7 @@ function health(over: Partial<SystemHealthResponse> = {}): SystemHealthResponse 
     },
     deployment: {} as never,
     queues: {
-      telemetry: { status: "healthy", errorMessage: null, waiting: 2, active: 1, completed: 31000, failed: 0, delayed: 0 },
+      telemetry: { status: "healthy", errorMessage: null, waiting: 2, active: 1, completed: 31000, failed: 0, delayed: 0, deadLettered: 0 },
     },
     ingestion: {} as never,
     retention: {
@@ -121,11 +121,24 @@ describe("buildSystemVM — banner (severity ordered)", () => {
 describe("buildSystemVM — queues / retention / backups", () => {
   it("maps the telemetry queue", () => {
     const q = buildSystemVM(health(), HISTORY, NOW).queues;
-    expect(q).toEqual([{ name: "telemetry", waiting: 2, active: 1, completed: "31K", failed: 0, tone: "ok" }]);
+    expect(q).toEqual([{ name: "telemetry", waiting: 2, active: 1, completed: "31K", failed: 0, deadLettered: 0, tone: "ok" }]);
   });
   it("tones a queue with failures as warn", () => {
-    const q = buildSystemVM(health({ queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 5, failed: 3, delayed: 0 } } }), HISTORY, NOW).queues;
+    const q = buildSystemVM(health({ queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 5, failed: 3, delayed: 0, deadLettered: 0 } } }), HISTORY, NOW).queues;
     expect(q[0]).toMatchObject({ failed: 3, tone: "warn" });
+  });
+  it("tones a queue with dead letters as warn", () => {
+    const vm = buildSystemVM(
+      health({ queues: { telemetry: { status: "degraded", errorMessage: null, waiting: 0, active: 0, completed: 5, failed: 0, delayed: 0, deadLettered: 2 } } }),
+      HISTORY,
+      NOW,
+    );
+    expect(vm.queues[0]).toMatchObject({ deadLettered: 2, tone: "warn" });
+    expect(vm.banner).toEqual({
+      tone: "warn",
+      title: "Dead-letter jobs",
+      detail: "telemetry queue has 2 dead-letter job(s) to inspect.",
+    });
   });
   it("builds retention subLabel and deleted rows", () => {
     const r = buildSystemVM(health(), HISTORY, NOW).retention;

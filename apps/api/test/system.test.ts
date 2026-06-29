@@ -64,7 +64,7 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
       sourceMapRetentionEnabled: true
     }
   },
-  queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 } },
+  queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0, deadLettered: 0 } },
   ingestion: {
     lastEventAt: null,
     lastErrorAt: null,
@@ -231,7 +231,8 @@ describe("system health routes", () => {
       active: 0,
       completed: 0,
       failed: 0,
-      delayed: 0
+      delayed: 0,
+      deadLettered: 0
     });
     expect(snapshot.ingestion).toEqual({
       lastEventAt: null,
@@ -347,6 +348,44 @@ describe("system health routes", () => {
         sourceMapRetentionEnabled: true
       }
     });
+  });
+
+  it("degrades system health when dead-letter jobs need attention", async () => {
+    const snapshot = await createSystemHealthSnapshot({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      uptimeSeconds: () => 12,
+      retention: {
+        enabled: true,
+        intervalMinutes: 60,
+        policy: retentionPolicy
+      },
+      backups: {
+        enabled: false,
+        intervalHours: 24,
+        retentionDays: 14,
+        s3Enabled: false
+      },
+      postgresPing: async () => true,
+      redisPing: async () => "PONG",
+      getQueueCounts: async () => ({ waiting: 0, active: 0, completed: 5, failed: 0, delayed: 0 }),
+      getDeadLetterCount: async () => 2,
+      getHeartbeats: async () => ({
+        worker: { lastHeartbeatAt: new Date("2026-05-06T11:59:00.000Z"), metadata: { role: "queue" } },
+        scheduler: null
+      }),
+      getIngestionFreshness: async () => ({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      }),
+      getLastRetentionRun: async () => null,
+      getBackupStatus: async () => ({ latestSuccess: null, latestFailure: null })
+    });
+
+    expect(snapshot.status).toBe("degraded");
+    expect(snapshot.queues.telemetry).toMatchObject({ status: "degraded", deadLettered: 2 });
   });
 
   it("includes source-map retention policy and deleted counts in snapshots", async () => {

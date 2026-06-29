@@ -38,7 +38,7 @@ const vm: SystemVM = {
     { name: "API", icon: "server", tone: "ok", statusLabel: "healthy", meta: "uptime 2h 5m", spark: null },
     { name: "Postgres", icon: "db", tone: "ok", statusLabel: "healthy", meta: "latency 12ms", spark: [10, 14, 12] },
   ],
-  queues: [{ name: "telemetry", waiting: 2, active: 1, completed: "31K", failed: 0, tone: "ok" }],
+  queues: [{ name: "telemetry", waiting: 2, active: 1, completed: "31K", failed: 0, deadLettered: 0, tone: "ok" }],
   retention: {
     enabled: true,
     subLabel: "every 60m · last run 12m ago",
@@ -93,6 +93,7 @@ describe("SystemScreen", () => {
     mockHook({ status: "ok", data: vm });
     render(<SystemScreen ctx={makeCtx()} />);
     expect(screen.getByText("telemetry")).toBeTruthy();
+    expect(screen.getByText("0 DLQ")).toBeTruthy();
     expect(screen.getAllByText(/Events/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("backup-2026-06-23.sql.gz")).toBeTruthy();
   });

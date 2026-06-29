@@ -15,7 +15,8 @@ const queueLabels: Array<[keyof SystemHealthResponse["queues"]["telemetry"], str
   ["active", "Active"],
   ["completed", "Completed"],
   ["failed", "Failed"],
-  ["delayed", "Delayed"]
+  ["delayed", "Delayed"],
+  ["deadLettered", "Dead letters"]
 ];
 
 const ingestionLabels: Array<[keyof SystemHealthResponse["ingestion"], string]> = [

@@ -920,6 +920,7 @@ export type SystemHealthResponse = {
       completed: number;
       failed: number;
       delayed: number;
+      deadLettered: number;
     };
   };
   ingestion: {
