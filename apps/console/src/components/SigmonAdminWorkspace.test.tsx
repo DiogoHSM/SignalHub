@@ -103,6 +103,7 @@ function healthyResponse(): SystemHealthResponse {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100

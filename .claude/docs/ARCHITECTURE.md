@@ -180,7 +180,7 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, and `llm_calls` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including a `deleted_dead_letter_jobs` count.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 
@@ -198,7 +198,7 @@ Backups write SHA-256 sidecar files next to local dump files and upload matching
 
 Failed backup dumps are cleaned up before the failed run is recorded. S3-compatible backup upload retries are limited to retryable transport, timeout, rate-limit, and server-side failures, with a short bounded backoff; permanent client/auth failures are not retried.
 
-Worker jobs that permanently fail are copied into `dead_letter_jobs` with sanitized payload and error details. Admin APIs expose list, detail, action-history, delete, and replay workflows for these rows. Replay is limited to telemetry queue payloads, validates the outer job envelope and the kind-specific telemetry payload, enqueues with a fresh replay-scoped BullMQ job id, and deletes the dead-letter row only after enqueue succeeds. Delete and replay cleanup run through a transaction that records the acting admin in `dead_letter_job_actions`, while the original telemetry id is preserved so repository-level idempotency still prevents duplicate persisted telemetry.
+Worker jobs that permanently fail are copied into `dead_letter_jobs` with sanitized payload and error details. Admin APIs expose list, detail, action-history, delete, and replay workflows for these rows. Replay is limited to telemetry queue payloads, validates the outer job envelope and the kind-specific telemetry payload, enqueues with a fresh replay-scoped BullMQ job id, and deletes the dead-letter row only after enqueue succeeds. Delete and replay cleanup run through a transaction that records the acting admin in `dead_letter_job_actions`, while the original telemetry id is preserved so repository-level idempotency still prevents duplicate persisted telemetry. Scheduled retention expires old dead-letter rows after `RETENTION_DEAD_LETTER_JOBS_DAYS` and records a retained `expired` action for each removed row.
 
 The Docker runtime runs under the non-root `sigmon` user with `tini` as PID 1. Docker Compose defines healthchecks for Postgres, Redis, API, and worker.
 

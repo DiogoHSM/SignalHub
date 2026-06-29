@@ -932,6 +932,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -945,9 +946,11 @@ describe("runRetentionOnce", () => {
             spans: 4,
             llmCalls: 5,
             breadcrumbs: 6,
+            deadLetterJobs: 0,
             sourceMapArtifacts: 0,
             sourceMapFiles: 0
-          })
+          }),
+          deleteExpiredDeadLetterJobs: async () => 7
         });
         calls.push("released");
         return { locked: true, result };
@@ -956,6 +959,7 @@ describe("runRetentionOnce", () => {
       recordRetentionRun: async (input) => {
         expect(input.status).toBe("success");
         expect(input.deleted.events).toBe(1);
+        expect(input.deleted.deadLetterJobs).toBe(7);
         calls.push("recorded");
       }
     });
@@ -974,6 +978,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1001,6 +1006,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1032,6 +1038,7 @@ describe("runRetentionOnce", () => {
           traces: 0,
           llmCalls: 0,
           breadcrumbs: 0,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 0,
           sourceMapFiles: 0
         });
@@ -1057,7 +1064,8 @@ describe("runRetentionOnce", () => {
           spansDays: 90,
           llmCallsDays: 180,
           breadcrumbsDays: 30,
-          sourceMapsEnabled: true,
+          deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
           sourceMapsDays: 180,
           sourceMapsBatchSize: 100
         },
@@ -1073,7 +1081,8 @@ describe("runRetentionOnce", () => {
                   spans: 4,
                   llmCalls: 5,
                   breadcrumbs: 6,
-                  sourceMapArtifacts: 0,
+                  deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
                   sourceMapFiles: 0
                 };
               }
@@ -1105,6 +1114,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1120,7 +1130,8 @@ describe("runRetentionOnce", () => {
               spans: 0,
               llmCalls: 0,
               breadcrumbs: 0,
-              sourceMapArtifacts: 0,
+              deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
               sourceMapFiles: 0
             };
           }
@@ -1155,6 +1166,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: false,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1169,7 +1181,8 @@ describe("runRetentionOnce", () => {
             spans: 0,
             llmCalls: 0,
             breadcrumbs: 0,
-            sourceMapArtifacts: 0,
+            deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
             sourceMapFiles: 0
           })
         })
@@ -1198,6 +1211,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1214,7 +1228,8 @@ describe("runRetentionOnce", () => {
                 spans: 0,
                 llmCalls: 0,
                 breadcrumbs: 0,
-                sourceMapArtifacts: 0,
+                deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
                 sourceMapFiles: 0
               };
             }
@@ -1238,6 +1253,7 @@ describe("runRetentionOnce", () => {
           spans: 0,
           llmCalls: 0,
           breadcrumbs: 0,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 0,
           sourceMapFiles: 0
         });
@@ -1259,6 +1275,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1273,7 +1290,8 @@ describe("runRetentionOnce", () => {
             spans: 0,
             llmCalls: 0,
             breadcrumbs: 0,
-            sourceMapArtifacts: 0,
+            deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
             sourceMapFiles: 0
           })
         })
@@ -1294,6 +1312,7 @@ describe("runRetentionOnce", () => {
           spans: 0,
           llmCalls: 0,
           breadcrumbs: 0,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 1,
           sourceMapFiles: 1
         });

@@ -27,10 +27,10 @@ function health(over: Partial<SystemHealthResponse> = {}): SystemHealthResponse 
       intervalMinutes: 60,
       lastRun: {
         id: "r1", status: "success", startedAt: "2026-06-23T11:48:00.000Z", finishedAt: "2026-06-23T11:48:00.000Z",
-        deleted: { events: 120, errors: 4, traces: 50, spans: 200, llmCalls: 9, breadcrumbs: 300, sourceMapArtifacts: 0, sourceMapFiles: 0 },
+        deleted: { events: 120, errors: 4, traces: 50, spans: 200, llmCalls: 9, breadcrumbs: 300, deadLetterJobs: 2, sourceMapArtifacts: 0, sourceMapFiles: 0 },
         errorMessage: null,
       },
-      policy: { eventsDays: 30, errorsDays: 90, tracesDays: 14, spansDays: 14, llmCallsDays: 60, breadcrumbsDays: 7, sourceMapsEnabled: true, sourceMapsDays: 30, sourceMapsBatchSize: 100 },
+      policy: { eventsDays: 30, errorsDays: 90, tracesDays: 14, spansDays: 14, llmCallsDays: 60, breadcrumbsDays: 7, deadLetterJobsDays: 30, sourceMapsEnabled: true, sourceMapsDays: 30, sourceMapsBatchSize: 100 },
     },
     backups: {
       enabled: true, intervalHours: 24, retentionDays: 14, s3Enabled: true, stale: false,
@@ -151,6 +151,7 @@ describe("buildSystemVM — queues / retention / backups", () => {
       { label: "Spans", retentionLabel: "14d", deleted: 200 },
       { label: "LLM calls", retentionLabel: "60d", deleted: 9 },
       { label: "Breadcrumbs", retentionLabel: "7d", deleted: 300 },
+      { label: "Dead letters", retentionLabel: "30d", deleted: 2 },
     ]);
   });
   it("shows disabled retention", () => {

@@ -24,6 +24,7 @@ const retentionPolicy = {
   spansDays: 90,
   llmCallsDays: 180,
   breadcrumbsDays: 30,
+  deadLetterJobsDays: 30,
   sourceMapsEnabled: true,
   sourceMapsDays: 180,
   sourceMapsBatchSize: 100
@@ -87,7 +88,8 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
         spans: 8,
         llmCalls: 2,
         breadcrumbs: 4,
-        sourceMapArtifacts: 2,
+        deadLetterJobs: 0,
+          sourceMapArtifacts: 2,
         sourceMapFiles: 2
       },
       errorMessage: null
@@ -397,6 +399,7 @@ describe("system health routes", () => {
       spans: 8,
       llmCalls: 2,
       breadcrumbs: 4,
+      deadLetterJobs: 5,
       sourceMapArtifacts: 2,
       sourceMapFiles: 2,
       internalOnly: 99
@@ -447,6 +450,7 @@ describe("system health routes", () => {
     expect(snapshot.retention.policy).toEqual(retentionPolicy);
     expect(snapshot.retention.lastRun?.deleted.sourceMapArtifacts).toBe(2);
     expect(snapshot.retention.lastRun?.deleted.sourceMapFiles).toBe(2);
+    expect(snapshot.retention.lastRun?.deleted.deadLetterJobs).toBe(5);
     expect(snapshot.retention.lastRun?.deleted).toEqual({
       events: 10,
       errors: 1,
@@ -454,6 +458,7 @@ describe("system health routes", () => {
       spans: 8,
       llmCalls: 2,
       breadcrumbs: 4,
+      deadLetterJobs: 5,
       sourceMapArtifacts: 2,
       sourceMapFiles: 2
     });

@@ -82,7 +82,7 @@ HTTP security headers are set on API responses. In production, the human session
 
 The worker runs telemetry retention by default. Retention environment variables control scheduled deletion of old telemetry with bounded delete statements; each run can process a limited number of batches and later scheduled runs continue draining older rows.
 
-Retention deletes telemetry rows and, when source-map retention is enabled, local source-map artifacts. Operational metadata, projects, environments, users, and API keys are not deleted by retention.
+Retention deletes telemetry rows, expired dead-letter jobs, and, when source-map retention is enabled, local source-map artifacts. Operational metadata, projects, environments, users, API keys, and dead-letter action history are not deleted by retention.
 
 | Telemetry type | Default retention |
 | --- | --- |
@@ -92,6 +92,7 @@ Retention deletes telemetry rows and, when source-map retention is enabled, loca
 | Spans | 90 days |
 | LLM calls | 180 days |
 | Breadcrumbs | 30 days |
+| Dead-letter jobs | 30 days |
 
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
@@ -145,7 +146,7 @@ Webhook secrets are write-only. Saved secret values are redacted and are never r
 
 ## Dead-Letter Jobs
 
-Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter jobs for admin inspection. Admins can list, inspect, delete, replay, and inspect replay/delete audit actions for telemetry dead-letter jobs through the session-authenticated `/admin/dead-letter-jobs` API. Replay validates the stored telemetry envelope and kind-specific payload before re-enqueueing, uses a fresh replay job id for each attempt, and deletes the dead-letter row only after enqueue succeeds. Delete and replay cleanup record the acting admin in a retained `dead_letter_job_actions` audit trail.
+Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter jobs for admin inspection. Admins can list, inspect, delete, replay, and inspect replay/delete/retention audit actions for telemetry dead-letter jobs through the session-authenticated `/admin/dead-letter-jobs` API. Replay validates the stored telemetry envelope and kind-specific payload before re-enqueueing, uses a fresh replay job id for each attempt, and deletes the dead-letter row only after enqueue succeeds. Delete and replay cleanup record the acting admin in a retained `dead_letter_job_actions` audit trail. Scheduled retention deletes old dead-letter jobs after `RETENTION_DEAD_LETTER_JOBS_DAYS` and records each expiration as an `expired` action.
 
 ## Source Maps
 

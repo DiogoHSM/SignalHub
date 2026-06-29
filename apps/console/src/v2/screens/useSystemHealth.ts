@@ -175,6 +175,7 @@ export function buildSystemVM(
       { label: "Spans", retentionLabel: `${r.policy.spansDays}d`, deleted: r.lastRun?.deleted.spans ?? 0 },
       { label: "LLM calls", retentionLabel: `${r.policy.llmCallsDays}d`, deleted: r.lastRun?.deleted.llmCalls ?? 0 },
       { label: "Breadcrumbs", retentionLabel: `${r.policy.breadcrumbsDays}d`, deleted: r.lastRun?.deleted.breadcrumbs ?? 0 },
+      { label: "Dead letters", retentionLabel: `${r.policy.deadLetterJobsDays}d`, deleted: r.lastRun?.deleted.deadLetterJobs ?? 0 },
     ],
   };
 

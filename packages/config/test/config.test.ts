@@ -95,7 +95,8 @@ describe("loadConfig", () => {
       tracesDays: 90,
       spansDays: 90,
       llmCallsDays: 180,
-      breadcrumbsDays: 30
+      breadcrumbsDays: 30,
+      deadLetterJobsDays: 30
     });
   });
 
@@ -109,7 +110,8 @@ describe("loadConfig", () => {
       RETENTION_ERRORS_DAYS: "60",
       RETENTION_TRACES_DAYS: "30",
       RETENTION_SPANS_DAYS: "15",
-      RETENTION_LLM_CALLS_DAYS: "120"
+      RETENTION_LLM_CALLS_DAYS: "120",
+      RETENTION_DEAD_LETTER_JOBS_DAYS: "45"
     });
 
     expect(config.retention).toEqual({
@@ -121,16 +123,19 @@ describe("loadConfig", () => {
       tracesDays: 30,
       spansDays: 15,
       llmCallsDays: 120,
-      breadcrumbsDays: 30
+      breadcrumbsDays: 30,
+      deadLetterJobsDays: 45
     });
   });
 
   it("loads breadcrumb retention config with defaults and overrides", () => {
     const defaults = loadConfig(baseEnv());
     expect(defaults.retention.breadcrumbsDays).toBe(30);
+    expect(defaults.retention.deadLetterJobsDays).toBe(30);
 
-    const custom = loadConfig({ ...baseEnv(), RETENTION_BREADCRUMBS_DAYS: "14" });
+    const custom = loadConfig({ ...baseEnv(), RETENTION_BREADCRUMBS_DAYS: "14", RETENTION_DEAD_LETTER_JOBS_DAYS: "21" });
     expect(custom.retention.breadcrumbsDays).toBe(14);
+    expect(custom.retention.deadLetterJobsDays).toBe(21);
   });
 
   it.each(["RETENTION_INTERVAL_MINUTES", "RETENTION_BATCH_SIZE", "RETENTION_EVENTS_DAYS"] as const)(

@@ -99,6 +99,7 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
           spans: 8,
           llmCalls: 2,
           breadcrumbs: 4,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 2,
           sourceMapFiles: 2
         },
@@ -111,6 +112,7 @@ function healthyResponse(overrides: Partial<SystemHealthResponse> = {}): SystemH
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100

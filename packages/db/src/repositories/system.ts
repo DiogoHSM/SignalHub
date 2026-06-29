@@ -25,6 +25,7 @@ export type RetentionPolicy = {
   spansDays: number;
   llmCallsDays: number;
   breadcrumbsDays: number;
+  deadLetterJobsDays: number;
   sourceMapsEnabled: boolean;
   sourceMapsDays: number;
   sourceMapsBatchSize: number;
@@ -43,6 +44,7 @@ export type RetentionDeletedCounts = {
   spans: number;
   llmCalls: number;
   breadcrumbs: number;
+  deadLetterJobs: number;
   sourceMapArtifacts: number;
   sourceMapFiles: number;
 };
@@ -71,6 +73,7 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       spans: row.deleted_spans,
       llmCalls: row.deleted_llm_calls,
       breadcrumbs: row.deleted_breadcrumbs,
+      deadLetterJobs: row.deleted_dead_letter_jobs,
       sourceMapArtifacts: row.deleted_source_map_artifacts,
       sourceMapFiles: row.deleted_source_map_files
     },
@@ -81,6 +84,7 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       spansDays: row.spans_days,
       llmCallsDays: row.llm_calls_days,
       breadcrumbsDays: row.breadcrumbs_days,
+      deadLetterJobsDays: row.dead_letter_jobs_days,
       sourceMapsEnabled: row.source_maps_enabled,
       sourceMapsDays: row.source_maps_days,
       sourceMapsBatchSize: row.source_maps_batch_size
@@ -206,6 +210,7 @@ export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExe
       options.batchSize,
       maxBatches
     ),
+    deadLetterJobs: 0,
     sourceMapArtifacts: 0,
     sourceMapFiles: 0
   };
@@ -235,6 +240,7 @@ export async function recordRetentionRun(
       deleted_spans: input.deleted.spans,
       deleted_llm_calls: input.deleted.llmCalls,
       deleted_breadcrumbs: input.deleted.breadcrumbs,
+      deleted_dead_letter_jobs: input.deleted.deadLetterJobs,
       deleted_source_map_artifacts: input.deleted.sourceMapArtifacts,
       deleted_source_map_files: input.deleted.sourceMapFiles,
       events_days: input.policy.eventsDays,
@@ -243,6 +249,7 @@ export async function recordRetentionRun(
       spans_days: input.policy.spansDays,
       llm_calls_days: input.policy.llmCallsDays,
       breadcrumbs_days: input.policy.breadcrumbsDays,
+      dead_letter_jobs_days: input.policy.deadLetterJobsDays,
       source_maps_enabled: input.policy.sourceMapsEnabled,
       source_maps_days: input.policy.sourceMapsDays,
       source_maps_batch_size: input.policy.sourceMapsBatchSize

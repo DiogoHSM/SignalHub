@@ -34,6 +34,7 @@ type RetentionPolicyDayKey =
   | "spansDays"
   | "llmCallsDays"
   | "breadcrumbsDays"
+  | "deadLetterJobsDays"
   | "sourceMapsDays";
 
 const retentionPolicyLabels: Array<[RetentionPolicyDayKey, string]> = [
@@ -43,6 +44,7 @@ const retentionPolicyLabels: Array<[RetentionPolicyDayKey, string]> = [
   ["spansDays", "spans"],
   ["llmCallsDays", "LLM calls"],
   ["breadcrumbsDays", "breadcrumbs"],
+  ["deadLetterJobsDays", "dead letters"],
   ["sourceMapsDays", "source maps"]
 ];
 
@@ -492,6 +494,7 @@ export function SystemHealthPanel({ client }: Props) {
                         <span>spans {health.retention.lastRun.deleted.spans}</span>
                         <span>LLM calls {health.retention.lastRun.deleted.llmCalls}</span>
                         <span>breadcrumbs {health.retention.lastRun.deleted.breadcrumbs}</span>
+                        <span>dead letters {health.retention.lastRun.deleted.deadLetterJobs}</span>
                         <span>
                           source maps {health.retention.lastRun.deleted.sourceMapArtifacts} artifacts,{" "}
                           {health.retention.lastRun.deleted.sourceMapFiles} files

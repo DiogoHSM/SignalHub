@@ -93,6 +93,7 @@ export type SystemHealthSnapshot = {
         spans: number;
         llmCalls: number;
         breadcrumbs: number;
+        deadLetterJobs: number;
         sourceMapArtifacts: number;
         sourceMapFiles: number;
       };
@@ -105,6 +106,7 @@ export type SystemHealthSnapshot = {
       spansDays: number;
       llmCallsDays: number;
       breadcrumbsDays: number;
+      deadLetterJobsDays: number;
       sourceMapsEnabled: boolean;
       sourceMapsDays: number;
       sourceMapsBatchSize: number;

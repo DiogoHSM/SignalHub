@@ -113,7 +113,7 @@ The console `System` mode reads separate `worker` and `scheduler` heartbeats and
 
 ## Retention
 
-Telemetry retention is built into the scheduler role. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. No external cron job is needed.
+Telemetry retention is built into the scheduler role. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. `RETENTION_DEAD_LETTER_JOBS_DAYS` controls how long permanently failed queue jobs remain inspectable before retention expires the row and preserves an `expired` action in `dead_letter_job_actions`. No external cron job is needed.
 
 Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the queue worker available for ingestion jobs.
 

@@ -34,12 +34,12 @@ Implemented capabilities:
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, trait-derived labels and chips, selected tenant top users, and cross-signal timeline drilldowns.
 - Read-only Users investigation workspace with impact-ranked user summaries, trait-derived labels and chips, selected user recent sessions, and cross-signal timeline drilldowns.
-- Worker-owned telemetry retention with per-table windows, bounded batches, and recorded retention runs.
+- Worker-owned telemetry and dead-letter retention with per-table windows, bounded batches, retained DLQ action history, and recorded retention runs.
 - Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
 - Internal alert history with optional generic webhook notification channels and recorded delivery attempts.
-- Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, controlled replay, and retained replay/delete audit actions.
+- Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, controlled replay, automatic expiration, and retained replay/delete/expiration audit actions.
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
 - Structured API and worker logs redact secret-bearing fields, and unhandled API errors return sanitized JSON.
@@ -63,7 +63,7 @@ Implemented capabilities:
 - Object storage and source-code viewing for source-map artifacts.
 - Full visual session replay and a dedicated Sessions investigation workspace.
 - Stored log telemetry.
-- Retention for operational metadata, projects, environments, users, or API keys.
+- Retention for operational metadata, projects, environments, users, API keys, or dead-letter action history.
 - Native email, Telegram, Discord, escalation, silencing, acknowledgement, and alert retry workflows.
 - Additional language SDKs beyond JavaScript/TypeScript.
 

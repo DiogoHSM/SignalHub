@@ -267,7 +267,7 @@ export interface DeadLetterJobActionsTable {
   dead_letter_job_id: string;
   queue_name: string;
   job_name: string;
-  action: "deleted" | "replayed";
+  action: "deleted" | "replayed" | "expired";
   actor_user_id: string | null;
   actor_email: string;
   metadata: JsonColumn;
@@ -286,6 +286,7 @@ export interface RetentionRunsTable {
   deleted_spans: DefaultedInteger;
   deleted_llm_calls: DefaultedInteger;
   deleted_breadcrumbs: DefaultedInteger;
+  deleted_dead_letter_jobs: DefaultedInteger;
   source_maps_enabled: DefaultedBoolean;
   source_maps_days: DefaultedInteger;
   source_maps_batch_size: DefaultedInteger;
@@ -297,6 +298,7 @@ export interface RetentionRunsTable {
   spans_days: number;
   llm_calls_days: number;
   breadcrumbs_days: DefaultedInteger;
+  dead_letter_jobs_days: DefaultedInteger;
   created_at: Timestamp;
 }
 

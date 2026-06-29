@@ -15,7 +15,7 @@ import {
   insertSpan,
   insertTrace
 } from "@sigmon/db/repositories/telemetry-writes.js";
-import { insertDeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
+import { deleteExpiredDeadLetterJobs, insertDeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
 import {
   deleteExpiredTelemetry,
   recordRetentionRun,
@@ -139,6 +139,7 @@ const retentionPolicy = {
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
   breadcrumbsDays: config.retention.breadcrumbsDays,
+  deadLetterJobsDays: config.retention.deadLetterJobsDays,
   sourceMapsEnabled: config.sourceMaps.retention.enabled,
   sourceMapsDays: config.sourceMaps.retention.days,
   sourceMapsBatchSize: config.sourceMaps.retention.batchSize
@@ -159,6 +160,11 @@ const stopRetention = runsScheduler && config.retention.enabled
                     now: new Date(),
                     batchSize: config.retention.batchSize,
                     ...retentionPolicy
+                  }),
+                deleteExpiredDeadLetterJobs: () =>
+                  deleteExpiredDeadLetterJobs(lockedDb, {
+                    cutoff: new Date(Date.now() - config.retention.deadLetterJobsDays * 24 * 60 * 60 * 1000),
+                    batchSize: config.retention.batchSize
                   })
               })
             ),

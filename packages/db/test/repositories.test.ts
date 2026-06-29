@@ -8,6 +8,7 @@ import { migrate } from "../src/migrate.js";
 import {
   deleteDeadLetterJob,
   countDeadLetterJobs,
+  deleteExpiredDeadLetterJobs,
   deleteDeadLetterJobWithAction,
   getDeadLetterJob,
   insertDeadLetterJob,
@@ -4875,7 +4876,8 @@ describe("repositories", () => {
         spans: 4,
         llmCalls: 5,
         breadcrumbs: 6,
-        sourceMapArtifacts: 0,
+        deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
         sourceMapFiles: 0
       };
       const policy = {
@@ -4885,6 +4887,7 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -4929,6 +4932,7 @@ describe("repositories", () => {
           spans: 4,
           llmCalls: 5,
           breadcrumbs: 6,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 7,
           sourceMapFiles: 8
         },
@@ -4939,7 +4943,8 @@ describe("repositories", () => {
           spansDays: 90,
           llmCallsDays: 180,
           breadcrumbsDays: 30,
-          sourceMapsEnabled: true,
+          deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
           sourceMapsDays: 180,
           sourceMapsBatchSize: 100
         }
@@ -5101,6 +5106,7 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -5113,7 +5119,8 @@ describe("repositories", () => {
         spans: 1,
         llmCalls: 1,
         breadcrumbs: 0,
-        sourceMapArtifacts: 0,
+        deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
         sourceMapFiles: 0
       });
 
@@ -5186,6 +5193,7 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -5237,6 +5245,7 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -5395,6 +5404,55 @@ describe("repositories", () => {
       expect(secondPage.cursor).toBeUndefined();
 
       await expect(listDeadLetterJobs(db, { cursor: "not-json" })).rejects.toThrow("invalid_cursor");
+    });
+  });
+
+  it("expires old dead letter jobs and records retained audit actions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await db.deleteFrom("dead_letter_job_actions").execute();
+      await db.deleteFrom("dead_letter_jobs").execute();
+
+      const oldJob = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "old" },
+        errorMessage: "old failure"
+      });
+      const freshJob = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "fresh" },
+        errorMessage: "fresh failure"
+      });
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-05-01T00:00:00.000Z") })
+        .where("id", "=", oldJob.id)
+        .execute();
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-06-01T00:00:00.000Z") })
+        .where("id", "=", freshJob.id)
+        .execute();
+
+      const deleted = await deleteExpiredDeadLetterJobs(db, {
+        cutoff: new Date("2026-05-15T00:00:00.000Z"),
+        batchSize: 10
+      });
+
+      expect(deleted).toBe(1);
+      await expect(getDeadLetterJob(db, oldJob.id)).resolves.toBeUndefined();
+      await expect(getDeadLetterJob(db, freshJob.id)).resolves.toMatchObject({ id: freshJob.id });
+      await expect(listDeadLetterJobActions(db, oldJob.id)).resolves.toEqual([
+        expect.objectContaining({
+          deadLetterJobId: oldJob.id,
+          action: "expired",
+          actorUserId: null,
+          actorEmail: "system:retention",
+          metadata: { cutoff: "2026-05-15T00:00:00.000Z" }
+        })
+      ]);
     });
   });
 

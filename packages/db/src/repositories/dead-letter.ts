@@ -1,11 +1,12 @@
-import type { Selectable } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
-import type { DeadLetterJobActionsTable, DeadLetterJobsTable } from "../schema.js";
+import type { Database, DeadLetterJobActionsTable, DeadLetterJobsTable } from "../schema.js";
 
 type DeadLetterJobRow = Selectable<DeadLetterJobsTable>;
 type DeadLetterJobActionRow = Selectable<DeadLetterJobActionsTable>;
+type DeadLetterDb = Db | Transaction<Database>;
 
 export interface DeadLetterJob {
   id: string;
@@ -23,7 +24,7 @@ export interface InsertDeadLetterJobInput {
   errorMessage: string;
 }
 
-export type DeadLetterJobActionType = "deleted" | "replayed";
+export type DeadLetterJobActionType = "deleted" | "replayed" | "expired";
 
 export interface DeadLetterJobAction {
   id: string;
@@ -88,7 +89,7 @@ function toDeadLetterJobAction(row: DeadLetterJobActionRow): DeadLetterJobAction
   };
 }
 
-export async function insertDeadLetterJob(db: Db, input: InsertDeadLetterJobInput): Promise<DeadLetterJob> {
+export async function insertDeadLetterJob(db: DeadLetterDb, input: InsertDeadLetterJobInput): Promise<DeadLetterJob> {
   const row = await db
     .insertInto("dead_letter_jobs")
     .values({
@@ -146,7 +147,7 @@ function decodeDeadLetterJobCursor(cursor: string): DeadLetterJobCursorPayload {
 }
 
 export async function listDeadLetterJobs(
-  db: Db,
+  db: DeadLetterDb,
   input: ListDeadLetterJobsInput = {}
 ): Promise<DeadLetterJobPage> {
   const limit = boundedLimit(input.limit);
@@ -178,7 +179,7 @@ export async function listDeadLetterJobs(
   };
 }
 
-export async function getDeadLetterJob(db: Db, id: string): Promise<DeadLetterJob | undefined> {
+export async function getDeadLetterJob(db: DeadLetterDb, id: string): Promise<DeadLetterJob | undefined> {
   const row = await db
     .selectFrom("dead_letter_jobs")
     .selectAll()
@@ -188,7 +189,7 @@ export async function getDeadLetterJob(db: Db, id: string): Promise<DeadLetterJo
   return row ? toDeadLetterJob(row) : undefined;
 }
 
-export async function listDeadLetterJobActions(db: Db, deadLetterJobId: string): Promise<DeadLetterJobAction[]> {
+export async function listDeadLetterJobActions(db: DeadLetterDb, deadLetterJobId: string): Promise<DeadLetterJobAction[]> {
   const rows = await db
     .selectFrom("dead_letter_job_actions")
     .selectAll()
@@ -201,7 +202,7 @@ export async function listDeadLetterJobActions(db: Db, deadLetterJobId: string):
 }
 
 export async function recordDeadLetterJobAction(
-  db: Db,
+  db: DeadLetterDb,
   deadLetterJob: DeadLetterJob,
   input: DeadLetterJobActionInput
 ): Promise<DeadLetterJobAction> {
@@ -223,7 +224,7 @@ export async function recordDeadLetterJobAction(
   return toDeadLetterJobAction(row);
 }
 
-export async function countDeadLetterJobs(db: Db): Promise<number> {
+export async function countDeadLetterJobs(db: DeadLetterDb): Promise<number> {
   const row = await db
     .selectFrom("dead_letter_jobs")
     .select((eb) => eb.fn.countAll<string>().as("count"))
@@ -232,7 +233,7 @@ export async function countDeadLetterJobs(db: Db): Promise<number> {
   return Number.isSafeInteger(count) && count >= 0 ? count : 0;
 }
 
-export async function deleteDeadLetterJob(db: Db, id: string): Promise<boolean> {
+export async function deleteDeadLetterJob(db: DeadLetterDb, id: string): Promise<boolean> {
   const result = await db.deleteFrom("dead_letter_jobs").where("id", "=", id).executeTakeFirst();
   return Number(result.numDeletedRows) > 0;
 }
@@ -262,4 +263,54 @@ export async function deleteDeadLetterJobWithAction(
     await recordDeadLetterJobAction(trx, deadLetterJob, input);
     return true;
   });
+}
+
+export async function deleteExpiredDeadLetterJobs(
+  db: DeadLetterDb,
+  input: { cutoff: Date; batchSize: number }
+): Promise<number> {
+  const rows = await db
+    .selectFrom("dead_letter_jobs")
+    .selectAll()
+    .where("created_at", "<", input.cutoff)
+    .orderBy("created_at", "asc")
+    .orderBy("id", "asc")
+    .limit(input.batchSize)
+    .execute();
+
+  if (rows.length === 0) {
+    return 0;
+  }
+
+  const jobs = rows.map(toDeadLetterJob);
+  const ids = jobs.map((job) => job.id);
+  const deleted = await db
+    .deleteFrom("dead_letter_jobs")
+    .where("id", "in", ids)
+    .returning("id")
+    .execute();
+
+  const deletedIds = new Set(deleted.map((row) => row.id));
+  const deletedJobs = jobs.filter((job) => deletedIds.has(job.id));
+  if (deletedJobs.length === 0) {
+    return 0;
+  }
+
+  await db
+    .insertInto("dead_letter_job_actions")
+    .values(
+      deletedJobs.map((job) => ({
+        id: createId("dla"),
+        dead_letter_job_id: job.id,
+        queue_name: job.queueName,
+        job_name: job.jobName,
+        action: "expired" as const,
+        actor_user_id: null,
+        actor_email: "system:retention",
+        metadata: { cutoff: input.cutoff.toISOString() }
+      }))
+    )
+    .execute();
+
+  return deletedJobs.length;
 }

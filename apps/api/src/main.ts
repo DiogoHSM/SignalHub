@@ -244,6 +244,7 @@ const retentionPolicy = {
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
   breadcrumbsDays: config.retention.breadcrumbsDays,
+  deadLetterJobsDays: config.retention.deadLetterJobsDays,
   sourceMapsEnabled: config.sourceMaps.retention.enabled,
   sourceMapsDays: config.sourceMaps.retention.days,
   sourceMapsBatchSize: config.sourceMaps.retention.batchSize
