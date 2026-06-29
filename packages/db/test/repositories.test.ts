@@ -1822,6 +1822,49 @@ describe("repositories", () => {
     });
   });
 
+  it("rejects source map artifacts for archived project or environment scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const user = await seedSourceMapUser(db);
+      const archivedProject = await createProject(db, { name: "Archived Source Maps" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const activeProject = await createProject(db, { name: "Archived Source Map Environment" });
+      const archivedEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "archived" });
+
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      const base = {
+        release: "web@1.0.0",
+        minifiedFile: "app.min.js",
+        originalFilename: "app.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "abc123",
+        storagePath: "/tmp/app.min.js.map",
+        uploadedByUserId: user.id
+      };
+
+      await expect(
+        createSourceMapArtifact(db, {
+          ...base,
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id
+        })
+      ).rejects.toThrow("active_source_map_scope_not_found");
+      await expect(
+        createSourceMapArtifact(db, {
+          ...base,
+          projectId: activeProject.id,
+          environmentId: archivedEnvironment.id
+        })
+      ).rejects.toThrow("active_source_map_scope_not_found");
+    });
+  });
+
   it("persists source map artifacts uploaded by tokens", async () => {
     await withDb(async (db) => {
       await migrate(db);

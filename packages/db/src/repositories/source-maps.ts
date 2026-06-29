@@ -199,6 +199,19 @@ export async function createSourceMapArtifact(
   db: SourceMapDb,
   input: CreateSourceMapArtifactInput
 ): Promise<SourceMapArtifactRecord> {
+  const activeScope = await db
+    .selectFrom("environments")
+    .innerJoin("projects", "projects.id", "environments.project_id")
+    .select("environments.id")
+    .where("environments.id", "=", input.environmentId)
+    .where("environments.project_id", "=", input.projectId)
+    .where("environments.archived_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .executeTakeFirst();
+  if (!activeScope) {
+    throw new Error("active_source_map_scope_not_found");
+  }
+
   const row = await db
     .insertInto("source_map_artifacts")
     .values({
