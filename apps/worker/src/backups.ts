@@ -13,7 +13,7 @@ const backupFilenamePattern = /^sigmon-\d{8}T\d{6}Z\.dump$/;
 type ExecFileFn = (
   file: string,
   args: string[],
-  options?: { env?: NodeJS.ProcessEnv }
+  options?: { env?: NodeJS.ProcessEnv; timeout?: number }
 ) => Promise<unknown>;
 type BackupReadStream = Readable & { destroy: (error?: Error) => void };
 
@@ -55,6 +55,7 @@ export type BackupRunInput = {
 export type DumpDatabaseInput = {
   databaseUrl: string;
   outputPath: string;
+  timeoutMs?: number;
   execFileFn?: ExecFileFn;
 };
 
@@ -112,9 +113,10 @@ export async function writeChecksumSidecar(filePath: string, checksum: string): 
 export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<void> {
   const execFileFn =
     input.execFileFn ??
-    (async (file: string, args: string[], options?: { env?: NodeJS.ProcessEnv }) => {
+    (async (file: string, args: string[], options?: { env?: NodeJS.ProcessEnv; timeout?: number }) => {
       await execFileAsync(file, args, options);
     });
+  const timeoutMs = input.timeoutMs ?? 300_000;
   const databaseUrl = new URL(input.databaseUrl);
   const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
   const username = decodeURIComponent(databaseUrl.username);
@@ -144,7 +146,10 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
     }
   }
 
-  const options = password === "" ? undefined : { env: { ...process.env, PGPASSWORD: password } };
+  const options = {
+    timeout: timeoutMs,
+    ...(password === "" ? {} : { env: { ...process.env, PGPASSWORD: password } })
+  };
 
   try {
     await execFileFn("pg_dump", args, options);

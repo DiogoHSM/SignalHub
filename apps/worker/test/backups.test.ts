@@ -169,7 +169,7 @@ describe("createBackupS3Key", () => {
 describe("dumpPostgresDatabase", () => {
   it("runs pg_dump with explicit non-secret connection args and password in the environment", async () => {
     const execFileFn = vi.fn(
-      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv }) => undefined
+      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv; timeout?: number }) => undefined
     );
 
     await dumpPostgresDatabase({
@@ -196,12 +196,14 @@ describe("dumpPostgresDatabase", () => {
       "user"
     ]);
     expect(args).not.toContain("postgres://user:pa%24%24@localhost:5433/sigmon");
-    expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "pa$$" }) }));
+    expect(options).toEqual(
+      expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "pa$$" }), timeout: 300_000 })
+    );
   });
 
   it("preserves non-secret database URL options without putting the password in argv", async () => {
     const execFileFn = vi.fn(
-      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv }) => undefined
+      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv; timeout?: number }) => undefined
     );
     const databaseUrl =
       "postgres://user:secret@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon";
@@ -218,7 +220,9 @@ describe("dumpPostgresDatabase", () => {
     expect(args).toContain("postgres://user@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon");
     expect(args?.join(" ")).toContain("sslmode=require");
     expect(args?.join(" ")).toContain("application_name=sigmon");
-    expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
+    expect(options).toEqual(
+      expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }), timeout: 300_000 })
+    );
   });
 
   it("does not include the raw database URL in thrown pg_dump errors", async () => {
