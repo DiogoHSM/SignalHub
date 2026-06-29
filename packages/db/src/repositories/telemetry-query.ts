@@ -1,5 +1,6 @@
 import type { Selectable } from "kysely";
 import { sql } from "kysely";
+import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
 import type { ErrorsTable, EventsTable, LlmCallsTable, SpansTable, TracesTable } from "../schema.js";
 
@@ -30,7 +31,13 @@ export interface TelemetryFilters {
   from?: Date;
   to?: Date;
   limit?: number;
+  cursor?: string;
 }
+
+export type TelemetryListResult<T> = {
+  data: T[];
+  cursor?: string;
+};
 
 export interface EventRecord {
   id: string;
@@ -543,7 +550,73 @@ function resolveLimit(limit: number | undefined): number {
   return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(limit)));
 }
 
-export async function listEvents(db: Db, filters: TelemetryFilters): Promise<EventRecord[]> {
+type TimestampCursor = {
+  projectId: string;
+  environmentId: string;
+  timestamp: Date;
+  id: string;
+};
+
+function encodeTimestampCursor(filters: TelemetryFilters, row: { id: string; timestamp: Date | string }): string {
+  return Buffer.from(
+    JSON.stringify({
+      projectId: filters.projectId,
+      environmentId: filters.environmentId,
+      timestamp: toIso(row.timestamp),
+      id: row.id
+    })
+  ).toString("base64url");
+}
+
+function decodeTimestampCursor(filters: TelemetryFilters): TimestampCursor | undefined {
+  if (!filters.cursor) {
+    return undefined;
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(filters.cursor, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("invalid_cursor");
+  }
+
+  if (typeof decoded !== "object" || decoded === null) {
+    throw new Error("invalid_cursor");
+  }
+
+  const cursor = decoded as Record<string, unknown>;
+  const projectId = typeof cursor.projectId === "string" ? cursor.projectId : "";
+  const environmentId = typeof cursor.environmentId === "string" ? cursor.environmentId : "";
+  const timestamp = typeof cursor.timestamp === "string" ? new Date(cursor.timestamp) : null;
+  const id = typeof cursor.id === "string" ? cursor.id : "";
+
+  if (!projectId || !environmentId || !timestamp || Number.isNaN(timestamp.getTime()) || !id) {
+    throw new Error("invalid_cursor");
+  }
+  if (projectId !== filters.projectId || environmentId !== filters.environmentId) {
+    throw new Error("invalid_cursor_scope");
+  }
+
+  return { projectId, environmentId, timestamp, id };
+}
+
+function listResult<Row extends { id: string; timestamp: Date | string }, T>(
+  filters: TelemetryFilters,
+  rows: Row[],
+  map: (row: Row) => T
+): TelemetryListResult<T> {
+  const limit = resolveLimit(filters.limit);
+  const dataRows = rows.slice(0, limit);
+  const lastRow = dataRows[dataRows.length - 1];
+  return {
+    data: dataRows.map(map),
+    ...(rows.length > limit && lastRow ? { cursor: encodeTimestampCursor(filters, lastRow) } : {})
+  };
+}
+
+export async function listEvents(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<EventRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("events")
     .selectAll()
@@ -557,12 +630,19 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Eve
   if (filters.eventName) query = query.where("name", "=", filters.eventName);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toEvent);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toEvent);
 }
 
-export async function listErrors(db: Db, filters: TelemetryFilters): Promise<ErrorRecord[]> {
+export async function listErrors(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<ErrorRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("errors")
     .selectAll()
@@ -579,12 +659,19 @@ export async function listErrors(db: Db, filters: TelemetryFilters): Promise<Err
   if (filters.errorGroupId) query = query.where("error_group_id", "=", filters.errorGroupId);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toError);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toError);
 }
 
-export async function listLlmCalls(db: Db, filters: TelemetryFilters): Promise<LlmCallRecord[]> {
+export async function listLlmCalls(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<LlmCallRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("llm_calls")
     .selectAll()
@@ -601,12 +688,19 @@ export async function listLlmCalls(db: Db, filters: TelemetryFilters): Promise<L
   if (filters.status) query = query.where("status", "=", filters.status);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toLlmCall);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toLlmCall);
 }
 
-export async function listTraces(db: Db, filters: TelemetryFilters): Promise<TraceRecord[]> {
+export async function listTraces(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<TraceRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("traces")
     .selectAll()
@@ -619,12 +713,19 @@ export async function listTraces(db: Db, filters: TelemetryFilters): Promise<Tra
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toTrace);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toTrace);
 }
 
-export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise<SpanRecord[]> {
+export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<SpanRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("spans")
     .selectAll()
@@ -637,9 +738,14 @@ export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toSpan);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toSpan);
 }
 
 export async function getEventAggregates(db: Db, filters: TelemetryFilters): Promise<CountAggregate & { byName: Record<string, number> }> {

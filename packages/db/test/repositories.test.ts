@@ -508,6 +508,49 @@ describe("repositories", () => {
     });
   });
 
+  it("creates stable cursor and session timeline indexes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const rows = await sql<{ index_name: string }>`
+        select index_name
+        from (
+          values
+            ('events_scope_time_id_idx'),
+            ('errors_scope_time_id_idx'),
+            ('llm_calls_scope_time_id_idx'),
+            ('traces_scope_time_id_idx'),
+            ('spans_scope_time_id_idx'),
+            ('events_scope_session_time_id_idx'),
+            ('errors_scope_session_time_id_idx'),
+            ('llm_calls_scope_session_time_id_idx'),
+            ('traces_scope_session_time_id_idx'),
+            ('spans_scope_session_time_id_idx'),
+            ('source_map_artifacts_scope_created_id_idx'),
+            ('monitor_checks_monitor_checked_id_idx')
+        ) expected(index_name)
+        where to_regclass(expected.index_name) is not null
+      `.execute(db);
+
+      expect(rows.rows.map((row) => row.index_name).sort()).toEqual(
+        [
+          "errors_scope_session_time_id_idx",
+          "errors_scope_time_id_idx",
+          "events_scope_session_time_id_idx",
+          "events_scope_time_id_idx",
+          "llm_calls_scope_session_time_id_idx",
+          "llm_calls_scope_time_id_idx",
+          "monitor_checks_monitor_checked_id_idx",
+          "source_map_artifacts_scope_created_id_idx",
+          "spans_scope_session_time_id_idx",
+          "spans_scope_time_id_idx",
+          "traces_scope_session_time_id_idx",
+          "traces_scope_time_id_idx"
+        ].sort()
+      );
+    });
+  });
+
   it("has source-map retention columns on retention_runs", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -1427,6 +1470,53 @@ describe("repositories", () => {
       } finally {
         await db.deleteFrom("events").where("id", "=", input.id).execute();
       }
+    });
+  });
+
+  it("paginates event lists with scoped timestamp cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Cursor Events" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherProject = await createProject(db, { name: "Other Cursor Events" });
+      const otherEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+
+      for (const input of [
+        { id: "evt_cursor_1", timestamp: new Date("2026-05-23T12:00:00.000Z"), name: "cursor.oldest" },
+        { id: "evt_cursor_2", timestamp: new Date("2026-05-23T12:01:00.000Z"), name: "cursor.middle" },
+        { id: "evt_cursor_3", timestamp: new Date("2026-05-23T12:02:00.000Z"), name: "cursor.newest" }
+      ]) {
+        await insertEvent(db, {
+          ...input,
+          projectId: project.id,
+          environmentId: environment.id,
+          receivedAt: input.timestamp
+        });
+      }
+
+      const firstPage = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 2 });
+
+      expect(firstPage.data.map((event) => event.id)).toEqual(["evt_cursor_3", "evt_cursor_2"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listEvents(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        limit: 2,
+        cursor: firstPage.cursor
+      });
+
+      expect(secondPage.data.map((event) => event.id)).toEqual(["evt_cursor_1"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(
+        listEvents(db, {
+          projectId: otherProject.id,
+          environmentId: otherEnvironment.id,
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
     });
   });
 
@@ -4707,15 +4797,21 @@ describe("repositories", () => {
       });
 
       const filters = { projectId: project.id, environmentId: environment.id, limit: 10 };
-      await expect(listEvents(db, filters)).resolves.toEqual([expect.objectContaining({ id: "evt_fresh_retention" })]);
-      await expect(listErrors(db, filters)).resolves.toEqual([expect.objectContaining({ id: "err_fresh_retention" })]);
-      await expect(listTraces(db, filters)).resolves.toEqual([expect.objectContaining({ id: "trc_fresh_retention" })]);
-      await expect(listTraceSpans(db, filters)).resolves.toEqual([
-        expect.objectContaining({ id: "spn_fresh_retention" })
-      ]);
-      await expect(listLlmCalls(db, filters)).resolves.toEqual([
-        expect.objectContaining({ id: "llm_fresh_retention" })
-      ]);
+      await expect(listEvents(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "evt_fresh_retention" })]
+      });
+      await expect(listErrors(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "err_fresh_retention" })]
+      });
+      await expect(listTraces(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "trc_fresh_retention" })]
+      });
+      await expect(listTraceSpans(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "spn_fresh_retention" })]
+      });
+      await expect(listLlmCalls(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "llm_fresh_retention" })]
+      });
     });
   });
 
@@ -4826,7 +4922,9 @@ describe("repositories", () => {
       });
 
       expect(deleted.events).toBe(1);
-      await expect(listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 })).resolves.toHaveLength(1);
+      await expect(listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 })).resolves.toMatchObject({
+        data: expect.arrayContaining([expect.objectContaining({ id: "evt_bounded_retention_2" })])
+      });
     });
   });
 
@@ -4890,8 +4988,8 @@ describe("repositories", () => {
       });
 
       const events = await listEvents(db, { projectId: project.id, environmentId: environment.id });
-      expect(events).toHaveLength(1);
-      expect(events[0].name).toBe("dashboard_created");
+      expect(events.data).toHaveLength(1);
+      expect(events.data[0].name).toBe("dashboard_created");
 
       const llm = await getLlmAggregates(db, { projectId: project.id, environmentId: environment.id });
       expect(llm.totalCalls).toBe(1);
@@ -5123,11 +5221,11 @@ describe("repositories", () => {
       });
 
       const filters = { projectId: project.id, environmentId: environment.id, traceId: "trace_runtime" };
-      await expect(listEvents(db, filters)).resolves.toEqual([expect.objectContaining({ id: "evt_runtime" })]);
-      await expect(listErrors(db, filters)).resolves.toEqual([expect.objectContaining({ id: "err_runtime" })]);
-      await expect(listLlmCalls(db, filters)).resolves.toEqual([expect.objectContaining({ id: "llm_runtime" })]);
-      await expect(listTraces(db, filters)).resolves.toEqual([expect.objectContaining({ id: "trc_runtime" })]);
-      await expect(listTraceSpans(db, filters)).resolves.toEqual([expect.objectContaining({ id: "spn_runtime" })]);
+      await expect(listEvents(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "evt_runtime" })] });
+      await expect(listErrors(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "err_runtime" })] });
+      await expect(listLlmCalls(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "llm_runtime" })] });
+      await expect(listTraces(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "trc_runtime" })] });
+      await expect(listTraceSpans(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "spn_runtime" })] });
       await expect(getEventAggregates(db, filters)).resolves.toMatchObject({ total: 1 });
       await expect(getErrorAggregates(db, filters)).resolves.toMatchObject({ total: 1, open: 1 });
       await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({ totalCalls: 1, totalInputTokens: 3 });
@@ -5441,7 +5539,9 @@ describe("repositories", () => {
         status: "success"
       };
 
-      await expect(listLlmCalls(db, filters)).resolves.toEqual([expect.objectContaining({ id: "llm_match" })]);
+      await expect(listLlmCalls(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "llm_match" })]
+      });
       await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({
         totalCalls: 1,
         totalInputTokens: 10,
@@ -7177,7 +7277,7 @@ describe("repositories", () => {
 
       await expect(
         listEvents(db, { projectId: project.id, environmentId: environment.id, eventName: "checkout.started" })
-      ).resolves.toEqual([expect.objectContaining({ id: "evt_named_1", name: "checkout.started" })]);
+      ).resolves.toMatchObject({ data: [expect.objectContaining({ id: "evt_named_1", name: "checkout.started" })] });
     });
   });
 
@@ -7235,14 +7335,16 @@ describe("repositories", () => {
           status: "open",
           fingerprint: "fp_checkout_fetch"
         })
-      ).resolves.toEqual([
-        expect.objectContaining({
-          id: "err_filtered_1",
-          severity: "critical",
-          status: "open",
-          fingerprint: "fp_checkout_fetch"
-        })
-      ]);
+      ).resolves.toMatchObject({
+        data: [
+          expect.objectContaining({
+            id: "err_filtered_1",
+            severity: "critical",
+            status: "open",
+            fingerprint: "fp_checkout_fetch"
+          })
+        ]
+      });
     });
   });
 
@@ -7264,11 +7366,12 @@ describe("repositories", () => {
         fingerprint: "grouped-raw-error"
       });
 
-      const [raw] = await listErrors(db, {
+      const rawErrors = await listErrors(db, {
         projectId: project.id,
         environmentId: environment.id,
         limit: 10
       });
+      const [raw] = rawErrors.data;
 
       expect(raw?.errorGroupId).toEqual(expect.stringMatching(/^egrp_/));
       expect(raw?.groupingFingerprint).toBe("grouped-raw-error");
@@ -7280,7 +7383,7 @@ describe("repositories", () => {
         limit: 10
       });
 
-      expect(filtered.map((error) => error.id)).toEqual(["err_raw_group_filter_1"]);
+      expect(filtered.data.map((error) => error.id)).toEqual(["err_raw_group_filter_1"]);
     });
   });
 
@@ -7475,10 +7578,10 @@ describe("repositories", () => {
       }
 
       const defaultEvents = await listEvents(db, { projectId: project.id, environmentId: environment.id });
-      expect(defaultEvents).toHaveLength(50);
+      expect(defaultEvents.data).toHaveLength(50);
 
       const limitedEvents = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 2 });
-      expect(limitedEvents).toHaveLength(2);
+      expect(limitedEvents.data).toHaveLength(2);
     });
   });
 

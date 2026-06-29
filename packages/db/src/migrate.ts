@@ -18,7 +18,9 @@ const migrations = [
   { name: "0012_alerting_monitors.sql", url: new URL("../migrations/0012_alerting_monitors.sql", import.meta.url) },
   { name: "0013_identity_profiles.sql", url: new URL("../migrations/0013_identity_profiles.sql", import.meta.url) },
   { name: "0014_project_browser_origins.sql", url: new URL("../migrations/0014_project_browser_origins.sql", import.meta.url) },
-  { name: "0015_incident_triage.sql", url: new URL("../migrations/0015_incident_triage.sql", import.meta.url) }
+  { name: "0015_incident_triage.sql", url: new URL("../migrations/0015_incident_triage.sql", import.meta.url) },
+  { name: "0016_system_health_samples.sql", url: new URL("../migrations/0016_system_health_samples.sql", import.meta.url) },
+  { name: "0017_query_pagination_indexes.sql", url: new URL("../migrations/0017_query_pagination_indexes.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

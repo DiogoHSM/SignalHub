@@ -600,6 +600,26 @@ describe("query routes", () => {
     ]);
   });
 
+  it("returns 400 when a query cursor is invalid for the requested scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEvents: async () => {
+          throw new Error("invalid_cursor_scope");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1&cursor=cur_other_scope"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
+  });
+
   it("parses severity status and fingerprint for error queries", async () => {
     const receivedFilters: unknown[] = [];
 
