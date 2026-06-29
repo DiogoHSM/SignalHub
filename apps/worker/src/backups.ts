@@ -222,7 +222,7 @@ async function uploadObjectToS3WithRetry(input: {
       return;
     } catch (error) {
       lastError = error;
-      if (attempt === attempts) {
+      if (attempt === attempts || !isRetryableS3Error(error)) {
         throw error;
       }
     } finally {
@@ -231,6 +231,19 @@ async function uploadObjectToS3WithRetry(input: {
   }
 
   throw lastError instanceof Error ? lastError : new Error("s3 upload failed");
+}
+
+function isRetryableS3Error(error: unknown): boolean {
+  const status = readS3StatusCode(error);
+  if (status === null) return true;
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function readS3StatusCode(error: unknown): number | null {
+  if (typeof error !== "object" || error === null || !("$metadata" in error)) return null;
+  const metadata = (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata;
+  if (typeof metadata?.httpStatusCode !== "number") return null;
+  return metadata.httpStatusCode;
 }
 
 export async function pruneLocalBackups(input: {

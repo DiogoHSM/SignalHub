@@ -406,6 +406,51 @@ describe("uploadBackupToS3", () => {
     }
   });
 
+  it("does not retry permanent S3 authorization failures", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const streams: Readable[] = [];
+    const send = vi.fn(async () => {
+      const error = new Error("S3 access denied") as Error & { $metadata?: { httpStatusCode: number } };
+      error.$metadata = { httpStatusCode: 403 };
+      throw error;
+    });
+    const createReadStreamFn = vi.fn((path: string) => {
+      const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+      streams.push(stream);
+      return stream;
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod/sigmon"
+          },
+          createClient: () => ({ send }),
+          createReadStreamFn
+        })
+      ).rejects.toThrow("S3 access denied");
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(createReadStreamFn).toHaveBeenCalledTimes(1);
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
+  });
+
   it("reopens backup streams when retrying transient S3 upload failures", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
     const dumpPath = join(localDir, "sigmon.dump");
