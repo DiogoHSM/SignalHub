@@ -42,21 +42,25 @@ function toSourceMapUploadToken(row: SourceMapUploadTokenRow): SourceMapUploadTo
   };
 }
 
-export async function createSourceMapUploadTokenRecord(
-  db: Db,
-  input: CreateSourceMapUploadTokenRecordInput
-): Promise<SourceMapUploadTokenRecord> {
+async function hasActiveSourceMapUploadTokenScope(db: Db, scope: SourceMapUploadTokenScope): Promise<boolean> {
   const activeScope = await db
     .selectFrom("projects")
     .innerJoin("environments", "environments.project_id", "projects.id")
     .select("environments.id")
-    .where("projects.id", "=", input.projectId)
-    .where("environments.id", "=", input.environmentId)
+    .where("projects.id", "=", scope.projectId)
+    .where("environments.id", "=", scope.environmentId)
     .where("projects.archived_at", "is", null)
     .where("environments.archived_at", "is", null)
     .executeTakeFirst();
 
-  if (!activeScope) {
+  return Boolean(activeScope);
+}
+
+export async function createSourceMapUploadTokenRecord(
+  db: Db,
+  input: CreateSourceMapUploadTokenRecordInput
+): Promise<SourceMapUploadTokenRecord> {
+  if (!(await hasActiveSourceMapUploadTokenScope(db, input))) {
     throw new Error("active_source_map_upload_token_scope_not_found");
   }
 
@@ -80,6 +84,10 @@ export async function listSourceMapUploadTokens(
   db: Db,
   scope: SourceMapUploadTokenScope
 ): Promise<SourceMapUploadTokenRecord[]> {
+  if (!(await hasActiveSourceMapUploadTokenScope(db, scope))) {
+    return [];
+  }
+
   const rows = await db
     .selectFrom("source_map_upload_tokens")
     .selectAll()
@@ -127,6 +135,10 @@ export async function updateSourceMapUploadToken(
   db: Db,
   input: SourceMapUploadTokenScope & { id: string; name?: string }
 ): Promise<SourceMapUploadTokenRecord | undefined> {
+  if (!(await hasActiveSourceMapUploadTokenScope(db, input))) {
+    return undefined;
+  }
+
   const row = await db
     .updateTable("source_map_upload_tokens")
     .set({
@@ -146,6 +158,10 @@ export async function revokeSourceMapUploadToken(
   db: Db,
   input: SourceMapUploadTokenScope & { id: string }
 ): Promise<void> {
+  if (!(await hasActiveSourceMapUploadTokenScope(db, input))) {
+    return;
+  }
+
   await db
     .updateTable("source_map_upload_tokens")
     .set({ revoked_at: new Date() })

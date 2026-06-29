@@ -1353,6 +1353,73 @@ describe("repositories", () => {
     });
   });
 
+  it("does not list update or revoke source map upload tokens for archived scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const archivedProject = await createProject(db, { name: "Source Map Token Archived Operations" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedProjectToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "Archived project token",
+        prefix: "shsmap_archived_operations_project",
+        hash: "hash_archived_operations_project"
+      });
+
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Source Map Token Archived Environment Operations"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      const archivedEnvironmentToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived environment token",
+        prefix: "shsmap_archived_operations_environment",
+        hash: "hash_archived_operations_environment"
+      });
+
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      await expect(
+        listSourceMapUploadTokens(db, {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        updateSourceMapUploadToken(db, {
+          id: archivedProjectToken.id,
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "Should not update"
+        })
+      ).resolves.toBeUndefined();
+
+      await revokeSourceMapUploadToken(db, {
+        id: archivedEnvironmentToken.id,
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id
+      });
+      const [archivedEnvironmentRow] = await db
+        .selectFrom("source_map_upload_tokens")
+        .select(["name", "revoked_at"])
+        .where("id", "=", archivedEnvironmentToken.id)
+        .execute();
+      expect(archivedEnvironmentRow).toMatchObject({
+        name: "Archived environment token",
+        revoked_at: null
+      });
+    });
+  });
+
   it("prevents breadcrumbs from referencing an environment in another project", async () => {
     await withDb(async (db) => {
       await migrate(db);
