@@ -870,19 +870,41 @@ describe("admin routes", () => {
       sourceMaps: {
         list: async (filters) => {
           listCalls.push(filters);
-          return [artifact];
+          return { artifacts: [artifact], cursor: "cursor_next" };
         }
       }
     });
 
     const response = await app.inject({
       method: "GET",
-      url: "/admin/source-maps?project_id=prj_1&environment_id=env_1"
+      url: "/admin/source-maps?project_id=prj_1&environment_id=env_1&release=web%401.0.0&limit=25&cursor=cursor_1"
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ artifacts: [artifact] });
-    expect(listCalls).toEqual([{ projectId: "prj_1", environmentId: "env_1" }]);
+    expect(response.json()).toEqual({ artifacts: [artifact], cursor: "cursor_next" });
+    expect(listCalls).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", release: "web@1.0.0", limit: 25, cursor: "cursor_1" }
+    ]);
+  });
+
+  it("returns 400 for invalid source map artifact cursors", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        list: async () => {
+          throw new Error("invalid_cursor");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/source-maps?project_id=prj_1&environment_id=env_1&cursor=bad"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
   });
 
   it("rejects source map uploads for non-admin users", async () => {

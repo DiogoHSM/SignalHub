@@ -261,6 +261,8 @@ export type SourceMapArtifactQuery = {
   projectId: string;
   environmentId: string;
   release?: string;
+  limit?: number;
+  cursor?: string;
 };
 
 export type SourceMapResolutionFrame = {

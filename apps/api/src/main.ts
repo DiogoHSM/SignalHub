@@ -66,7 +66,7 @@ import { listSystemHealthSamples } from "@sigmon/db/repositories/system-health-s
 import {
   findSourceMapArtifactForFrame,
   getCachedErrorStackResolution,
-  listSourceMapArtifacts,
+  listSourceMapArtifactsPage,
   replaceErrorStackResolutions
 } from "@sigmon/db/repositories/source-maps.js";
 import {
@@ -576,7 +576,7 @@ const app = await buildApp({
     listDeadLetterJobs: (input) => listDeadLetterJobs(db, input)
   },
   sourceMaps: {
-    list: (filters) => listSourceMapArtifacts(db, filters),
+    list: (filters) => listSourceMapArtifactsPage(db, filters),
     uploadMap: (input) =>
       uploadSingleSourceMap({
         db,

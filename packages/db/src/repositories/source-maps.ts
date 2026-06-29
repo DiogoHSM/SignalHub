@@ -51,6 +51,21 @@ export type SourceMapScope = {
   projectId: string;
   environmentId: string;
   release?: string;
+  limit?: number;
+  cursor?: string;
+};
+
+type SourceMapArtifactCursorPayload = {
+  projectId: string;
+  environmentId: string;
+  release: string | null;
+  createdAt: string;
+  id: string;
+};
+
+export type SourceMapArtifactPage = {
+  artifacts: SourceMapArtifactRecord[];
+  cursor?: string;
 };
 
 type SourceMapArtifactUploader =
@@ -126,6 +141,51 @@ function toErrorStackResolution(row: ErrorStackResolutionRow): ErrorStackResolut
   };
 }
 
+function resolveListLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return 50;
+  return Math.min(250, Math.max(1, Math.trunc(limit)));
+}
+
+function encodeSourceMapArtifactCursor(row: SourceMapArtifactRow, scope: SourceMapScope): string {
+  const payload: SourceMapArtifactCursorPayload = {
+    projectId: scope.projectId,
+    environmentId: scope.environmentId,
+    release: scope.release ?? null,
+    createdAt: row.created_at.toISOString(),
+    id: row.id
+  };
+
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeSourceMapArtifactCursor(cursor: string): SourceMapArtifactCursorPayload {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("invalid_cursor");
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("invalid_cursor");
+  }
+
+  const payload = parsed as Partial<SourceMapArtifactCursorPayload>;
+  const createdAt = typeof payload.createdAt === "string" ? new Date(payload.createdAt) : null;
+  if (
+    typeof payload.projectId !== "string" ||
+    typeof payload.environmentId !== "string" ||
+    (typeof payload.release !== "string" && payload.release !== null) ||
+    typeof payload.id !== "string" ||
+    createdAt === null ||
+    Number.isNaN(createdAt.getTime())
+  ) {
+    throw new Error("invalid_cursor");
+  }
+
+  return payload as SourceMapArtifactCursorPayload;
+}
+
 export async function listSourceMapArtifacts(
   db: SourceMapDb,
   scope: SourceMapScope
@@ -139,8 +199,65 @@ export async function listSourceMapArtifacts(
 
   if (scope.release) query = query.where("release", "=", scope.release);
 
-  const rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").execute();
+  if (scope.cursor) {
+    const cursor = decodeSourceMapArtifactCursor(scope.cursor);
+    if (
+      cursor.projectId !== scope.projectId ||
+      cursor.environmentId !== scope.environmentId ||
+      cursor.release !== (scope.release ?? null)
+    ) {
+      throw new Error("invalid_cursor_scope");
+    }
+
+    const cursorCreatedAt = new Date(cursor.createdAt);
+    query = query.where(sql<boolean>`(
+      created_at < ${cursorCreatedAt}
+      or (created_at = ${cursorCreatedAt} and id < ${cursor.id})
+    )`);
+  }
+
+  const rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(resolveListLimit(scope.limit)).execute();
   return rows.map(toSourceMapArtifact);
+}
+
+export async function listSourceMapArtifactsPage(
+  db: SourceMapDb,
+  scope: SourceMapScope
+): Promise<SourceMapArtifactPage> {
+  const limit = resolveListLimit(scope.limit);
+  let query = db
+    .selectFrom("source_map_artifacts")
+    .selectAll()
+    .where("project_id", "=", scope.projectId)
+    .where("environment_id", "=", scope.environmentId)
+    .where("deleted_at", "is", null);
+
+  if (scope.release) query = query.where("release", "=", scope.release);
+  if (scope.cursor) {
+    const cursor = decodeSourceMapArtifactCursor(scope.cursor);
+    if (
+      cursor.projectId !== scope.projectId ||
+      cursor.environmentId !== scope.environmentId ||
+      cursor.release !== (scope.release ?? null)
+    ) {
+      throw new Error("invalid_cursor_scope");
+    }
+
+    const cursorCreatedAt = new Date(cursor.createdAt);
+    query = query.where(sql<boolean>`(
+      created_at < ${cursorCreatedAt}
+      or (created_at = ${cursorCreatedAt} and id < ${cursor.id})
+    )`);
+  }
+
+  const rows = await query.orderBy("created_at", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  const pageRows = rows.slice(0, limit);
+  const lastRow = pageRows.at(-1);
+
+  return {
+    artifacts: pageRows.map(toSourceMapArtifact),
+    cursor: rows.length > limit && lastRow ? encodeSourceMapArtifactCursor(lastRow, scope) : undefined
+  };
 }
 
 export async function listExpiredSourceMapArtifacts(

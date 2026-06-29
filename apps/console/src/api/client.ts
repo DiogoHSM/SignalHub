@@ -456,6 +456,8 @@ function sourceMapScopeParams(query: Pick<SourceMapArtifactQuery, "projectId" | 
 function sourceMapArtifactsPath(query: SourceMapArtifactQuery): string {
   const params = sourceMapScopeParams(query);
   if (query.release) params.set("release", query.release);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
 
   return `/admin/source-maps?${params.toString()}`;
 }

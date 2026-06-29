@@ -167,8 +167,18 @@ export type SourceMapArtifactResponse = {
   deletedAt: Date | string | null;
 };
 
+export type SourceMapArtifactListResponse =
+  | SourceMapArtifactResponse[]
+  | { artifacts: SourceMapArtifactResponse[]; cursor?: string };
+
 export type SourceMapAdministrationDependencies = {
-  list?: (filters: { projectId: string; environmentId: string; release?: string }) => Promise<SourceMapArtifactResponse[]>;
+  list?: (filters: {
+    projectId: string;
+    environmentId: string;
+    release?: string;
+    limit?: number;
+    cursor?: string;
+  }) => Promise<SourceMapArtifactListResponse>;
   uploadMap?: (input: SourceMapUploadInput) => Promise<SourceMapArtifactResponse[]>;
   uploadBundle?: (input: SourceMapBundleUploadInput) => Promise<SourceMapArtifactResponse[]>;
   remove?: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
@@ -430,7 +440,9 @@ const deadLetterJobsQuerySchema = z.object({
 const sourceMapScopeQuerySchema = z.object({
   project_id: z.string().trim().min(1),
   environment_id: z.string().trim().min(1),
-  release: z.string().trim().min(1).optional()
+  release: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(250).optional(),
+  cursor: z.string().trim().min(1).optional()
 });
 
 const sourceMapUploadTokenScopeQuerySchema = z.object({
@@ -1446,18 +1458,23 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_source_map_request" });
     }
 
-    let artifacts: SourceMapArtifactResponse[];
+    let result: SourceMapArtifactListResponse;
     try {
-      artifacts = await options.sourceMaps.list({
+      result = await options.sourceMaps.list({
         projectId: parsed.data.project_id,
         environmentId: parsed.data.environment_id,
-        release: parsed.data.release
+        release: parsed.data.release,
+        limit: parsed.data.limit,
+        cursor: parsed.data.cursor
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && (error.message === "invalid_cursor" || error.message === "invalid_cursor_scope")) {
+        return reply.status(400).send({ error: "invalid_cursor" });
+      }
       return reply.status(503).send({ error: "source_maps_unavailable" });
     }
 
-    return reply.send({ artifacts });
+    return reply.send(Array.isArray(result) ? { artifacts: result } : result);
   });
 
   app.post("/admin/source-maps", async (request, reply) => {

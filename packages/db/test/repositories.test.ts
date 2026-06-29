@@ -115,6 +115,7 @@ import {
   getCachedErrorStackResolution,
   listExpiredSourceMapArtifacts,
   listSourceMapArtifacts,
+  listSourceMapArtifactsPage,
   replaceErrorStackResolutions,
   softDeleteSourceMapArtifactForRetention
 } from "../src/repositories/source-maps.js";
@@ -1820,6 +1821,69 @@ describe("repositories", () => {
       });
 
       expect(await listSourceMapArtifacts(db, { projectId: "prj_1", environmentId: "env_1" })).toEqual([]);
+    });
+  });
+
+  it("paginates source map artifacts with scoped created-at cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+
+      const artifacts = [];
+      for (const [index, minifiedFile, createdAt] of [
+        [1, "app.1.js", "2026-05-10T12:00:00.000Z"],
+        [2, "app.2.js", "2026-05-10T12:01:00.000Z"],
+        [3, "app.3.js", "2026-05-10T12:02:00.000Z"]
+      ] as const) {
+        const artifact = await createSourceMapArtifact(db, {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@1.0.0",
+          minifiedFile,
+          originalFilename: `${minifiedFile}.map`,
+          contentType: "application/json",
+          byteSize: 128 + index,
+          sha256: `sha-${index}`,
+          storagePath: `/tmp/${minifiedFile}.map`,
+          uploadedByUserId: user.id
+        });
+        await sql`update source_map_artifacts set created_at = ${new Date(createdAt)} where id = ${artifact.id}`.execute(db);
+        artifacts.push(artifact);
+      }
+
+      const firstPage = await listSourceMapArtifactsPage(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        limit: 2
+      });
+
+      expect(firstPage.artifacts.map((artifact) => artifact.minifiedFile)).toEqual(["app.3.js", "app.2.js"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listSourceMapArtifactsPage(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        limit: 2,
+        cursor: firstPage.cursor
+      });
+
+      expect(secondPage.artifacts.map((artifact) => artifact.minifiedFile)).toEqual(["app.1.js"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(
+        listSourceMapArtifactsPage(db, {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@2.0.0",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+
+      expect(artifacts).toHaveLength(3);
     });
   });
 

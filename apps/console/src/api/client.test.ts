@@ -1164,18 +1164,23 @@ describe("createApiClient", () => {
       createApiClient("/api").listSourceMapArtifacts({
         projectId: "prj/1",
         environmentId: "env 1",
-        release: "web@1.0.0"
+        release: "web@1.0.0",
+        limit: 25,
+        cursor: "cursor/next"
       })
     ).resolves.toEqual([]);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/admin/source-maps?project_id=prj%2F1&environment_id=env+1&release=web%401.0.0", {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        Accept: "application/json"
-      },
-      body: undefined
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/source-maps?project_id=prj%2F1&environment_id=env+1&release=web%401.0.0&limit=25&cursor=cursor%2Fnext",
+      {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "application/json"
+        },
+        body: undefined
+      }
+    );
   });
 
   it("gets source map resolution for an error with scoped query filters", async () => {
