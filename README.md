@@ -102,7 +102,7 @@ Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENA
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
-The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, dead-letter count, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split EasyPanel services can be checked independently.
+The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, dead-letter count, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split EasyPanel services can be checked independently. Admin users can also run manual doctor, backup, and retention actions from this screen.
 
 ## Backups and Restore
 
@@ -117,6 +117,8 @@ Run a manual backup with:
 ```sh
 docker compose run --rm worker pnpm backup:create
 ```
+
+Admins can also trigger a manual backup from the console System screen or through `POST /system/actions/backup` with a logged-in admin session.
 
 Restore is destructive. Stop the API and worker before restoring so no process writes to Postgres during `pg_restore`:
 

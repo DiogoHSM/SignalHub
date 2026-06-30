@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { setCurrentUser } from "../plugins/request-context.js";
-import type { AuthDependencies } from "./auth.js";
+import type { AuthDependencies, AuthUser } from "./auth.js";
 
 export type SystemStatus = "healthy" | "degraded" | "unhealthy";
 
@@ -132,9 +132,22 @@ export type SystemHealthSampleResponse = {
   queueFailed: number;
 };
 
+export type SystemActionResponse = {
+  ok: true;
+  action: "doctor" | "backup" | "retention";
+  status: "success" | "skipped";
+  message: string;
+  ran?: boolean;
+  skipped?: boolean;
+  generatedAt: string;
+};
+
 export type SystemHealthDependencies = {
   getHealth?: () => Promise<SystemHealthSnapshot>;
   getHistory?: (input: { limit: number }) => Promise<SystemHealthSampleResponse[]>;
+  runDoctor?: () => Promise<Omit<SystemActionResponse, "ok" | "action" | "generatedAt">>;
+  runBackup?: () => Promise<Omit<SystemActionResponse, "ok" | "action" | "generatedAt">>;
+  runRetention?: () => Promise<Omit<SystemActionResponse, "ok" | "action" | "generatedAt">>;
 };
 
 function parseHistoryLimit(raw: unknown): number {
@@ -143,17 +156,54 @@ function parseHistoryLimit(raw: unknown): number {
   return Math.min(480, Math.max(1, value));
 }
 
+async function requireUser(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  auth: AuthDependencies | undefined
+): Promise<AuthUser | null> {
+  const user = await auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
+  if (!user) {
+    setCurrentUser(request, null);
+    reply.code(401).send({ error: "unauthenticated" });
+    return null;
+  }
+  setCurrentUser(request, user);
+  return user;
+}
+
+async function requireAdmin(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  auth: AuthDependencies | undefined
+): Promise<AuthUser | null> {
+  const user = await requireUser(request, reply, auth);
+  if (!user) return null;
+  if (!user.isAdmin) {
+    reply.code(403).send({ error: "forbidden" });
+    return null;
+  }
+  return user;
+}
+
+function actionPayload(
+  action: SystemActionResponse["action"],
+  result: Omit<SystemActionResponse, "ok" | "action" | "generatedAt">
+): SystemActionResponse {
+  return {
+    ok: true,
+    action,
+    ...result,
+    generatedAt: new Date().toISOString()
+  };
+}
+
 export function registerSystemRoutes(
   app: FastifyInstance,
   options: { auth?: AuthDependencies; system?: SystemHealthDependencies }
 ): void {
   app.get("/system/health", async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = await options.auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
-    if (!user) {
-      setCurrentUser(request, null);
-      return reply.code(401).send({ error: "unauthenticated" });
-    }
-    setCurrentUser(request, user);
+    const user = await requireUser(request, reply, options.auth);
+    if (!user) return;
 
     if (!options.system?.getHealth) {
       return reply.code(501).send({ error: "system_health_unavailable" });
@@ -167,12 +217,8 @@ export function registerSystemRoutes(
   });
 
   app.get("/system/health/history", async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = await options.auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
-    if (!user) {
-      setCurrentUser(request, null);
-      return reply.code(401).send({ error: "unauthenticated" });
-    }
-    setCurrentUser(request, user);
+    const user = await requireUser(request, reply, options.auth);
+    if (!user) return;
 
     if (!options.system?.getHistory) {
       return reply.code(501).send({ error: "system_health_history_unavailable" });
@@ -184,6 +230,51 @@ export function registerSystemRoutes(
       return { data: await options.system.getHistory({ limit }) };
     } catch {
       return reply.code(503).send({ error: "system_health_history_unavailable" });
+    }
+  });
+
+  app.post("/system/actions/doctor", async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = await requireAdmin(request, reply, options.auth);
+    if (!user) return;
+
+    if (!options.system?.runDoctor) {
+      return reply.code(501).send({ error: "system_doctor_unavailable" });
+    }
+
+    try {
+      return actionPayload("doctor", await options.system.runDoctor());
+    } catch {
+      return reply.code(503).send({ error: "system_doctor_failed" });
+    }
+  });
+
+  app.post("/system/actions/backup", async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = await requireAdmin(request, reply, options.auth);
+    if (!user) return;
+
+    if (!options.system?.runBackup) {
+      return reply.code(501).send({ error: "system_backup_unavailable" });
+    }
+
+    try {
+      return actionPayload("backup", await options.system.runBackup());
+    } catch {
+      return reply.code(503).send({ error: "system_backup_failed" });
+    }
+  });
+
+  app.post("/system/actions/retention", async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = await requireAdmin(request, reply, options.auth);
+    if (!user) return;
+
+    if (!options.system?.runRetention) {
+      return reply.code(501).send({ error: "system_retention_unavailable" });
+    }
+
+    try {
+      return actionPayload("retention", await options.system.runRetention());
+    } catch {
+      return reply.code(503).send({ error: "system_retention_failed" });
     }
   });
 }

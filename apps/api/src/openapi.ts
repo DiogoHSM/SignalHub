@@ -128,6 +128,23 @@ const sessionRoute = (summary: string, description: string) => ({
   }
 });
 
+const systemActionOperation = (summary: string, description: string) => ({
+  tags: ["Session authenticated"],
+  summary,
+  description,
+  security: [{ sessionCookie: [] }],
+  responses: {
+    "200": {
+      description: "System action completed or skipped",
+      content: { "application/json": { schema: { $ref: "#/components/schemas/SystemActionResponse" } } }
+    },
+    "401": { $ref: "#/components/responses/Unauthorized" },
+    "403": { $ref: "#/components/responses/Forbidden" },
+    "501": { $ref: "#/components/responses/Unavailable" },
+    "503": { $ref: "#/components/responses/Unavailable" }
+  }
+});
+
 export const openApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -487,6 +504,19 @@ export const openApiDocument = {
         properties: {
           replayed: { type: "boolean", const: true },
           id: { type: "string" }
+        }
+      },
+      SystemActionResponse: {
+        type: "object",
+        required: ["ok", "action", "status", "message", "generatedAt"],
+        properties: {
+          ok: { type: "boolean", const: true },
+          action: { type: "string", enum: ["doctor", "backup", "retention"] },
+          status: { type: "string", enum: ["success", "skipped"] },
+          message: { type: "string" },
+          ran: { type: "boolean" },
+          skipped: { type: "boolean" },
+          generatedAt: { type: "string", format: "date-time" }
         }
       }
     },
@@ -972,6 +1002,24 @@ export const openApiDocument = {
     },
     "/system/health": {
       get: sessionRoute("Read system health", "Read API, worker, Postgres, Redis, queue, freshness, retention, and backup status.")
+    },
+    "/system/actions/doctor": {
+      post: systemActionOperation(
+        "Run system doctor",
+        "Admin-only read-only self-check that evaluates the current SignalMonitor installation health and returns an operator summary."
+      )
+    },
+    "/system/actions/backup": {
+      post: systemActionOperation(
+        "Trigger manual backup",
+        "Admin-only action that runs the same backup workflow used by the scheduler, guarded by the backup advisory lock."
+      )
+    },
+    "/system/actions/retention": {
+      post: systemActionOperation(
+        "Trigger manual retention",
+        "Admin-only action that runs the same telemetry, dead-letter, and source-map retention workflow used by the scheduler."
+      )
     }
   }
 } satisfies OpenApiDocument;

@@ -471,6 +471,24 @@ describe("createApiClient", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/system/health", expect.objectContaining({ method: "GET" }));
   });
 
+  it("runs system actions", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, action: "doctor", status: "success", message: "ok", generatedAt: "2026-06-30T00:00:00.000Z" }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, action: "backup", status: "skipped", message: "busy", ran: false, skipped: true, generatedAt: "2026-06-30T00:00:01.000Z" }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, action: "retention", status: "success", message: "done", ran: true, skipped: false, generatedAt: "2026-06-30T00:00:02.000Z" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient("/api");
+    await expect(client.runSystemDoctor?.()).resolves.toMatchObject({ action: "doctor", status: "success" });
+    await expect(client.runSystemBackup?.()).resolves.toMatchObject({ action: "backup", status: "skipped" });
+    await expect(client.runSystemRetention?.()).resolves.toMatchObject({ action: "retention", ran: true });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/system/actions/doctor", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/system/actions/backup", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/system/actions/retention", expect.objectContaining({ method: "POST" }));
+  });
+
   it("encodes entity tenant list queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { tenants: [] } }));
     vi.stubGlobal("fetch", fetchMock);
