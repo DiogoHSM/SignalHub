@@ -413,7 +413,7 @@ describe("createApiClient", () => {
               }
             },
             queues: {
-              telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 }
+              telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0, deadLettered: 0 }
             },
             ingestion: {
               lastEventAt: null,
@@ -433,7 +433,8 @@ describe("createApiClient", () => {
                 spansDays: 90,
                 llmCallsDays: 180,
                 breadcrumbsDays: 30,
-                sourceMapsEnabled: true,
+                deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
                 sourceMapsDays: 180,
                 sourceMapsBatchSize: 100
               }
@@ -656,11 +657,12 @@ describe("createApiClient", () => {
       release: "web@1.2.3",
       from: "2026-05-05T12:00:00.000Z",
       to: "2026-05-05T13:00:00.000Z",
-      limit: 25
+      limit: 25,
+      cursor: "cursor/next"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/query/error-groups?project_id=prj%2F1&environment_id=env+1&tenant_id=tenant%2F1&user_id=user+1&status=investigating&severity=fatal&fingerprint=fp%2Fcheckout&release=web%401.2.3&from=2026-05-05T12%3A00%3A00.000Z&to=2026-05-05T13%3A00%3A00.000Z&limit=25",
+      "/api/query/error-groups?project_id=prj%2F1&environment_id=env+1&tenant_id=tenant%2F1&user_id=user+1&status=investigating&severity=fatal&fingerprint=fp%2Fcheckout&release=web%401.2.3&from=2026-05-05T12%3A00%3A00.000Z&to=2026-05-05T13%3A00%3A00.000Z&limit=25&cursor=cursor%2Fnext",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -1106,7 +1108,7 @@ describe("createApiClient", () => {
       name: "Worker",
       expectedIntervalMinutes: 5
     });
-    await createApiClient("/api").listMonitorChecks?.("mon/1", 10);
+    await createApiClient("/api").listMonitorChecks?.("mon/1", { projectId: "prj/1", environmentId: "env 1", limit: 10 });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -1125,7 +1127,7 @@ describe("createApiClient", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      "/api/admin/monitors/mon%2F1/checks?limit=10",
+      "/api/admin/monitors/mon%2F1/checks?project_id=prj%2F1&environment_id=env+1&limit=10",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -1163,18 +1165,23 @@ describe("createApiClient", () => {
       createApiClient("/api").listSourceMapArtifacts({
         projectId: "prj/1",
         environmentId: "env 1",
-        release: "web@1.0.0"
+        release: "web@1.0.0",
+        limit: 25,
+        cursor: "cursor/next"
       })
     ).resolves.toEqual([]);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/admin/source-maps?project_id=prj%2F1&environment_id=env+1&release=web%401.0.0", {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        Accept: "application/json"
-      },
-      body: undefined
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/source-maps?project_id=prj%2F1&environment_id=env+1&release=web%401.0.0&limit=25&cursor=cursor%2Fnext",
+      {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "application/json"
+        },
+        body: undefined
+      }
+    );
   });
 
   it("gets source map resolution for an error with scoped query filters", async () => {

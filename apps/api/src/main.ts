@@ -46,6 +46,13 @@ import {
   updateMonitor
 } from "@sigmon/db/repositories/monitors.js";
 import {
+  countDeadLetterJobs,
+  deleteDeadLetterJobWithAction,
+  getDeadLetterJob,
+  listDeadLetterJobActions,
+  listDeadLetterJobs
+} from "@sigmon/db/repositories/dead-letter.js";
+import {
   archiveUser,
   createUser,
   findUserByEmail,
@@ -65,7 +72,7 @@ import { listSystemHealthSamples } from "@sigmon/db/repositories/system-health-s
 import {
   findSourceMapArtifactForFrame,
   getCachedErrorStackResolution,
-  listSourceMapArtifacts,
+  listSourceMapArtifactsPage,
   replaceErrorStackResolutions
 } from "@sigmon/db/repositories/source-maps.js";
 import {
@@ -97,7 +104,7 @@ import { getOperations } from "@sigmon/db/repositories/operations-query.js";
 import { getSessionTimeline } from "@sigmon/db/repositories/session-timeline.js";
 import {
   getErrorGroup,
-  listErrorGroups,
+  listErrorGroupsPage,
   updateErrorGroupStatus,
   updateErrorGroupTriage
 } from "@sigmon/db/repositories/error-groups.js";
@@ -112,15 +119,17 @@ import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositorie
 import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositories/identity-profiles.js";
 import { getFleetRollup, getProjectFleetEnvironments } from "@sigmon/db/repositories/fleet-query.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
-import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
+import { createTelemetryQueue, enqueueTelemetryJob, replayTelemetryJob } from "@sigmon/queues";
 import { hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
 import { verifyApiKey } from "@sigmon/telemetry/api-keys";
+import { createId } from "@sigmon/telemetry/ids";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Redis } from "ioredis";
 import { sql } from "kysely";
 import { z } from "zod";
 import { buildApp } from "./app.js";
+import { replayDeadLetterTelemetryJob } from "./dead-letter-replay.js";
 import {
   getSessionCookieName,
   getSessionCookieOptions,
@@ -138,6 +147,7 @@ import {
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
+import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
@@ -234,6 +244,7 @@ const retentionPolicy = {
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
   breadcrumbsDays: config.retention.breadcrumbsDays,
+  deadLetterJobsDays: config.retention.deadLetterJobsDays,
   sourceMapsEnabled: config.sourceMaps.retention.enabled,
   sourceMapsDays: config.sourceMaps.retention.days,
   sourceMapsBatchSize: config.sourceMaps.retention.batchSize
@@ -263,8 +274,10 @@ function createGoogleAuthorizationUrl(state: string): string {
 }
 
 async function fetchGoogleUserInfo(code: string): Promise<z.infer<typeof googleUserInfoSchema>> {
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenResponse = await fetchWithTimeoutAndRetry("https://oauth2.googleapis.com/token", {
     method: "POST",
+    attempts: 3,
+    timeoutMs: 5000,
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: config.googleOAuth.clientId,
@@ -279,7 +292,9 @@ async function fetchGoogleUserInfo(code: string): Promise<z.infer<typeof googleU
   }
 
   const token = googleTokenResponseSchema.parse(await tokenResponse.json());
-  const userInfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+  const userInfoResponse = await fetchWithTimeoutAndRetry("https://openidconnect.googleapis.com/v1/userinfo", {
+    attempts: 3,
+    timeoutMs: 5000,
     headers: { authorization: `Bearer ${token.access_token}` }
   });
   if (!userInfoResponse.ok) {
@@ -401,6 +416,7 @@ function getSystemHealth() {
     postgresPing: () => sql`select 1`.execute(db),
     redisPing: () => redis.ping(),
     getQueueCounts: () => telemetryQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
+    getDeadLetterCount: () => countDeadLetterJobs(db),
     getHeartbeats: async () => {
       const [worker, scheduler] = await Promise.all([getHeartbeat(db, "worker"), getHeartbeat(db, "scheduler")]);
       return { worker, scheduler };
@@ -487,7 +503,7 @@ const app = await buildApp({
   query: {
     listEvents: (filters) => listEvents(db, filters),
     listErrors: (filters) => listErrors(db, filters),
-    listErrorGroups: (filters) => listErrorGroups(db, filters),
+    listErrorGroups: (filters) => listErrorGroupsPage(db, filters),
     getErrorGroup: (id, filters) => getErrorGroup(db, { id, ...filters }),
     getErrorGroupIncident: (id, filters) => getErrorGroupIncident(db, { groupId: id, ...filters }),
     updateErrorGroupTriage: (id, input) => updateErrorGroupTriage(db, { id, ...input }),
@@ -571,8 +587,32 @@ const app = await buildApp({
     verifyHeartbeatSecret: (hash, secret) => verifyApiKey(hash, secret, config.apiKeyPepper),
     recordHeartbeatCheckIn: (input) => recordHeartbeatCheckIn(db, input)
   },
+  deadLetters: {
+    listDeadLetterJobs: (input) => listDeadLetterJobs(db, input),
+    getDeadLetterJob: (id) => getDeadLetterJob(db, id),
+    listDeadLetterJobActions: (id) => listDeadLetterJobActions(db, id),
+    deleteDeadLetterJob: (id, actor) =>
+      deleteDeadLetterJobWithAction(db, id, {
+        action: "deleted",
+        actor
+      }),
+    replayDeadLetterJob: (id, actor) =>
+      replayDeadLetterTelemetryJob(
+        {
+          getDeadLetterJob: (jobId) => getDeadLetterJob(db, jobId),
+          enqueueReplay: (payload, replayId) => replayTelemetryJob(telemetryQueue, payload, replayId),
+          deleteDeadLetterJob: (jobId) =>
+            deleteDeadLetterJobWithAction(db, jobId, {
+              action: "replayed",
+              actor
+            }),
+          createReplayAttemptId: () => createId("rpl")
+        },
+        id
+      )
+  },
   sourceMaps: {
-    list: (filters) => listSourceMapArtifacts(db, filters),
+    list: (filters) => listSourceMapArtifactsPage(db, filters),
     uploadMap: (input) =>
       uploadSingleSourceMap({
         db,

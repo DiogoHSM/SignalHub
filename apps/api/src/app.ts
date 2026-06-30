@@ -11,6 +11,7 @@ import {
   registerAdminRoutes,
   type AlertAdministrationDependencies,
   type AdminResourceDependencies,
+  type DeadLetterAdministrationDependencies,
   type MonitorAdministrationDependencies,
   type SourceMapUploadTokenAdministrationDependencies,
   type SourceMapAdministrationDependencies,
@@ -35,6 +36,7 @@ export type BuildAppOptions = {
   adminResources?: AdminResourceDependencies;
   alerts?: AlertRouteDependencies & AlertAdministrationDependencies;
   monitors?: MonitorRouteDependencies & MonitorAdministrationDependencies;
+  deadLetters?: DeadLetterAdministrationDependencies;
   sourceMaps?: SourceMapAdministrationDependencies & { maxUploadBytes?: number };
   sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
   sourceMapUploads?: SourceMapUploadRouteDependencies;
@@ -53,6 +55,10 @@ export type BuildAppOptions = {
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
   isBrowserCorsOriginAllowed?: (origin: string) => Promise<boolean>;
+  rateLimit?: {
+    max: number;
+    timeWindow: number | string;
+  };
 };
 
 const browserIngestionCorsPaths = new Set([
@@ -182,7 +188,7 @@ export async function buildApp(options: BuildAppOptions) {
       parts: 6
     }
   });
-  await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });
+  await app.register(rateLimit, options.rateLimit ?? { max: 1000, timeWindow: "1 minute" });
 
   registerRequestContext(app);
   await registerDocsRoutes(app);
@@ -207,6 +213,7 @@ export async function buildApp(options: BuildAppOptions) {
     adminResources: options.adminResources,
     alerts: options.alerts,
     monitors: options.monitors,
+    deadLetters: options.deadLetters,
     sourceMaps: options.sourceMaps,
     sourceMapUploadTokens: options.sourceMapUploadTokens,
     createSourceMapUploadToken: options.createSourceMapUploadToken,

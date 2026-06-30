@@ -123,6 +123,7 @@ export type ErrorGroupFilters = {
   from?: Date;
   to?: Date;
   limit: number;
+  cursor?: string;
 };
 
 export type ErrorGroupScope = {
@@ -441,6 +442,7 @@ function parseErrorGroupFilters(query: unknown): ErrorGroupFilters | undefined {
   const tenantId = optionalNonEmpty(raw, "tenant_id");
   const userId = optionalNonEmpty(raw, "user_id");
   const release = optionalNonEmpty(raw, "release");
+  const cursor = optionalNonEmpty(raw, "cursor");
 
   if (status) {
     filters.status = status as ErrorGroupStatus;
@@ -465,6 +467,9 @@ function parseErrorGroupFilters(query: unknown): ErrorGroupFilters | undefined {
   }
   if (to) {
     filters.to = to;
+  }
+  if (cursor) {
+    filters.cursor = cursor;
   }
 
   return filters;
@@ -948,6 +953,10 @@ function sendListResult(reply: FastifyReply, result: QueryListResult) {
 type ListRunner = (filters: QueryFilters) => Promise<QueryListResult>;
 type AggregateRunner = (filters: QueryFilters) => Promise<unknown>;
 
+function isInvalidCursorError(error: unknown): boolean {
+  return error instanceof Error && (error.message === "invalid_cursor" || error.message === "invalid_cursor_scope");
+}
+
 async function handleListRoute(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -972,7 +981,10 @@ async function handleListRoute(
 
   try {
     return sendListResult(reply, await run(filters));
-  } catch {
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return reply.status(400).send({ error: "invalid_cursor" });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }
@@ -999,7 +1011,10 @@ async function handleTraceSpansRoute(request: FastifyRequest, reply: FastifyRepl
 
   try {
     return sendListResult(reply, await options.query.listTraceSpans(params.data.id, filters));
-  } catch {
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return reply.status(400).send({ error: "invalid_cursor" });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }
@@ -1028,7 +1043,10 @@ async function handleAggregateRoute(
 
   try {
     return reply.send({ data: await run(filters) });
-  } catch {
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return reply.status(400).send({ error: "invalid_cursor" });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }
@@ -1239,7 +1257,10 @@ async function handleErrorGroupListRoute(request: FastifyRequest, reply: Fastify
 
   try {
     return sendListResult(reply, await options.query.listErrorGroups(filters));
-  } catch {
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return reply.status(400).send({ error: "invalid_cursor" });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }
@@ -1313,7 +1334,10 @@ async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: 
 
   try {
     return sendListResult(reply, await options.query.listErrors({ ...filters, errorGroupId: params.data.id }));
-  } catch {
+  } catch (error) {
+    if (isInvalidCursorError(error)) {
+      return reply.status(400).send({ error: "invalid_cursor" });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }

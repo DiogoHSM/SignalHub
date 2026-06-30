@@ -225,7 +225,11 @@ export const openApiDocument = {
         properties: {
           message: { type: "string", description: "Human-readable error message." },
           type: { type: "string", description: "Exception class, error name, or domain error type." },
-          severity: { type: "string", enum: ["info", "warning", "error", "critical", "fatal"], description: "Severity used by filters and alerting." },
+          severity: {
+            type: "string",
+            enum: ["debug", "info", "warning", "error", "critical", "fatal"],
+            description: "Severity used by filters and alerting. Defaults to error."
+          },
           fingerprint: { type: "string", description: "Optional grouping key. Events with the same fingerprint are grouped together." },
           stack: { type: "string", description: "Raw stack trace. Source maps can resolve minified browser frames when uploaded for the matching release." },
           tenant_id: { type: "string" },
@@ -241,17 +245,20 @@ export const openApiDocument = {
       },
       BreadcrumbPayload: {
         type: "object",
-        required: ["type", "category", "message"],
+        required: ["type", "message"],
         properties: {
-          type: { type: "string", enum: ["navigation", "ui", "console", "network", "custom"] },
+          type: { type: "string", enum: ["navigation", "click", "console", "network", "custom"] },
           category: { type: "string" },
           message: { type: "string" },
-          level: { type: "string", enum: ["debug", "info", "warning", "error"] },
+          level: { type: "string", enum: ["debug", "info", "warning", "error", "fatal"] },
           data: { type: "object", additionalProperties: true },
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           session_id: { type: "string" },
           trace_id: { type: "string" },
+          source: { type: "string" },
+          release: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
           timestamp: { type: "string", format: "date-time" }
         }
       },
@@ -262,7 +269,7 @@ export const openApiDocument = {
           provider: { type: "string", examples: ["openai"] },
           model: { type: "string", examples: ["gpt-5-mini"] },
           prompt_name: { type: "string" },
-          status: { type: "string", enum: ["success", "error"] },
+          status: { type: "string", enum: ["success", "error", "pending"] },
           input_tokens: { type: "integer", minimum: 0 },
           output_tokens: { type: "integer", minimum: 0 },
           cost_usd: { type: "number", minimum: 0 },
@@ -278,10 +285,10 @@ export const openApiDocument = {
       },
       TracePayload: {
         type: "object",
-        required: ["name", "status"],
+        required: ["name", "started_at"],
         properties: {
           name: { type: "string" },
-          status: { type: "string", enum: ["success", "error"] },
+          status: { type: "string", enum: ["success", "error", "pending"] },
           started_at: { type: "string", format: "date-time" },
           ended_at: { type: "string", format: "date-time" },
           duration_ms: { type: "integer", minimum: 0 },
@@ -289,25 +296,31 @@ export const openApiDocument = {
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           session_id: { type: "string" },
+          source: { type: "string" },
+          release: { type: "string" },
           metadata: { type: "object", additionalProperties: true }
         }
       },
       SpanPayload: {
         type: "object",
-        required: ["trace_id", "name", "status"],
+        required: ["trace_id", "name", "started_at"],
         properties: {
           trace_id: { type: "string" },
           parent_span_id: { type: "string" },
           name: { type: "string" },
-          status: { type: "string", enum: ["success", "error"] },
+          status: { type: "string", enum: ["success", "error", "pending"] },
           started_at: { type: "string", format: "date-time" },
           ended_at: { type: "string", format: "date-time" },
           duration_ms: { type: "integer", minimum: 0 },
-          input: { type: "object", additionalProperties: true },
-          output: { type: "object", additionalProperties: true },
+          input: { description: "Any JSON value. Avoid secrets and full payload bodies." },
+          output: { description: "Any JSON value. Avoid secrets and full payload bodies." },
+          error: { description: "Any JSON value describing a failed child operation." },
           cost_usd: { type: "number", minimum: 0 },
           tenant_id: { type: "string" },
           user_id: { type: "string" },
+          session_id: { type: "string" },
+          source: { type: "string" },
+          release: { type: "string" },
           metadata: { type: "object", additionalProperties: true }
         }
       },
@@ -399,6 +412,81 @@ export const openApiDocument = {
             type: "string",
             description: "Heartbeat secret returned only when creating a heartbeat monitor."
           }
+        }
+      },
+      DeadLetterJob: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "queueName", "jobName", "payload", "errorMessage", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          projectId: {
+            type: ["string", "null"],
+            description: "Project scope captured from the failed telemetry job when available."
+          },
+          environmentId: {
+            type: ["string", "null"],
+            description: "Environment scope captured from the failed telemetry job when available."
+          },
+          queueName: { type: "string", examples: ["telemetry"] },
+          jobName: { type: "string", examples: ["event"] },
+          payload: {
+            type: "object",
+            description: "sanitized failed job payload retained for operator inspection.",
+            additionalProperties: true
+          },
+          errorMessage: { type: "string", description: "Sanitized failure message." },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
+      DeadLetterJobListResponse: {
+        type: "object",
+        required: ["deadLetterJobs"],
+        properties: {
+          deadLetterJobs: {
+            type: "array",
+            items: { $ref: "#/components/schemas/DeadLetterJob" }
+          },
+          cursor: { type: "string", nullable: true, description: "Opaque cursor for the next newest-first page." }
+        }
+      },
+      DeadLetterJobResponse: {
+        type: "object",
+        required: ["deadLetterJob"],
+        properties: {
+          deadLetterJob: { $ref: "#/components/schemas/DeadLetterJob" }
+        }
+      },
+      DeadLetterJobAction: {
+        type: "object",
+        required: ["id", "deadLetterJobId", "queueName", "jobName", "action", "actorEmail", "metadata", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          deadLetterJobId: { type: "string" },
+          queueName: { type: "string" },
+          jobName: { type: "string" },
+          action: { type: "string", enum: ["deleted", "replayed", "expired"] },
+          actorUserId: { type: "string", nullable: true },
+          actorEmail: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
+      DeadLetterJobActionsResponse: {
+        type: "object",
+        required: ["actions"],
+        properties: {
+          actions: {
+            type: "array",
+            items: { $ref: "#/components/schemas/DeadLetterJobAction" }
+          }
+        }
+      },
+      DeadLetterReplayResponse: {
+        type: "object",
+        required: ["replayed", "id"],
+        properties: {
+          replayed: { type: "boolean", const: true },
+          id: { type: "string" }
         }
       }
     },
@@ -531,14 +619,27 @@ export const openApiDocument = {
             "multipart/form-data": {
               schema: {
                 type: "object",
-                required: ["project_id", "environment_id", "release", "minified_file", "file"],
+                required: ["project_id", "environment_id", "release"],
                 properties: {
                   project_id: { type: "string" },
                   environment_id: { type: "string" },
                   release: { type: "string" },
-                  minified_file: { type: "string" },
-                  file: { type: "string", format: "binary" }
-                }
+                  minified_file: {
+                    type: "string",
+                    description: "Required when uploading a single .map file. Omit for zip bundles."
+                  },
+                  file: {
+                    type: "string",
+                    format: "binary",
+                    description: "Single source-map file. Provide exactly one of file or bundle."
+                  },
+                  bundle: {
+                    type: "string",
+                    format: "binary",
+                    description: "Zip bundle containing one or more .map files. Provide exactly one of file or bundle."
+                  }
+                },
+                anyOf: [{ required: ["file", "minified_file"] }, { required: ["bundle"] }]
               }
             }
           }
@@ -652,7 +753,210 @@ export const openApiDocument = {
       delete: sessionRoute("Archive a monitor", "Admin route for archiving a monitor.")
     },
     "/admin/monitors/{id}/checks": {
-      get: sessionRoute("List monitor checks", "Admin route for recent HTTP or heartbeat monitor check history.")
+      get: {
+        ...sessionRoute("List monitor checks", "Admin route for recent HTTP or heartbeat monitor check history."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            description: "Monitor id."
+          },
+          {
+            name: "project_id",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+            description: "Project scope for the monitor and cursor."
+          },
+          {
+            name: "environment_id",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+            description: "Environment scope for the monitor and cursor."
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 20 }
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque cursor returned by the previous response. Cursors are bound to the monitor, project, and environment."
+          }
+        ]
+      }
+    },
+    "/admin/dead-letter-jobs": {
+      get: {
+        ...sessionRoute("List dead-letter jobs", "Admin route for inspecting sanitized jobs that failed permanently in workers."),
+        parameters: [
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", minimum: 1, maximum: 250, default: 50 }
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque cursor returned by the previous response."
+          },
+          {
+            name: "queue_name",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Exact queue name to inspect, for example `telemetry`."
+          },
+          {
+            name: "job_name",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Exact worker job name to inspect, for example `event`, `error`, or `trace`."
+          },
+          {
+            name: "error",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Case-insensitive substring search over the sanitized error message."
+          },
+          {
+            name: "created_from",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "date-time" },
+            description: "Inclusive lower bound for dead-letter creation time."
+          },
+          {
+            name: "created_to",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "date-time" },
+            description: "Inclusive upper bound for dead-letter creation time."
+          },
+          {
+            name: "status",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["pending"] },
+            description: "Current active dead-letter status. Historical replay/delete/expiration status is exposed through the job actions endpoint."
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Dead-letter jobs returned newest first",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterJobListResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/dead-letter-jobs/{id}": {
+      get: {
+        ...sessionRoute("Get a dead-letter job", "Admin route for inspecting one sanitized permanently failed worker job."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Dead-letter job returned",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterJobResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Dead-letter job not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        ...sessionRoute("Delete a dead-letter job", "Admin route for clearing a dead-letter job after inspection or manual remediation."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "204": { description: "Dead-letter job deleted" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Dead-letter job not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/dead-letter-jobs/{id}/actions": {
+      get: {
+        ...sessionRoute("List dead-letter job actions", "Admin route for inspecting replay/delete audit actions for a dead-letter job id."),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Dead-letter job actions returned",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterJobActionsResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/dead-letter-jobs/{id}/replay": {
+      post: {
+        ...sessionRoute(
+          "Replay a dead-letter job",
+          "Admin route for re-enqueueing a sanitized telemetry dead-letter job and clearing it after the enqueue succeeds."
+        ),
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" }
+          }
+        ],
+        responses: {
+          "202": {
+            description: "Dead-letter job re-enqueued",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/DeadLetterReplayResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Dead-letter job not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")

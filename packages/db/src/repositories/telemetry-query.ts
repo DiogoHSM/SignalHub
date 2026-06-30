@@ -1,5 +1,6 @@
 import type { Selectable } from "kysely";
 import { sql } from "kysely";
+import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
 import type { ErrorsTable, EventsTable, LlmCallsTable, SpansTable, TracesTable } from "../schema.js";
 
@@ -30,7 +31,13 @@ export interface TelemetryFilters {
   from?: Date;
   to?: Date;
   limit?: number;
+  cursor?: string;
 }
+
+export type TelemetryListResult<T> = {
+  data: T[];
+  cursor?: string;
+};
 
 export interface EventRecord {
   id: string;
@@ -285,10 +292,16 @@ export async function getErrorForSourceMapResolution(
 ): Promise<ErrorForSourceMapResolution | null> {
   const row = await db
     .selectFrom("errors")
-    .select(["id", "project_id", "environment_id", "release", "stack"])
-    .where("id", "=", input.id)
-    .where("project_id", "=", input.projectId)
-    .where("environment_id", "=", input.environmentId)
+    .innerJoin("projects", "projects.id", "errors.project_id")
+    .innerJoin("environments", (join) =>
+      join.onRef("environments.project_id", "=", "errors.project_id").onRef("environments.id", "=", "errors.environment_id")
+    )
+    .select(["errors.id", "errors.project_id", "errors.environment_id", "errors.release", "errors.stack"])
+    .where("errors.id", "=", input.id)
+    .where("errors.project_id", "=", input.projectId)
+    .where("errors.environment_id", "=", input.environmentId)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
     .executeTakeFirst();
 
   return row
@@ -450,19 +463,25 @@ function toSpan(row: SpanRow): SpanRecord {
   };
 }
 
+function toFiniteSafeNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+      return null;
+    }
+    return Number(value);
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && Math.abs(parsed) <= Number.MAX_SAFE_INTEGER ? parsed : null;
+}
+
 function toNumber(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "bigint") return Number(value);
-  if (typeof value === "string") return Number(value);
-  return 0;
+  return toFiniteSafeNumber(value) ?? 0;
 }
 
 function toRoundedOrNull(value: unknown): number | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.round(n) : null;
+  const n = toFiniteSafeNumber(value);
+  return n === null ? null : Math.round(n);
 }
 
 export function buildBucketAxis(from: Date, to: Date, bucket: OverviewTrendBucket): string[] {
@@ -543,7 +562,99 @@ function resolveLimit(limit: number | undefined): number {
   return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(limit)));
 }
 
-export async function listEvents(db: Db, filters: TelemetryFilters): Promise<EventRecord[]> {
+type TimestampCursor = {
+  projectId: string;
+  environmentId: string;
+  filterKey: string;
+  timestamp: Date;
+  id: string;
+};
+
+function telemetryCursorFilterKey(filters: TelemetryFilters): string {
+  return JSON.stringify({
+    tenantId: filters.tenantId ?? null,
+    userId: filters.userId ?? null,
+    sessionId: filters.sessionId ?? null,
+    traceId: filters.traceId ?? null,
+    eventName: filters.eventName ?? null,
+    provider: filters.provider ?? null,
+    model: filters.model ?? null,
+    promptName: filters.promptName ?? null,
+    severity: filters.severity ?? null,
+    status: filters.status ?? null,
+    fingerprint: filters.fingerprint ?? null,
+    errorGroupId: filters.errorGroupId ?? null,
+    from: filters.from?.toISOString() ?? null,
+    to: filters.to?.toISOString() ?? null
+  });
+}
+
+function encodeTimestampCursor(filters: TelemetryFilters, row: { id: string; timestamp: Date | string }): string {
+  return Buffer.from(
+    JSON.stringify({
+      projectId: filters.projectId,
+      environmentId: filters.environmentId,
+      filterKey: telemetryCursorFilterKey(filters),
+      timestamp: toIso(row.timestamp),
+      id: row.id
+    })
+  ).toString("base64url");
+}
+
+function decodeTimestampCursor(filters: TelemetryFilters): TimestampCursor | undefined {
+  if (!filters.cursor) {
+    return undefined;
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(filters.cursor, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("invalid_cursor");
+  }
+
+  if (typeof decoded !== "object" || decoded === null) {
+    throw new Error("invalid_cursor");
+  }
+
+  const cursor = decoded as Record<string, unknown>;
+  const projectId = typeof cursor.projectId === "string" ? cursor.projectId : "";
+  const environmentId = typeof cursor.environmentId === "string" ? cursor.environmentId : "";
+  const filterKey = typeof cursor.filterKey === "string" ? cursor.filterKey : "";
+  const timestamp = typeof cursor.timestamp === "string" ? new Date(cursor.timestamp) : null;
+  const id = typeof cursor.id === "string" ? cursor.id : "";
+
+  if (!projectId || !environmentId || !filterKey || !timestamp || Number.isNaN(timestamp.getTime()) || !id) {
+    throw new Error("invalid_cursor");
+  }
+  if (
+    projectId !== filters.projectId ||
+    environmentId !== filters.environmentId ||
+    filterKey !== telemetryCursorFilterKey(filters)
+  ) {
+    throw new Error("invalid_cursor_scope");
+  }
+
+  return { projectId, environmentId, filterKey, timestamp, id };
+}
+
+function listResult<Row extends { id: string; timestamp: Date | string }, T>(
+  filters: TelemetryFilters,
+  rows: Row[],
+  map: (row: Row) => T
+): TelemetryListResult<T> {
+  const limit = resolveLimit(filters.limit);
+  const dataRows = rows.slice(0, limit);
+  const lastRow = dataRows[dataRows.length - 1];
+  return {
+    data: dataRows.map(map),
+    ...(rows.length > limit && lastRow ? { cursor: encodeTimestampCursor(filters, lastRow) } : {})
+  };
+}
+
+export async function listEvents(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<EventRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("events")
     .selectAll()
@@ -557,12 +668,19 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Eve
   if (filters.eventName) query = query.where("name", "=", filters.eventName);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toEvent);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toEvent);
 }
 
-export async function listErrors(db: Db, filters: TelemetryFilters): Promise<ErrorRecord[]> {
+export async function listErrors(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<ErrorRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("errors")
     .selectAll()
@@ -579,12 +697,19 @@ export async function listErrors(db: Db, filters: TelemetryFilters): Promise<Err
   if (filters.errorGroupId) query = query.where("error_group_id", "=", filters.errorGroupId);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toError);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toError);
 }
 
-export async function listLlmCalls(db: Db, filters: TelemetryFilters): Promise<LlmCallRecord[]> {
+export async function listLlmCalls(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<LlmCallRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("llm_calls")
     .selectAll()
@@ -601,12 +726,19 @@ export async function listLlmCalls(db: Db, filters: TelemetryFilters): Promise<L
   if (filters.status) query = query.where("status", "=", filters.status);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toLlmCall);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toLlmCall);
 }
 
-export async function listTraces(db: Db, filters: TelemetryFilters): Promise<TraceRecord[]> {
+export async function listTraces(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<TraceRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("traces")
     .selectAll()
@@ -619,12 +751,19 @@ export async function listTraces(db: Db, filters: TelemetryFilters): Promise<Tra
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toTrace);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toTrace);
 }
 
-export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise<SpanRecord[]> {
+export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<SpanRecord>> {
+  const cursor = decodeTimestampCursor(filters);
+  const limit = resolveLimit(filters.limit);
   let query = db
     .selectFrom("spans")
     .selectAll()
@@ -637,21 +776,26 @@ export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (cursor) {
+    query = query.where(({ and, eb, or }) =>
+      or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
+    );
+  }
 
-  const rows = await query.orderBy("timestamp", "desc").limit(resolveLimit(filters.limit)).execute();
-  return rows.map(toSpan);
+  const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
+  return listResult(filters, rows, toSpan);
 }
 
 export async function getEventAggregates(db: Db, filters: TelemetryFilters): Promise<CountAggregate & { byName: Record<string, number> }> {
   let totalQuery = db
     .selectFrom("events")
-    .select(sql<unknown>`count(*)`.as("total"))
+    .select(sql<string>`count(*)`.as("total"))
     .where("project_id", "=", filters.projectId)
     .where("environment_id", "=", filters.environmentId);
 
   let byNameQuery = db
     .selectFrom("events")
-    .select(["name", sql<unknown>`count(*)`.as("total")])
+    .select(["name", sql<string>`count(*)`.as("total")])
     .where("project_id", "=", filters.projectId)
     .where("environment_id", "=", filters.environmentId)
     .groupBy("name");
@@ -681,8 +825,7 @@ export async function getEventAggregates(db: Db, filters: TelemetryFilters): Pro
     byNameQuery = byNameQuery.where("timestamp", "<", filters.to);
   }
 
-  const totalRow = await totalQuery.executeTakeFirstOrThrow();
-  const byNameRows = await byNameQuery.execute();
+  const [totalRow, byNameRows] = await Promise.all([totalQuery.executeTakeFirstOrThrow(), byNameQuery.execute()]);
 
   return {
     total: toNumber(totalRow.total),
@@ -960,7 +1103,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
   const bucketExpr = bucketExpression(bucket);
   const bucketStarts = makeBucketStarts(from, to, bucket);
 
-  const kpiRows = await sql<{
+  const kpiRowsPromise = sql<{
     events: unknown;
     active_users: unknown;
     active_tenants: unknown;
@@ -1030,9 +1173,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
       (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
   `.execute(db);
-  const kpiRow = kpiRows.rows[0];
 
-  const usageTrendRows = await sql<{
+  const usageTrendRowsPromise = sql<{
     bucket_start: Date | string;
     events: unknown;
     traces: unknown;
@@ -1068,7 +1210,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const errorTrendRows = await sql<{
+  const errorTrendRowsPromise = sql<{
     bucket_start: Date | string;
     errors: unknown;
     open_errors: unknown;
@@ -1087,7 +1229,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const latencyTrendRows = await sql<{
+  const latencyTrendRowsPromise = sql<{
     bucket_start: Date | string;
     average_trace_duration_ms: unknown;
     p95_trace_duration_ms: unknown;
@@ -1104,7 +1246,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const aiCostTrendRows = await sql<{
+  const aiCostTrendRowsPromise = sql<{
     bucket_start: Date | string;
     llm_cost_usd: string;
     llm_calls: unknown;
@@ -1121,12 +1263,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     group by bucket_start
   `.execute(db);
 
-  const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-  const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-  const latencyByBucket = new Map(latencyTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-  const aiCostByBucket = new Map(aiCostTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
-
-  const topEventsRows = await sql<{ name: string; total: unknown }>`
+  const topEventsRowsPromise = sql<{ name: string; total: unknown }>`
     select name, count(*) as total
     from events
     where project_id = ${filters.projectId}
@@ -1138,7 +1275,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByUsageRows = await sql<{ tenant_id: string; total: unknown }>`
+  const tenantsByUsageRowsPromise = sql<{ tenant_id: string; total: unknown }>`
     with usage_rows as (
       select tenant_id from events
       where project_id = ${filters.projectId}
@@ -1172,7 +1309,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByErrorsRows = await sql<{ tenant_id: string; total: unknown }>`
+  const tenantsByErrorsRowsPromise = sql<{ tenant_id: string; total: unknown }>`
     select tenant_id, count(*) as total
     from errors
     where project_id = ${filters.projectId}
@@ -1185,7 +1322,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByLlmCallsRows = await sql<{ tenant_id: string; total: unknown }>`
+  const tenantsByLlmCallsRowsPromise = sql<{ tenant_id: string; total: unknown }>`
     select tenant_id, count(*) as total
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1198,7 +1335,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const tenantsByLlmCostRows = await sql<{ tenant_id: string; total_cost_usd: string }>`
+  const tenantsByLlmCostRowsPromise = sql<{ tenant_id: string; total_cost_usd: string }>`
     select tenant_id, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1211,7 +1348,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const llmProvidersRows = await sql<{ provider: string; total: unknown; total_cost_usd: string }>`
+  const llmProvidersRowsPromise = sql<{ provider: string; total: unknown; total_cost_usd: string }>`
     select provider, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1223,7 +1360,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const llmModelsRows = await sql<{ model: string; total: unknown; total_cost_usd: string }>`
+  const llmModelsRowsPromise = sql<{ model: string; total: unknown; total_cost_usd: string }>`
     select model, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1235,7 +1372,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const llmPromptsRows = await sql<{ prompt_name: string; total: unknown; total_cost_usd: string }>`
+  const llmPromptsRowsPromise = sql<{ prompt_name: string; total: unknown; total_cost_usd: string }>`
     select coalesce(prompt_name, 'Unspecified') as prompt_name, count(*) as total, coalesce(sum(cost_usd), 0)::text as total_cost_usd
     from llm_calls
     where project_id = ${filters.projectId}
@@ -1247,7 +1384,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const errorSeverityRows = await sql<{ severity: string; total: unknown }>`
+  const errorSeverityRowsPromise = sql<{ severity: string; total: unknown }>`
     select severity, count(*) as total
     from errors
     where project_id = ${filters.projectId}
@@ -1259,7 +1396,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const errorStatusRows = await sql<{ status: string; total: unknown }>`
+  const errorStatusRowsPromise = sql<{ status: string; total: unknown }>`
     select status, count(*) as total
     from errors
     where project_id = ${filters.projectId}
@@ -1271,7 +1408,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const recentErrorRows = await sql<{
+  const recentErrorRowsPromise = sql<{
     id: string;
     timestamp: Date | string;
     message: string;
@@ -1292,7 +1429,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const recentFailedTraceRows = await sql<{
+  const recentFailedTraceRowsPromise = sql<{
     id: string;
     timestamp: Date | string;
     name: string;
@@ -1312,7 +1449,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit 5
   `.execute(db);
 
-  const recentFailedLlmCallRows = await sql<{
+  const recentFailedLlmCallRowsPromise = sql<{
     id: string;
     timestamp: Date | string;
     provider: string;
@@ -1334,6 +1471,52 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     order by timestamp desc, id asc
     limit 5
   `.execute(db);
+
+  const [
+    kpiRows,
+    usageTrendRows,
+    errorTrendRows,
+    latencyTrendRows,
+    aiCostTrendRows,
+    topEventsRows,
+    tenantsByUsageRows,
+    tenantsByErrorsRows,
+    tenantsByLlmCallsRows,
+    tenantsByLlmCostRows,
+    llmProvidersRows,
+    llmModelsRows,
+    llmPromptsRows,
+    errorSeverityRows,
+    errorStatusRows,
+    recentErrorRows,
+    recentFailedTraceRows,
+    recentFailedLlmCallRows
+  ] = await Promise.all([
+    kpiRowsPromise,
+    usageTrendRowsPromise,
+    errorTrendRowsPromise,
+    latencyTrendRowsPromise,
+    aiCostTrendRowsPromise,
+    topEventsRowsPromise,
+    tenantsByUsageRowsPromise,
+    tenantsByErrorsRowsPromise,
+    tenantsByLlmCallsRowsPromise,
+    tenantsByLlmCostRowsPromise,
+    llmProvidersRowsPromise,
+    llmModelsRowsPromise,
+    llmPromptsRowsPromise,
+    errorSeverityRowsPromise,
+    errorStatusRowsPromise,
+    recentErrorRowsPromise,
+    recentFailedTraceRowsPromise,
+    recentFailedLlmCallRowsPromise
+  ]);
+  const kpiRow = kpiRows.rows[0];
+
+  const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const latencyByBucket = new Map(latencyTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
+  const aiCostByBucket = new Map(aiCostTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
 
   const trends: OverviewResponse["trends"] = {
     usage: bucketStarts.map((bucketStart) => {
@@ -1464,3 +1647,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     }
   };
 }
+
+export const __test = {
+  toNumber,
+  toRoundedOrNull
+};

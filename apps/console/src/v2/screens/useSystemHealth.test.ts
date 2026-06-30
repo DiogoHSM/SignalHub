@@ -19,7 +19,7 @@ function health(over: Partial<SystemHealthResponse> = {}): SystemHealthResponse 
     },
     deployment: {} as never,
     queues: {
-      telemetry: { status: "healthy", errorMessage: null, waiting: 2, active: 1, completed: 31000, failed: 0, delayed: 0 },
+      telemetry: { status: "healthy", errorMessage: null, waiting: 2, active: 1, completed: 31000, failed: 0, delayed: 0, deadLettered: 0 },
     },
     ingestion: {} as never,
     retention: {
@@ -27,10 +27,10 @@ function health(over: Partial<SystemHealthResponse> = {}): SystemHealthResponse 
       intervalMinutes: 60,
       lastRun: {
         id: "r1", status: "success", startedAt: "2026-06-23T11:48:00.000Z", finishedAt: "2026-06-23T11:48:00.000Z",
-        deleted: { events: 120, errors: 4, traces: 50, spans: 200, llmCalls: 9, breadcrumbs: 300, sourceMapArtifacts: 0, sourceMapFiles: 0 },
+        deleted: { events: 120, errors: 4, traces: 50, spans: 200, llmCalls: 9, breadcrumbs: 300, deadLetterJobs: 2, sourceMapArtifacts: 0, sourceMapFiles: 0 },
         errorMessage: null,
       },
-      policy: { eventsDays: 30, errorsDays: 90, tracesDays: 14, spansDays: 14, llmCallsDays: 60, breadcrumbsDays: 7, sourceMapsEnabled: true, sourceMapsDays: 30, sourceMapsBatchSize: 100 },
+      policy: { eventsDays: 30, errorsDays: 90, tracesDays: 14, spansDays: 14, llmCallsDays: 60, breadcrumbsDays: 7, deadLetterJobsDays: 30, sourceMapsEnabled: true, sourceMapsDays: 30, sourceMapsBatchSize: 100 },
     },
     backups: {
       enabled: true, intervalHours: 24, retentionDays: 14, s3Enabled: true, stale: false,
@@ -121,11 +121,24 @@ describe("buildSystemVM — banner (severity ordered)", () => {
 describe("buildSystemVM — queues / retention / backups", () => {
   it("maps the telemetry queue", () => {
     const q = buildSystemVM(health(), HISTORY, NOW).queues;
-    expect(q).toEqual([{ name: "telemetry", waiting: 2, active: 1, completed: "31K", failed: 0, tone: "ok" }]);
+    expect(q).toEqual([{ name: "telemetry", waiting: 2, active: 1, completed: "31K", failed: 0, deadLettered: 0, tone: "ok" }]);
   });
   it("tones a queue with failures as warn", () => {
-    const q = buildSystemVM(health({ queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 5, failed: 3, delayed: 0 } } }), HISTORY, NOW).queues;
+    const q = buildSystemVM(health({ queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 5, failed: 3, delayed: 0, deadLettered: 0 } } }), HISTORY, NOW).queues;
     expect(q[0]).toMatchObject({ failed: 3, tone: "warn" });
+  });
+  it("tones a queue with dead letters as warn", () => {
+    const vm = buildSystemVM(
+      health({ queues: { telemetry: { status: "degraded", errorMessage: null, waiting: 0, active: 0, completed: 5, failed: 0, delayed: 0, deadLettered: 2 } } }),
+      HISTORY,
+      NOW,
+    );
+    expect(vm.queues[0]).toMatchObject({ deadLettered: 2, tone: "warn" });
+    expect(vm.banner).toEqual({
+      tone: "warn",
+      title: "Dead-letter jobs",
+      detail: "telemetry queue has 2 dead-letter job(s) to inspect.",
+    });
   });
   it("builds retention subLabel and deleted rows", () => {
     const r = buildSystemVM(health(), HISTORY, NOW).retention;
@@ -138,6 +151,7 @@ describe("buildSystemVM — queues / retention / backups", () => {
       { label: "Spans", retentionLabel: "14d", deleted: 200 },
       { label: "LLM calls", retentionLabel: "60d", deleted: 9 },
       { label: "Breadcrumbs", retentionLabel: "7d", deleted: 300 },
+      { label: "Dead letters", retentionLabel: "30d", deleted: 2 },
     ]);
   });
   it("shows disabled retention", () => {

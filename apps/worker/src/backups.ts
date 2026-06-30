@@ -13,7 +13,7 @@ const backupFilenamePattern = /^sigmon-\d{8}T\d{6}Z\.dump$/;
 type ExecFileFn = (
   file: string,
   args: string[],
-  options?: { env?: NodeJS.ProcessEnv }
+  options?: { env?: NodeJS.ProcessEnv; timeout?: number }
 ) => Promise<unknown>;
 type BackupReadStream = Readable & { destroy: (error?: Error) => void };
 
@@ -55,6 +55,7 @@ export type BackupRunInput = {
 export type DumpDatabaseInput = {
   databaseUrl: string;
   outputPath: string;
+  timeoutMs?: number;
   execFileFn?: ExecFileFn;
 };
 
@@ -79,6 +80,8 @@ export type RunBackupOnceInput = {
 
 export type BackupConfig = BackupRuntimeConfig;
 export type BackupRuntime = RunBackupOnceInput;
+
+type BackupS3Client = { send: (command: PutObjectCommand) => Promise<unknown> };
 
 export function createBackupFilename(now: Date): string {
   const year = now.getUTCFullYear().toString().padStart(4, "0");
@@ -112,9 +115,10 @@ export async function writeChecksumSidecar(filePath: string, checksum: string): 
 export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<void> {
   const execFileFn =
     input.execFileFn ??
-    (async (file: string, args: string[], options?: { env?: NodeJS.ProcessEnv }) => {
+    (async (file: string, args: string[], options?: { env?: NodeJS.ProcessEnv; timeout?: number }) => {
       await execFileAsync(file, args, options);
     });
+  const timeoutMs = input.timeoutMs ?? 300_000;
   const databaseUrl = new URL(input.databaseUrl);
   const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
   const username = decodeURIComponent(databaseUrl.username);
@@ -144,11 +148,15 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
     }
   }
 
-  const options = password === "" ? undefined : { env: { ...process.env, PGPASSWORD: password } };
+  const options = {
+    timeout: timeoutMs,
+    ...(password === "" ? {} : { env: { ...process.env, PGPASSWORD: password } })
+  };
 
   try {
     await execFileFn("pg_dump", args, options);
   } catch {
+    await unlinkIfExists(input.outputPath);
     throw new Error("pg_dump failed");
   }
 }
@@ -167,32 +175,82 @@ export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ buck
     forcePathStyle: true
   });
   await stat(sidecarPath);
-  const body = createReadStreamFn(input.filePath);
-  const sidecarBody = createReadStreamFn(sidecarPath);
 
-  try {
-    await client.send(
-      new PutObjectCommand({
-        Bucket: input.s3.bucket,
-        Key: input.key,
-        Body: body,
-        ContentType: "application/octet-stream"
-      })
-    );
-    await client.send(
-      new PutObjectCommand({
-        Bucket: input.s3.bucket,
-        Key: `${input.key}.sha256`,
-        Body: sidecarBody,
-        ContentType: "text/plain"
-      })
-    );
-  } finally {
-    body.destroy();
-    sidecarBody.destroy();
-  }
+  await uploadObjectToS3WithRetry({
+    client,
+    bucket: input.s3.bucket,
+    key: input.key,
+    filePath: input.filePath,
+    contentType: "application/octet-stream",
+    createReadStreamFn
+  });
+  await uploadObjectToS3WithRetry({
+    client,
+    bucket: input.s3.bucket,
+    key: `${input.key}.sha256`,
+    filePath: sidecarPath,
+    contentType: "text/plain",
+    createReadStreamFn
+  });
 
   return { bucket: input.s3.bucket, key: input.key };
+}
+
+async function uploadObjectToS3WithRetry(input: {
+  client: BackupS3Client;
+  bucket: string;
+  key: string;
+  filePath: string;
+  contentType: string;
+  createReadStreamFn: (path: string) => BackupReadStream;
+  attempts?: number;
+  baseDelayMs?: number;
+}): Promise<void> {
+  const attempts = input.attempts ?? 2;
+  const baseDelayMs = input.baseDelayMs ?? 100;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const body = input.createReadStreamFn(input.filePath);
+    try {
+      await input.client.send(
+        new PutObjectCommand({
+          Bucket: input.bucket,
+          Key: input.key,
+          Body: body,
+          ContentType: input.contentType
+        })
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts || !isRetryableS3Error(error)) {
+        throw error;
+      }
+      await sleep(Math.min(baseDelayMs * attempt, 1_000));
+    } finally {
+      body.destroy();
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("s3 upload failed");
+}
+
+function isRetryableS3Error(error: unknown): boolean {
+  const status = readS3StatusCode(error);
+  if (status === null) return true;
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function readS3StatusCode(error: unknown): number | null {
+  if (typeof error !== "object" || error === null || !("$metadata" in error)) return null;
+  const metadata = (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata;
+  if (typeof metadata?.httpStatusCode !== "number") return null;
+  return metadata.httpStatusCode;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function pruneLocalBackups(input: {

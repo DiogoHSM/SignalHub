@@ -260,7 +260,7 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
         sourceMapRetentionEnabled: true
       }
     },
-    queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0 } },
+    queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 4, failed: 0, delayed: 0, deadLettered: 0 } },
     ingestion: {
       lastEventAt: null,
       lastErrorAt: null,
@@ -279,6 +279,7 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100

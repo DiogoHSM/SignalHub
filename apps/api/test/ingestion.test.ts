@@ -20,6 +20,33 @@ afterEach(async () => {
 });
 
 describe("ingestion routes", () => {
+  it("returns 429 when ingestion requests exceed the configured rate limit", async () => {
+    app = await buildApp({
+      readiness,
+      rateLimit: { max: 1, timeWindow: "1 minute" },
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const request = {
+      method: "POST" as const,
+      url: "/v1/events",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: { name: "audit.rate_limit" }
+    };
+
+    expect((await app.inject(request)).statusCode).toBe(202);
+
+    const response = await app.inject(request);
+
+    expect(response.statusCode).toBe(429);
+    expect(response.headers["x-ratelimit-limit"]).toBe("1");
+    expect(response.headers["x-ratelimit-remaining"]).toBe("0");
+    expect(Number(response.headers["x-ratelimit-reset"])).toBeGreaterThan(0);
+  });
+
   it("allows browser preflight requests for configured ingestion origins", async () => {
     app = await buildApp({
       readiness,

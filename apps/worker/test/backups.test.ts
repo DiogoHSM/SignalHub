@@ -169,7 +169,7 @@ describe("createBackupS3Key", () => {
 describe("dumpPostgresDatabase", () => {
   it("runs pg_dump with explicit non-secret connection args and password in the environment", async () => {
     const execFileFn = vi.fn(
-      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv }) => undefined
+      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv; timeout?: number }) => undefined
     );
 
     await dumpPostgresDatabase({
@@ -196,12 +196,14 @@ describe("dumpPostgresDatabase", () => {
       "user"
     ]);
     expect(args).not.toContain("postgres://user:pa%24%24@localhost:5433/sigmon");
-    expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "pa$$" }) }));
+    expect(options).toEqual(
+      expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "pa$$" }), timeout: 300_000 })
+    );
   });
 
   it("preserves non-secret database URL options without putting the password in argv", async () => {
     const execFileFn = vi.fn(
-      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv }) => undefined
+      async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv; timeout?: number }) => undefined
     );
     const databaseUrl =
       "postgres://user:secret@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon";
@@ -218,7 +220,9 @@ describe("dumpPostgresDatabase", () => {
     expect(args).toContain("postgres://user@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon");
     expect(args?.join(" ")).toContain("sslmode=require");
     expect(args?.join(" ")).toContain("application_name=sigmon");
-    expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
+    expect(options).toEqual(
+      expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }), timeout: 300_000 })
+    );
   });
 
   it("does not include the raw database URL in thrown pg_dump errors", async () => {
@@ -241,6 +245,28 @@ describe("dumpPostgresDatabase", () => {
         execFileFn
       })
     ).rejects.not.toThrow(databaseUrl);
+  });
+
+  it("removes a partial dump file when pg_dump fails", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-dump-"));
+    const dumpPath = join(localDir, "sigmon-partial.dump");
+    const execFileFn = vi.fn(async () => {
+      await writeFile(dumpPath, "partial backup content");
+      throw new Error("pg_dump timed out");
+    });
+
+    try {
+      await expect(
+        dumpPostgresDatabase({
+          databaseUrl: "postgres://user:secret@localhost:5432/sigmon",
+          outputPath: dumpPath,
+          execFileFn
+        })
+      ).rejects.toThrow("pg_dump failed");
+      await expect(stat(dumpPath)).rejects.toThrow();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -378,6 +404,96 @@ describe("uploadBackupToS3", () => {
     } finally {
       await rm(localDir, { recursive: true, force: true });
     }
+  });
+
+  it("does not retry permanent S3 authorization failures", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const streams: Readable[] = [];
+    const send = vi.fn(async () => {
+      const error = new Error("S3 access denied") as Error & { $metadata?: { httpStatusCode: number } };
+      error.$metadata = { httpStatusCode: 403 };
+      throw error;
+    });
+    const createReadStreamFn = vi.fn((path: string) => {
+      const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+      streams.push(stream);
+      return stream;
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://example.r2.cloudflarestorage.com",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod/sigmon"
+          },
+          createClient: () => ({ send }),
+          createReadStreamFn
+        })
+      ).rejects.toThrow("S3 access denied");
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(createReadStreamFn).toHaveBeenCalledTimes(1);
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
+  });
+
+  it("reopens backup streams when retrying transient S3 upload failures", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const sidecarPath = `${dumpPath}.sha256`;
+    const streams: Readable[] = [];
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient s3 failure"))
+      .mockResolvedValue(undefined);
+    const createReadStreamFn = vi.fn((path: string) => {
+      const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+      streams.push(stream);
+      return stream;
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(sidecarPath, "checksum  sigmon.dump\n");
+
+      await uploadBackupToS3({
+        filePath: dumpPath,
+        key: "prod/sigmon/sigmon-20260506T120000Z.dump",
+        s3: {
+          enabled: true,
+          endpoint: "https://example.r2.cloudflarestorage.com",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "prod/sigmon"
+        },
+        createClient: () => ({ send }),
+        createReadStreamFn
+      });
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(createReadStreamFn).toHaveBeenCalledWith(dumpPath);
+    expect(createReadStreamFn).toHaveBeenCalledWith(sidecarPath);
+    expect(createReadStreamFn.mock.calls.filter(([path]) => path === dumpPath)).toHaveLength(2);
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
   });
 });
 

@@ -22,6 +22,7 @@ type RetentionDeletedCounts = {
   spans: number;
   llmCalls: number;
   breadcrumbs: number;
+  deadLetterJobs: number;
   sourceMapArtifacts: number;
   sourceMapFiles: number;
 };
@@ -83,6 +84,7 @@ export type SystemHealthProbeDependencies = {
   postgresPing: () => Promise<unknown>;
   redisPing: () => Promise<string>;
   getQueueCounts: () => Promise<Partial<SystemQueueCounts>>;
+  getDeadLetterCount?: () => Promise<number>;
   getHeartbeat?: () => Promise<HeartbeatRecord | null>;
   getHeartbeats?: () => Promise<{
     worker: HeartbeatRecord | null;
@@ -101,7 +103,8 @@ const emptyQueueCounts: SystemQueueCounts = {
   active: 0,
   completed: 0,
   failed: 0,
-  delayed: 0
+  delayed: 0,
+  deadLettered: 0
 };
 
 const emptyIngestionFreshness: IngestionFreshness = {
@@ -158,20 +161,23 @@ function componentHealth(input: {
 }
 
 function queueCountsOrFallback(
-  result: Probe<Partial<SystemQueueCounts>>
+  result: Probe<Partial<SystemQueueCounts>>,
+  deadLetterCount: Probe<number>
 ): SystemHealthSnapshot["queues"]["telemetry"] {
   if (!result.ok) {
     return { status: "unhealthy", errorMessage: "Queue counts unavailable", ...emptyQueueCounts };
   }
 
+  const deadLettered = deadLetterCount.ok ? deadLetterCount.value : 0;
   return {
-    status: "healthy",
-    errorMessage: null,
+    status: !deadLetterCount.ok || deadLettered > 0 ? "degraded" : "healthy",
+    errorMessage: deadLetterCount.ok ? null : "Dead-letter count unavailable",
     waiting: result.value.waiting ?? 0,
     active: result.value.active ?? 0,
     completed: result.value.completed ?? 0,
     failed: result.value.failed ?? 0,
-    delayed: result.value.delayed ?? 0
+    delayed: result.value.delayed ?? 0,
+    deadLettered
   };
 }
 
@@ -200,6 +206,7 @@ function toRetentionPolicy(policy: RetentionPolicy): RetentionPolicy {
     spansDays: policy.spansDays,
     llmCallsDays: policy.llmCallsDays,
     breadcrumbsDays: policy.breadcrumbsDays,
+    deadLetterJobsDays: policy.deadLetterJobsDays,
     sourceMapsEnabled: policy.sourceMapsEnabled,
     sourceMapsDays: policy.sourceMapsDays,
     sourceMapsBatchSize: policy.sourceMapsBatchSize
@@ -214,6 +221,7 @@ function toRetentionDeletedCounts(deleted: RetentionDeletedCounts): RetentionDel
     spans: deleted.spans,
     llmCalls: deleted.llmCalls,
     breadcrumbs: deleted.breadcrumbs,
+    deadLetterJobs: deleted.deadLetterJobs,
     sourceMapArtifacts: deleted.sourceMapArtifacts,
     sourceMapFiles: deleted.sourceMapFiles
   };
@@ -273,10 +281,11 @@ export async function createSystemHealthSnapshot(
       scheduler: null
     }));
 
-  const [postgres, redisReady, queueCounts, heartbeats, freshness, retentionRun, backupStatus] = await Promise.all([
+  const [postgres, redisReady, queueCounts, deadLetterCount, heartbeats, freshness, retentionRun, backupStatus] = await Promise.all([
     measure(dependencies.postgresPing),
     measure(dependencies.redisPing),
     probe(dependencies.getQueueCounts),
+    dependencies.getDeadLetterCount ? probe(dependencies.getDeadLetterCount) : Promise.resolve({ ok: true, value: 0 } as const),
     probe(getHeartbeats),
     probe(dependencies.getIngestionFreshness),
     probe(dependencies.getLastRetentionRun),
@@ -311,12 +320,16 @@ export async function createSystemHealthSnapshot(
     latestSuccess: backupStatusValue.latestSuccess,
     latestFailure: backupStatusValue.latestFailure
   });
+  const deadLettersPresent = deadLetterCount.ok && deadLetterCount.value > 0;
+  const deadLetterProbeUnavailable = !deadLetterCount.ok;
   const status: SystemStatus =
     postgresStatus === "unhealthy" || redisStatus === "unhealthy" || queueUnavailable
       ? "unhealthy"
       : postgresStatus === "degraded" ||
           workerHealth.status === "degraded" ||
           schedulerHealth.status === "degraded" ||
+          deadLetterProbeUnavailable ||
+          deadLettersPresent ||
           retentionFailed ||
           backupStale ||
           backupFailureNewer
@@ -371,7 +384,7 @@ export async function createSystemHealthSnapshot(
       }
     },
     queues: {
-      telemetry: queueCountsOrFallback(queueCounts)
+      telemetry: queueCountsOrFallback(queueCounts, deadLetterCount)
     },
     ingestion: {
       lastEventAt: isoOrNull(freshnessValue.lastEventAt),

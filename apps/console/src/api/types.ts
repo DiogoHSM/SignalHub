@@ -128,6 +128,7 @@ export type ErrorGroupQuery = {
   from?: Date | string;
   to?: Date | string;
   limit?: number;
+  cursor?: string;
 };
 
 export type IncidentMttrQuery = {
@@ -260,6 +261,8 @@ export type SourceMapArtifactQuery = {
   projectId: string;
   environmentId: string;
   release?: string;
+  limit?: number;
+  cursor?: string;
 };
 
 export type SourceMapResolutionFrame = {
@@ -917,6 +920,7 @@ export type SystemHealthResponse = {
       completed: number;
       failed: number;
       delayed: number;
+      deadLettered: number;
     };
   };
   ingestion: {
@@ -941,6 +945,7 @@ export type SystemHealthResponse = {
         spans: number;
         llmCalls: number;
         breadcrumbs: number;
+        deadLetterJobs: number;
         sourceMapArtifacts: number;
         sourceMapFiles: number;
       };
@@ -953,6 +958,7 @@ export type SystemHealthResponse = {
       spansDays: number;
       llmCallsDays: number;
       breadcrumbsDays: number;
+      deadLetterJobsDays: number;
       sourceMapsEnabled: boolean;
       sourceMapsDays: number;
       sourceMapsBatchSize: number;
@@ -1024,7 +1030,13 @@ export type CreateNotificationChannelInput =
 
 export type UpdateNotificationChannelInput = Partial<CreateNotificationChannelInput>;
 
-export type AlertRuleType = "critical_errors" | "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost";
+export type AlertRuleType =
+  | "critical_errors"
+  | "error_count"
+  | "error_rate"
+  | "trace_p95_latency"
+  | "llm_cost"
+  | "dead_letter_count";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 

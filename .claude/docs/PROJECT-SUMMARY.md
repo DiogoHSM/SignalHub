@@ -2,13 +2,13 @@
 
 SignalMonitor is the current product identity for the self-hosted telemetry core formerly developed as SignalHub. It covers product analytics, errors, LLM calls, traces, and spans, giving operators one installable service for capturing standardized signals from multiple projects and environments.
 
-The intended public website and domain is `sigmon.app`. The intended deployed application host is `my.sigmon.app`.
+The intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.
 
 MicroERP is Diogo's personal project and the first real validation target for testing SignalMonitor against a production-shaped integration.
 
 ## Current Phase
 
-Phase 6D: Critical Hygiene. The audit top 10 hardening items are implemented; Phase 6F EasyPanel VPS deployment is next.
+Phase 6G: Product hardening and documentation reconciliation. The audit top hardening items are implemented, EasyPanel VPS deployment is operational, and the current focus is keeping product/API/SDK documentation aligned with the implementation while the console evolves from MVP to product-grade operations tooling.
 
 Implemented capabilities:
 
@@ -34,15 +34,16 @@ Implemented capabilities:
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, trait-derived labels and chips, selected tenant top users, and cross-signal timeline drilldowns.
 - Read-only Users investigation workspace with impact-ranked user summaries, trait-derived labels and chips, selected user recent sessions, and cross-signal timeline drilldowns.
-- Worker-owned telemetry retention with per-table windows, bounded batches, and recorded retention runs.
+- Worker-owned telemetry and dead-letter retention with per-table windows, bounded batches, retained DLQ action history, and recorded retention runs.
 - Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
-- Internal alert history with optional generic webhook notification channels and recorded delivery attempts.
+- Internal alert history with optional email and generic webhook notification channels and recorded delivery attempts.
+- Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, controlled replay, automatic expiration, and retained replay/delete/expiration audit actions.
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
 - Structured API and worker logs redact secret-bearing fields, and unhandled API errors return sanitized JSON.
-- API startup cleanup, ordered bounded shutdown, Docker non-root `tini` runtime, cache-friendly Docker dependency layer, Compose service healthchecks, backup SHA-256 verification, SDK browser/node entrypoints, security headers, and hardened production session cookies.
+- API startup cleanup, ordered bounded shutdown, Docker non-root `tini` runtime, cache-friendly Docker dependency layer, Compose service healthchecks, backup SHA-256 verification, failed-dump cleanup, classified S3 backup retries, SDK browser/node entrypoints, security headers, and hardened production session cookies.
 - Health and readiness endpoints.
 - Read-only operator doctor command for local and Docker Compose validation.
 - Docker Compose install hardening for the supported production-oriented self-hosted path.
@@ -62,8 +63,8 @@ Implemented capabilities:
 - Object storage and source-code viewing for source-map artifacts.
 - Full visual session replay and a dedicated Sessions investigation workspace.
 - Stored log telemetry.
-- Retention for operational metadata, projects, environments, users, or API keys.
-- Native email, Telegram, Discord, escalation, silencing, acknowledgement, and alert retry workflows.
+- Retention for operational metadata, projects, environments, users, API keys, or dead-letter action history.
+- Native Telegram, Discord, WhatsApp, escalation, silencing, acknowledgement, and on-call rotation workflows.
 - Additional language SDKs beyond JavaScript/TypeScript.
 
 ## Primary Operator Flow

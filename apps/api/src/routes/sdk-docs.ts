@@ -329,6 +329,7 @@ const sdkDocsHtml = `<!doctype html>
           <a href="#llm">LLM calls</a>
           <a href="#delivery">Delivery behavior</a>
           <a href="#source-maps">Source maps</a>
+          <a href="#smoke-tests">Smoke tests</a>
         </aside>
 
         <div class="content">
@@ -346,6 +347,12 @@ yarn add @sigmon/sdk</code></pre>
               Create one Sigmon project and environment per deployed app environment, then create
               separate API keys for server and browser telemetry.
             </p>
+            <div class="callout">
+              Sigmon server configuration belongs on the Sigmon API, worker, and scheduler services:
+              database, Redis, sessions, retention, backups, SMTP or webhook delivery, CORS defaults,
+              and source-map storage. Monitored app configuration belongs in the app you are instrumenting:
+              endpoint, ingestion keys, release id, and CI source-map upload token.
+            </div>
             <div class="table-wrap">
               <table>
                 <thead>
@@ -384,6 +391,10 @@ yarn add @sigmon/sdk</code></pre>
                 </tbody>
               </table>
             </div>
+            <p>
+              Before shipping browser capture, allowlist the monitored app origin in the project browser
+              origins screen or configure <code>BROWSER_CORS_ORIGINS</code> on the Sigmon API service.
+            </p>
           </section>
 
           <section id="quick-start">
@@ -465,6 +476,11 @@ export const submitCheckout = withSignalMonitorAction(async (formData: FormData)
           <section id="browser">
             <h2>Browser capture</h2>
             <p>Use browser-scoped keys and install capture from a Client Component.</p>
+            <div class="callout">
+              Browser keys are public by design. Create one browser key per project/environment, do not
+              reuse server keys, and allowlist the production origin so browser preflight requests to
+              <code>/v1/*</code> receive CORS headers.
+            </div>
             <pre><code>"use client";
 
 import { useEffect } from "react";
@@ -678,6 +694,38 @@ try {
   --environment-id "$SIGMON_ENVIRONMENT_ID" \\
   --release "$GITHUB_SHA" \\
   --bundle ./dist/source-maps.zip</code></pre>
+            <p>
+              For single-map uploads use <code>--file</code> with <code>--minified-file</code>. For CI
+              environments with slow uploads, set <code>--timeout-ms</code> or
+              <code>SIGMON_UPLOAD_TIMEOUT_MS</code>.
+            </p>
+          </section>
+
+          <section id="smoke-tests">
+            <h2>Production smoke tests</h2>
+            <p>Validate credentials and CORS before asking an agent to instrument a larger codebase.</p>
+            <h3>Server key</h3>
+            <pre><code>curl -i "$SIGMON_ENDPOINT/v1/events" \\
+  -H "Authorization: Bearer $SIGMON_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"deploy.smoke","properties":{"source":"curl"}}'</code></pre>
+            <h3>Browser key and CORS</h3>
+            <pre><code>fetch("https://my.sigmon.app/v1/events", {
+  method: "POST",
+  headers: {
+    Authorization: "Bearer sh_BROWSER_INGESTION_KEY",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    name: "browser.smoke",
+    properties: { source: "browser-console" }
+  })
+}).then(async (response) => console.log(response.status, await response.text()));</code></pre>
+            <p>
+              A healthy smoke test returns <code>202</code> and creates a new event in the selected
+              project/environment. A <code>401</code> means the key is invalid or scoped elsewhere; a
+              browser CORS failure means the monitored app origin is not allowlisted.
+            </p>
             <p>
               For raw HTTP payloads, non-TypeScript clients, and admin/query automation, use the
               <a href="/docs/">API reference</a> or <a href="/openapi.json">OpenAPI JSON</a>.

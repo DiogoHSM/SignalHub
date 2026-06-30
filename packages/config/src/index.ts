@@ -104,6 +104,7 @@ const rawConfigSchema = z.object({
   RETENTION_SPANS_DAYS: optionalPositiveInteger(90),
   RETENTION_LLM_CALLS_DAYS: optionalPositiveInteger(180),
   RETENTION_BREADCRUMBS_DAYS: optionalPositiveInteger(30),
+  RETENTION_DEAD_LETTER_JOBS_DAYS: optionalPositiveInteger(30),
   ALERTS_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -249,7 +250,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       tracesDays: parsed.RETENTION_TRACES_DAYS,
       spansDays: parsed.RETENTION_SPANS_DAYS,
       llmCallsDays: parsed.RETENTION_LLM_CALLS_DAYS,
-      breadcrumbsDays: parsed.RETENTION_BREADCRUMBS_DAYS
+      breadcrumbsDays: parsed.RETENTION_BREADCRUMBS_DAYS,
+      deadLetterJobsDays: parsed.RETENTION_DEAD_LETTER_JOBS_DAYS
     },
     alerts: {
       enabled: parsed.ALERTS_ENABLED,

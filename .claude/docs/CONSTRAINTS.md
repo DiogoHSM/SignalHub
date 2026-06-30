@@ -3,6 +3,7 @@
 - Phase 1 is self-hosted and single-installation oriented.
 - Projects and environments are the telemetry boundaries.
 - Ingestion API keys are scoped to exactly one project and one environment.
+- Archived projects and environments are inactive scopes and must reject new ingestion, identify writes, source-map uploads, source-map resolution reads, and worker telemetry persistence.
 - User and tenant profile traits are scoped to the same project/environment boundary as the ingestion API key.
 - Human sessions are required for query routes.
 - Admin routes require an admin human session.
@@ -13,7 +14,10 @@
 - Identify request `metadata` is accepted for envelope compatibility only and is not persisted in profile rows in the MVP.
 - The API must not return ingestion success unless the queue accepts the job.
 - Telemetry retries must remain idempotent across queue delivery and database persistence.
+- Telemetry retries must not persist into project/environment scopes that were archived after the job was queued.
+- Cached source-map stack resolutions must be database-bound to the same error scope, artifact scope, release, and minified file.
 - Webhook notification targets must reject local, private, link-local, multicast, loopback, and metadata networks in every environment.
+- External operational calls must be bounded by explicit timeouts or have a documented reason. Retries are allowed only for transient transport, timeout, rate-limit, and server-side failures; deterministic validation, auth, unsafe target, and permanent client errors must fail fast.
 - `SESSION_SECRET`, `API_KEY_PEPPER`, and `BOOTSTRAP_ADMIN_PASSWORD` must be at least 32 characters outside tests.
 - Production `POSTGRES_PASSWORD` must be set and must not use the local-only Compose placeholder.
 - API and worker logs must be structured and must redact secret-bearing fields.

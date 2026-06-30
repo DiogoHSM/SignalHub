@@ -2,31 +2,35 @@
 
 SignalMonitor is a self-hosted telemetry core for product analytics, error tracking, LLM observability, traces, and spans. One installation can monitor multiple projects and environments. Clients ingest telemetry with project-environment API keys, the API validates and queues each signal in Redis/BullMQ, and the worker sanitizes and persists typed records in Postgres.
 
-The intended public website and domain is `sigmon.app`; the future deployed app host is `my.sigmon.app`.
+The intended public website and domain is `sigmon.app`; the default deployed app host is `my.sigmon.app`.
 
 ## Current Capabilities
 
 - Local admin login with a bootstrap admin seed.
 - Admin management for users, projects, environments, and scoped ingestion API keys.
-- API-key ingestion for events, errors, LLM calls, traces, and spans.
+- API-key ingestion for events, errors, breadcrumbs, LLM calls, traces, and spans.
 - API-key identify endpoints for project/environment-scoped user and tenant profile traits.
+- Browser-origin allowlists for direct browser telemetry and CORS preflight handling.
 - Zod payload validation and recursive sanitization before persistence.
 - Redis-backed ingestion queue with worker processing.
 - Postgres storage for operational data and typed telemetry tables.
 - Deterministic error grouping with group status workflow and raw occurrence drilldown.
 - Error-first Incident view for grouped and raw errors with priority triage, related context, and shareable URLs.
-- Admin source-map artifact uploads and on-demand production stack resolution.
+- Admin and CI source-map artifact uploads with dedicated source-map upload tokens and on-demand production stack resolution.
 - Lightweight breadcrumb ingestion and session context timelines for raw error debugging.
 - Human-session query endpoints for raw telemetry and basic aggregates.
-- JavaScript SDK and raw HTTP integration guide.
-- Integration Console for setup, overview, investigation, alerts, and system health.
-- Worker-owned retention, heartbeat, and operational health reporting.
-- Worker-owned simple alerts with internal history and optional webhook delivery.
+- JavaScript SDK with Node, browser, and Next.js entrypoints plus raw HTTP and public Scalar/OpenAPI docs.
+- Integration Console for setup, operations overview, investigation, alerts, monitors, experiments, artifacts, and system health.
+- Worker-owned retention, HTTP uptime checks, heartbeat monitors, and operational health reporting.
+- Worker-owned simple alerts with internal history and optional email or webhook delivery.
+- Dead-letter job inspection, filtering, replay, delete, and audit history for permanently failed telemetry jobs.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 - Read-only operator doctor checks for local and Docker Compose installs.
 - Critical runtime hardening for webhook targets, idempotent ingestion retries, structured redacted logs, checksum-verified backups, non-root containers, security headers, and production session cookies.
 
 SignalMonitor does not implement a SaaS workspace model, billing, invites, per-project RBAC, ClickHouse, product object storage, or stored log telemetry.
+
+Archived projects and environments are inactive scopes. Their ingestion API keys and source-map upload tokens are no longer valid for new writes, and queued telemetry retries are rejected before persistence if the target project or environment has been archived.
 
 ## Prerequisites
 
@@ -82,7 +86,7 @@ HTTP security headers are set on API responses. In production, the human session
 
 The worker runs telemetry retention by default. Retention environment variables control scheduled deletion of old telemetry with bounded delete statements; each run can process a limited number of batches and later scheduled runs continue draining older rows.
 
-Retention deletes telemetry rows and, when source-map retention is enabled, local source-map artifacts. Operational metadata, projects, environments, users, and API keys are not deleted by retention.
+Retention deletes telemetry rows, expired dead-letter jobs, and, when source-map retention is enabled, local source-map artifacts. Operational metadata, projects, environments, users, API keys, and dead-letter action history are not deleted by retention.
 
 | Telemetry type | Default retention |
 | --- | --- |
@@ -92,18 +96,21 @@ Retention deletes telemetry rows and, when source-map retention is enabled, loca
 | Spans | 90 days |
 | LLM calls | 180 days |
 | Breadcrumbs | 30 days |
+| Dead-letter jobs | 30 days |
 
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
-The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split EasyPanel services can be checked independently.
+The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, dead-letter count, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split EasyPanel services can be checked independently.
 
 ## Backups and Restore
 
 The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs `pg_dump` in custom format and writes files named like `sigmon-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`.
 
 Docker Compose mounts the `backup_data` volume at `/var/lib/sigmon/backups` in the worker container. Each dump gets a SHA-256 sidecar file, and restore verifies the sidecar when present before running `pg_restore`. Local retention deletes old local backup files and sidecars according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files and sidecars remain on local storage and, optionally, remote object storage.
+
+Failed `pg_dump` runs remove partial dump files before recording the sanitized failure. S3-compatible uploads retry transient network, timeout, rate-limit, and 5xx failures with a short bounded backoff; permanent 4xx authorization/configuration failures fail fast.
 
 Run a manual backup with:
 
@@ -135,17 +142,21 @@ Remote retention is handled by bucket lifecycle rules in this slice.
 
 ## Simple Alerts
 
-SignalMonitor evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
+SignalMonitor evaluates simple project/environment-scoped alert rules from the worker process. Supported rule types are critical error count, total error count, error rate, trace p95 latency, LLM cost, and pending dead-letter job thresholds.
 
-Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each delivery attempt. Native email, Telegram, Discord, escalation, silencing, acknowledgement, and retry workflows are out of scope for this slice.
+Alert events are stored internally. Optional generic webhook channels send compact JSON payloads and record each final delivery attempt. Webhook delivery retries transient timeout, rate-limit, and 5xx failures with bounded backoff, while unsafe targets, redirects, permanent DNS failures, and non-retryable 4xx responses fail fast. Native Telegram, Discord, escalation, silencing, and acknowledgement workflows are out of scope for this slice.
 
 Webhook secrets are write-only. Saved secret values are redacted and are never returned by the API or displayed in the console.
 
+## Dead-Letter Jobs
+
+Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter jobs for admin inspection. Admins can list, filter by queue/job/error text/creation window, inspect, delete, replay, and inspect replay/delete/retention audit actions for telemetry dead-letter jobs through the session-authenticated `/admin/dead-letter-jobs` API. Active dead-letter rows are exposed as `pending`; replay/delete/expiration history is available through the job actions endpoint. Replay validates the stored telemetry envelope and kind-specific payload before re-enqueueing, uses a fresh replay job id for each attempt, and deletes the dead-letter row only after enqueue succeeds. Delete and replay cleanup record the acting admin in a retained `dead_letter_job_actions` audit trail. Scheduled retention deletes old dead-letter jobs after `RETENTION_DEAD_LETTER_JOBS_DAYS` and records each expiration as an `expired` action.
+
 ## Source Maps
 
-Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by project, environment, release, and minified filename; SignalMonitor does not guess across releases.
+Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by active project, active environment, release, and minified filename; SignalMonitor does not guess across scopes or releases.
 
-Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/sigmon/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
+Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/sigmon/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Cached stack resolutions are constrained to the same error scope, artifact scope, release, and minified file. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
 
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
@@ -182,6 +193,8 @@ GitHub Actions example:
 ```
 
 Store upload tokens in CI secret storage. Do not expose them in browser bundles.
+
+The upload command uses a 60 second request timeout by default. Override it with `--timeout-ms <milliseconds>` or `SIGMON_UPLOAD_TIMEOUT_MS` when CI networks or large bundles need a longer bound.
 
 ## Breadcrumbs and Session Context
 

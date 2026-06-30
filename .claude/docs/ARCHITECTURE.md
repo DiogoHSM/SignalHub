@@ -86,6 +86,8 @@ Source-map artifacts are admin-uploaded metadata rows scoped to project, environ
 
 Source-map CI uploads use dedicated `source_map_upload_tokens`, not ingestion API keys. Admins create and revoke these tokens from the Artifacts console. `POST /v1/source-maps` authenticates a token, enforces its project/environment scope, and writes artifacts through the existing local source-map storage service with token attribution.
 
+Archived projects and environments are inactive scopes. Ingestion API key verification, identify writes, source-map token creation, source-map uploads, source-map resolution reads, and worker telemetry writes all require an active project/environment pair. This protects already-queued telemetry jobs from writing into archived scopes after an operator archives a project or environment.
+
 Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
 
 ## API Surface
@@ -180,7 +182,7 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, and `llm_calls` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including a `deleted_dead_letter_jobs` count.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 
@@ -190,17 +192,23 @@ The scheduler role owns simple alert scheduling and monitor evaluation. When `AL
 
 HTTP and heartbeat monitors live in `monitors`; individual probe and check-in history lives in `monitor_checks`. Admin monitor routes create and manage monitor definitions. Heartbeat monitors return a one-time `shhb_...` secret on creation; only the hash is stored, and `POST /v1/heartbeats/:id` verifies the bearer secret before recording a successful check-in. Monitor down/recovery events are represented as `alert_events` with `monitor_id` set.
 
-Generic webhook notification URLs are validated through the shared network-safety boundary in `packages/config`. Targets resolving to local, private, link-local, multicast, loopback, or cloud metadata networks are rejected in every environment. Production webhook delivery fetches the validated resolved address to avoid DNS rebinding after preflight.
+Generic webhook notification URLs are validated through the shared network-safety boundary in `packages/config`. Targets resolving to local, private, link-local, multicast, loopback, or cloud metadata networks are rejected in every environment. Production webhook delivery fetches the validated resolved address to avoid DNS rebinding after preflight. Alert webhook delivery is bounded by `ALERTS_WEBHOOK_TIMEOUT_MS` and retries transient request failures, timeouts, rate limits, and 5xx responses with a short bounded backoff. Invalid URLs, unsafe targets, permanent DNS failures, redirects, and non-retryable 4xx responses fail fast and are recorded once as final delivery failures.
 
 API and worker processes use structured logs with secret-bearing fields redacted. The API global error handler logs redacted errors and returns sanitized JSON. API startup failures run cleanup after logging, and API/worker shutdown paths are ordered and bounded.
 
 Backups write SHA-256 sidecar files next to local dump files and upload matching sidecars when S3-compatible upload is enabled. Restore verifies the sidecar when present before running `pg_restore`.
 
+Failed backup dumps are cleaned up before the failed run is recorded. S3-compatible backup upload retries are limited to retryable transport, timeout, rate-limit, and server-side failures, with a short bounded backoff; permanent client/auth failures are not retried. Google OAuth token/userinfo fetches and the source-map upload CLI also use explicit request timeouts so operator-facing network workflows do not hang indefinitely.
+
+Worker jobs that permanently fail are copied into `dead_letter_jobs` with sanitized payload and error details. New telemetry dead-letter rows preserve project and environment scope from the failed job envelope when available; legacy or non-telemetry rows can remain unscoped for backward compatibility. Admin APIs expose list, queue/job/error text/creation-window filters, detail, action-history, delete, and replay workflows for these rows. Active dead-letter rows are treated as `pending`; replay/delete/expiration state is preserved in the action history. Replay is limited to telemetry queue payloads, validates the outer job envelope and the kind-specific telemetry payload, enqueues with a fresh replay-scoped BullMQ job id, and deletes the dead-letter row only after enqueue succeeds. Delete and replay cleanup run through a transaction that records the acting admin in `dead_letter_job_actions`, while the original telemetry id is preserved so repository-level idempotency still prevents duplicate persisted telemetry. Scheduled retention expires old dead-letter rows after `RETENTION_DEAD_LETTER_JOBS_DAYS` and records a retained `expired` action for each removed row.
+
+Alert rules include a `dead_letter_count` rule type for project/environment-scoped DLQ backlog. Its observed value is the current count of pending scoped dead-letter jobs for the rule environment rather than a time-windowed telemetry rate.
+
 The Docker runtime runs under the non-root `sigmon` user with `tini` as PID 1. Docker Compose defines healthchecks for Postgres, Redis, API, and worker.
 
 API responses include baseline HTTP security headers: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Content-Security-Policy`, and production `Strict-Transport-Security`.
 
-`GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, ingestion freshness, retention policy/run status, and backup status.
+`GET /system/health` is a logged-in system snapshot for the console. It reports API, worker, Postgres, Redis, telemetry queue counts, dead-letter count, ingestion freshness, retention policy/run status, and backup status. A nonzero dead-letter count marks the queue and overall system as degraded so operators see permanently failed jobs without opening the admin API first.
 
 ## Investigation Console
 
@@ -208,11 +216,13 @@ The console includes a read-only `Investigate` mode for Events. It uses the exis
 
 The Events query supports exact `event_name` filtering in addition to project, environment, tenant, user, session, trace, date range, and limit filters. The first investigation slice does not mutate telemetry data and does not add new storage tables.
 
+High-volume investigation lists use opaque cursor pagination scoped to the exact project, environment, and active filters. This includes events, errors, LLM calls, traces, trace spans, error groups, source-map artifacts, and monitor check history. Monitor check cursors are additionally bound to the selected monitor id. Query migrations keep composite indexes aligned with the primary drilldown patterns for scope/time, trace id, tenant id, user id, source-map release, alert events, and error group ordering so operator views can page without broad table scans.
+
 The console includes an Errors investigation workflow with grouped triage and raw occurrence drilldown. Grouped errors use `GET /query/error-groups`, `GET /query/error-groups/:id`, and `PATCH /query/error-groups/:id` for exact project/environment-scoped status and priority workflows. Raw occurrences remain available through the peer Raw occurrences tab and `GET /query/errors`, including exact `error_group_id` filtering.
 
 The dedicated Incident view uses `GET /query/incidents/error-groups/:id` with project, environment, and optional raw error scope. The incident repository returns the selected group, a primary occurrence, source-map resolution status, suggested priority, saved priority override, and two context collections. Strongly related context matches the incident by strong identifiers such as trace, session, user, tenant, and release. Nearby context is lower-confidence activity around the primary occurrence timestamp and is labeled separately so operators can use it as supporting context rather than direct causality.
 
-Raw error details can resolve minified production stack frames on demand through `GET /query/errors/:id/source-map-resolution`. Resolution requires exact project, environment, release, and minified filename matches against uploaded artifacts. Resolved frames are cached in `error_stack_resolutions`; deleting a source-map artifact invalidates full cached stacks for any error that referenced the deleted artifact. The console displays file, line, column, and symbol metadata only, never original source code or `sourcesContent`.
+Raw error details can resolve minified production stack frames on demand through `GET /query/errors/:id/source-map-resolution`. Resolution requires exact active project, active environment, release, and minified filename matches against uploaded artifacts. Resolved frames are cached in `error_stack_resolutions`; database constraints bind each cached row to the same error scope, artifact scope, release, and minified file so direct SQL writes cannot cross-link source maps between projects, environments, releases, or bundles. Deleting a source-map artifact invalidates full cached stacks for any error that referenced the deleted artifact. The console displays file, line, column, and symbol metadata only, never original source code or `sourcesContent`.
 
 Raw error details can also show session context when the selected error has a `session_id`. The timeline combines breadcrumbs and nearby existing signals in chronological order, highlights the selected error, and displays safe summaries only. Full visual replay and a dedicated Sessions investigation tab remain deferred.
 
@@ -228,7 +238,7 @@ The console also includes a read-only Users view for user-first investigation. I
 
 The console includes a read-only `Overview` mode for the selected project and environment. It uses `GET /query/overview` to load KPIs, UTC-bucketed mini trends, top lists, and recent important signals for `24h`, `7d`, or `30d` windows.
 
-Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
+Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. Independent KPI, trend, top-list, and recent-signal queries are dispatched together rather than awaited in serial, and bigint/numeric aggregate values pass through finite safe-number helpers before becoming JavaScript numbers. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
 
 ## Operations Console
 

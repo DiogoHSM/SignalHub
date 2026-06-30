@@ -255,10 +255,24 @@ export interface SpansTable {
 
 export interface DeadLetterJobsTable {
   id: string;
+  project_id: string | null;
+  environment_id: string | null;
   queue_name: string;
   job_name: string;
   payload: JsonColumn;
   error_message: string;
+  created_at: Timestamp;
+}
+
+export interface DeadLetterJobActionsTable {
+  id: string;
+  dead_letter_job_id: string;
+  queue_name: string;
+  job_name: string;
+  action: "deleted" | "replayed" | "expired";
+  actor_user_id: string | null;
+  actor_email: string;
+  metadata: JsonColumn;
   created_at: Timestamp;
 }
 
@@ -274,6 +288,7 @@ export interface RetentionRunsTable {
   deleted_spans: DefaultedInteger;
   deleted_llm_calls: DefaultedInteger;
   deleted_breadcrumbs: DefaultedInteger;
+  deleted_dead_letter_jobs: DefaultedInteger;
   source_maps_enabled: DefaultedBoolean;
   source_maps_days: DefaultedInteger;
   source_maps_batch_size: DefaultedInteger;
@@ -285,6 +300,7 @@ export interface RetentionRunsTable {
   spans_days: number;
   llm_calls_days: number;
   breadcrumbs_days: DefaultedInteger;
+  dead_letter_jobs_days: DefaultedInteger;
   created_at: Timestamp;
 }
 
@@ -321,7 +337,13 @@ export interface SystemHealthSamplesTable {
   queue_failed: DefaultedInteger;
 }
 
-export type AlertRuleType = "critical_errors" | "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost";
+export type AlertRuleType =
+  | "critical_errors"
+  | "error_count"
+  | "error_rate"
+  | "trace_p95_latency"
+  | "llm_cost"
+  | "dead_letter_count";
 export type AlertSeverity = "info" | "warning" | "critical";
 
 export interface NotificationChannelsTable {
@@ -499,6 +521,7 @@ export interface Database {
   traces: TracesTable;
   spans: SpansTable;
   dead_letter_jobs: DeadLetterJobsTable;
+  dead_letter_job_actions: DeadLetterJobActionsTable;
   retention_runs: RetentionRunsTable;
   backup_runs: BackupRunsTable;
   system_heartbeats: SystemHeartbeatsTable;

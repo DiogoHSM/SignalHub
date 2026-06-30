@@ -331,6 +331,7 @@ describe("source map helpers", () => {
           version: 3,
           file: "app.min.js",
           sources: ["src/app.ts"],
+          sourcesContent: ["const secretImplementation = true;"],
           names: ["checkout"],
           mappings: "AAAAA"
         })
@@ -341,6 +342,7 @@ describe("source map helpers", () => {
           version: 3,
           file: "vendor.min.js",
           sources: ["src/vendor.ts"],
+          sourcesContent: ["const vendorSecretImplementation = true;"],
           names: ["vendor"],
           mappings: "AAAAA"
         })
@@ -375,6 +377,7 @@ describe("source map helpers", () => {
     expect(resolution?.status).toBe("resolved");
     expect(resolution?.unresolvedFrameCount).toBe(0);
     expect(resolution?.frames).toHaveLength(2);
+    expect(JSON.stringify(resolution?.frames)).not.toContain("secretImplementation");
     expect(replaceErrorStackResolutions).toHaveBeenCalledTimes(1);
     expect(replaceErrorStackResolutions).toHaveBeenCalledWith({
       errorId: "err_1",
@@ -597,6 +600,26 @@ describe("query routes", () => {
     ]);
   });
 
+  it("returns 400 when a query cursor is invalid for the requested scope", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEvents: async () => {
+          throw new Error("invalid_cursor_scope");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1&cursor=cur_other_scope"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
+  });
+
   it("parses severity status and fingerprint for error queries", async () => {
     const receivedFilters: unknown[] = [];
 
@@ -732,27 +755,32 @@ describe("query routes", () => {
     });
   });
 
-  it("returns resolved source map frames from the query dependency", async () => {
-    const resolved = {
-      errorId: "err_1",
-      release: "2026.05.11",
-      status: "resolved" as const,
-      frames: [
-        {
-          sourceMapArtifactId: "smap_1",
-          frameIndex: 0,
-          minifiedFile: "app.min.js",
-          minifiedLine: 10,
-          minifiedColumn: 1234,
-          originalSource: "src/app.ts",
-          originalLine: 42,
-          originalColumn: 4,
-          originalName: "checkout"
-        }
-      ],
-      unresolvedFrameCount: 0
-    };
-    const resolveErrorStack = vi.fn(async () => resolved);
+  it("returns resolved source map frames without exposing source contents", async () => {
+    const map = JSON.stringify({
+      version: 3,
+      file: "app.min.js",
+      sources: ["src/app.ts"],
+      sourcesContent: ["const secretImplementation = true;"],
+      names: ["checkout"],
+      mappings: "AAAAA"
+    });
+    const replaceErrorStackResolutions = vi.fn(async (input) => input.frames);
+    const resolveErrorStack = vi.fn((input: { errorId: string; projectId: string; environmentId: string }) =>
+      resolveErrorStackWithSourceMaps({
+        ...input,
+        getErrorForSourceMapResolution: async () => ({
+          id: "err_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "2026.05.11",
+          stack: "    at checkout (https://cdn.example.com/assets/app.min.js:1:1)"
+        }),
+        getCachedErrorStackResolution: async () => [],
+        findSourceMapArtifactForFrame: async () => ({ id: "smap_1", storagePath: "/source-maps/app.min.js.map" }),
+        readSourceMapFile: async () => map,
+        replaceErrorStackResolutions
+      })
+    );
 
     app = await buildApp({
       readiness,
@@ -768,12 +796,31 @@ describe("query routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ data: resolved });
+    expect(response.json()).toEqual({
+      data: {
+        errorId: "err_1",
+        release: "2026.05.11",
+        status: "resolved",
+        frames: [
+          expect.objectContaining({
+            sourceMapArtifactId: "smap_1",
+            frameIndex: 0,
+            minifiedFile: "app.min.js",
+            originalSource: "src/app.ts",
+            originalName: "checkout"
+          })
+        ],
+        unresolvedFrameCount: 0
+      }
+    });
+    expect(JSON.stringify(response.json())).not.toContain("sourcesContent");
+    expect(JSON.stringify(response.json())).not.toContain("secretImplementation");
     expect(resolveErrorStack).toHaveBeenCalledWith({
       errorId: "err_1",
       projectId: "prj_1",
       environmentId: "env_1"
     });
+    expect(replaceErrorStackResolutions).toHaveBeenCalledTimes(1);
   });
 
   it("returns 400 for source map resolution without scope", async () => {
@@ -1829,7 +1876,7 @@ describe("query routes", () => {
       query: {
         listErrorGroups: async (filters) => {
           receivedFilters.push(filters);
-          return [{ id: "egrp_1", status: "open" }];
+          return { data: [{ id: "egrp_1", status: "open" }], cursor: "cursor_next" };
         }
       }
     });
@@ -1838,11 +1885,11 @@ describe("query routes", () => {
       method: "GET",
       url:
         "/query/error-groups?project_id=prj_1&environment_id=env_1" +
-        "&status=open&severity=critical&fingerprint=fp_1&release=1.2.3&limit=25"
+        "&status=open&severity=critical&fingerprint=fp_1&release=1.2.3&limit=25&cursor=cursor_1"
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ data: [{ id: "egrp_1", status: "open" }] });
+    expect(response.json()).toEqual({ data: [{ id: "egrp_1", status: "open" }], cursor: "cursor_next" });
     expect(receivedFilters).toEqual([
       {
         projectId: "prj_1",
@@ -1851,9 +1898,30 @@ describe("query routes", () => {
         severity: "critical",
         fingerprint: "fp_1",
         release: "1.2.3",
-        limit: 25
+        limit: 25,
+        cursor: "cursor_1"
       }
     ]);
+  });
+
+  it("returns 400 for invalid error group cursors", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listErrorGroups: async () => {
+          throw new Error("invalid_cursor");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/error-groups?project_id=prj_1&environment_id=env_1&cursor=bad"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
   });
 
   it("gets an error group detail by id with project and environment scope", async () => {
@@ -1968,6 +2036,26 @@ describe("query routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("returns 400 for invalid raw occurrence cursors", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listErrors: async () => {
+          throw new Error("invalid_cursor_scope");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/error-groups/egrp_1/errors?project_id=prj_1&environment_id=env_1&cursor=bad"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
   });
 
   it("updates an error group status", async () => {

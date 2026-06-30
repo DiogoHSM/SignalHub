@@ -156,7 +156,10 @@ export type MonitorApiClient = {
   createHeartbeatMonitor: (input: CreateHeartbeatMonitorInput) => Promise<{ monitor: MonitorResponse; secret: string }>;
   updateMonitor: (id: string, input: Partial<CreateHttpMonitorInput & CreateHeartbeatMonitorInput>) => Promise<{ monitor: MonitorResponse }>;
   archiveMonitor: (id: string) => Promise<void>;
-  listMonitorChecks: (id: string, limit?: number) => Promise<{ checks: MonitorCheckResponse[] }>;
+  listMonitorChecks: (
+    id: string,
+    options: { projectId: string; environmentId: string; limit?: number; cursor?: string }
+  ) => Promise<{ checks: MonitorCheckResponse[]; cursor?: string }>;
 };
 
 export type ErrorGroupApiClient = {
@@ -421,6 +424,7 @@ function errorGroupQueryPath(query: ErrorGroupQuery): string {
   if (query.from) params.set("from", query.from instanceof Date ? query.from.toISOString() : query.from);
   if (query.to) params.set("to", query.to instanceof Date ? query.to.toISOString() : query.to);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
 
   return `/query/error-groups?${params.toString()}`;
 }
@@ -455,6 +459,8 @@ function sourceMapScopeParams(query: Pick<SourceMapArtifactQuery, "projectId" | 
 function sourceMapArtifactsPath(query: SourceMapArtifactQuery): string {
   const params = sourceMapScopeParams(query);
   if (query.release) params.set("release", query.release);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
 
   return `/admin/source-maps?${params.toString()}`;
 }
@@ -629,14 +635,19 @@ function monitorListPath(query: MonitorListQuery): string {
   return `/admin/monitors?${params.toString()}`;
 }
 
-function monitorChecksPath(id: string, limit?: number): string {
+function monitorChecksPath(
+  id: string,
+  options: { projectId: string; environmentId: string; limit?: number; cursor?: string }
+): string {
   const params = new URLSearchParams();
+  params.set("project_id", options.projectId);
+  params.set("environment_id", options.environmentId);
+  const limit = options.limit;
+  const cursor = options.cursor;
   if (limit !== undefined) params.set("limit", String(limit));
-  const queryString = params.toString();
+  if (cursor) params.set("cursor", cursor);
 
-  return queryString
-    ? `/admin/monitors/${encodePathSegment(id)}/checks?${queryString}`
-    : `/admin/monitors/${encodePathSegment(id)}/checks`;
+  return `/admin/monitors/${encodePathSegment(id)}/checks?${params.toString()}`;
 }
 
 export function createApiClient(
@@ -855,8 +866,8 @@ export function createApiClient(
       }),
     archiveMonitor: (id) =>
       request<void>(path(apiBasePath, `/admin/monitors/${encodePathSegment(id)}`), { method: "DELETE" }),
-    listMonitorChecks: (id, limit) =>
-      request<{ checks: MonitorCheckResponse[] }>(path(apiBasePath, monitorChecksPath(id, limit))),
+    listMonitorChecks: (id, options) =>
+      request<{ checks: MonitorCheckResponse[]; cursor?: string }>(path(apiBasePath, monitorChecksPath(id, options))),
     listAlertEvents: (query) =>
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>

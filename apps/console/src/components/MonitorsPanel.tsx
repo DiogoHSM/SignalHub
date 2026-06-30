@@ -232,13 +232,13 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
   }, [client, projectId, environmentId]);
 
   useEffect(() => {
-    if (!selectedMonitor || !client.listMonitorChecks) {
+    if (!projectId || !environmentId || !selectedMonitor || !client.listMonitorChecks) {
       setChecks([]);
       return;
     }
     let cancelled = false;
     void client
-      .listMonitorChecks(selectedMonitor.id, 20)
+      .listMonitorChecks(selectedMonitor.id, { projectId, environmentId, limit: 20 })
       .then((result) => {
         if (!cancelled) setChecks(result.checks);
       })
@@ -248,7 +248,7 @@ export function MonitorsPanel({ apiEndpoint, client, projectId, environmentId }:
     return () => {
       cancelled = true;
     };
-  }, [client, selectedMonitor]);
+  }, [client, environmentId, projectId, selectedMonitor]);
 
   async function createHttpMonitor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -425,6 +425,8 @@ describe("buildDeadLetterJobInput", () => {
         error: new Error("authorization: Bearer worker-token")
       })
     ).toEqual({
+      projectId: null,
+      environmentId: null,
       queueName: "telemetry",
       jobName: "event",
       payload: {
@@ -436,6 +438,28 @@ describe("buildDeadLetterJobInput", () => {
         }
       },
       errorMessage: "authorization: [REDACTED]"
+    });
+  });
+
+  it("preserves project and environment scope from telemetry jobs", () => {
+    expect(
+      buildDeadLetterJobInput({
+        queueName: "telemetry",
+        jobName: "error",
+        payload: {
+          id: "job_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          kind: "error",
+          payload: { message: "failed" }
+        },
+        error: new Error("insert failed")
+      })
+    ).toMatchObject({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      queueName: "telemetry",
+      jobName: "error"
     });
   });
 });
@@ -932,6 +956,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -945,9 +970,11 @@ describe("runRetentionOnce", () => {
             spans: 4,
             llmCalls: 5,
             breadcrumbs: 6,
+            deadLetterJobs: 0,
             sourceMapArtifacts: 0,
             sourceMapFiles: 0
-          })
+          }),
+          deleteExpiredDeadLetterJobs: async () => 7
         });
         calls.push("released");
         return { locked: true, result };
@@ -956,6 +983,7 @@ describe("runRetentionOnce", () => {
       recordRetentionRun: async (input) => {
         expect(input.status).toBe("success");
         expect(input.deleted.events).toBe(1);
+        expect(input.deleted.deadLetterJobs).toBe(7);
         calls.push("recorded");
       }
     });
@@ -974,6 +1002,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1001,6 +1030,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1032,6 +1062,7 @@ describe("runRetentionOnce", () => {
           traces: 0,
           llmCalls: 0,
           breadcrumbs: 0,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 0,
           sourceMapFiles: 0
         });
@@ -1057,7 +1088,8 @@ describe("runRetentionOnce", () => {
           spansDays: 90,
           llmCallsDays: 180,
           breadcrumbsDays: 30,
-          sourceMapsEnabled: true,
+          deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
           sourceMapsDays: 180,
           sourceMapsBatchSize: 100
         },
@@ -1073,7 +1105,8 @@ describe("runRetentionOnce", () => {
                   spans: 4,
                   llmCalls: 5,
                   breadcrumbs: 6,
-                  sourceMapArtifacts: 0,
+                  deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
                   sourceMapFiles: 0
                 };
               }
@@ -1105,6 +1138,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1120,7 +1154,8 @@ describe("runRetentionOnce", () => {
               spans: 0,
               llmCalls: 0,
               breadcrumbs: 0,
-              sourceMapArtifacts: 0,
+              deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
               sourceMapFiles: 0
             };
           }
@@ -1155,6 +1190,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: false,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1169,7 +1205,8 @@ describe("runRetentionOnce", () => {
             spans: 0,
             llmCalls: 0,
             breadcrumbs: 0,
-            sourceMapArtifacts: 0,
+            deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
             sourceMapFiles: 0
           })
         })
@@ -1198,6 +1235,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1214,7 +1252,8 @@ describe("runRetentionOnce", () => {
                 spans: 0,
                 llmCalls: 0,
                 breadcrumbs: 0,
-                sourceMapArtifacts: 0,
+                deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
                 sourceMapFiles: 0
               };
             }
@@ -1238,6 +1277,7 @@ describe("runRetentionOnce", () => {
           spans: 0,
           llmCalls: 0,
           breadcrumbs: 0,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 0,
           sourceMapFiles: 0
         });
@@ -1259,6 +1299,7 @@ describe("runRetentionOnce", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -1273,7 +1314,8 @@ describe("runRetentionOnce", () => {
             spans: 0,
             llmCalls: 0,
             breadcrumbs: 0,
-            sourceMapArtifacts: 0,
+            deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
             sourceMapFiles: 0
           })
         })
@@ -1294,6 +1336,7 @@ describe("runRetentionOnce", () => {
           spans: 0,
           llmCalls: 0,
           breadcrumbs: 0,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 1,
           sourceMapFiles: 1
         });
@@ -1966,7 +2009,8 @@ describe("deliverWebhook", () => {
       timeoutMs: 5000,
       nodeEnv: "production",
       resolveHostname: resolvePublicHostname,
-      requestImpl
+      requestImpl,
+      retryDelayMs: 0
     });
 
     expect(result).toEqual({
@@ -1980,6 +2024,79 @@ describe("deliverWebhook", () => {
         body: JSON.stringify(payload)
       })
     );
+  });
+
+  it("retries transient webhook responses before recording success", async () => {
+    const requestImpl = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({ status: 204 });
+    const sleeps: number[] = [];
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      retryDelayMs: 25,
+      sleepFn: async (ms) => {
+        sleeps.push(ms);
+      }
+    });
+
+    expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+    expect(requestImpl).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([25]);
+  });
+
+  it("retries transient webhook timeouts and records the final failure", async () => {
+    const requestImpl = vi.fn(async () => {
+      throw new Error("Webhook delivery timed out");
+    });
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 100,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      attempts: 2,
+      retryDelayMs: 0
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "Webhook delivery timed out"
+    });
+    expect(requestImpl).toHaveBeenCalledTimes(2);
   });
 
   it("does not follow webhook redirects and records redirect status", async () => {
@@ -2003,7 +2120,8 @@ describe("deliverWebhook", () => {
       timeoutMs: 5000,
       nodeEnv: "production",
       resolveHostname: resolvePublicHostname,
-      requestImpl
+      requestImpl,
+      retryDelayMs: 0
     });
 
     expect(result).toEqual({
@@ -2185,6 +2303,82 @@ describe("deliverWebhook", () => {
       errorMessage: "Webhook DNS resolution failed"
     });
     expect(requestImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not retry permanent connection-time DNS failures", async () => {
+    const error = new Error("host not found") as NodeJS.ErrnoException;
+    error.code = "ENOTFOUND";
+    const requestImpl = vi.fn(async () => {
+      throw error;
+    });
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      attempts: 3,
+      retryDelayMs: 0
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "Webhook DNS resolution failed"
+    });
+    expect(requestImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry deterministic webhook request construction errors", async () => {
+    const error = new Error("Invalid character in header content") as NodeJS.ErrnoException;
+    error.code = "ERR_INVALID_CHAR";
+    const requestImpl = vi.fn(async () => {
+      throw error;
+    });
+
+    const result = await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      attempts: 3,
+      retryDelayMs: 0
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      responseStatus: null,
+      errorMessage: "Invalid character in header content"
+    });
+    expect(requestImpl).toHaveBeenCalledTimes(1);
   });
 
   it("blocks production delivery when connection-time DNS rebinds to a private address", async () => {

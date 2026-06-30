@@ -764,6 +764,37 @@ describe("admin alert routes", () => {
     expect(createdRules).toEqual([{ ...payload, enabled: true }]);
   });
 
+  it("creates dead-letter count alert rules", async () => {
+    const createdRules: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        createAlertRule: async (input) => {
+          createdRules.push(input);
+          return alertRule(input);
+        }
+      }
+    });
+
+    const payload = {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Dead-letter backlog",
+      type: "dead_letter_count",
+      severity: "critical",
+      threshold: "1",
+      windowMinutes: 5,
+      cooldownMinutes: 30
+    };
+
+    const response = await app.inject({ method: "POST", url: "/admin/alert-rules", payload });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().rule).toMatchObject({ id: "rule_1", type: "dead_letter_count" });
+    expect(createdRules).toEqual([{ ...payload, minimumSampleSize: 1, enabled: true }]);
+  });
+
   it("updates alert rule route pattern and minimum sample size", async () => {
     const updatedRules: unknown[] = [];
     app = await buildApp({

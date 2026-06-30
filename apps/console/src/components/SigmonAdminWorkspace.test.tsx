@@ -83,7 +83,7 @@ function healthyResponse(): SystemHealthResponse {
       scheduler: { status: "healthy", expected: true, role: "scheduler", lastHeartbeatAt: "2026-05-06T11:59:50.000Z" }
     },
     queues: {
-      telemetry: { status: "healthy", errorMessage: null, waiting: 1, active: 0, completed: 30, failed: 0, delayed: 0 }
+      telemetry: { status: "healthy", errorMessage: null, waiting: 1, active: 0, completed: 30, failed: 0, delayed: 0, deadLettered: 0 }
     },
     ingestion: {
       lastEventAt: "2026-05-06T11:58:00.000Z",
@@ -103,6 +103,7 @@ function healthyResponse(): SystemHealthResponse {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100

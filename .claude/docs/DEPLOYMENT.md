@@ -4,9 +4,9 @@ Docker Compose is the only production-supported self-hosted installation path fo
 
 ## Deployment Identity
 
-SignalMonitor's intended public website and domain is `sigmon.app`. The intended deployed application host is `my.sigmon.app`.
+SignalMonitor's intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.
 
-EasyPanel VPS deployment comes after Phase 6D critical hygiene. Until that work is complete, deployment documentation should describe identity and supported local/Compose paths without implementing the VPS deployment flow.
+EasyPanel VPS deployment is the active production deployment for the hosted self-managed instance. Docker Compose remains the documented portable production-supported installation path for independent self-hosted installs.
 
 ## Local Compose
 
@@ -113,13 +113,13 @@ The console `System` mode reads separate `worker` and `scheduler` heartbeats and
 
 ## Retention
 
-Telemetry retention is built into the scheduler role. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. No external cron job is needed.
+Telemetry retention is built into the scheduler role. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. `RETENTION_DEAD_LETTER_JOBS_DAYS` controls how long permanently failed queue jobs remain inspectable before retention expires the row and preserves an `expired` action in `dead_letter_job_actions`. No external cron job is needed.
 
 Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the queue worker available for ingestion jobs.
 
 ## Simple Alerts
 
-Simple alert evaluation is built into the scheduler role. Set `ALERTS_ENABLED`, `ALERTS_INTERVAL_MINUTES`, `ALERTS_WEBHOOK_TIMEOUT_MS`, and SMTP variables in `.env` to control scheduled alert evaluation and webhook/email delivery. No external cron job is needed.
+Simple alert evaluation is built into the scheduler role. Set `ALERTS_ENABLED`, `ALERTS_INTERVAL_MINUTES`, `ALERTS_WEBHOOK_TIMEOUT_MS`, and SMTP variables in `.env` to control scheduled alert evaluation and webhook/email delivery. Webhook deliveries retry transient timeout, rate-limit, and 5xx failures with bounded backoff; unsafe targets, redirects, permanent DNS failures, and non-retryable 4xx responses fail fast and are recorded in alert delivery history. No external cron job is needed.
 
 Set `ALERTS_ENABLED=false` to stop scheduled alert evaluation while keeping the worker available for ingestion and retention.
 
@@ -141,6 +141,8 @@ Set `MONITORS_ENABLED=false` to stop monitor evaluation while leaving queue inge
 Source-map artifact storage is local-first. Set `SOURCE_MAPS_LOCAL_DIR` and `SOURCE_MAPS_MAX_UPLOAD_MB` in `.env` to control where the API stores uploaded `.map` files and the maximum upload size. Docker Compose mounts the `source_map_data` volume into the API at `/var/lib/sigmon/source-maps`, which matches the default `SOURCE_MAPS_LOCAL_DIR`.
 
 Admins upload source maps from the console `Artifacts` mode after selecting a project and environment. Single `.map` files and `.zip` bundles are supported. Stack resolution uses strict project, environment, release, and minified filename matching; release values in ingested error payloads must match the uploaded artifact release.
+
+CI source-map uploads through `@sigmon/sdk`'s CLI use a 60 second request timeout by default. Override it with `--timeout-ms <milliseconds>` or `SIGMON_UPLOAD_TIMEOUT_MS` for unusually large bundles or slow CI networks.
 
 Source-map artifact retention is local-first and worker-owned. Set `SOURCE_MAPS_RETENTION_ENABLED`, `SOURCE_MAPS_RETENTION_DAYS`, and `SOURCE_MAPS_RETENTION_BATCH_SIZE` to control cleanup. The scheduler runs with telemetry retention; setting `RETENTION_ENABLED=false` disables scheduled source-map cleanup too.
 

@@ -24,6 +24,7 @@ const retentionPolicy = {
   spansDays: 90,
   llmCallsDays: 180,
   breadcrumbsDays: 30,
+  deadLetterJobsDays: 30,
   sourceMapsEnabled: true,
   sourceMapsDays: 180,
   sourceMapsBatchSize: 100
@@ -64,7 +65,7 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
       sourceMapRetentionEnabled: true
     }
   },
-  queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0 } },
+  queues: { telemetry: { status: "healthy", errorMessage: null, waiting: 0, active: 0, completed: 1, failed: 0, delayed: 0, deadLettered: 0 } },
   ingestion: {
     lastEventAt: null,
     lastErrorAt: null,
@@ -87,7 +88,8 @@ const systemHealthSnapshot: SystemHealthSnapshot = {
         spans: 8,
         llmCalls: 2,
         breadcrumbs: 4,
-        sourceMapArtifacts: 2,
+        deadLetterJobs: 0,
+          sourceMapArtifacts: 2,
         sourceMapFiles: 2
       },
       errorMessage: null
@@ -231,7 +233,8 @@ describe("system health routes", () => {
       active: 0,
       completed: 0,
       failed: 0,
-      delayed: 0
+      delayed: 0,
+      deadLettered: 0
     });
     expect(snapshot.ingestion).toEqual({
       lastEventAt: null,
@@ -349,6 +352,44 @@ describe("system health routes", () => {
     });
   });
 
+  it("degrades system health when dead-letter jobs need attention", async () => {
+    const snapshot = await createSystemHealthSnapshot({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      uptimeSeconds: () => 12,
+      retention: {
+        enabled: true,
+        intervalMinutes: 60,
+        policy: retentionPolicy
+      },
+      backups: {
+        enabled: false,
+        intervalHours: 24,
+        retentionDays: 14,
+        s3Enabled: false
+      },
+      postgresPing: async () => true,
+      redisPing: async () => "PONG",
+      getQueueCounts: async () => ({ waiting: 0, active: 0, completed: 5, failed: 0, delayed: 0 }),
+      getDeadLetterCount: async () => 2,
+      getHeartbeats: async () => ({
+        worker: { lastHeartbeatAt: new Date("2026-05-06T11:59:00.000Z"), metadata: { role: "queue" } },
+        scheduler: null
+      }),
+      getIngestionFreshness: async () => ({
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastTraceAt: null,
+        lastSpanAt: null,
+        lastLlmCallAt: null
+      }),
+      getLastRetentionRun: async () => null,
+      getBackupStatus: async () => ({ latestSuccess: null, latestFailure: null })
+    });
+
+    expect(snapshot.status).toBe("degraded");
+    expect(snapshot.queues.telemetry).toMatchObject({ status: "degraded", deadLettered: 2 });
+  });
+
   it("includes source-map retention policy and deleted counts in snapshots", async () => {
     const policyWithInternalField = { ...retentionPolicy, internalOnly: "do-not-serialize" };
     const deletedCountsWithInternalField = {
@@ -358,6 +399,7 @@ describe("system health routes", () => {
       spans: 8,
       llmCalls: 2,
       breadcrumbs: 4,
+      deadLetterJobs: 5,
       sourceMapArtifacts: 2,
       sourceMapFiles: 2,
       internalOnly: 99
@@ -408,6 +450,7 @@ describe("system health routes", () => {
     expect(snapshot.retention.policy).toEqual(retentionPolicy);
     expect(snapshot.retention.lastRun?.deleted.sourceMapArtifacts).toBe(2);
     expect(snapshot.retention.lastRun?.deleted.sourceMapFiles).toBe(2);
+    expect(snapshot.retention.lastRun?.deleted.deadLetterJobs).toBe(5);
     expect(snapshot.retention.lastRun?.deleted).toEqual({
       events: 10,
       errors: 1,
@@ -415,6 +458,7 @@ describe("system health routes", () => {
       spans: 8,
       llmCalls: 2,
       breadcrumbs: 4,
+      deadLetterJobs: 5,
       sourceMapArtifacts: 2,
       sourceMapFiles: 2
     });

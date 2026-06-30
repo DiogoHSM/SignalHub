@@ -9,6 +9,7 @@ const zeroDeleted: RetentionDeletedCounts = {
   spans: 0,
   llmCalls: 0,
   breadcrumbs: 0,
+  deadLetterJobs: 0,
   sourceMapArtifacts: 0,
   sourceMapFiles: 0
 };
@@ -34,13 +35,18 @@ export type RetentionRuntime = {
 
 export type RetentionLockedRuntime = {
   deleteExpiredTelemetry: () => Promise<RetentionDeletedCounts>;
+  deleteExpiredDeadLetterJobs?: () => Promise<number>;
 };
 
 export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran: boolean; skipped: boolean }> {
   const startedAt = runtime.now();
   let result: { locked: false } | { locked: true; result: RetentionDeletedCounts };
   try {
-    result = await runtime.withLock((lockedRuntime) => lockedRuntime.deleteExpiredTelemetry());
+    result = await runtime.withLock(async (lockedRuntime) => {
+      const deleted = await lockedRuntime.deleteExpiredTelemetry();
+      const deadLetterJobs = (await lockedRuntime.deleteExpiredDeadLetterJobs?.()) ?? 0;
+      return { ...deleted, deadLetterJobs };
+    });
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("retention_delete_failed:")) {
       throw error;

@@ -115,6 +115,247 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(403);
   });
 
+  it("lists dead letter jobs for admins", async () => {
+    const listDeadLetterJobs = vi.fn(async () => ({
+      deadLetterJobs: [
+        {
+          id: "dlj_1",
+          projectId: null,
+          environmentId: null,
+          queueName: "telemetry",
+          jobName: "event",
+          payload: { eventId: "evt_1" },
+          errorMessage: "insert failed",
+          createdAt: new Date("2026-06-01T12:00:00.000Z")
+        }
+      ],
+      cursor: "cursor_next"
+    }));
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/admin/dead-letter-jobs?limit=25&cursor=cursor_1&queue_name=telemetry&job_name=event" +
+        "&error=insert&created_from=2026-06-01T00%3A00%3A00.000Z&created_to=2026-06-02T00%3A00%3A00.000Z&status=pending"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      deadLetterJobs: [
+        {
+          id: "dlj_1",
+          projectId: null,
+          environmentId: null,
+          queueName: "telemetry",
+          jobName: "event",
+          payload: { eventId: "evt_1" },
+          errorMessage: "insert failed",
+          createdAt: "2026-06-01T12:00:00.000Z"
+        }
+      ],
+      cursor: "cursor_next"
+    });
+    expect(listDeadLetterJobs).toHaveBeenCalledWith({
+      limit: 25,
+      cursor: "cursor_1",
+      queueName: "telemetry",
+      jobName: "event",
+      error: "insert",
+      createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+      createdTo: new Date("2026-06-02T00:00:00.000Z"),
+      status: "pending"
+    });
+  });
+
+  it("returns 400 for invalid dead letter filter ranges", async () => {
+    const listDeadLetterJobs = vi.fn(async () => ({ deadLetterJobs: [] }));
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/dead-letter-jobs?created_from=2026-06-02T00%3A00%3A00.000Z&created_to=2026-06-01T00%3A00%3A00.000Z"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_dead_letter_request" });
+    expect(listDeadLetterJobs).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for invalid dead letter cursors", async () => {
+    const listDeadLetterJobs = vi.fn(async () => {
+      throw new Error("invalid_cursor");
+    });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?cursor=bad" });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
+  });
+
+  it("returns 400 for mismatched dead letter cursor scopes", async () => {
+    const listDeadLetterJobs = vi.fn(async () => {
+      throw new Error("invalid_cursor_scope");
+    });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        listDeadLetterJobs
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs?cursor=bad" });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
+  });
+
+  it("gets and deletes dead letter jobs for admins", async () => {
+    const getDeadLetterJob = vi.fn(async (id: string) =>
+      id === "dlj_1"
+        ? {
+            id: "dlj_1",
+            projectId: null,
+            environmentId: null,
+            queueName: "telemetry",
+            jobName: "trace",
+            payload: { traceId: "trc_1" },
+            errorMessage: "insert failed",
+            createdAt: new Date("2026-06-01T13:00:00.000Z")
+          }
+        : undefined
+    );
+    const listDeadLetterJobActions = vi.fn(async (id: string) =>
+      id === "dlj_1"
+        ? [
+            {
+              id: "dla_1",
+              deadLetterJobId: "dlj_1",
+              queueName: "telemetry",
+              jobName: "trace",
+              action: "deleted" as const,
+              actorUserId: "usr_1",
+              actorEmail: "admin@example.com",
+              metadata: {},
+              createdAt: new Date("2026-06-01T14:00:00.000Z")
+            }
+          ]
+        : []
+    );
+    const deleteDeadLetterJob = vi.fn(async (id: string) => id === "dlj_1");
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        getDeadLetterJob,
+        listDeadLetterJobActions,
+        deleteDeadLetterJob
+      }
+    });
+
+    const getResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_1" });
+    const actionsResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_1/actions" });
+    const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/dead-letter-jobs/dlj_1" });
+    const missingResponse = await app.inject({ method: "GET", url: "/admin/dead-letter-jobs/dlj_missing" });
+
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({
+      deadLetterJob: {
+        id: "dlj_1",
+        projectId: null,
+        environmentId: null,
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { traceId: "trc_1" },
+        errorMessage: "insert failed",
+        createdAt: "2026-06-01T13:00:00.000Z"
+      }
+    });
+    expect(actionsResponse.statusCode).toBe(200);
+    expect(actionsResponse.json()).toEqual({
+      actions: [
+        {
+          id: "dla_1",
+          deadLetterJobId: "dlj_1",
+          queueName: "telemetry",
+          jobName: "trace",
+          action: "deleted",
+          actorUserId: "usr_1",
+          actorEmail: "admin@example.com",
+          metadata: {},
+          createdAt: "2026-06-01T14:00:00.000Z"
+        }
+      ]
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(missingResponse.statusCode).toBe(404);
+    expect(getDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+    expect(listDeadLetterJobActions).toHaveBeenCalledWith("dlj_1");
+    expect(deleteDeadLetterJob).toHaveBeenCalledWith("dlj_1", { userId: "usr_1", email: "admin@example.com" });
+  });
+
+  it("replays dead letter jobs for admins", async () => {
+    const replayDeadLetterJob = vi.fn(async (id: string): Promise<"replayed" | "not_found"> =>
+      id === "dlj_1" ? "replayed" : "not_found"
+    );
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        replayDeadLetterJob
+      }
+    });
+
+    const response = await app.inject({ method: "POST", url: "/admin/dead-letter-jobs/dlj_1/replay" });
+    const missingResponse = await app.inject({ method: "POST", url: "/admin/dead-letter-jobs/dlj_missing/replay" });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ replayed: true, id: "dlj_1" });
+    expect(missingResponse.statusCode).toBe(404);
+    expect(replayDeadLetterJob).toHaveBeenCalledWith("dlj_1", { userId: "usr_1", email: "admin@example.com" });
+  });
+
+  it("rejects dead letter replay when the stored job is not replayable", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      deadLetters: {
+        replayDeadLetterJob: async (id) => (id === "dlj_invalid" ? "invalid_payload" : "unsupported_queue")
+      }
+    });
+
+    const invalidResponse = await app.inject({ method: "POST", url: "/admin/dead-letter-jobs/dlj_invalid/replay" });
+    const unsupportedResponse = await app.inject({
+      method: "POST",
+      url: "/admin/dead-letter-jobs/dlj_unsupported/replay"
+    });
+
+    expect(invalidResponse.statusCode).toBe(400);
+    expect(invalidResponse.json()).toEqual({ error: "dead_letter_invalid_payload" });
+    expect(unsupportedResponse.statusCode).toBe(400);
+    expect(unsupportedResponse.json()).toEqual({ error: "dead_letter_unsupported_queue" });
+  });
+
   it("rejects weak admin-created passwords", async () => {
     app = await buildApp({
       readiness,
@@ -833,19 +1074,41 @@ describe("admin routes", () => {
       sourceMaps: {
         list: async (filters) => {
           listCalls.push(filters);
-          return [artifact];
+          return { artifacts: [artifact], cursor: "cursor_next" };
         }
       }
     });
 
     const response = await app.inject({
       method: "GET",
-      url: "/admin/source-maps?project_id=prj_1&environment_id=env_1"
+      url: "/admin/source-maps?project_id=prj_1&environment_id=env_1&release=web%401.0.0&limit=25&cursor=cursor_1"
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ artifacts: [artifact] });
-    expect(listCalls).toEqual([{ projectId: "prj_1", environmentId: "env_1" }]);
+    expect(response.json()).toEqual({ artifacts: [artifact], cursor: "cursor_next" });
+    expect(listCalls).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", release: "web@1.0.0", limit: 25, cursor: "cursor_1" }
+    ]);
+  });
+
+  it("returns 400 for invalid source map artifact cursors", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        list: async () => {
+          throw new Error("invalid_cursor");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/source-maps?project_id=prj_1&environment_id=env_1&cursor=bad"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_cursor" });
   });
 
   it("rejects source map uploads for non-admin users", async () => {
@@ -950,6 +1213,37 @@ describe("admin routes", () => {
       contentType: "application/json"
     });
     expect((uploadCalls[0] as { content: Buffer }).content).toEqual(Buffer.from(sourceMap));
+  });
+
+  it("returns 404 when admin source map uploads target an inactive scope", async () => {
+    const sourceMap = JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" });
+    const { headers, payload } = createMultipartPayload([
+      { name: "project_id", value: "prj_archived" },
+      { name: "environment_id", value: "env_archived" },
+      { name: "release", value: "2026.05.10" },
+      { name: "minified_file", value: "app.min.js" },
+      { name: "file", filename: "app.min.js.map", contentType: "application/json", content: sourceMap }
+    ]);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      sourceMaps: {
+        uploadMap: async () => {
+          throw new Error("active_source_map_scope_not_found");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/source-maps",
+      headers,
+      payload
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "invalid_source_map_request" });
   });
 
   it("returns 400 when source map upload content is invalid", async () => {

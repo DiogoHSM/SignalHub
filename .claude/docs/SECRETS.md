@@ -48,6 +48,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `RETENTION_SPANS_DAYS` | No | `90` | Non-secret operational config. Span retention window. |
 | `RETENTION_LLM_CALLS_DAYS` | No | `180` | Non-secret operational config. LLM call retention window. |
 | `RETENTION_BREADCRUMBS_DAYS` | No | `30` | Non-secret operational config. Breadcrumb retention window. |
+| `RETENTION_DEAD_LETTER_JOBS_DAYS` | No | `30` | Non-secret operational config. Dead-letter job retention window; action history remains in `dead_letter_job_actions`. |
 | `ALERTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled alert evaluation in the worker. |
 | `ALERTS_INTERVAL_MINUTES` | No | `1` | Non-secret operational config. Minutes between scheduled alert evaluation runs. |
 | `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |

@@ -164,7 +164,7 @@ describe("MonitorsPanel", () => {
       expect(within(screen.getByRole("region", { name: "Recent monitor checks" })).getByText("success")).toBeInTheDocument()
     );
     expect(api.listMonitors).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
-    expect(api.listMonitorChecks).toHaveBeenCalledWith("mon_1", 20);
+    expect(api.listMonitorChecks).toHaveBeenCalledWith("mon_1", { projectId: "prj_1", environmentId: "env_1", limit: 20 });
   });
 
   it("summarizes monitor posture and notification coverage", async () => {

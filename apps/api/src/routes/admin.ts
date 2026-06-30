@@ -9,10 +9,17 @@ import type {
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
   MonitorCheckRecord,
+  MonitorCheckPage,
   MonitorKind,
   MonitorRecord,
   UpdateMonitorInput
 } from "@sigmon/db/repositories/monitors.js";
+import type {
+  DeadLetterJob,
+  DeadLetterJobAction,
+  DeadLetterJobPage,
+  ListDeadLetterJobsInput
+} from "@sigmon/db/repositories/dead-letter.js";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
@@ -119,7 +126,24 @@ export type MonitorAdministrationDependencies = {
   createHeartbeatMonitor?: (input: CreateHeartbeatMonitorInput) => Promise<MonitorRecord>;
   updateMonitor?: (id: string, input: UpdateMonitorInput) => Promise<MonitorRecord | null | undefined>;
   archiveMonitor?: (id: string) => Promise<void>;
-  listMonitorChecks?: (input: { monitorId: string; limit?: number }) => Promise<MonitorCheckRecord[]>;
+  listMonitorChecks?: (input: {
+    monitorId: string;
+    projectId: string;
+    environmentId: string;
+    limit?: number;
+    cursor?: string;
+  }) => Promise<MonitorCheckRecord[] | MonitorCheckPage>;
+};
+
+export type DeadLetterAdministrationDependencies = {
+  listDeadLetterJobs?: (input: ListDeadLetterJobsInput) => Promise<DeadLetterJob[] | DeadLetterJobPage>;
+  getDeadLetterJob?: (id: string) => Promise<DeadLetterJob | null | undefined>;
+  listDeadLetterJobActions?: (id: string) => Promise<DeadLetterJobAction[]>;
+  deleteDeadLetterJob?: (id: string, actor: { userId: string; email: string }) => Promise<boolean>;
+  replayDeadLetterJob?: (
+    id: string,
+    actor: { userId: string; email: string }
+  ) => Promise<"replayed" | "not_found" | "invalid_payload" | "unsupported_queue">;
 };
 
 export type SourceMapUploadAttribution =
@@ -162,8 +186,18 @@ export type SourceMapArtifactResponse = {
   deletedAt: Date | string | null;
 };
 
+export type SourceMapArtifactListResponse =
+  | SourceMapArtifactResponse[]
+  | { artifacts: SourceMapArtifactResponse[]; cursor?: string };
+
 export type SourceMapAdministrationDependencies = {
-  list?: (filters: { projectId: string; environmentId: string; release?: string }) => Promise<SourceMapArtifactResponse[]>;
+  list?: (filters: {
+    projectId: string;
+    environmentId: string;
+    release?: string;
+    limit?: number;
+    cursor?: string;
+  }) => Promise<SourceMapArtifactListResponse>;
   uploadMap?: (input: SourceMapUploadInput) => Promise<SourceMapArtifactResponse[]>;
   uploadBundle?: (input: SourceMapBundleUploadInput) => Promise<SourceMapArtifactResponse[]>;
   remove?: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
@@ -202,6 +236,7 @@ export type AdminRouteOptions = {
   adminResources?: AdminResourceDependencies;
   alerts?: AlertAdministrationDependencies;
   monitors?: MonitorAdministrationDependencies;
+  deadLetters?: DeadLetterAdministrationDependencies;
   sourceMaps?: SourceMapAdministrationDependencies;
   sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
@@ -332,7 +367,7 @@ const alertRuleBaseSchema = z.object({
   environmentId: z.string().trim().min(1),
   notificationChannelId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(256),
-  type: z.enum(["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost"]),
+  type: z.enum(["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost", "dead_letter_count"]),
   severity: z.enum(["info", "warning", "critical"]),
   windowMinutes: z.number().int().min(1),
   threshold: thresholdSchema,
@@ -414,13 +449,37 @@ const monitorListQuerySchema = z.object({
 });
 
 const monitorChecksQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(250).optional()
+  project_id: z.string().trim().min(1),
+  environment_id: z.string().trim().min(1),
+  limit: z.coerce.number().int().min(1).max(250).optional(),
+  cursor: z.string().trim().min(1).optional()
 });
+
+const deadLetterJobsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(250).optional(),
+    cursor: z.string().trim().min(1).optional(),
+    queue_name: z.string().trim().min(1).optional(),
+    job_name: z.string().trim().min(1).optional(),
+    error: z.string().trim().min(1).optional(),
+    created_from: z.coerce.date().optional(),
+    created_to: z.coerce.date().optional(),
+    status: z.enum(["pending"]).optional()
+  })
+  .refine(
+    (input) =>
+      input.created_from === undefined ||
+      input.created_to === undefined ||
+      input.created_from.getTime() <= input.created_to.getTime(),
+    { message: "created_from_after_created_to" }
+  );
 
 const sourceMapScopeQuerySchema = z.object({
   project_id: z.string().trim().min(1),
   environment_id: z.string().trim().min(1),
-  release: z.string().trim().min(1).optional()
+  release: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(250).optional(),
+  cursor: z.string().trim().min(1).optional()
 });
 
 const sourceMapUploadTokenScopeQuerySchema = z.object({
@@ -694,7 +753,9 @@ const SOURCE_MAP_PAYLOAD_TOO_LARGE_ERRORS = new Set([
   "source_map_zip_too_many_entries"
 ]);
 
-export function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefined {
+const SOURCE_MAP_NOT_FOUND_ERRORS = new Set(["active_source_map_scope_not_found"]);
+
+export function sourceMapUploadErrorStatus(error: unknown): 400 | 404 | 413 | undefined {
   if (!error || typeof error !== "object" || !("message" in error) || typeof error.message !== "string") {
     return undefined;
   }
@@ -705,6 +766,10 @@ export function sourceMapUploadErrorStatus(error: unknown): 400 | 413 | undefine
 
   if (SOURCE_MAP_PAYLOAD_TOO_LARGE_ERRORS.has(error.message)) {
     return 413;
+  }
+
+  if (SOURCE_MAP_NOT_FOUND_ERRORS.has(error.message)) {
+    return 404;
   }
 
   const code = "code" in error && typeof error.code === "string" ? error.code : "";
@@ -1436,18 +1501,23 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_source_map_request" });
     }
 
-    let artifacts: SourceMapArtifactResponse[];
+    let result: SourceMapArtifactListResponse;
     try {
-      artifacts = await options.sourceMaps.list({
+      result = await options.sourceMaps.list({
         projectId: parsed.data.project_id,
         environmentId: parsed.data.environment_id,
-        release: parsed.data.release
+        release: parsed.data.release,
+        limit: parsed.data.limit,
+        cursor: parsed.data.cursor
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && (error.message === "invalid_cursor" || error.message === "invalid_cursor_scope")) {
+        return reply.status(400).send({ error: "invalid_cursor" });
+      }
       return reply.status(503).send({ error: "source_maps_unavailable" });
     }
 
-    return reply.send({ artifacts });
+    return reply.send(Array.isArray(result) ? { artifacts: result } : result);
   });
 
   app.post("/admin/source-maps", async (request, reply) => {
@@ -1939,16 +2009,179 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_monitor_request" });
     }
 
-    let checks: MonitorCheckRecord[];
+    let result: MonitorCheckRecord[] | MonitorCheckPage;
     try {
-      checks = await options.monitors.listMonitorChecks({
+      result = await options.monitors.listMonitorChecks({
         monitorId: params.data.id,
-        limit: query.data.limit
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        limit: query.data.limit,
+        cursor: query.data.cursor
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && (error.message === "invalid_cursor" || error.message === "invalid_cursor_scope")) {
+        return reply.status(400).send({ error: "invalid_cursor" });
+      }
       return reply.status(503).send({ error: "monitors_unavailable" });
     }
 
-    return reply.send({ checks });
+    return reply.send(Array.isArray(result) ? { checks: result } : result);
+  });
+
+  app.get("/admin/dead-letter-jobs", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.listDeadLetterJobs) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const query = deadLetterJobsQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let result: Awaited<ReturnType<NonNullable<DeadLetterAdministrationDependencies["listDeadLetterJobs"]>>>;
+    try {
+      result = await options.deadLetters.listDeadLetterJobs({
+        limit: query.data.limit,
+        cursor: query.data.cursor,
+        queueName: query.data.queue_name,
+        jobName: query.data.job_name,
+        error: query.data.error,
+        createdFrom: query.data.created_from,
+        createdTo: query.data.created_to,
+        status: query.data.status
+      });
+    } catch (error) {
+      if (error instanceof Error && (error.message === "invalid_cursor" || error.message === "invalid_cursor_scope")) {
+        return reply.status(400).send({ error: "invalid_cursor" });
+      }
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    return reply.send(Array.isArray(result) ? { deadLetterJobs: result } : result);
+  });
+
+  app.get("/admin/dead-letter-jobs/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.getDeadLetterJob) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let deadLetterJob: DeadLetterJob | null | undefined;
+    try {
+      deadLetterJob = await options.deadLetters.getDeadLetterJob(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    if (!deadLetterJob) {
+      return reply.status(404).send({ error: "dead_letter_job_not_found" });
+    }
+
+    return reply.send({ deadLetterJob });
+  });
+
+  app.get("/admin/dead-letter-jobs/:id/actions", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.listDeadLetterJobActions) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let actions: DeadLetterJobAction[];
+    try {
+      actions = await options.deadLetters.listDeadLetterJobActions(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    return reply.send({ actions });
+  });
+
+  app.delete("/admin/dead-letter-jobs/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.deleteDeadLetterJob) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let deleted: boolean;
+    try {
+      deleted = await options.deadLetters.deleteDeadLetterJob(params.data.id, { userId: admin.id, email: admin.email });
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    if (!deleted) {
+      return reply.status(404).send({ error: "dead_letter_job_not_found" });
+    }
+
+    return reply.status(204).send();
+  });
+
+  app.post("/admin/dead-letter-jobs/:id/replay", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.deadLetters?.replayDeadLetterJob) {
+      return reply.status(501).send({ error: "dead_letter_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_dead_letter_request" });
+    }
+
+    let result: Awaited<ReturnType<NonNullable<DeadLetterAdministrationDependencies["replayDeadLetterJob"]>>>;
+    try {
+      result = await options.deadLetters.replayDeadLetterJob(params.data.id, { userId: admin.id, email: admin.email });
+    } catch {
+      return reply.status(503).send({ error: "dead_letter_unavailable" });
+    }
+
+    if (result === "not_found") {
+      return reply.status(404).send({ error: "dead_letter_job_not_found" });
+    }
+
+    if (result === "invalid_payload") {
+      return reply.status(400).send({ error: "dead_letter_invalid_payload" });
+    }
+
+    if (result === "unsupported_queue") {
+      return reply.status(400).send({ error: "dead_letter_unsupported_queue" });
+    }
+
+    return reply.status(202).send({ replayed: true, id: params.data.id });
   });
 }

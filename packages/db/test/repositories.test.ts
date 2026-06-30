@@ -5,7 +5,17 @@ import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
-import { insertDeadLetterJob } from "../src/repositories/dead-letter.js";
+import {
+  deleteDeadLetterJob,
+  countDeadLetterJobs,
+  deleteExpiredDeadLetterJobs,
+  deleteDeadLetterJobWithAction,
+  getDeadLetterJob,
+  insertDeadLetterJob,
+  listDeadLetterJobActions,
+  listDeadLetterJobs,
+  recordDeadLetterJobAction
+} from "../src/repositories/dead-letter.js";
 import {
   archiveEnvironment,
   archiveProject,
@@ -42,6 +52,7 @@ import {
   createHeartbeatMonitor,
   createHttpMonitor,
   listDueHttpMonitors,
+  listMonitorChecks,
   listMonitors,
   listStaleHeartbeatMonitors,
   recordHeartbeatCheckIn,
@@ -76,6 +87,7 @@ import {
   getLlmCostByModel,
   getLlmSummary,
   getOverview,
+  getErrorForSourceMapResolution,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -103,6 +115,7 @@ import {
   extractTopStackFrame,
   getErrorGroup,
   listErrorGroups,
+  listErrorGroupsPage,
   normalizeErrorGroupingInput,
   updateErrorGroupStatus,
   updateErrorGroupTriage
@@ -111,9 +124,11 @@ import { getErrorGroupIncident, suggestErrorGroupPriority } from "../src/reposit
 import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
+  findSourceMapArtifactForFrame,
   getCachedErrorStackResolution,
   listExpiredSourceMapArtifacts,
   listSourceMapArtifacts,
+  listSourceMapArtifactsPage,
   replaceErrorStackResolutions,
   softDeleteSourceMapArtifactForRetention
 } from "../src/repositories/source-maps.js";
@@ -357,6 +372,17 @@ describe("repositories", () => {
       await sql`select route_pattern, minimum_sample_size from alert_rules limit 0`.execute(db);
       await sql`select id, kind, status from monitors limit 0`.execute(db);
       await sql`select monitor_id, status, latency_ms from monitor_checks limit 0`.execute(db);
+      await sql`select project_id, environment_id from dead_letter_jobs limit 0`.execute(db);
+      await insertProjectAndEnvironment(db, "prj_alert_migration", "env_alert_migration");
+      await sql`
+        insert into alert_rules (
+          id, project_id, environment_id, name, type, severity, window_minutes, threshold, cooldown_minutes
+        )
+        values (
+          'rule_dead_letter_migration', 'prj_alert_migration', 'env_alert_migration', 'Dead letters',
+          'dead_letter_count', 'warning', 5, 1, 10
+        )
+      `.execute(db);
     });
   });
 
@@ -505,6 +531,101 @@ describe("repositories", () => {
 
       await sql`select id, prefix, hash, last_used_at, revoked_at from source_map_upload_tokens limit 0`.execute(db);
       await sql`select uploaded_by_user_id, uploaded_by_token_id from source_map_artifacts limit 0`.execute(db);
+    });
+  });
+
+  it("creates stable cursor and session timeline indexes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const rows = await sql<{ index_name: string }>`
+        select index_name
+        from (
+          values
+            ('events_scope_time_id_idx'),
+            ('errors_scope_time_id_idx'),
+            ('llm_calls_scope_time_id_idx'),
+            ('traces_scope_time_id_idx'),
+            ('spans_scope_time_id_idx'),
+            ('events_scope_session_time_id_idx'),
+            ('errors_scope_session_time_id_idx'),
+            ('llm_calls_scope_session_time_id_idx'),
+            ('traces_scope_session_time_id_idx'),
+            ('spans_scope_session_time_id_idx'),
+            ('source_map_artifacts_scope_created_id_idx'),
+            ('monitor_checks_monitor_checked_id_idx'),
+            ('events_scope_trace_time_id_idx'),
+            ('errors_scope_trace_time_id_idx'),
+            ('llm_calls_scope_trace_time_id_idx'),
+            ('traces_scope_trace_time_id_idx'),
+            ('spans_scope_trace_time_id_idx'),
+            ('events_scope_tenant_time_id_idx'),
+            ('errors_scope_tenant_time_id_idx'),
+            ('llm_calls_scope_tenant_time_id_idx'),
+            ('traces_scope_tenant_time_id_idx'),
+            ('spans_scope_tenant_time_id_idx'),
+            ('events_scope_user_time_id_idx'),
+            ('errors_scope_user_time_id_idx'),
+            ('llm_calls_scope_user_time_id_idx'),
+            ('traces_scope_user_time_id_idx'),
+            ('spans_scope_user_time_id_idx'),
+            ('source_map_artifacts_scope_release_created_id_idx'),
+            ('errors_group_tenant_idx'),
+            ('errors_group_user_idx'),
+            ('error_groups_scope_cursor_order_idx'),
+            ('alert_events_scope_triggered_created_id_idx')
+        ) expected(index_name)
+        where to_regclass(expected.index_name) is not null
+      `.execute(db);
+
+      expect(rows.rows.map((row) => row.index_name).sort()).toEqual(
+        [
+          "alert_events_scope_triggered_created_id_idx",
+          "error_groups_scope_cursor_order_idx",
+          "errors_group_tenant_idx",
+          "errors_group_user_idx",
+          "errors_scope_session_time_id_idx",
+          "errors_scope_tenant_time_id_idx",
+          "errors_scope_time_id_idx",
+          "errors_scope_trace_time_id_idx",
+          "errors_scope_user_time_id_idx",
+          "events_scope_session_time_id_idx",
+          "events_scope_tenant_time_id_idx",
+          "events_scope_time_id_idx",
+          "events_scope_trace_time_id_idx",
+          "events_scope_user_time_id_idx",
+          "llm_calls_scope_session_time_id_idx",
+          "llm_calls_scope_tenant_time_id_idx",
+          "llm_calls_scope_time_id_idx",
+          "llm_calls_scope_trace_time_id_idx",
+          "llm_calls_scope_user_time_id_idx",
+          "monitor_checks_monitor_checked_id_idx",
+          "source_map_artifacts_scope_created_id_idx",
+          "source_map_artifacts_scope_release_created_id_idx",
+          "spans_scope_session_time_id_idx",
+          "spans_scope_tenant_time_id_idx",
+          "spans_scope_time_id_idx",
+          "spans_scope_trace_time_id_idx",
+          "spans_scope_user_time_id_idx",
+          "traces_scope_session_time_id_idx",
+          "traces_scope_tenant_time_id_idx",
+          "traces_scope_time_id_idx",
+          "traces_scope_trace_time_id_idx",
+          "traces_scope_user_time_id_idx"
+        ].sort()
+      );
+      const monitorCheckIndex = await sql<{ definition: string }>`
+        select indexdef as definition
+        from pg_indexes
+        where indexname = 'monitor_checks_monitor_checked_id_idx'
+      `.execute(db);
+      expect(monitorCheckIndex.rows[0]?.definition).toContain("created_at DESC");
+      const errorGroupIndex = await sql<{ definition: string }>`
+        select indexdef as definition
+        from pg_indexes
+        where indexname = 'error_groups_scope_cursor_order_idx'
+      `.execute(db);
+      expect(errorGroupIndex.rows[0]?.definition).toContain("last_seen_at DESC");
     });
   });
 
@@ -1307,6 +1428,73 @@ describe("repositories", () => {
     });
   });
 
+  it("does not list update or revoke source map upload tokens for archived scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const archivedProject = await createProject(db, { name: "Source Map Token Archived Operations" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedProjectToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "Archived project token",
+        prefix: "shsmap_archived_operations_project",
+        hash: "hash_archived_operations_project"
+      });
+
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Source Map Token Archived Environment Operations"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      const archivedEnvironmentToken = await createSourceMapUploadTokenRecord(db, {
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived environment token",
+        prefix: "shsmap_archived_operations_environment",
+        hash: "hash_archived_operations_environment"
+      });
+
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      await expect(
+        listSourceMapUploadTokens(db, {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        updateSourceMapUploadToken(db, {
+          id: archivedProjectToken.id,
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "Should not update"
+        })
+      ).resolves.toBeUndefined();
+
+      await revokeSourceMapUploadToken(db, {
+        id: archivedEnvironmentToken.id,
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id
+      });
+      const [archivedEnvironmentRow] = await db
+        .selectFrom("source_map_upload_tokens")
+        .select(["name", "revoked_at"])
+        .where("id", "=", archivedEnvironmentToken.id)
+        .execute();
+      expect(archivedEnvironmentRow).toMatchObject({
+        name: "Archived environment token",
+        revoked_at: null
+      });
+    });
+  });
+
   it("prevents breadcrumbs from referencing an environment in another project", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -1427,6 +1615,62 @@ describe("repositories", () => {
       } finally {
         await db.deleteFrom("events").where("id", "=", input.id).execute();
       }
+    });
+  });
+
+  it("paginates event lists with scoped timestamp cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Cursor Events" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherProject = await createProject(db, { name: "Other Cursor Events" });
+      const otherEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+
+      for (const input of [
+        { id: "evt_cursor_1", timestamp: new Date("2026-05-23T12:00:00.000Z"), name: "cursor.oldest" },
+        { id: "evt_cursor_2", timestamp: new Date("2026-05-23T12:01:00.000Z"), name: "cursor.middle" },
+        { id: "evt_cursor_3", timestamp: new Date("2026-05-23T12:02:00.000Z"), name: "cursor.newest" }
+      ]) {
+        await insertEvent(db, {
+          ...input,
+          projectId: project.id,
+          environmentId: environment.id,
+          receivedAt: input.timestamp
+        });
+      }
+
+      const firstPage = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 2 });
+
+      expect(firstPage.data.map((event) => event.id)).toEqual(["evt_cursor_3", "evt_cursor_2"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listEvents(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        limit: 2,
+        cursor: firstPage.cursor
+      });
+
+      expect(secondPage.data.map((event) => event.id)).toEqual(["evt_cursor_1"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(
+        listEvents(db, {
+          projectId: otherProject.id,
+          environmentId: otherEnvironment.id,
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+      await expect(
+        listEvents(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          eventName: "cursor.oldest",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
     });
   });
 
@@ -1600,6 +1844,91 @@ describe("repositories", () => {
     });
   });
 
+  it("ignores duplicate llm call ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent LLM Calls" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "llm_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        status: "success"
+      };
+
+      try {
+        await insertLlmCall(db, input);
+        await insertLlmCall(db, input);
+
+        const rows = await db.selectFrom("llm_calls").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("llm_calls").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
+  it("ignores duplicate span ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Spans" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "spn_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        traceId: "trc_retry_parent",
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        name: "retry.span",
+        status: "ok",
+        startedAt: new Date("2026-05-23T12:00:00.000Z")
+      };
+
+      try {
+        await insertSpan(db, input);
+        await insertSpan(db, input);
+
+        const rows = await db.selectFrom("spans").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("spans").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
+  it("ignores duplicate breadcrumb ids during telemetry retries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Idempotent Breadcrumbs" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "brd_retry",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-23T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-23T12:00:00.000Z"),
+        type: "custom" as const,
+        message: "retry breadcrumb",
+        level: "info" as const
+      };
+
+      try {
+        await insertBreadcrumb(db, input);
+        await insertBreadcrumb(db, input);
+
+        const rows = await db.selectFrom("breadcrumbs").select("id").where("id", "=", input.id).execute();
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.deleteFrom("breadcrumbs").where("id", "=", input.id).execute();
+      }
+    });
+  });
+
   it("creates lists and soft deletes source map artifacts", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -1644,6 +1973,112 @@ describe("repositories", () => {
       });
 
       expect(await listSourceMapArtifacts(db, { projectId: "prj_1", environmentId: "env_1" })).toEqual([]);
+    });
+  });
+
+  it("paginates source map artifacts with scoped created-at cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+
+      const artifacts = [];
+      for (const [index, minifiedFile, createdAt] of [
+        [1, "app.1.js", "2026-05-10T12:00:00.000Z"],
+        [2, "app.2.js", "2026-05-10T12:01:00.000Z"],
+        [3, "app.3.js", "2026-05-10T12:02:00.000Z"]
+      ] as const) {
+        const artifact = await createSourceMapArtifact(db, {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@1.0.0",
+          minifiedFile,
+          originalFilename: `${minifiedFile}.map`,
+          contentType: "application/json",
+          byteSize: 128 + index,
+          sha256: `sha-${index}`,
+          storagePath: `/tmp/${minifiedFile}.map`,
+          uploadedByUserId: user.id
+        });
+        await sql`update source_map_artifacts set created_at = ${new Date(createdAt)} where id = ${artifact.id}`.execute(db);
+        artifacts.push(artifact);
+      }
+
+      const firstPage = await listSourceMapArtifactsPage(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        limit: 2
+      });
+
+      expect(firstPage.artifacts.map((artifact) => artifact.minifiedFile)).toEqual(["app.3.js", "app.2.js"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listSourceMapArtifactsPage(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@1.0.0",
+        limit: 2,
+        cursor: firstPage.cursor
+      });
+
+      expect(secondPage.artifacts.map((artifact) => artifact.minifiedFile)).toEqual(["app.1.js"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(
+        listSourceMapArtifactsPage(db, {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@2.0.0",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+
+      expect(artifacts).toHaveLength(3);
+    });
+  });
+
+  it("rejects source map artifacts for archived project or environment scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const user = await seedSourceMapUser(db);
+      const archivedProject = await createProject(db, { name: "Archived Source Maps" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const activeProject = await createProject(db, { name: "Archived Source Map Environment" });
+      const archivedEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "archived" });
+
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      const base = {
+        release: "web@1.0.0",
+        minifiedFile: "app.min.js",
+        originalFilename: "app.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "abc123",
+        storagePath: "/tmp/app.min.js.map",
+        uploadedByUserId: user.id
+      };
+
+      await expect(
+        createSourceMapArtifact(db, {
+          ...base,
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id
+        })
+      ).rejects.toThrow("active_source_map_scope_not_found");
+      await expect(
+        createSourceMapArtifact(db, {
+          ...base,
+          projectId: activeProject.id,
+          environmentId: archivedEnvironment.id
+        })
+      ).rejects.toThrow("active_source_map_scope_not_found");
     });
   });
 
@@ -1927,6 +2362,131 @@ describe("repositories", () => {
 
       await db.deleteFrom("source_map_artifacts").where("id", "in", [artifact.id, otherArtifact.id]).execute();
       await sql`delete from errors where id = 'err_1'`.execute(db);
+    });
+  });
+
+  it("enforces source-map stack resolution scope at the database boundary", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await seedSourceMapScope(db);
+      const user = await seedSourceMapUser(db);
+      await sql`insert into projects (id, name) values ('prj_stack_scope_other', 'Stack Scope Other') on conflict (id) do nothing`.execute(
+        db
+      );
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_stack_scope_other', 'prj_stack_scope_other', 'Production')
+        on conflict (id) do nothing
+      `.execute(db);
+      await insertSourceMapError(db, {
+        id: "err_stack_scope_boundary",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@scope"
+      });
+      const artifact = await createSourceMapArtifact(db, {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        release: "web@scope",
+        minifiedFile: "scope.min.js",
+        originalFilename: "scope.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "scope-boundary",
+        storagePath: "/tmp/scope.min.js.map",
+        uploadedByUserId: user.id
+      });
+      const otherArtifact = await createSourceMapArtifact(db, {
+        projectId: "prj_stack_scope_other",
+        environmentId: "env_stack_scope_other",
+        release: "web@scope",
+        minifiedFile: "scope.min.js",
+        originalFilename: "scope.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "scope-boundary-other",
+        storagePath: "/tmp/scope-other.min.js.map",
+        uploadedByUserId: user.id
+      });
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_error', 'err_stack_scope_boundary', 'prj_stack_scope_other', 'env_stack_scope_other', 'web@scope', ${otherArtifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_artifact', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@scope', ${otherArtifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_release', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@other', ${artifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_wrong_file', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@scope', ${artifact.id}, 0, 'wrong.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).rejects.toThrow();
+
+      await expect(sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column)
+        values
+          ('esr_scope_valid', 'err_stack_scope_boundary', 'prj_1', 'env_1', 'web@scope', ${artifact.id}, 0, 'scope.min.js', 1, 1, 'src/app.ts', 1, 1)
+      `.execute(db)).resolves.toBeDefined();
+    });
+  });
+
+  it("does not resolve source maps for archived project or environment scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const user = await seedSourceMapUser(db);
+      const project = await createProject(db, { name: "Archived Source Map Resolution Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await createSourceMapArtifact(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        release: "web@archived",
+        minifiedFile: "archived.min.js",
+        originalFilename: "archived.min.js.map",
+        contentType: "application/json",
+        byteSize: 128,
+        sha256: "archived-scope",
+        storagePath: "/tmp/archived.min.js.map",
+        uploadedByUserId: user.id
+      });
+      await insertSourceMapError(db, {
+        id: "err_source_map_archived_scope",
+        projectId: project.id,
+        environmentId: environment.id,
+        release: "web@archived"
+      });
+
+      await archiveEnvironment(db, environment.id);
+      await expect(
+        getErrorForSourceMapResolution(db, {
+          id: "err_source_map_archived_scope",
+          projectId: project.id,
+          environmentId: environment.id
+        })
+      ).resolves.toBeNull();
+      await expect(
+        findSourceMapArtifactForFrame(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          release: "web@archived",
+          minifiedFile: "archived.min.js"
+        })
+      ).resolves.toBeNull();
     });
   });
 
@@ -2520,6 +3080,83 @@ describe("repositories", () => {
       const monitors = await listMonitors(db, { projectId: "prj_monitor", environmentId: "env_monitor" });
       expect(monitors).toHaveLength(1);
       expect(monitors[0]).toMatchObject({ id: monitor.id, status: "up", lastCheckStatus: "success" });
+    });
+  });
+
+  it("paginates monitor checks with checked-at cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await insertProjectAndEnvironment(db, "prj_monitor_checks_cursor", "env_monitor_checks_cursor");
+
+      const monitor = await createHttpMonitor(db, {
+        projectId: "prj_monitor_checks_cursor",
+        environmentId: "env_monitor_checks_cursor",
+        name: "Cursor monitor",
+        url: "https://cursor.example.com/health",
+        method: "GET",
+        intervalMinutes: 5,
+        timeoutMs: 3000,
+        expectedStatus: "2xx",
+        bodyContains: null,
+        failureThreshold: 2,
+        recoveryThreshold: 1,
+        enabled: true
+      });
+
+      for (const [checkedAt, latencyMs] of [
+        ["2026-05-24T12:00:00.000Z", 30],
+        ["2026-05-24T12:01:00.000Z", 40],
+        ["2026-05-24T12:02:00.000Z", 50]
+      ] as const) {
+        await recordMonitorCheck(db, {
+          monitorId: monitor.id,
+          checkedAt: new Date(checkedAt),
+          status: "success",
+          latencyMs,
+          responseStatus: 200,
+          errorMessage: null
+        });
+      }
+
+      const firstPage = await listMonitorChecks(db, {
+        monitorId: monitor.id,
+        projectId: "prj_monitor_checks_cursor",
+        environmentId: "env_monitor_checks_cursor",
+        limit: 2
+      });
+
+      expect(firstPage.checks.map((check) => check.latencyMs)).toEqual([50, 40]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listMonitorChecks(db, {
+        monitorId: monitor.id,
+        projectId: "prj_monitor_checks_cursor",
+        environmentId: "env_monitor_checks_cursor",
+        limit: 2,
+        cursor: firstPage.cursor
+      });
+
+      expect(secondPage.checks.map((check) => check.latencyMs)).toEqual([30]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(
+        listMonitorChecks(db, {
+          monitorId: "mon_other",
+          projectId: "prj_monitor_checks_cursor",
+          environmentId: "env_monitor_checks_cursor",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+      await expect(
+        listMonitorChecks(db, {
+          monitorId: monitor.id,
+          projectId: "prj_monitor_checks_cursor",
+          environmentId: "env_other",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
     });
   });
 
@@ -3632,6 +4269,76 @@ describe("repositories", () => {
     });
   });
 
+  it("paginates error groups with scoped stable cursors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_error_group_cursor', 'Error Group Cursor')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_error_group_cursor', 'prj_error_group_cursor', 'production')
+      `.execute(db);
+      await sql`insert into projects (id, name) values ('prj_error_group_cursor_other', 'Other')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_error_group_cursor_other', 'prj_error_group_cursor_other', 'production')
+      `.execute(db);
+
+      for (const [id, timestamp, fingerprint] of [
+        ["err_group_cursor_1", "2026-05-10T12:00:00.000Z", "group-cursor-oldest"],
+        ["err_group_cursor_2", "2026-05-10T12:01:00.000Z", "group-cursor-middle"],
+        ["err_group_cursor_3", "2026-05-10T12:02:00.000Z", "group-cursor-newest"]
+      ] as const) {
+        await insertError(db, {
+          id,
+          projectId: "prj_error_group_cursor",
+          environmentId: "env_error_group_cursor",
+          timestamp: new Date(timestamp),
+          receivedAt: new Date(timestamp),
+          message: `Cursor ${fingerprint}`,
+          severity: "error",
+          fingerprint
+        });
+      }
+
+      const firstPage = await listErrorGroupsPage(db, {
+        projectId: "prj_error_group_cursor",
+        environmentId: "env_error_group_cursor",
+        limit: 2
+      });
+
+      expect(firstPage.data.map((group) => group.latestErrorId)).toEqual(["err_group_cursor_3", "err_group_cursor_2"]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listErrorGroupsPage(db, {
+        projectId: "prj_error_group_cursor",
+        environmentId: "env_error_group_cursor",
+        limit: 2,
+        cursor: firstPage.cursor
+      });
+
+      expect(secondPage.data.map((group) => group.latestErrorId)).toEqual(["err_group_cursor_1"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(
+        listErrorGroupsPage(db, {
+          projectId: "prj_error_group_cursor_other",
+          environmentId: "env_error_group_cursor_other",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+      await expect(
+        listErrorGroupsPage(db, {
+          projectId: "prj_error_group_cursor",
+          environmentId: "env_error_group_cursor",
+          status: "resolved",
+          limit: 2,
+          cursor: firstPage.cursor
+        })
+      ).rejects.toThrow(/invalid_cursor_scope/);
+    });
+  });
+
   it("does not downgrade fatal error groups on lower severity recurrence", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -4120,6 +4827,7 @@ describe("repositories", () => {
 
       const project = await createProject(db, { name: "Alert Evaluation Project" });
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnvironment = await createEnvironment(db, { projectId: project.id, name: "staging" });
 
       await insertError(db, {
         id: "err_critical",
@@ -4170,6 +4878,30 @@ describe("repositories", () => {
         status: "success",
         costUsd: "1.25"
       });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "dead-letter-alert-1" },
+        errorMessage: "event insert failed"
+      });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "dead-letter-alert-2" },
+        errorMessage: "error insert failed"
+      });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: otherEnvironment.id,
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "dead-letter-other-env" },
+        errorMessage: "other environment failed"
+      });
 
       const criticalResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -4215,6 +4947,15 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(errorRateResult.observedValue).toBe("200");
+
+      const deadLetterResult = await evaluateAlertRule(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        type: "dead_letter_count",
+        windowStart: new Date("2026-05-06T11:50:00.000Z"),
+        windowEnd: new Date("2026-05-06T12:00:00.000Z")
+      });
+      expect(deadLetterResult.observedValue).toBe("2");
     });
   });
 
@@ -4379,7 +5120,8 @@ describe("repositories", () => {
         spans: 4,
         llmCalls: 5,
         breadcrumbs: 6,
-        sourceMapArtifacts: 0,
+        deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
         sourceMapFiles: 0
       };
       const policy = {
@@ -4389,6 +5131,7 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -4433,6 +5176,7 @@ describe("repositories", () => {
           spans: 4,
           llmCalls: 5,
           breadcrumbs: 6,
+          deadLetterJobs: 0,
           sourceMapArtifacts: 7,
           sourceMapFiles: 8
         },
@@ -4443,7 +5187,8 @@ describe("repositories", () => {
           spansDays: 90,
           llmCallsDays: 180,
           breadcrumbsDays: 30,
-          sourceMapsEnabled: true,
+          deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
           sourceMapsDays: 180,
           sourceMapsBatchSize: 100
         }
@@ -4605,6 +5350,7 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -4617,20 +5363,27 @@ describe("repositories", () => {
         spans: 1,
         llmCalls: 1,
         breadcrumbs: 0,
-        sourceMapArtifacts: 0,
+        deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
         sourceMapFiles: 0
       });
 
       const filters = { projectId: project.id, environmentId: environment.id, limit: 10 };
-      await expect(listEvents(db, filters)).resolves.toEqual([expect.objectContaining({ id: "evt_fresh_retention" })]);
-      await expect(listErrors(db, filters)).resolves.toEqual([expect.objectContaining({ id: "err_fresh_retention" })]);
-      await expect(listTraces(db, filters)).resolves.toEqual([expect.objectContaining({ id: "trc_fresh_retention" })]);
-      await expect(listTraceSpans(db, filters)).resolves.toEqual([
-        expect.objectContaining({ id: "spn_fresh_retention" })
-      ]);
-      await expect(listLlmCalls(db, filters)).resolves.toEqual([
-        expect.objectContaining({ id: "llm_fresh_retention" })
-      ]);
+      await expect(listEvents(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "evt_fresh_retention" })]
+      });
+      await expect(listErrors(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "err_fresh_retention" })]
+      });
+      await expect(listTraces(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "trc_fresh_retention" })]
+      });
+      await expect(listTraceSpans(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "spn_fresh_retention" })]
+      });
+      await expect(listLlmCalls(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "llm_fresh_retention" })]
+      });
     });
   });
 
@@ -4684,6 +5437,7 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
@@ -4735,13 +5489,16 @@ describe("repositories", () => {
         spansDays: 90,
         llmCallsDays: 180,
         breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
         sourceMapsDays: 180,
         sourceMapsBatchSize: 100
       });
 
       expect(deleted.events).toBe(1);
-      await expect(listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 })).resolves.toHaveLength(1);
+      await expect(listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 })).resolves.toMatchObject({
+        data: expect.arrayContaining([expect.objectContaining({ id: "evt_bounded_retention_2" })])
+      });
     });
   });
 
@@ -4805,8 +5562,8 @@ describe("repositories", () => {
       });
 
       const events = await listEvents(db, { projectId: project.id, environmentId: environment.id });
-      expect(events).toHaveLength(1);
-      expect(events[0].name).toBe("dashboard_created");
+      expect(events.data).toHaveLength(1);
+      expect(events.data[0].name).toBe("dashboard_created");
 
       const llm = await getLlmAggregates(db, { projectId: project.id, environmentId: environment.id });
       expect(llm.totalCalls).toBe(1);
@@ -4827,12 +5584,397 @@ describe("repositories", () => {
 
       expect(job).toMatchObject({
         id: expect.stringMatching(/^dlj_/),
+        projectId: null,
+        environmentId: null,
         queueName: "telemetry",
         jobName: "event",
         payload: { metadata: { authorization: "[REDACTED]" } },
         errorMessage: "authorization: [REDACTED]",
         createdAt: expect.any(Date)
       });
+    });
+  });
+
+  it("lists dead letter jobs newest first with a bounded limit", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await db.deleteFrom("dead_letter_jobs").execute();
+
+      const first = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "old" },
+        errorMessage: "old failure"
+      });
+      const second = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "new" },
+        errorMessage: "new failure"
+      });
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-06-01T00:00:00.000Z") })
+        .where("id", "=", first.id)
+        .execute();
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-06-01T00:01:00.000Z") })
+        .where("id", "=", second.id)
+        .execute();
+
+      const firstPage = await listDeadLetterJobs(db, { limit: 1 });
+
+      expect(firstPage.deadLetterJobs).toEqual([
+        expect.objectContaining({
+          id: second.id,
+          queueName: "telemetry",
+          jobName: "error",
+          payload: { id: "new" },
+          errorMessage: "new failure"
+        })
+      ]);
+      expect(firstPage.deadLetterJobs).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: first.id })]));
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listDeadLetterJobs(db, { limit: 1, cursor: firstPage.cursor });
+      expect(secondPage.deadLetterJobs).toEqual([
+        expect.objectContaining({
+          id: first.id,
+          queueName: "telemetry",
+          jobName: "event",
+          payload: { id: "old" },
+          errorMessage: "old failure"
+        })
+      ]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      await expect(listDeadLetterJobs(db, { cursor: "not-json" })).rejects.toThrow("invalid_cursor");
+    });
+  });
+
+  it("filters dead letter jobs before applying cursor pagination", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await db.deleteFrom("dead_letter_jobs").execute();
+
+      const matchingOld = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "matching-old" },
+        errorMessage: "disk 100% full"
+      });
+      const matchingNew = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "matching-new" },
+        errorMessage: "DISK 100% warning"
+      });
+      const wrongQueue = await insertDeadLetterJob(db, {
+        queueName: "billing",
+        jobName: "event",
+        payload: { id: "wrong-queue" },
+        errorMessage: "disk 100% full"
+      });
+      const wrongJob = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "wrong-job" },
+        errorMessage: "disk 100% full"
+      });
+      const wildcardTrap = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "wildcard-trap" },
+        errorMessage: "disk 1000 full"
+      });
+      const underscoreTrap = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "underscore-trap" },
+        errorMessage: "disk 100a full"
+      });
+      const backslashTrap = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "backslash-trap" },
+        errorMessage: "disk path c:temp full"
+      });
+      const outOfRange = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "out-of-range" },
+        errorMessage: "disk 100% old"
+      });
+
+      const setCreatedAt = async (id: string, createdAt: string) => {
+        await db
+          .updateTable("dead_letter_jobs")
+          .set({ created_at: new Date(createdAt) })
+          .where("id", "=", id)
+          .execute();
+      };
+      await setCreatedAt(matchingOld.id, "2026-06-01T00:00:00.000Z");
+      await setCreatedAt(matchingNew.id, "2026-06-01T00:02:00.000Z");
+      await setCreatedAt(wrongQueue.id, "2026-06-01T00:03:00.000Z");
+      await setCreatedAt(wrongJob.id, "2026-06-01T00:04:00.000Z");
+      await setCreatedAt(wildcardTrap.id, "2026-06-01T00:05:00.000Z");
+      await setCreatedAt(underscoreTrap.id, "2026-06-01T00:06:00.000Z");
+      await setCreatedAt(backslashTrap.id, "2026-06-01T00:07:00.000Z");
+      await setCreatedAt(outOfRange.id, "2026-05-31T23:59:00.000Z");
+
+      const firstPage = await listDeadLetterJobs(db, {
+        limit: 1,
+        queueName: "telemetry",
+        jobName: "event",
+        error: "100%",
+        createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+        createdTo: new Date("2026-06-01T00:03:00.000Z"),
+        status: "pending"
+      });
+
+      expect(firstPage.deadLetterJobs).toEqual([
+        expect.objectContaining({
+          id: matchingNew.id,
+          payload: { id: "matching-new" },
+          errorMessage: "DISK 100% warning"
+        })
+      ]);
+      expect(firstPage.cursor).toEqual(expect.any(String));
+
+      const secondPage = await listDeadLetterJobs(db, {
+        limit: 1,
+        cursor: firstPage.cursor,
+        queueName: "telemetry",
+        jobName: "event",
+        error: "100%",
+        createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+        createdTo: new Date("2026-06-01T00:03:00.000Z"),
+        status: "pending"
+      });
+
+      expect(secondPage.deadLetterJobs).toEqual([
+        expect.objectContaining({
+          id: matchingOld.id,
+          payload: { id: "matching-old" },
+          errorMessage: "disk 100% full"
+        })
+      ]);
+      expect(secondPage.cursor).toBeUndefined();
+      expect([...firstPage.deadLetterJobs, ...secondPage.deadLetterJobs]).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: wrongQueue.id }),
+          expect.objectContaining({ id: wrongJob.id }),
+          expect.objectContaining({ id: wildcardTrap.id }),
+          expect.objectContaining({ id: underscoreTrap.id }),
+          expect.objectContaining({ id: backslashTrap.id }),
+          expect.objectContaining({ id: outOfRange.id })
+        ])
+      );
+      await expect(
+        listDeadLetterJobs(db, {
+          limit: 1,
+          cursor: firstPage.cursor,
+          queueName: "telemetry",
+          jobName: "event",
+          error: "1000",
+          createdFrom: new Date("2026-06-01T00:00:00.000Z"),
+          createdTo: new Date("2026-06-01T00:03:00.000Z"),
+          status: "pending"
+        })
+      ).rejects.toThrow("invalid_cursor_scope");
+
+      const underscoreMatch = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "underscore-match" },
+        errorMessage: "disk 100_ full"
+      });
+      const backslashMatch = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "backslash-match" },
+        errorMessage: String.raw`disk path c:\temp full`
+      });
+      const literalUnderscorePage = await listDeadLetterJobs(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        error: "100_"
+      });
+      expect(literalUnderscorePage.deadLetterJobs).toEqual([
+        expect.objectContaining({ id: underscoreMatch.id, errorMessage: "disk 100_ full" })
+      ]);
+      const literalBackslashPage = await listDeadLetterJobs(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        error: String.raw`c:\temp`
+      });
+      expect(literalBackslashPage.deadLetterJobs).toEqual([
+        expect.objectContaining({ id: backslashMatch.id, errorMessage: String.raw`disk path c:\temp full` })
+      ]);
+    });
+  });
+
+  it("expires old dead letter jobs and records retained audit actions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await db.deleteFrom("dead_letter_job_actions").execute();
+      await db.deleteFrom("dead_letter_jobs").execute();
+
+      const oldJob = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "old" },
+        errorMessage: "old failure"
+      });
+      const freshJob = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "error",
+        payload: { id: "fresh" },
+        errorMessage: "fresh failure"
+      });
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-05-01T00:00:00.000Z") })
+        .where("id", "=", oldJob.id)
+        .execute();
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-06-01T00:00:00.000Z") })
+        .where("id", "=", freshJob.id)
+        .execute();
+
+      const deleted = await deleteExpiredDeadLetterJobs(db, {
+        cutoff: new Date("2026-05-15T00:00:00.000Z"),
+        batchSize: 10
+      });
+
+      expect(deleted).toBe(1);
+      await expect(getDeadLetterJob(db, oldJob.id)).resolves.toBeUndefined();
+      await expect(getDeadLetterJob(db, freshJob.id)).resolves.toMatchObject({ id: freshJob.id });
+      await expect(listDeadLetterJobActions(db, oldJob.id)).resolves.toEqual([
+        expect.objectContaining({
+          deadLetterJobId: oldJob.id,
+          action: "expired",
+          actorUserId: null,
+          actorEmail: "system:retention",
+          metadata: { cutoff: "2026-05-15T00:00:00.000Z" }
+        })
+      ]);
+    });
+  });
+
+  it("gets and deletes dead letter jobs by id", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const job = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { id: "trc_dead_letter" },
+        errorMessage: "trace insert failed"
+      });
+
+      await expect(getDeadLetterJob(db, job.id)).resolves.toMatchObject({
+        id: job.id,
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { id: "trc_dead_letter" }
+      });
+      await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(true);
+      await expect(getDeadLetterJob(db, job.id)).resolves.toBeUndefined();
+      await expect(deleteDeadLetterJob(db, job.id)).resolves.toBe(false);
+    });
+  });
+
+  it("records dead letter job actions and preserves audit history when deleting", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const job = await insertDeadLetterJob(db, {
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "evt_dead_letter_action" },
+        errorMessage: "insert failed"
+      });
+
+      const action = await recordDeadLetterJobAction(db, job, {
+        action: "replayed",
+        actor: { userId: null, email: "admin@example.com" },
+        metadata: { replayAttemptId: "rpl_1" }
+      });
+
+      expect(action).toMatchObject({
+        id: expect.stringMatching(/^dla_/),
+        deadLetterJobId: job.id,
+        queueName: "telemetry",
+        jobName: "event",
+        action: "replayed",
+        actorUserId: null,
+        actorEmail: "admin@example.com",
+        metadata: { replayAttemptId: "rpl_1" },
+        createdAt: expect.any(Date)
+      });
+
+      await expect(listDeadLetterJobActions(db, job.id)).resolves.toEqual([
+        expect.objectContaining({ id: action.id, action: "replayed" })
+      ]);
+
+      await expect(
+        deleteDeadLetterJobWithAction(db, job.id, {
+          action: "deleted",
+          actor: { userId: null, email: "admin@example.com" }
+        })
+      ).resolves.toBe(true);
+      await expect(getDeadLetterJob(db, job.id)).resolves.toBeUndefined();
+      await expect(deleteDeadLetterJobWithAction(db, job.id, { action: "deleted", actor: { userId: null, email: "admin@example.com" } })).resolves.toBe(false);
+
+      const actions = await listDeadLetterJobActions(db, job.id);
+      expect(actions.map((row) => row.action)).toEqual(["deleted", "replayed"]);
+      expect(actions[0]).toMatchObject({
+        deadLetterJobId: job.id,
+        queueName: "telemetry",
+        jobName: "event",
+        actorEmail: "admin@example.com"
+      });
+    });
+  });
+
+  it("counts dead letter jobs for operational health", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Dead Letter Count Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const otherEnvironment = await createEnvironment(db, { projectId: project.id, name: "staging" });
+      const before = await countDeadLetterJobs(db);
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "evt_dead_letter" },
+        errorMessage: "event insert failed"
+      });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        queueName: "telemetry",
+        jobName: "trace",
+        payload: { id: "trc_dead_letter" },
+        errorMessage: "trace insert failed"
+      });
+      await insertDeadLetterJob(db, {
+        projectId: project.id,
+        environmentId: otherEnvironment.id,
+        queueName: "telemetry",
+        jobName: "event",
+        payload: { id: "other_env_dead_letter" },
+        errorMessage: "event insert failed"
+      });
+
+      await expect(countDeadLetterJobs(db)).resolves.toBe(before + 3);
+      await expect(countDeadLetterJobs(db, { projectId: project.id, environmentId: environment.id })).resolves.toBe(2);
     });
   });
 
@@ -4990,6 +6132,138 @@ describe("repositories", () => {
     });
   });
 
+  it("rejects telemetry writes under archived project or environment scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const archivedProject = await createProject(db, { name: "Archived Telemetry Write Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const activeProject = await createProject(db, { name: "Archived Telemetry Write Environment Project" });
+      const archivedEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "archived" });
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      const base = {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        timestamp: new Date("2026-05-02T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T12:00:01.000Z")
+      };
+      const archivedEnvironmentBase = {
+        ...base,
+        projectId: activeProject.id,
+        environmentId: archivedEnvironment.id
+      };
+      const writes = [
+        () => insertEvent(db, { ...base, id: "evt_archived_scope", name: "archived.scope" }),
+        () => insertError(db, { ...base, id: "err_archived_scope", message: "archived", severity: "error" }),
+        () =>
+          insertLlmCall(db, {
+            ...base,
+            id: "llm_archived_scope",
+            provider: "openai",
+            model: "gpt-5",
+            status: "success"
+          }),
+        () =>
+          insertTrace(db, {
+            ...base,
+            id: "trc_archived_scope",
+            name: "archived trace",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertSpan(db, {
+            ...base,
+            id: "spn_archived_scope",
+            traceId: "trc_archived_scope",
+            name: "archived span",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertBreadcrumb(db, {
+            ...base,
+            id: "brd_archived_scope",
+            type: "custom" as const,
+            message: "archived",
+            level: "info" as const
+          }),
+        () => insertEvent(db, { ...archivedEnvironmentBase, id: "evt_archived_environment", name: "archived.environment" })
+      ];
+
+      for (const write of writes) {
+        await expect(write()).rejects.toThrow("active_telemetry_scope_not_found");
+      }
+    });
+  });
+
+  it("keeps duplicate telemetry retries idempotent after the scope is archived", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Archived Idempotent Retry Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-02T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T12:00:01.000Z")
+      };
+      const writes = [
+        () => insertEvent(db, { ...base, id: "evt_archived_retry", name: "archived.retry" }),
+        () => insertError(db, { ...base, id: "err_archived_retry", message: "archived retry", severity: "error" }),
+        () =>
+          insertLlmCall(db, {
+            ...base,
+            id: "llm_archived_retry",
+            provider: "openai",
+            model: "gpt-5",
+            status: "success"
+          }),
+        () =>
+          insertTrace(db, {
+            ...base,
+            id: "trc_archived_retry",
+            name: "archived retry trace",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertSpan(db, {
+            ...base,
+            id: "spn_archived_retry",
+            traceId: "trc_archived_retry",
+            name: "archived retry span",
+            status: "ok",
+            startedAt: base.timestamp
+          }),
+        () =>
+          insertBreadcrumb(db, {
+            ...base,
+            id: "brd_archived_retry",
+            type: "custom" as const,
+            message: "archived retry",
+            level: "info" as const
+          })
+      ];
+
+      for (const write of writes) {
+        await expect(write()).resolves.toBeUndefined();
+      }
+
+      await archiveProject(db, project.id);
+
+      for (const write of writes) {
+        await expect(write()).resolves.toBeUndefined();
+      }
+    });
+  });
+
   it("supports runtime telemetry list and aggregate helpers", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -5038,11 +6312,11 @@ describe("repositories", () => {
       });
 
       const filters = { projectId: project.id, environmentId: environment.id, traceId: "trace_runtime" };
-      await expect(listEvents(db, filters)).resolves.toEqual([expect.objectContaining({ id: "evt_runtime" })]);
-      await expect(listErrors(db, filters)).resolves.toEqual([expect.objectContaining({ id: "err_runtime" })]);
-      await expect(listLlmCalls(db, filters)).resolves.toEqual([expect.objectContaining({ id: "llm_runtime" })]);
-      await expect(listTraces(db, filters)).resolves.toEqual([expect.objectContaining({ id: "trc_runtime" })]);
-      await expect(listTraceSpans(db, filters)).resolves.toEqual([expect.objectContaining({ id: "spn_runtime" })]);
+      await expect(listEvents(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "evt_runtime" })] });
+      await expect(listErrors(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "err_runtime" })] });
+      await expect(listLlmCalls(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "llm_runtime" })] });
+      await expect(listTraces(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "trc_runtime" })] });
+      await expect(listTraceSpans(db, filters)).resolves.toMatchObject({ data: [expect.objectContaining({ id: "spn_runtime" })] });
       await expect(getEventAggregates(db, filters)).resolves.toMatchObject({ total: 1 });
       await expect(getErrorAggregates(db, filters)).resolves.toMatchObject({ total: 1, open: 1 });
       await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({ totalCalls: 1, totalInputTokens: 3 });
@@ -5356,7 +6630,9 @@ describe("repositories", () => {
         status: "success"
       };
 
-      await expect(listLlmCalls(db, filters)).resolves.toEqual([expect.objectContaining({ id: "llm_match" })]);
+      await expect(listLlmCalls(db, filters)).resolves.toMatchObject({
+        data: [expect.objectContaining({ id: "llm_match" })]
+      });
       await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({
         totalCalls: 1,
         totalInputTokens: 10,
@@ -7092,7 +8368,7 @@ describe("repositories", () => {
 
       await expect(
         listEvents(db, { projectId: project.id, environmentId: environment.id, eventName: "checkout.started" })
-      ).resolves.toEqual([expect.objectContaining({ id: "evt_named_1", name: "checkout.started" })]);
+      ).resolves.toMatchObject({ data: [expect.objectContaining({ id: "evt_named_1", name: "checkout.started" })] });
     });
   });
 
@@ -7150,14 +8426,16 @@ describe("repositories", () => {
           status: "open",
           fingerprint: "fp_checkout_fetch"
         })
-      ).resolves.toEqual([
-        expect.objectContaining({
-          id: "err_filtered_1",
-          severity: "critical",
-          status: "open",
-          fingerprint: "fp_checkout_fetch"
-        })
-      ]);
+      ).resolves.toMatchObject({
+        data: [
+          expect.objectContaining({
+            id: "err_filtered_1",
+            severity: "critical",
+            status: "open",
+            fingerprint: "fp_checkout_fetch"
+          })
+        ]
+      });
     });
   });
 
@@ -7179,11 +8457,12 @@ describe("repositories", () => {
         fingerprint: "grouped-raw-error"
       });
 
-      const [raw] = await listErrors(db, {
+      const rawErrors = await listErrors(db, {
         projectId: project.id,
         environmentId: environment.id,
         limit: 10
       });
+      const [raw] = rawErrors.data;
 
       expect(raw?.errorGroupId).toEqual(expect.stringMatching(/^egrp_/));
       expect(raw?.groupingFingerprint).toBe("grouped-raw-error");
@@ -7195,7 +8474,7 @@ describe("repositories", () => {
         limit: 10
       });
 
-      expect(filtered.map((error) => error.id)).toEqual(["err_raw_group_filter_1"]);
+      expect(filtered.data.map((error) => error.id)).toEqual(["err_raw_group_filter_1"]);
     });
   });
 
@@ -7390,10 +8669,10 @@ describe("repositories", () => {
       }
 
       const defaultEvents = await listEvents(db, { projectId: project.id, environmentId: environment.id });
-      expect(defaultEvents).toHaveLength(50);
+      expect(defaultEvents.data).toHaveLength(50);
 
       const limitedEvents = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 2 });
-      expect(limitedEvents).toHaveLength(2);
+      expect(limitedEvents.data).toHaveLength(2);
     });
   });
 

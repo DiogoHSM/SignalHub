@@ -58,6 +58,11 @@ describe("API docs", () => {
         "/auth/login",
         "/admin/projects",
         "/admin/monitors",
+        "/admin/monitors/{id}/checks",
+        "/admin/dead-letter-jobs",
+        "/admin/dead-letter-jobs/{id}",
+        "/admin/dead-letter-jobs/{id}/actions",
+        "/admin/dead-letter-jobs/{id}/replay",
         "/query/events",
         "/system/health"
       ])
@@ -75,9 +80,67 @@ describe("API docs", () => {
     expect(Object.keys(spec.paths["/v1/identify/tenant"].post.responses)).toEqual(["202", "400", "401", "503"]);
     expect(spec.paths["/v1/heartbeats/{id}"].post.security).toEqual([{ heartbeatSecret: [] }]);
     expect(spec.paths["/v1/source-maps"].post.security).toEqual([{ sourceMapUploadToken: [] }]);
+    expect(spec.paths["/admin/dead-letter-jobs"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/admin/dead-letter-jobs/{id}"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/admin/dead-letter-jobs/{id}"].delete.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/admin/dead-letter-jobs/{id}/actions"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/admin/dead-letter-jobs/{id}/replay"].post.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/admin/dead-letter-jobs"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "limit",
+      "cursor",
+      "queue_name",
+      "job_name",
+      "error",
+      "created_from",
+      "created_to",
+      "status"
+    ]);
+    expect(spec.paths["/admin/monitors/{id}/checks"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "id",
+      "project_id",
+      "environment_id",
+      "limit",
+      "cursor"
+    ]);
+    expect(
+      spec.paths["/admin/monitors/{id}/checks"].get.parameters.filter((parameter: { required?: boolean }) => parameter.required)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "id", in: "path" }),
+        expect.objectContaining({ name: "project_id", in: "query" }),
+        expect.objectContaining({ name: "environment_id", in: "query" })
+      ])
+    );
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.components.schemas.EventPayload.description).toContain("tenant");
+    expect(spec.components.schemas.ErrorPayload.properties.severity.enum).toEqual([
+      "debug",
+      "info",
+      "warning",
+      "error",
+      "critical",
+      "fatal"
+    ]);
     expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");
+    expect(spec.components.schemas.BreadcrumbPayload.required).toEqual(["type", "message"]);
+    expect(spec.components.schemas.BreadcrumbPayload.properties.type.enum).toEqual([
+      "navigation",
+      "click",
+      "console",
+      "network",
+      "custom"
+    ]);
+    expect(spec.components.schemas.LlmPayload.properties.status.enum).toContain("pending");
+    expect(spec.components.schemas.TracePayload.required).toEqual(["name", "started_at"]);
+    expect(spec.components.schemas.SpanPayload.required).toEqual(["trace_id", "name", "started_at"]);
+    expect(spec.paths["/v1/source-maps"].post.requestBody.content["multipart/form-data"].schema.anyOf).toEqual([
+      { required: ["file", "minified_file"] },
+      { required: ["bundle"] }
+    ]);
+    expect(spec.components.schemas.DeadLetterJob.properties.payload.description).toContain("sanitized");
+    expect(spec.components.schemas.DeadLetterJob.properties.projectId.type).toEqual(["string", "null"]);
+    expect(spec.components.schemas.DeadLetterJob.properties.environmentId.type).toEqual(["string", "null"]);
+    expect(spec.components.schemas.DeadLetterJobAction.properties.action.enum).toEqual(["deleted", "replayed", "expired"]);
     expect(spec.components.schemas.UserIdentifyPayload.description).toContain("last_seen_at");
     expect(spec.components.schemas.TenantIdentifyPayload.properties.traits.examples[0]).toMatchObject({
       name: "MicroERP",
@@ -133,6 +196,9 @@ describe("API docs", () => {
     expect(response.body).toContain("Experiments and A/B tests");
     expect(response.body).toContain("checkout.exposed");
     expect(response.body).toContain("source-maps:upload");
+    expect(response.body).toContain("BROWSER_CORS_ORIGINS");
+    expect(response.body).toContain("Production smoke tests");
+    expect(response.body).toContain("SIGMON_UPLOAD_TIMEOUT_MS");
     expect(response.headers["content-security-policy"]).toContain("script-src 'self'");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
   });

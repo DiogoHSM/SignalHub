@@ -18,7 +18,14 @@ const migrations = [
   { name: "0012_alerting_monitors.sql", url: new URL("../migrations/0012_alerting_monitors.sql", import.meta.url) },
   { name: "0013_identity_profiles.sql", url: new URL("../migrations/0013_identity_profiles.sql", import.meta.url) },
   { name: "0014_project_browser_origins.sql", url: new URL("../migrations/0014_project_browser_origins.sql", import.meta.url) },
-  { name: "0015_incident_triage.sql", url: new URL("../migrations/0015_incident_triage.sql", import.meta.url) }
+  { name: "0015_incident_triage.sql", url: new URL("../migrations/0015_incident_triage.sql", import.meta.url) },
+  { name: "0016_system_health_samples.sql", url: new URL("../migrations/0016_system_health_samples.sql", import.meta.url) },
+  { name: "0017_query_pagination_indexes.sql", url: new URL("../migrations/0017_query_pagination_indexes.sql", import.meta.url) },
+  { name: "0018_dead_letter_actions.sql", url: new URL("../migrations/0018_dead_letter_actions.sql", import.meta.url) },
+  { name: "0019_dead_letter_retention.sql", url: new URL("../migrations/0019_dead_letter_retention.sql", import.meta.url) },
+  { name: "0020_dead_letter_scoped_alerts.sql", url: new URL("../migrations/0020_dead_letter_scoped_alerts.sql", import.meta.url) },
+  { name: "0021_investigation_query_indexes.sql", url: new URL("../migrations/0021_investigation_query_indexes.sql", import.meta.url) },
+  { name: "0022_error_stack_resolution_scope.sql", url: new URL("../migrations/0022_error_stack_resolution_scope.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {
