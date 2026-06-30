@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ConfirmButton, EmptyHint, Icon, PageHead, Sparkline } from "../../components/ui/v2";
 import type { ScreenCtx } from "./registry";
 import { useSystemHealth } from "./useSystemHealth";
@@ -64,7 +65,29 @@ function EmptyState({ icon, title, sub }: { icon: "server" | "queue" | "archive"
 }
 
 export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
-  const { data, status } = useSystemHealth({ client: ctx.client });
+  const { data, status, reload } = useSystemHealth({ client: ctx.client });
+  const [runningAction, setRunningAction] = useState<"doctor" | "backup" | "retention" | null>(null);
+
+  const runSystemAction = async (
+    action: "doctor" | "backup" | "retention",
+    run: (() => Promise<{ message: string }>) | undefined
+  ) => {
+    if (runningAction) return;
+    if (!run) {
+      ctx.pushToast("System action is not available in this deployment.");
+      return;
+    }
+    setRunningAction(action);
+    try {
+      const result = await run();
+      ctx.pushToast(result.message);
+      reload();
+    } catch {
+      ctx.pushToast("System action failed. Check server logs and try again.");
+    } finally {
+      setRunningAction(null);
+    }
+  };
 
   if (status === "loading" && !data) {
     return <EmptyState icon="server" title="Loading…" sub="Fetching system health." />;
@@ -86,10 +109,20 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
             <span className={`sh-tag ${toneTagClass(header.statusTone)}`} style={{ fontSize: 11 }}>
               ● {header.statusLabel}
             </span>
-            <button className="sh-btn" onClick={() => ctx.pushToast("Doctor is not yet available")}>
+            <button
+              className="sh-btn"
+              type="button"
+              onClick={() => void runSystemAction("doctor", ctx.client.runSystemDoctor)}
+            >
               <Icon name="shield" size={13} />
-              Run doctor
+              {runningAction === "doctor" ? "Running…" : "Run doctor"}
             </button>
+            <ConfirmButton
+              label={runningAction === "retention" ? "Running…" : "Run retention"}
+              icon="archive"
+              kind="solid"
+              onConfirm={() => void runSystemAction("retention", ctx.client.runSystemRetention)}
+            />
           </>
         }
       />
@@ -176,7 +209,11 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
           </div>
           <div style={{ padding: "11px 16px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
             <span className="sh-faint" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{backups.subLabel}</span>
-            <ConfirmButton label="Run backup now" icon="play" onConfirm={() => ctx.pushToast("Backups run on the configured schedule")} />
+            <ConfirmButton
+              label={runningAction === "backup" ? "Running…" : "Run backup now"}
+              icon="play"
+              onConfirm={() => void runSystemAction("backup", ctx.client.runSystemBackup)}
+            />
           </div>
         </div>
       </div>

@@ -14,7 +14,11 @@ afterEach(() => {
 
 function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
   return {
-    client: {} as never,
+    client: {
+      runSystemDoctor: vi.fn().mockResolvedValue({ message: "Doctor completed: system is operational." }),
+      runSystemBackup: vi.fn().mockResolvedValue({ message: "Backup completed." }),
+      runSystemRetention: vi.fn().mockResolvedValue({ message: "Retention completed." }),
+    } as never,
     project: undefined,
     environment: undefined,
     environments: [],
@@ -64,14 +68,17 @@ describe("SystemScreen", () => {
     expect(screen.getByText(/Could not load/i)).toBeTruthy();
   });
 
-  it("renders the head status pill and Run-doctor stub toast", async () => {
-    mockHook({ status: "ok", data: vm });
+  it("renders the head status pill and runs doctor", async () => {
+    const reload = vi.fn();
+    mockHook({ status: "ok", data: vm, reload });
     const ctx = makeCtx();
     render(<SystemScreen ctx={ctx} />);
     expect(screen.getByText("System health")).toBeTruthy();
     expect(screen.getAllByText(/Operational/).length).toBeGreaterThanOrEqual(1);
     await userEvent.click(screen.getByRole("button", { name: /Run doctor/i }));
-    expect(ctx.pushToast).toHaveBeenCalledWith("Doctor is not yet available");
+    expect(ctx.client.runSystemDoctor).toHaveBeenCalled();
+    expect(ctx.pushToast).toHaveBeenCalledWith("Doctor completed: system is operational.");
+    expect(reload).toHaveBeenCalled();
   });
 
   it("renders service cards — one with a sparkline, one without", () => {
@@ -98,14 +105,29 @@ describe("SystemScreen", () => {
     expect(screen.getByText("backup-2026-06-23.sql.gz")).toBeTruthy();
   });
 
-  it("stubs Run-backup-now via ConfirmButton (arm then confirm)", async () => {
-    mockHook({ status: "ok", data: vm });
+  it("runs backup via ConfirmButton (arm then confirm)", async () => {
+    const reload = vi.fn();
+    mockHook({ status: "ok", data: vm, reload });
     const ctx = makeCtx();
     render(<SystemScreen ctx={ctx} />);
     const btn = screen.getByRole("button", { name: /Run backup now/i });
     await userEvent.click(btn); // arms
     await userEvent.click(screen.getByRole("button", { name: /Confirm/i })); // confirms
-    expect(ctx.pushToast).toHaveBeenCalledWith("Backups run on the configured schedule");
+    expect(ctx.client.runSystemBackup).toHaveBeenCalled();
+    expect(ctx.pushToast).toHaveBeenCalledWith("Backup completed.");
+    expect(reload).toHaveBeenCalled();
+  });
+
+  it("runs retention via ConfirmButton (arm then confirm)", async () => {
+    const reload = vi.fn();
+    mockHook({ status: "ok", data: vm, reload });
+    const ctx = makeCtx();
+    render(<SystemScreen ctx={ctx} />);
+    await userEvent.click(screen.getByRole("button", { name: /Run retention/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    expect(ctx.client.runSystemRetention).toHaveBeenCalled();
+    expect(ctx.pushToast).toHaveBeenCalledWith("Retention completed.");
+    expect(reload).toHaveBeenCalled();
   });
 
   it("shows an empty hint when there are no backups", () => {

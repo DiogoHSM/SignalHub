@@ -984,6 +984,16 @@ export type SystemHealthSampleResponse = {
   queueFailed: number;
 };
 
+export type SystemActionResponse = {
+  ok: true;
+  action: "doctor" | "backup" | "retention";
+  status: "success" | "skipped";
+  message: string;
+  ran?: boolean;
+  skipped?: boolean;
+  generatedAt: string;
+};
+
 export type NotificationChannelResponse =
   | {
       id: string;

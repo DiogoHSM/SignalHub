@@ -17,6 +17,12 @@ const auth = {
   logout: async () => {}
 };
 
+const nonAdminAuth = {
+  findSessionUser: async () => ({ id: "usr_2", email: "member@example.com", isAdmin: false }),
+  login: async () => null,
+  logout: async () => {}
+};
+
 const retentionPolicy = {
   eventsDays: 90,
   errorsDays: 180,
@@ -178,6 +184,90 @@ describe("system health routes", () => {
     const response = await app.inject({ method: "GET", url: "/system/health" });
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ error: "system_health_unavailable" });
+  });
+
+  it("requires admin access for system actions", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth: nonAdminAuth,
+      system: {
+        runDoctor: async () => ({ status: "success", message: "Doctor completed." })
+      }
+    });
+
+    const response = await app.inject({ method: "POST", url: "/system/actions/doctor" });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "forbidden" });
+  });
+
+  it("returns unavailable when a system action dependency is missing", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: {}
+    });
+
+    const response = await app.inject({ method: "POST", url: "/system/actions/backup" });
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "system_backup_unavailable" });
+  });
+
+  it("runs system actions for admins", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: {
+        runDoctor: async () => ({ status: "success", message: "Doctor completed: system is operational." }),
+        runBackup: async () => ({ status: "skipped", message: "Backup skipped because another backup is active.", ran: false, skipped: true }),
+        runRetention: async () => ({ status: "success", message: "Retention completed.", ran: true, skipped: false })
+      }
+    });
+
+    const doctor = await app.inject({ method: "POST", url: "/system/actions/doctor" });
+    expect(doctor.statusCode).toBe(200);
+    expect(doctor.json()).toMatchObject({
+      ok: true,
+      action: "doctor",
+      status: "success",
+      message: "Doctor completed: system is operational."
+    });
+    expect(doctor.json().generatedAt).toEqual(expect.any(String));
+
+    const backup = await app.inject({ method: "POST", url: "/system/actions/backup" });
+    expect(backup.statusCode).toBe(200);
+    expect(backup.json()).toMatchObject({
+      ok: true,
+      action: "backup",
+      status: "skipped",
+      ran: false,
+      skipped: true
+    });
+
+    const retention = await app.inject({ method: "POST", url: "/system/actions/retention" });
+    expect(retention.statusCode).toBe(200);
+    expect(retention.json()).toMatchObject({
+      ok: true,
+      action: "retention",
+      status: "success",
+      ran: true,
+      skipped: false
+    });
+  });
+
+  it("returns unavailable when system actions fail", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: {
+        runRetention: async () => {
+          throw new Error("retention failed");
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "POST", url: "/system/actions/retention" });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "system_retention_failed" });
   });
 
   it("returns a partial unhealthy snapshot when operational probes fail", async () => {

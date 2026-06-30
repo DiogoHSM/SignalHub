@@ -45,6 +45,7 @@ import type {
   SourceMapResolution,
   SourceMapUploadToken,
   SpanRecord,
+  SystemActionResponse,
   SystemHealthResponse,
   SystemHealthSampleResponse,
   TenantDetailQuery,
@@ -258,6 +259,9 @@ export type ApiClient = {
   getLlmCostByModel?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmCostByModel>>;
   getSystemHealth: () => Promise<AggregateResponse<SystemHealthResponse>>;
   getSystemHealthHistory: (params?: { limit?: number }) => Promise<AggregateResponse<SystemHealthSampleResponse[]>>;
+  runSystemDoctor?: () => Promise<SystemActionResponse>;
+  runSystemBackup?: () => Promise<SystemActionResponse>;
+  runSystemRetention?: () => Promise<SystemActionResponse>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
   listUsersActivity: (query: UserListQuery) => Promise<AggregateResponse<UserListResponse>>;
@@ -815,6 +819,12 @@ export function createApiClient(
         path(apiBasePath, `/system/health/history${query ? `?${query}` : ""}`)
       );
     },
+    runSystemDoctor: () =>
+      request<SystemActionResponse>(path(apiBasePath, "/system/actions/doctor"), { method: "POST" }),
+    runSystemBackup: () =>
+      request<SystemActionResponse>(path(apiBasePath, "/system/actions/backup"), { method: "POST" }),
+    runSystemRetention: () =>
+      request<SystemActionResponse>(path(apiBasePath, "/system/actions/retention"), { method: "POST" }),
     listEntityTenants: (query) =>
       request<AggregateResponse<TenantListResponse>>(path(apiBasePath, entityTenantListPath(query))),
     getEntityTenantDetail: (tenantId, query) =>

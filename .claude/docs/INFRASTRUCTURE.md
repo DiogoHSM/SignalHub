@@ -70,4 +70,5 @@ The worker prunes local source-map artifacts according to `SOURCE_MAPS_RETENTION
 - Compose checks cover rendered configuration, required services, service reachability, and API health through the configured `--api-url`.
 - Production doctor checks fail when Compose would use the local-only Postgres password placeholder.
 - `GET /ready` checks Postgres and Redis from the API process.
+- Admin console users can run manual System actions through the API: doctor, backup, and retention. Doctor is read-only; backup writes a new dump to the configured backup target; retention deletes only expired retention-managed data according to the configured policy.
 - Worker health is currently process-level; failed jobs are retried by BullMQ according to queue behavior.

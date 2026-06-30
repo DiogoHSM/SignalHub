@@ -47,6 +47,7 @@ import {
 } from "@sigmon/db/repositories/monitors.js";
 import {
   countDeadLetterJobs,
+  deleteExpiredDeadLetterJobs,
   deleteDeadLetterJobWithAction,
   getDeadLetterJob,
   listDeadLetterJobActions,
@@ -62,18 +63,23 @@ import {
   listUsers,
   updateUser
 } from "@sigmon/db/repositories/users.js";
-import { getBackupStatus } from "@sigmon/db/repositories/backups.js";
+import { getBackupStatus, recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups.js";
 import {
+  deleteExpiredTelemetry,
   getHeartbeat,
   getIngestionFreshness,
-  getLastRetentionRun
+  getLastRetentionRun,
+  recordRetentionRun,
+  withRetentionLock
 } from "@sigmon/db/repositories/system.js";
 import { listSystemHealthSamples } from "@sigmon/db/repositories/system-health-samples.js";
 import {
   findSourceMapArtifactForFrame,
   getCachedErrorStackResolution,
+  listExpiredSourceMapArtifacts,
   listSourceMapArtifactsPage,
-  replaceErrorStackResolutions
+  replaceErrorStackResolutions,
+  softDeleteSourceMapArtifactForRetention
 } from "@sigmon/db/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
@@ -148,6 +154,9 @@ import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
+import { runBackupOnce } from "../../worker/src/backups.js";
+import { runRetentionOnce } from "../../worker/src/retention.js";
+import { deleteExpiredSourceMapArtifacts } from "../../worker/src/source-map-retention.js";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
@@ -427,6 +436,82 @@ function getSystemHealth() {
   });
 }
 
+async function runSystemDoctor() {
+  const snapshot = await getSystemHealth();
+  const degradedServices = Object.entries(snapshot.services)
+    .filter(([, service]) => service.status !== "healthy")
+    .map(([name, service]) => `${name}:${service.status}`);
+  const queueProblems = Object.entries(snapshot.queues)
+    .filter(([, queue]) => queue.status !== "healthy")
+    .map(([name, queue]) => `${name}:${queue.status}`);
+  const problemSummary = [...degradedServices, ...queueProblems];
+
+  return {
+    status: "success" as const,
+    message:
+      problemSummary.length === 0
+        ? "Doctor completed: system is operational."
+        : `Doctor completed: ${snapshot.status} (${problemSummary.join(", ")}).`
+  };
+}
+
+function runManualRetention() {
+  return runRetentionOnce({
+    now: () => new Date(),
+    policy: retentionPolicy,
+    withLock: (run) =>
+      withRetentionLock(db, (lockedDb) =>
+        run({
+          deleteExpiredTelemetry: () =>
+            deleteExpiredTelemetry(lockedDb, {
+              now: new Date(),
+              batchSize: config.retention.batchSize,
+              ...retentionPolicy
+            }),
+          deleteExpiredDeadLetterJobs: () =>
+            deleteExpiredDeadLetterJobs(lockedDb, {
+              cutoff: new Date(Date.now() - config.retention.deadLetterJobsDays * 24 * 60 * 60 * 1000),
+              batchSize: config.retention.batchSize
+            })
+        })
+      ),
+    deleteExpiredSourceMapArtifacts: () =>
+      deleteExpiredSourceMapArtifacts({
+        localDir: config.sourceMaps.localDir,
+        now: new Date(),
+        retentionDays: config.sourceMaps.retention.days,
+        batchSize: config.sourceMaps.retention.batchSize,
+        listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(db, input),
+        softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
+      }),
+    recordRetentionRun: (input) => recordRetentionRun(db, input)
+  }).then((result) => ({
+    status: result.skipped ? ("skipped" as const) : ("success" as const),
+    message: result.skipped ? "Retention skipped because another run is active." : "Retention completed.",
+    ran: result.ran,
+    skipped: result.skipped
+  }));
+}
+
+function runManualBackup() {
+  return runBackupOnce({
+    now: () => new Date(),
+    trigger: "manual",
+    config: {
+      ...config.backups,
+      enabled: true,
+      databaseUrl: config.databaseUrl
+    },
+    withLock: (run) => withBackupLock(db, run),
+    recordBackupRun: (input) => recordBackupRun(db, input)
+  }).then((result) => ({
+    status: result.skipped ? ("skipped" as const) : ("success" as const),
+    message: result.skipped ? "Backup skipped because another backup is active." : "Backup completed.",
+    ran: result.ran,
+    skipped: result.skipped
+  }));
+}
+
 const app = await buildApp({
   readiness: async () => {
     const [postgres, redisReady] = await Promise.all([
@@ -559,7 +644,10 @@ const app = await buildApp({
           queueActive: r.queueActive,
           queueFailed: r.queueFailed
         }))
-      )
+      ),
+    runDoctor: runSystemDoctor,
+    runBackup: runManualBackup,
+    runRetention: runManualRetention
   },
   alerts: {
     listNotificationChannels: () => listNotificationChannels(db),
