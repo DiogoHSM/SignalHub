@@ -4,9 +4,9 @@ Docker Compose is the only production-supported self-hosted installation path fo
 
 ## Deployment Identity
 
-SignalMonitor's intended public website and domain is `sigmon.app`. The intended deployed application host is `my.sigmon.app`.
+SignalMonitor's intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.
 
-EasyPanel VPS deployment comes after Phase 6D critical hygiene. Until that work is complete, deployment documentation should describe identity and supported local/Compose paths without implementing the VPS deployment flow.
+EasyPanel VPS deployment is the active production deployment for the hosted self-managed instance. Docker Compose remains the documented portable production-supported installation path for independent self-hosted installs.
 
 ## Local Compose
 

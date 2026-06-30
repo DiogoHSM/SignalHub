@@ -113,7 +113,30 @@ describe("API docs", () => {
     );
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.components.schemas.EventPayload.description).toContain("tenant");
+    expect(spec.components.schemas.ErrorPayload.properties.severity.enum).toEqual([
+      "debug",
+      "info",
+      "warning",
+      "error",
+      "critical",
+      "fatal"
+    ]);
     expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");
+    expect(spec.components.schemas.BreadcrumbPayload.required).toEqual(["type", "message"]);
+    expect(spec.components.schemas.BreadcrumbPayload.properties.type.enum).toEqual([
+      "navigation",
+      "click",
+      "console",
+      "network",
+      "custom"
+    ]);
+    expect(spec.components.schemas.LlmPayload.properties.status.enum).toContain("pending");
+    expect(spec.components.schemas.TracePayload.required).toEqual(["name", "started_at"]);
+    expect(spec.components.schemas.SpanPayload.required).toEqual(["trace_id", "name", "started_at"]);
+    expect(spec.paths["/v1/source-maps"].post.requestBody.content["multipart/form-data"].schema.anyOf).toEqual([
+      { required: ["file", "minified_file"] },
+      { required: ["bundle"] }
+    ]);
     expect(spec.components.schemas.DeadLetterJob.properties.payload.description).toContain("sanitized");
     expect(spec.components.schemas.DeadLetterJob.properties.projectId.type).toEqual(["string", "null"]);
     expect(spec.components.schemas.DeadLetterJob.properties.environmentId.type).toEqual(["string", "null"]);
@@ -173,6 +196,9 @@ describe("API docs", () => {
     expect(response.body).toContain("Experiments and A/B tests");
     expect(response.body).toContain("checkout.exposed");
     expect(response.body).toContain("source-maps:upload");
+    expect(response.body).toContain("BROWSER_CORS_ORIGINS");
+    expect(response.body).toContain("Production smoke tests");
+    expect(response.body).toContain("SIGMON_UPLOAD_TIMEOUT_MS");
     expect(response.headers["content-security-policy"]).toContain("script-src 'self'");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
   });

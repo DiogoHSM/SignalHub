@@ -2,26 +2,28 @@
 
 SignalMonitor is a self-hosted telemetry core for product analytics, error tracking, LLM observability, traces, and spans. One installation can monitor multiple projects and environments. Clients ingest telemetry with project-environment API keys, the API validates and queues each signal in Redis/BullMQ, and the worker sanitizes and persists typed records in Postgres.
 
-The intended public website and domain is `sigmon.app`; the future deployed app host is `my.sigmon.app`.
+The intended public website and domain is `sigmon.app`; the default deployed app host is `my.sigmon.app`.
 
 ## Current Capabilities
 
 - Local admin login with a bootstrap admin seed.
 - Admin management for users, projects, environments, and scoped ingestion API keys.
-- API-key ingestion for events, errors, LLM calls, traces, and spans.
+- API-key ingestion for events, errors, breadcrumbs, LLM calls, traces, and spans.
 - API-key identify endpoints for project/environment-scoped user and tenant profile traits.
+- Browser-origin allowlists for direct browser telemetry and CORS preflight handling.
 - Zod payload validation and recursive sanitization before persistence.
 - Redis-backed ingestion queue with worker processing.
 - Postgres storage for operational data and typed telemetry tables.
 - Deterministic error grouping with group status workflow and raw occurrence drilldown.
 - Error-first Incident view for grouped and raw errors with priority triage, related context, and shareable URLs.
-- Admin source-map artifact uploads and on-demand production stack resolution.
+- Admin and CI source-map artifact uploads with dedicated source-map upload tokens and on-demand production stack resolution.
 - Lightweight breadcrumb ingestion and session context timelines for raw error debugging.
 - Human-session query endpoints for raw telemetry and basic aggregates.
-- JavaScript SDK and raw HTTP integration guide.
-- Integration Console for setup, overview, investigation, alerts, and system health.
-- Worker-owned retention, heartbeat, and operational health reporting.
-- Worker-owned simple alerts with internal history and optional webhook delivery.
+- JavaScript SDK with Node, browser, and Next.js entrypoints plus raw HTTP and public Scalar/OpenAPI docs.
+- Integration Console for setup, operations overview, investigation, alerts, monitors, experiments, artifacts, and system health.
+- Worker-owned retention, HTTP uptime checks, heartbeat monitors, and operational health reporting.
+- Worker-owned simple alerts with internal history and optional email or webhook delivery.
+- Dead-letter job inspection, filtering, replay, delete, and audit history for permanently failed telemetry jobs.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 - Read-only operator doctor checks for local and Docker Compose installs.
 - Critical runtime hardening for webhook targets, idempotent ingestion retries, structured redacted logs, checksum-verified backups, non-root containers, security headers, and production session cookies.

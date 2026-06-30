@@ -32,6 +32,15 @@ NEXT_PUBLIC_SIGMON_BROWSER_KEY=sh_BROWSER_INGESTION_KEY
 NEXT_PUBLIC_APP_VERSION=2026.05.25
 ```
 
+Configure browser origins on the Sigmon side before shipping browser capture. Use the project browser-origin allowlist in the console, or set `BROWSER_CORS_ORIGINS=https://app.example.com` on the Sigmon API service for coarse server-level allowlisting.
+
+Keep these scopes separate:
+
+| Scope | Lives in | Purpose |
+| --- | --- | --- |
+| Sigmon server/admin config | Sigmon API, worker, scheduler, EasyPanel, Docker Compose | Database, Redis, sessions, retention, backups, SMTP/webhook delivery, CORS defaults, source-map storage. |
+| Monitored project config | The app being monitored | `SIGMON_ENDPOINT`, server ingestion key, browser ingestion key, release/deploy id, source-map upload token in CI. |
+
 ## Node.js
 
 ```ts
@@ -53,7 +62,7 @@ sigmon.track("checkout.started", {
   userId: "user_456"
 });
 
-sigmon.capture(new Error("Payment provider timeout"), {
+sigmon.captureError(new Error("Payment provider timeout"), {
   severity: "error",
   tenantId: "tenant_123",
   userId: "user_456",
@@ -80,7 +89,7 @@ const sigmon = createSignalMonitorClient({
 });
 
 sigmon.breadcrumb({
-  type: "ui",
+  type: "click",
   category: "checkout",
   message: "Clicked pay"
 });
@@ -209,6 +218,53 @@ await sigmon.flush();
 In the console, open `Experiments` and map the experiment property, variant property, exposure event, and conversion event. If your app already uses different names, keep them consistent and map them there.
 
 Experiment readouts are directional operational views, not a statistical-significance engine. Use them to spot obvious changes in conversion, quality, latency, or cost before drilling into events, users, tenants, traces, errors, or LLM calls.
+
+## Source Maps
+
+Create a source-map upload token in the Sigmon Artifacts console and keep it in CI secrets. Browser ingestion keys cannot upload source maps.
+
+The release value in errors must match the release used during upload. For Next.js/Vercel, a commit SHA or deployment id usually works well:
+
+```sh
+pnpm source-maps:upload \
+  --endpoint "$SIGMON_ENDPOINT" \
+  --token "$SIGMON_SOURCE_MAP_TOKEN" \
+  --project-id "$SIGMON_PROJECT_ID" \
+  --environment-id "$SIGMON_ENVIRONMENT_ID" \
+  --release "$NEXT_PUBLIC_APP_VERSION" \
+  --bundle ./dist/source-maps.zip
+```
+
+Use `--file ./dist/assets/app.js.map --minified-file assets/app.js` for a single map, or `--bundle ./dist/source-maps.zip` for multiple maps. Use `--timeout-ms` or `SIGMON_UPLOAD_TIMEOUT_MS` when CI needs a non-default upload timeout.
+
+## Production Smoke Tests
+
+Use curl to validate a server key:
+
+```sh
+curl -i "$SIGMON_ENDPOINT/v1/events" \
+  -H "Authorization: Bearer $SIGMON_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"deploy.smoke","properties":{"source":"curl"}}'
+```
+
+Use the browser console on the actual production origin to validate CORS and the browser key:
+
+```js
+fetch("https://my.sigmon.app/v1/events", {
+  method: "POST",
+  headers: {
+    Authorization: "Bearer sh_BROWSER_INGESTION_KEY",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    name: "browser.smoke",
+    properties: { source: "browser-console" }
+  })
+}).then(async (response) => console.log(response.status, await response.text()));
+```
+
+Expected result is `202` and a new event in the selected project/environment. A `401` means the key is wrong or scoped to a different project/environment; a browser CORS failure means the app origin is not allowlisted in Sigmon.
 
 ## OpenAPI
 

@@ -225,7 +225,11 @@ export const openApiDocument = {
         properties: {
           message: { type: "string", description: "Human-readable error message." },
           type: { type: "string", description: "Exception class, error name, or domain error type." },
-          severity: { type: "string", enum: ["info", "warning", "error", "critical", "fatal"], description: "Severity used by filters and alerting." },
+          severity: {
+            type: "string",
+            enum: ["debug", "info", "warning", "error", "critical", "fatal"],
+            description: "Severity used by filters and alerting. Defaults to error."
+          },
           fingerprint: { type: "string", description: "Optional grouping key. Events with the same fingerprint are grouped together." },
           stack: { type: "string", description: "Raw stack trace. Source maps can resolve minified browser frames when uploaded for the matching release." },
           tenant_id: { type: "string" },
@@ -241,17 +245,20 @@ export const openApiDocument = {
       },
       BreadcrumbPayload: {
         type: "object",
-        required: ["type", "category", "message"],
+        required: ["type", "message"],
         properties: {
-          type: { type: "string", enum: ["navigation", "ui", "console", "network", "custom"] },
+          type: { type: "string", enum: ["navigation", "click", "console", "network", "custom"] },
           category: { type: "string" },
           message: { type: "string" },
-          level: { type: "string", enum: ["debug", "info", "warning", "error"] },
+          level: { type: "string", enum: ["debug", "info", "warning", "error", "fatal"] },
           data: { type: "object", additionalProperties: true },
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           session_id: { type: "string" },
           trace_id: { type: "string" },
+          source: { type: "string" },
+          release: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
           timestamp: { type: "string", format: "date-time" }
         }
       },
@@ -262,7 +269,7 @@ export const openApiDocument = {
           provider: { type: "string", examples: ["openai"] },
           model: { type: "string", examples: ["gpt-5-mini"] },
           prompt_name: { type: "string" },
-          status: { type: "string", enum: ["success", "error"] },
+          status: { type: "string", enum: ["success", "error", "pending"] },
           input_tokens: { type: "integer", minimum: 0 },
           output_tokens: { type: "integer", minimum: 0 },
           cost_usd: { type: "number", minimum: 0 },
@@ -278,10 +285,10 @@ export const openApiDocument = {
       },
       TracePayload: {
         type: "object",
-        required: ["name", "status"],
+        required: ["name", "started_at"],
         properties: {
           name: { type: "string" },
-          status: { type: "string", enum: ["success", "error"] },
+          status: { type: "string", enum: ["success", "error", "pending"] },
           started_at: { type: "string", format: "date-time" },
           ended_at: { type: "string", format: "date-time" },
           duration_ms: { type: "integer", minimum: 0 },
@@ -289,25 +296,31 @@ export const openApiDocument = {
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           session_id: { type: "string" },
+          source: { type: "string" },
+          release: { type: "string" },
           metadata: { type: "object", additionalProperties: true }
         }
       },
       SpanPayload: {
         type: "object",
-        required: ["trace_id", "name", "status"],
+        required: ["trace_id", "name", "started_at"],
         properties: {
           trace_id: { type: "string" },
           parent_span_id: { type: "string" },
           name: { type: "string" },
-          status: { type: "string", enum: ["success", "error"] },
+          status: { type: "string", enum: ["success", "error", "pending"] },
           started_at: { type: "string", format: "date-time" },
           ended_at: { type: "string", format: "date-time" },
           duration_ms: { type: "integer", minimum: 0 },
-          input: { type: "object", additionalProperties: true },
-          output: { type: "object", additionalProperties: true },
+          input: { description: "Any JSON value. Avoid secrets and full payload bodies." },
+          output: { description: "Any JSON value. Avoid secrets and full payload bodies." },
+          error: { description: "Any JSON value describing a failed child operation." },
           cost_usd: { type: "number", minimum: 0 },
           tenant_id: { type: "string" },
           user_id: { type: "string" },
+          session_id: { type: "string" },
+          source: { type: "string" },
+          release: { type: "string" },
           metadata: { type: "object", additionalProperties: true }
         }
       },
@@ -606,14 +619,27 @@ export const openApiDocument = {
             "multipart/form-data": {
               schema: {
                 type: "object",
-                required: ["project_id", "environment_id", "release", "minified_file", "file"],
+                required: ["project_id", "environment_id", "release"],
                 properties: {
                   project_id: { type: "string" },
                   environment_id: { type: "string" },
                   release: { type: "string" },
-                  minified_file: { type: "string" },
-                  file: { type: "string", format: "binary" }
-                }
+                  minified_file: {
+                    type: "string",
+                    description: "Required when uploading a single .map file. Omit for zip bundles."
+                  },
+                  file: {
+                    type: "string",
+                    format: "binary",
+                    description: "Single source-map file. Provide exactly one of file or bundle."
+                  },
+                  bundle: {
+                    type: "string",
+                    format: "binary",
+                    description: "Zip bundle containing one or more .map files. Provide exactly one of file or bundle."
+                  }
+                },
+                anyOf: [{ required: ["file", "minified_file"] }, { required: ["bundle"] }]
               }
             }
           }

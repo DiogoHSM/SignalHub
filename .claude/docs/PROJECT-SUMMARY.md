@@ -2,13 +2,13 @@
 
 SignalMonitor is the current product identity for the self-hosted telemetry core formerly developed as SignalHub. It covers product analytics, errors, LLM calls, traces, and spans, giving operators one installable service for capturing standardized signals from multiple projects and environments.
 
-The intended public website and domain is `sigmon.app`. The intended deployed application host is `my.sigmon.app`.
+The intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.
 
 MicroERP is Diogo's personal project and the first real validation target for testing SignalMonitor against a production-shaped integration.
 
 ## Current Phase
 
-Phase 6D: Critical Hygiene. The audit top 10 hardening items are implemented; Phase 6F EasyPanel VPS deployment is next.
+Phase 6G: Product hardening and documentation reconciliation. The audit top hardening items are implemented, EasyPanel VPS deployment is operational, and the current focus is keeping product/API/SDK documentation aligned with the implementation while the console evolves from MVP to product-grade operations tooling.
 
 Implemented capabilities:
 
@@ -38,7 +38,7 @@ Implemented capabilities:
 - Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
-- Internal alert history with optional generic webhook notification channels and recorded delivery attempts.
+- Internal alert history with optional email and generic webhook notification channels and recorded delivery attempts.
 - Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, controlled replay, automatic expiration, and retained replay/delete/expiration audit actions.
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
@@ -64,7 +64,7 @@ Implemented capabilities:
 - Full visual session replay and a dedicated Sessions investigation workspace.
 - Stored log telemetry.
 - Retention for operational metadata, projects, environments, users, API keys, or dead-letter action history.
-- Native email, Telegram, Discord, escalation, silencing, acknowledgement, and alert retry workflows.
+- Native Telegram, Discord, WhatsApp, escalation, silencing, acknowledgement, and on-call rotation workflows.
 - Additional language SDKs beyond JavaScript/TypeScript.
 
 ## Primary Operator Flow
