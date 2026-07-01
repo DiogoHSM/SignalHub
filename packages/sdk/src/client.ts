@@ -1,4 +1,3 @@
-import { nanoid } from "nanoid";
 import {
   createBreadcrumbSignal,
   createErrorSignal,
@@ -12,6 +11,7 @@ import {
 import { createSignalQueue } from "./queue.js";
 import { sendSignal } from "./retry.js";
 import { enforcePayloadSize, sanitizePayload } from "./sanitize.js";
+import { createTraceContext, traceContextHeaders } from "./trace-context.js";
 import type {
   ActiveTrace,
   BreadcrumbInput,
@@ -256,11 +256,17 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
     },
 
     startTrace(name: string, input?: StartTraceInput & SignalContext): ActiveTrace {
-      const traceId = input?.traceId ?? `trc_${nanoid()}`;
+      const canUseW3cTraceId =
+        input?.traceId === undefined || (/^[0-9a-f]{32}$/.test(input.traceId) && input.traceId !== "0".repeat(32));
+      const traceContext = canUseW3cTraceId ? createTraceContext(input?.traceId) : undefined;
+      const traceId = input?.traceId ?? traceContext?.traceId ?? createTraceContext().traceId;
       const startedAt = toDate(input?.startedAt);
 
       return {
         traceId,
+        spanId: traceContext?.spanId,
+        traceparent: traceContext?.traceparent,
+        headers: () => (traceContext ? traceContextHeaders(traceContext) : {}),
         startedAt,
         end(endInput?: EndTraceInput, context?: SignalContext): void {
           const endedAt = endInput?.endedAt ?? input?.endedAt ?? new Date();

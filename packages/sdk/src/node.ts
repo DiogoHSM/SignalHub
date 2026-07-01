@@ -12,6 +12,8 @@ export type {
 } from "./index.js";
 
 export { createSignalMonitorClient } from "./client.js";
+export { createTraceContext, parseTraceparent, traceContextHeaders } from "./trace-context.js";
+export type { TraceContext } from "./trace-context.js";
 
 type NodeProcessLike = {
   on: (event: "uncaughtException" | "unhandledRejection", listener: (...args: unknown[]) => void) => unknown;

@@ -387,6 +387,23 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes service map query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { edges: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getServiceMap?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 10
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/apm/service-map?project_id=prj_1&environment_id=env_1&window=7d&limit=10",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

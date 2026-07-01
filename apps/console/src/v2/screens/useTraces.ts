@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { ApmEndpoint, TraceRecord } from "../../api/types";
+import type { ApmEndpoint, ServiceMapEdge, TraceRecord } from "../../api/types";
 
 // ---------------------------------------------------------------------------
 // View-model types
@@ -31,9 +31,32 @@ export type ApmEndpointVM = {
   lastSeenAt: string | null;
 };
 
+export type ServiceMapEdgeVM = {
+  source: string;
+  target: string;
+  dependencyType: string;
+  spans: number;
+  traces: number;
+  errors: number;
+  errorRatePercent: number | null;
+  averageDurationMs: number | null;
+  p95DurationMs: number | null;
+  lastSeenAt: string | null;
+};
+
 export type UseTracesResult = {
   data: TraceListItemVM[] | null;
   endpoints: ApmEndpointVM[];
+  serviceMap: {
+    edges: ServiceMapEdgeVM[];
+    totals: {
+      services: number;
+      edges: number;
+      spans: number;
+      errors: number;
+      errorRatePercent: number | null;
+    } | null;
+  };
   totals: {
     endpoints: number;
     requests: number;
@@ -47,7 +70,11 @@ export type UseTracesResult = {
 };
 
 type UseTracesArgs = {
-  client: { listTraces: ApiClient["listTraces"]; getApmEndpoints?: ApiClient["getApmEndpoints"] };
+  client: {
+    listTraces: ApiClient["listTraces"];
+    getApmEndpoints?: ApiClient["getApmEndpoints"];
+    getServiceMap?: ApiClient["getServiceMap"];
+  };
   projectId: string | undefined;
   environmentId: string | undefined;
   endpointName?: string | null;
@@ -55,6 +82,7 @@ type UseTracesArgs = {
 
 const RECENT_TRACES_LIMIT = 25;
 const APM_ENDPOINT_LIMIT = 50;
+const SERVICE_MAP_LIMIT = 50;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,6 +108,21 @@ function mapEndpoint(row: ApmEndpoint): ApmEndpointVM {
   };
 }
 
+function mapServiceMapEdge(row: ServiceMapEdge): ServiceMapEdgeVM {
+  return {
+    source: row.source,
+    target: row.target,
+    dependencyType: row.dependencyType,
+    spans: row.spans,
+    traces: row.traces,
+    errors: row.errors,
+    errorRatePercent: row.errorRatePercent,
+    averageDurationMs: row.averageDurationMs,
+    p95DurationMs: row.p95DurationMs,
+    lastSeenAt: row.lastSeenAt,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -88,6 +131,7 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<TraceListItemVM[] | null>(null);
   const [endpoints, setEndpoints] = useState<ApmEndpointVM[]>([]);
+  const [serviceMap, setServiceMap] = useState<UseTracesResult["serviceMap"]>({ edges: [], totals: null });
   const [totals, setTotals] = useState<UseTracesResult["totals"]>(null);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
@@ -109,9 +153,12 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
     const apmPromise = client.getApmEndpoints
       ? client.getApmEndpoints({ projectId, environmentId, window: "24h", limit: APM_ENDPOINT_LIMIT }).then((res) => res.data)
       : Promise.resolve(null);
+    const serviceMapPromise = client.getServiceMap
+      ? client.getServiceMap({ projectId, environmentId, window: "24h", limit: SERVICE_MAP_LIMIT }).then((res) => res.data)
+      : Promise.resolve(null);
 
-    Promise.all([tracesPromise, apmPromise])
-      .then(([res, apm]) => {
+    Promise.all([tracesPromise, apmPromise, serviceMapPromise])
+      .then(([res, apm, map]) => {
         if (gen !== genRef.current) return;
         const rows: TraceListItemVM[] = res.data.map((t) => ({
           id: t.id,
@@ -126,6 +173,10 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
         }));
         setData(rows);
         setEndpoints(apm?.endpoints.map(mapEndpoint) ?? []);
+        setServiceMap({
+          edges: map?.edges.map(mapServiceMapEdge) ?? [],
+          totals: map?.totals ?? null,
+        });
         setTotals(apm?.totals ?? null);
         setStatus("ok");
       })
@@ -134,6 +185,7 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
         console.error(err);
         setData(null);
         setEndpoints([]);
+        setServiceMap({ edges: [], totals: null });
         setTotals(null);
         setStatus("error");
       });
@@ -144,5 +196,5 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, environmentId, endpointName, tick]);
 
-  return { data, endpoints, totals, status, reload };
+  return { data, endpoints, serviceMap, totals, status, reload };
 }

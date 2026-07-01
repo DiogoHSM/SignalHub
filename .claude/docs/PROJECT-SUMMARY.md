@@ -32,6 +32,7 @@ Implemented capabilities:
 - Errors investigation workspace with grouped triage, status updates, and raw occurrence drilldown/filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.
 - Endpoint-level APM rollups for project/environment traces, including request volume, error count/rate, p50/p95/p99 latency, average latency, Apdex, and drilldown from an endpoint row into matching recent traces/spans.
+- SDK trace propagation helpers for W3C `traceparent`, Next.js request context extraction, and a span-derived service map that highlights dependency edges by service, target, error rate, p95 latency, and volume.
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, trait-derived labels and chips, selected tenant top users, and cross-signal timeline drilldowns.
 - Read-only Users investigation workspace with impact-ranked user summaries, trait-derived labels and chips, selected user recent sessions, and cross-signal timeline drilldowns.

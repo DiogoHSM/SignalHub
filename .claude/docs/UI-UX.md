@@ -137,6 +137,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Traces now starts with an APM endpoint table before raw recent traces so operators can find slow or noisy routes first.
 - Endpoint rows should prioritize operation name, request volume, errors, error rate, p50, p95, p99, and Apdex in a dense table.
 - Clicking an endpoint filters the recent trace list to that route; opening a trace then continues into the existing waterfall/span detail view.
+- The Service map panel sits near APM endpoints and shows inferred dependency edges from span metadata so operators can spot slow or failing service, database, cache, HTTP, or LLM dependencies before opening individual traces.
 - APM cards should remain compact and dark, with no white table rows or detached chart-only surfaces.
 - The default APM window is 24h for day-to-day operational debugging; broader historical analytics can add window controls later.
 

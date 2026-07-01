@@ -167,6 +167,42 @@ export function SignalMonitorBrowserCapture() {
 }
 ```
 
+## Traces, Spans, and Propagation
+
+Use `startTrace` around request or workflow boundaries. New traces created without a custom `traceId` use W3C-compatible ids and expose `traceparent` headers for downstream calls.
+
+```ts
+const trace = sigmon.startTrace("POST /api/checkout", {
+  tenantId: "tenant_123",
+  userId: "user_456",
+  metadata: { service: "api" }
+});
+
+await fetch("https://worker.example.com/jobs", {
+  method: "POST",
+  headers: trace.headers(),
+  body: JSON.stringify({ type: "checkout" })
+});
+
+sigmon.span({
+  traceId: trace.traceId,
+  name: "postgres order lookup",
+  durationMs: 42,
+  status: "success"
+}, {
+  metadata: {
+    service: "api",
+    target_service: "postgres",
+    "db.system": "postgres"
+  }
+});
+
+trace.end({ status: "success" });
+await sigmon.flush();
+```
+
+Next.js wrappers read incoming `traceparent` headers automatically. Add `metadata.service`, `metadata.target_service`, `metadata.peer_service`, or `metadata.peer` to spans when you want the Sigmon service map to show dependency edges.
+
 ## Identify
 
 Use identify calls when stable user or tenant traits become known. Telemetry with matching `userId` or `tenantId` updates `last_seen_at`, but only identify calls update persisted traits.

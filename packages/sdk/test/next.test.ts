@@ -28,6 +28,29 @@ describe("Next.js SDK wrapper", () => {
     });
   });
 
+  it("prefers W3C traceparent over request id headers", () => {
+    const request = new Request("https://app.example.com/api/orders", {
+      method: "GET",
+      headers: {
+        traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        "x-request-id": "req_123"
+      }
+    });
+
+    expect(buildNextContext({ request, routeName: "GET /api/orders" })).toEqual({
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      source: "GET /api/orders",
+      metadata: {
+        correlation_id: "4bf92f3577b34da6a3ce929d0e0e4736",
+        parent_span_id: "00f067aa0ba902b7",
+        request_method: "GET",
+        request_path: "/api/orders",
+        route_name: "GET /api/orders",
+        traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+      }
+    });
+  });
+
   it("captures and flushes route handler errors with merged request context", async () => {
     const calls: Array<{ url: string; body: unknown }> = [];
     const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {

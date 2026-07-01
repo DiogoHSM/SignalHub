@@ -640,15 +640,28 @@ await sigmon.flush();</code></pre>
             </p>
             <pre><code>const trace = sigmon.startTrace("POST /api/checkout", {
   tenantId: "tenant_123",
-  userId: "user_456"
+  userId: "user_456",
+  metadata: { service: "api" }
 });
 
 try {
+  await fetch("https://worker.example.com/jobs", {
+    method: "POST",
+    headers: trace.headers(),
+    body: JSON.stringify({ type: "checkout" })
+  });
+
   sigmon.span({
     traceId: trace.traceId,
-    name: "stripe.payment_intent.create",
+    name: "postgres order lookup",
     durationMs: 214,
     status: "success"
+  }, {
+    metadata: {
+      service: "api",
+      target_service: "postgres",
+      "db.system": "postgres"
+    }
   });
 
   trace.end({ status: "success" });
@@ -660,6 +673,12 @@ try {
   trace.end({ status: "error" });
   throw error;
 }</code></pre>
+            <div class="callout">
+              New traces created without a custom trace id expose W3C <code>traceparent</code> headers.
+              Next.js wrappers read incoming <code>traceparent</code> automatically. Add
+              <code>service</code>, <code>target_service</code>, <code>peer_service</code>, or
+              <code>peer</code> metadata to spans so the Sigmon service map can infer dependencies.
+            </div>
           </section>
 
           <section id="llm">

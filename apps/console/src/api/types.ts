@@ -563,6 +563,40 @@ export type ApmEndpointsResponse = {
   endpoints: ApmEndpoint[];
 };
 
+export type ServiceMapEdge = {
+  source: string;
+  target: string;
+  dependencyType: string;
+  spans: number;
+  traces: number;
+  errors: number;
+  errorRatePercent: number | null;
+  averageDurationMs: number | null;
+  p95DurationMs: number | null;
+  lastSeenAt: string | null;
+};
+
+export type ServiceMapResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    services: number;
+    edges: number;
+    spans: number;
+    errors: number;
+    errorRatePercent: number | null;
+  };
+  edges: ServiceMapEdge[];
+};
+
 export type OperationsMonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
 
 export type OperationsStatusCounts = {

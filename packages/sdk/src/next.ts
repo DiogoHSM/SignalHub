@@ -3,6 +3,7 @@ import {
   installBrowserErrorCapture as installBrowserErrorCaptureBase,
   type BrowserErrorCaptureOptions as BaseBrowserErrorCaptureOptions
 } from "./browser-errors.js";
+import { parseTraceparent } from "./trace-context.js";
 import type {
   ErrorInput,
   ErrorSeverity,
@@ -58,6 +59,7 @@ export type SignalMonitorActionOptions<TArgs extends unknown[] = unknown[]> = Ne
 
 const DEFAULT_CORRELATION_HEADER = "x-request-id";
 const FALLBACK_CORRELATION_HEADER = "x-correlation-id";
+const TRACEPARENT_HEADER = "traceparent";
 
 export type BrowserErrorCaptureOptions = Omit<BaseBrowserErrorCaptureOptions, "context"> & {
   context?: NextRequestErrorInput;
@@ -72,8 +74,10 @@ export function buildNextContext(input?: NextContextInput): SignalContext {
     ...signalContext
   } = input ?? {};
   const requestMetadata = buildRequestMetadata(input);
+  const traceContext = parseTraceparent(getHeader(input?.request?.headers, TRACEPARENT_HEADER));
   const traceId =
     input?.traceId ??
+    traceContext?.traceId ??
     getHeader(input?.request?.headers, input?.correlationHeader ?? DEFAULT_CORRELATION_HEADER) ??
     getHeader(input?.request?.headers, FALLBACK_CORRELATION_HEADER);
   const metadata = {
@@ -169,6 +173,9 @@ export function installBrowserErrorCapture(
   return installBrowserErrorCaptureBase(bridgeClient, options as BaseBrowserErrorCaptureOptions);
 }
 
+export { createTraceContext, parseTraceparent, traceContextHeaders } from "./trace-context.js";
+export type { TraceContext } from "./trace-context.js";
+
 async function handleWrapperError(
   error: unknown,
   input: {
@@ -252,11 +259,16 @@ function buildRequestMetadata(input?: NextContextInput): SignalMetadata {
   const metadata: SignalMetadata = {};
   const correlationId =
     input?.traceId ??
+    parseTraceparent(getHeader(input?.request?.headers, TRACEPARENT_HEADER))?.traceId ??
     getHeader(input?.request?.headers, input?.correlationHeader ?? DEFAULT_CORRELATION_HEADER) ??
     getHeader(input?.request?.headers, FALLBACK_CORRELATION_HEADER);
+  const traceparent = getHeader(input?.request?.headers, TRACEPARENT_HEADER);
+  const parentSpanId = parseTraceparent(traceparent)?.spanId;
   const requestPath = getRequestPath(input?.request?.url);
 
   assignMetadata(metadata, "correlation_id", correlationId);
+  assignMetadata(metadata, "traceparent", traceparent);
+  assignMetadata(metadata, "parent_span_id", parentSpanId);
   assignMetadata(metadata, "module", input?.module);
   assignMetadata(metadata, "request_method", input?.request?.method);
   assignMetadata(metadata, "request_path", requestPath);

@@ -92,6 +92,7 @@ import {
 } from "@sigmon/db/repositories/source-map-upload-tokens.js";
 import {
   getApmEndpoints,
+  getServiceMap,
   getErrorAggregates,
   getErrorForSourceMapResolution,
   getEventAggregates,
@@ -608,6 +609,7 @@ const app = await buildApp({
     getOverview: (filters) => getOverview(db, filters),
     getOperations: (filters) => getOperations(db, filters),
     getApmEndpoints: (filters) => getApmEndpoints(db, filters),
+    getServiceMap: (filters) => getServiceMap(db, filters),
     getTraceAggregates: (filters) => getTraceAggregates(db, filters),
     listEntityTenants: (filters) => listEntityTenants(db, filters),
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),

@@ -232,7 +232,7 @@ Raw error details can resolve minified production stack frames on demand through
 
 Raw error details can also show session context when the selected error has a `session_id`. The timeline combines breadcrumbs and nearby existing signals in chronological order, highlights the selected error, and displays safe summaries only. Full visual replay and a dedicated Sessions investigation tab remain deferred.
 
-The console also includes a read-only Traces view for raw traces and ordered spans. It uses `GET /query/traces` for trace rows and `GET /query/traces/:id/spans` for spans loaded after selecting a trace. This slice does not add cross-signal timelines, trace mutation, charts, storage tables, or ingestion routes.
+The console also includes a Traces/APM view for raw traces, ordered spans, endpoint performance, and span-derived service dependencies. It uses `GET /query/traces` for trace rows, `GET /query/traces/:id/spans` for spans loaded after selecting a trace, `GET /query/apm/endpoints` for endpoint-level latency/throughput rollups, and `GET /query/apm/service-map` for service dependency edges inferred from span `metadata.service`, `metadata.target_service`, `metadata.peer_service`, `metadata.peer`, source, and operation names. This slice does not add new storage tables or ingestion routes.
 
 The console also includes a read-only LLM view for raw AI calls and compact aggregate totals. It uses `GET /query/llm-calls` for call rows and `GET /query/aggregates/llm` for total calls, input tokens, output tokens, and total cost. This slice supports exact `provider`, `model`, `prompt_name`, and `status` filters and does not add charts, grouping, mutation, cross-signal timelines, storage tables, or ingestion routes.
 

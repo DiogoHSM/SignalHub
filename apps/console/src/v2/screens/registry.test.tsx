@@ -186,6 +186,7 @@ describe("screen registry", () => {
     vi.spyOn(useTracesModule, "useTraces").mockReturnValue({
       data: null,
       endpoints: [],
+      serviceMap: { edges: [], totals: null },
       totals: null,
       status: "loading",
       reload: vi.fn()

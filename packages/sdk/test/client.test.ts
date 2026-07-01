@@ -319,6 +319,8 @@ describe("createSignalMonitorClient", () => {
     await client.flush();
 
     expect(activeTrace.traceId).toBe("trace_supplied");
+    expect(activeTrace.traceparent).toBeUndefined();
+    expect(activeTrace.headers()).toEqual({});
     expect(activeTrace.startedAt).toEqual(new Date("2026-05-02T12:00:00.000Z"));
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://api.sigmon.test/v1/traces",
@@ -331,6 +333,28 @@ describe("createSignalMonitorClient", () => {
       ended_at: "2026-05-02T12:00:02.500Z",
       duration_ms: 2500,
       trace_id: "trace_supplied"
+    });
+  });
+
+  it("startTrace creates W3C-compatible trace context when no trace id is supplied", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0
+    });
+
+    const activeTrace = client.startTrace("POST /api/orders");
+    activeTrace.end();
+    await client.flush();
+
+    expect(activeTrace.traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(activeTrace.spanId).toMatch(/^[0-9a-f]{16}$/);
+    expect(activeTrace.traceparent).toBe(`00-${activeTrace.traceId}-${activeTrace.spanId}-01`);
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({
+      name: "POST /api/orders",
+      trace_id: activeTrace.traceId
     });
   });
 

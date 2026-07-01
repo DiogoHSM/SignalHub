@@ -90,6 +90,7 @@ import {
   getLlmCostByModel,
   getLlmSummary,
   getApmEndpoints,
+  getServiceMap,
   getOverview,
   getErrorForSourceMapResolution,
   getTraceAggregates,
@@ -6463,6 +6464,77 @@ describe("repositories", () => {
       await expect(
         listTraces(db, { projectId: project.id, environmentId: environment.id, traceName: "GET /api/orders", limit: 10 })
       ).resolves.toMatchObject({ data: expect.arrayContaining([expect.objectContaining({ name: "GET /api/orders" })]) });
+    });
+  });
+
+  it("aggregates service map edges from span service metadata", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Service Map Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        traceId: "trace_service_map",
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:55:01.000Z"),
+        startedAt: new Date("2026-05-24T11:55:00.000Z"),
+        endedAt: new Date("2026-05-24T11:55:01.000Z"),
+        source: "api",
+        release: "1.0.0"
+      };
+
+      await insertSpan(db, {
+        ...base,
+        id: "spn_service_map_db_1",
+        name: "postgres query orders",
+        status: "success",
+        durationMs: 120,
+        metadata: { service: "api", target_service: "postgres", db: { system: "postgres" } }
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_service_map_db_2",
+        name: "postgres query orders",
+        status: "error",
+        durationMs: 500,
+        metadata: { service: "api", target_service: "postgres" }
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_service_map_worker",
+        name: "http request worker",
+        status: "success",
+        durationMs: 80,
+        metadata: { service: "api", peer_service: "worker" }
+      });
+
+      const map = await getServiceMap(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(map.totals).toMatchObject({
+        edges: 2,
+        spans: 3,
+        errors: 1,
+        errorRatePercent: 33
+      });
+      expect(map.edges[0]).toMatchObject({
+        source: "api",
+        target: "postgres",
+        dependencyType: "database",
+        spans: 2,
+        traces: 1,
+        errors: 1,
+        errorRatePercent: 50,
+        averageDurationMs: 310,
+        p95DurationMs: 481
+      });
     });
   });
 

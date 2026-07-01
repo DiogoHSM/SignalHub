@@ -160,6 +160,40 @@ export interface ApmEndpointsResponse {
   endpoints: ApmEndpointRow[];
 }
 
+export interface ServiceMapEdge {
+  source: string;
+  target: string;
+  dependencyType: string;
+  spans: number;
+  traces: number;
+  errors: number;
+  errorRatePercent: number | null;
+  averageDurationMs: number | null;
+  p95DurationMs: number | null;
+  lastSeenAt: string | null;
+}
+
+export interface ServiceMapResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    services: number;
+    edges: number;
+    spans: number;
+    errors: number;
+    errorRatePercent: number | null;
+  };
+  edges: ServiceMapEdge[];
+}
+
 export interface OverviewFilters {
   projectId: string;
   environmentId: string;
@@ -944,6 +978,168 @@ export async function getApmEndpoints(db: Db, filters: ApmFilters): Promise<ApmE
       p99DurationMs: toRoundedOrNull(row.p99_duration_ms),
       averageDurationMs: toRoundedOrNull(row.average_duration_ms),
       apdex: toNullableNumber(row.apdex),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
+}
+
+export async function getServiceMap(db: Db, filters: ApmFilters): Promise<ServiceMapResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const edgesResult = await sql<{
+    source: string;
+    target: string;
+    dependency_type: string;
+    spans: unknown;
+    traces: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+    average_duration_ms: unknown;
+    p95_duration_ms: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(metadata->>'service', ''), nullif(source, ''), '(unknown service)') as source,
+        coalesce(
+          nullif(metadata->>'target_service', ''),
+          nullif(metadata->>'peer_service', ''),
+          nullif(metadata->>'peer', ''),
+          nullif(metadata->>'db.system', ''),
+          case
+            when lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+            when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+            when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'external-http'
+            when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm-provider'
+            else '(internal)'
+          end
+        ) as target,
+        case
+          when metadata ? 'db.system' or lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+          when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+          when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm'
+          when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'http'
+          else 'internal'
+        end as dependency_type,
+        trace_id,
+        status,
+        duration_ms,
+        timestamp
+      from spans
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    )
+    select
+      source,
+      target,
+      dependency_type,
+      count(*) as spans,
+      count(distinct trace_id) as traces,
+      count(*) filter (where status <> 'success') as errors,
+      case
+        when count(*) = 0 then null
+        else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+      end as error_rate_percent,
+      avg(duration_ms) filter (where duration_ms is not null) as average_duration_ms,
+      percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
+      max(timestamp) as last_seen_at
+    from scoped
+    group by source, target, dependency_type
+    order by errors desc, p95_duration_ms desc nulls last, spans desc, source asc, target asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    services: unknown;
+    edges: unknown;
+    spans: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(metadata->>'service', ''), nullif(source, ''), '(unknown service)') as source,
+        coalesce(
+          nullif(metadata->>'target_service', ''),
+          nullif(metadata->>'peer_service', ''),
+          nullif(metadata->>'peer', ''),
+          nullif(metadata->>'db.system', ''),
+          case
+            when lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+            when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+            when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'external-http'
+            when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm-provider'
+            else '(internal)'
+          end
+        ) as target,
+        case
+          when metadata ? 'db.system' or lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+          when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+          when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm'
+          when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'http'
+          else 'internal'
+        end as dependency_type,
+        status
+      from spans
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    grouped as (
+      select source, target, dependency_type, count(*) as spans, count(*) filter (where status <> 'success') as errors
+      from scoped
+      group by source, target, dependency_type
+    ),
+    service_nodes as (
+      select source as service from grouped
+      union
+      select target as service from grouped
+    )
+    select
+      (select count(*) from service_nodes) as services,
+      count(*) as edges,
+      coalesce(sum(spans), 0) as spans,
+      coalesce(sum(errors), 0) as errors,
+      case
+        when coalesce(sum(spans), 0) = 0 then null
+        else (coalesce(sum(errors), 0)::numeric / sum(spans)::numeric) * 100
+      end as error_rate_percent
+    from grouped
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      services: toNumber(totals?.services),
+      edges: toNumber(totals?.edges),
+      spans: toNumber(totals?.spans),
+      errors: toNumber(totals?.errors),
+      errorRatePercent: toRoundedOrNull(totals?.error_rate_percent)
+    },
+    edges: edgesResult.rows.map((row) => ({
+      source: row.source,
+      target: row.target,
+      dependencyType: row.dependency_type,
+      spans: toNumber(row.spans),
+      traces: toNumber(row.traces),
+      errors: toNumber(row.errors),
+      errorRatePercent: toRoundedOrNull(row.error_rate_percent),
+      averageDurationMs: toRoundedOrNull(row.average_duration_ms),
+      p95DurationMs: toRoundedOrNull(row.p95_duration_ms),
       lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
     }))
   };

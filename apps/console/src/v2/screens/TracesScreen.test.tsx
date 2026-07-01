@@ -7,7 +7,7 @@ import { TracesScreen } from "./TracesScreen";
 import type { ScreenCtx } from "./registry";
 import * as useTracesModule from "./useTraces";
 import * as useTraceSpansModule from "./useTraceSpans";
-import type { ApmEndpointVM, TraceListItemVM, UseTracesResult } from "./useTraces";
+import type { ApmEndpointVM, ServiceMapEdgeVM, TraceListItemVM, UseTracesResult } from "./useTraces";
 import type { TraceDetailVM } from "./useTraceSpans";
 
 afterEach(() => {
@@ -62,6 +62,21 @@ const endpoints: ApmEndpointVM[] = [
   },
 ];
 
+const serviceMapEdges: ServiceMapEdgeVM[] = [
+  {
+    source: "api",
+    target: "postgres",
+    dependencyType: "database",
+    spans: 12,
+    traces: 4,
+    errors: 1,
+    errorRatePercent: 8.3,
+    averageDurationMs: 180,
+    p95DurationMs: 430,
+    lastSeenAt: "2026-06-23T12:42:08.412Z",
+  },
+];
+
 const detail: TraceDetailVM = {
   summary: { totalMs: 2380, spanCount: 3, llmCostUsd: 0.024, llmTimeMs: 1716, dbTimeMs: 430, errorCount: 1 },
   spans: [
@@ -79,6 +94,10 @@ function mockList(data: TraceListItemVM[] | null, status: "loading" | "ok" | "er
   const result: UseTracesResult = {
     data,
     endpoints,
+    serviceMap: {
+      edges: serviceMapEdges,
+      totals: { services: 2, edges: 1, spans: 12, errors: 1, errorRatePercent: 8.3 },
+    },
     totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
     status,
     reload: vi.fn()
@@ -114,6 +133,8 @@ describe("TracesScreen — index", () => {
     render(<TracesScreen ctx={makeCtx()} />);
     expect(screen.getByText("Traces")).toBeInTheDocument();
     expect(screen.getByText("APM endpoints")).toBeInTheDocument();
+    expect(screen.getByText("Service map")).toBeInTheDocument();
+    expect(screen.getByText("postgres")).toBeInTheDocument();
     expect(screen.getByText("Endpoints")).toBeInTheDocument();
     expect(screen.getAllByText("POST /api/dashboards").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("GET /api/health").length).toBeGreaterThanOrEqual(2);
@@ -124,6 +145,10 @@ describe("TracesScreen — index", () => {
     useTracesSpy.mockReturnValue({
       data: traces,
       endpoints,
+      serviceMap: {
+        edges: serviceMapEdges,
+        totals: { services: 2, edges: 1, spans: 12, errors: 1, errorRatePercent: 8.3 },
+      },
       totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
       status: "ok",
       reload: vi.fn()

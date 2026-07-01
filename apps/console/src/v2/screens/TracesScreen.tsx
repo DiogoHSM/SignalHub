@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ScreenCtx } from "./registry";
 import { useTraces } from "./useTraces";
-import type { ApmEndpointVM, TraceListItemVM, UseTracesResult } from "./useTraces";
+import type { ApmEndpointVM, ServiceMapEdgeVM, TraceListItemVM, UseTracesResult } from "./useTraces";
 import { SPAN_KIND_COLOR, useTraceSpans } from "./useTraceSpans";
 import type { SpanNodeVM } from "./useTraceSpans";
 import {
@@ -210,11 +210,80 @@ function EndpointTable({
   );
 }
 
-function TraceListView({ ctx, traces, endpoints, totals, activeEndpoint, onSelectEndpoint, onClearEndpoint, onOpen }: {
+function ServiceMapPanel({ serviceMap }: { serviceMap: UseTracesResult["serviceMap"] }) {
+  const edges = serviceMap.edges.slice(0, 8);
+  return (
+    <div className="sh-card">
+      <div className="sh-card__head">
+        <div>
+          <h2 className="sh-h2">Service map</h2>
+          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            Span dependencies inferred from service, peer, target and operation metadata.
+          </p>
+        </div>
+        <span className="sh-tag">
+          {serviceMap.totals?.services ?? 0} services · {serviceMap.totals?.edges ?? edges.length} edges
+        </span>
+      </div>
+      {edges.length === 0 ? (
+        <EmptyHint icon="waterfall" title="No service dependencies yet" sub="Add span metadata such as service and target_service to build the map." />
+      ) : (
+        <div style={{ display: "grid", gap: 8, padding: "0 18px 18px" }}>
+          {edges.map((edge) => (
+            <ServiceMapEdgeRow edge={edge} key={`${edge.source}:${edge.target}:${edge.dependencyType}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ServiceMapEdgeRow({ edge }: { edge: ServiceMapEdgeVM }) {
+  const tone = edge.errors > 0 ? "critical" : edge.p95DurationMs != null && edge.p95DurationMs > 1000 ? "warn" : "ok";
+  return (
+    <div
+      className="sh-row"
+      style={{
+        gridTemplateColumns: "minmax(180px, 1fr) 28px minmax(180px, 1fr) repeat(5, minmax(72px, .45fr))",
+        alignItems: "center",
+        padding: "10px 12px",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 10,
+        background: "rgba(255,255,255,0.015)",
+      }}
+    >
+      <span className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {edge.source}
+      </span>
+      <Icon name="arrow" size={13} style={{ color: "var(--fg-faint)" }} />
+      <span className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {edge.target}
+      </span>
+      <span className="sh-tag mono">{edge.dependencyType}</span>
+      <span className="sh-mono">{edge.spans} spans</span>
+      <span className="sh-mono">{edge.traces} traces</span>
+      <span className={`sh-tag ${tone}`}>{edge.errors} err</span>
+      <span className="sh-mono">p95 {formatLatency(edge.p95DurationMs)}</span>
+    </div>
+  );
+}
+
+function TraceListView({
+  ctx,
+  traces,
+  endpoints,
+  totals,
+  serviceMap,
+  activeEndpoint,
+  onSelectEndpoint,
+  onClearEndpoint,
+  onOpen
+}: {
   ctx: ScreenCtx;
   traces: TraceListItemVM[];
   endpoints: ApmEndpointVM[];
   totals: UseTracesResult["totals"];
+  serviceMap: UseTracesResult["serviceMap"];
   activeEndpoint: string | null;
   onSelectEndpoint: (name: string) => void;
   onClearEndpoint: () => void;
@@ -251,6 +320,7 @@ function TraceListView({ ctx, traces, endpoints, totals, activeEndpoint, onSelec
         <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Apdex" value={formatApdex(totals?.apdex ?? null)} /></div></div>
       </div>
       <EndpointTable endpoints={endpoints} activeEndpoint={activeEndpoint} onSelect={onSelectEndpoint} />
+      <ServiceMapPanel serviceMap={serviceMap} />
       <div className="sh-card" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="sh-card__head">
           <h2 className="sh-h2">{activeEndpoint ? `Recent traces · ${activeEndpoint}` : "Recent traces"}</h2>
@@ -564,7 +634,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(undefined);
   const [selectedEndpointName, setSelectedEndpointName] = useState<string | null>(null);
 
-  const { data, endpoints, totals, status } = useTraces({
+  const { data, endpoints, serviceMap, totals, status } = useTraces({
     client: ctx.client,
     projectId,
     environmentId,
@@ -614,6 +684,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
       traces={data}
       endpoints={endpoints}
       totals={totals}
+      serviceMap={serviceMap}
       activeEndpoint={selectedEndpointName}
       onSelectEndpoint={(name) => {
         setSelectedTraceId(undefined);

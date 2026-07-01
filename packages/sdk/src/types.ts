@@ -110,6 +110,9 @@ export type EndTraceInput = Partial<Omit<TraceInput, "name" | "startedAt">>;
 
 export type ActiveTrace = {
   traceId: string;
+  spanId?: string;
+  traceparent?: string;
+  headers: () => Record<string, string>;
   startedAt: Date;
   end: (input?: EndTraceInput, context?: SignalContext) => void;
 };
