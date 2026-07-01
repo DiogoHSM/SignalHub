@@ -234,6 +234,62 @@ export interface WebVitalsResponse {
   metrics: WebVitalMetricRow[];
 }
 
+export interface RuntimeProfileRow {
+  id: string;
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service: string | null;
+  route: string | null;
+  traceId: string | null;
+  source: string | null;
+  release: string | null;
+  startedAt: string;
+  durationMs: number | null;
+  sampleCount: number;
+  cpuUsagePercent: number | null;
+  heapUsedBytes: number | null;
+  rssBytes: number | null;
+  topFunction: string | null;
+  topFunctionSelfTimeMs: number | null;
+}
+
+export interface RuntimeProfileHotFunctionRow {
+  functionName: string;
+  url: string | null;
+  lineNumber: number | null;
+  columnNumber: number | null;
+  selfTimeMs: number;
+  totalTimeMs: number | null;
+  sampleCount: number;
+  profileCount: number;
+  lastSeenAt: string | null;
+}
+
+export interface RuntimeProfilesResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    profiles: number;
+    cpuProfiles: number;
+    memoryProfiles: number;
+    samples: number;
+    avgCpuUsagePercent: number | null;
+    maxHeapUsedBytes: number | null;
+    p95DurationMs: number | null;
+  };
+  profiles: RuntimeProfileRow[];
+  hotFunctions: RuntimeProfileHotFunctionRow[];
+}
+
 export interface OverviewFilters {
   projectId: string;
   environmentId: string;
@@ -1169,6 +1225,194 @@ export async function getWebVitals(db: Db, filters: ApmFilters): Promise<WebVita
       previousRelease: row.previous_release,
       previousReleaseP75Value: toRoundedOrNull(row.previous_release_p75_value),
       regressionPercent: toRoundedOrNull(row.regression_percent),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
+}
+
+export async function getRuntimeProfiles(db: Db, filters: ApmFilters): Promise<RuntimeProfilesResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const profilesResult = await sql<{
+    id: string;
+    name: string;
+    kind: "cpu" | "memory";
+    runtime: string;
+    service: string | null;
+    route: string | null;
+    trace_id: string | null;
+    source: string | null;
+    release: string | null;
+    started_at: Date | string;
+    duration_ms: number | null;
+    sample_count: unknown;
+    cpu_usage_percent: unknown;
+    heap_used_bytes: unknown;
+    rss_bytes: unknown;
+    top_function: string | null;
+    top_function_self_time_ms: unknown;
+  }>`
+    select
+      id,
+      name,
+      kind,
+      runtime,
+      service,
+      route,
+      trace_id,
+      source,
+      release,
+      started_at,
+      duration_ms,
+      sample_count,
+      cpu_usage_percent,
+      heap_used_bytes,
+      rss_bytes,
+      (
+        select frame ->> 'functionName'
+        from jsonb_array_elements(top_functions) frame
+        order by coalesce((frame ->> 'selfTimeMs')::numeric, 0) desc, coalesce((frame ->> 'sampleCount')::integer, 0) desc
+        limit 1
+      ) as top_function,
+      (
+        select coalesce((frame ->> 'selfTimeMs')::numeric, 0)
+        from jsonb_array_elements(top_functions) frame
+        order by coalesce((frame ->> 'selfTimeMs')::numeric, 0) desc, coalesce((frame ->> 'sampleCount')::integer, 0) desc
+        limit 1
+      ) as top_function_self_time_ms
+    from profiles
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+    order by timestamp desc, id desc
+    limit ${limit}
+  `.execute(db);
+
+  const hotFunctionsResult = await sql<{
+    function_name: string | null;
+    url: string | null;
+    line_number: unknown;
+    column_number: unknown;
+    self_time_ms: unknown;
+    total_time_ms: unknown;
+    sample_count: unknown;
+    profile_count: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select timestamp, top_functions
+      from profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+        and kind = 'cpu'
+    ),
+    frames as (
+      select
+        frame ->> 'functionName' as function_name,
+        nullif(frame ->> 'url', '') as url,
+        nullif(frame ->> 'lineNumber', '')::integer as line_number,
+        nullif(frame ->> 'columnNumber', '')::integer as column_number,
+        coalesce((frame ->> 'selfTimeMs')::numeric, 0) as self_time_ms,
+        nullif(frame ->> 'totalTimeMs', '')::numeric as total_time_ms,
+        coalesce((frame ->> 'sampleCount')::integer, 0) as sample_count,
+        timestamp
+      from scoped
+      cross join lateral jsonb_array_elements(top_functions) frame
+      where frame ->> 'functionName' is not null
+    )
+    select
+      function_name,
+      url,
+      line_number,
+      column_number,
+      sum(self_time_ms) as self_time_ms,
+      sum(total_time_ms) as total_time_ms,
+      sum(sample_count) as sample_count,
+      count(*) as profile_count,
+      max(timestamp) as last_seen_at
+    from frames
+    group by function_name, url, line_number, column_number
+    order by self_time_ms desc, sample_count desc, profile_count desc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    profiles: unknown;
+    cpu_profiles: unknown;
+    memory_profiles: unknown;
+    samples: unknown;
+    avg_cpu_usage_percent: unknown;
+    max_heap_used_bytes: unknown;
+    p95_duration_ms: unknown;
+  }>`
+    select
+      count(*) as profiles,
+      count(*) filter (where kind = 'cpu') as cpu_profiles,
+      count(*) filter (where kind = 'memory') as memory_profiles,
+      coalesce(sum(sample_count), 0) as samples,
+      avg(cpu_usage_percent) filter (where cpu_usage_percent is not null) as avg_cpu_usage_percent,
+      max(heap_used_bytes) as max_heap_used_bytes,
+      percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms
+    from profiles
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      profiles: toNumber(totals?.profiles),
+      cpuProfiles: toNumber(totals?.cpu_profiles),
+      memoryProfiles: toNumber(totals?.memory_profiles),
+      samples: toNumber(totals?.samples),
+      avgCpuUsagePercent: toRoundedOrNull(totals?.avg_cpu_usage_percent),
+      maxHeapUsedBytes: toNullableNumber(totals?.max_heap_used_bytes),
+      p95DurationMs: toRoundedOrNull(totals?.p95_duration_ms)
+    },
+    profiles: profilesResult.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      runtime: row.runtime,
+      service: row.service,
+      route: row.route,
+      traceId: row.trace_id,
+      source: row.source,
+      release: row.release,
+      startedAt: toIso(row.started_at),
+      durationMs: row.duration_ms,
+      sampleCount: toNumber(row.sample_count),
+      cpuUsagePercent: toNullableNumber(row.cpu_usage_percent),
+      heapUsedBytes: toNullableNumber(row.heap_used_bytes),
+      rssBytes: toNullableNumber(row.rss_bytes),
+      topFunction: row.top_function,
+      topFunctionSelfTimeMs: toNullableNumber(row.top_function_self_time_ms)
+    })),
+    hotFunctions: hotFunctionsResult.rows.map((row) => ({
+      functionName: row.function_name ?? "(anonymous)",
+      url: row.url,
+      lineNumber: toFiniteSafeNumber(row.line_number),
+      columnNumber: toFiniteSafeNumber(row.column_number),
+      selfTimeMs: toNumber(row.self_time_ms),
+      totalTimeMs: toNullableNumber(row.total_time_ms),
+      sampleCount: toNumber(row.sample_count),
+      profileCount: toNumber(row.profile_count),
       lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
     }))
   };

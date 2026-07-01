@@ -93,6 +93,8 @@ Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same p
 
 Web Vitals are stored in the `web_vitals` telemetry table. Browser SDK helpers send LCP, INP, CLS, FCP, FID, and TTFB samples through `POST /v1/web-vitals` with route, navigation type, rating, release, and the shared telemetry envelope. `GET /query/apm/web-vitals` aggregates p75 values by metric and route, rating counts, latest/previous release p75 values, and regression percentage for the Traces/APM workspace.
 
+Runtime profiles are stored in the `profiles` telemetry table. Node SDK helpers send bounded opt-in CPU and memory snapshots through `POST /v1/profiles`; custom runtimes can use the same REST contract directly. `GET /query/apm/profiles` aggregates CPU profile count, memory profile count, average duration, latest memory usage, recent profiles, and hot functions for the Traces/APM workspace. Profiles are designed for targeted investigations rather than always-on raw profiler dumps.
+
 ## API Surface
 
 Health:
@@ -192,7 +194,7 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals` and `deleted_dead_letter_jobs` counts.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 

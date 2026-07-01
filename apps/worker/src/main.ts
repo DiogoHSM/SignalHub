@@ -12,6 +12,7 @@ import {
   insertError,
   insertEvent,
   insertLlmCall,
+  insertProfile,
   insertSpan,
   insertTrace,
   insertWebVital
@@ -87,6 +88,7 @@ const writer: TelemetryWriter = {
   insertTrace: (input) => insertTrace(db, input),
   insertSpan: (input) => insertSpan(db, input),
   insertWebVital: (input) => insertWebVital(db, input),
+  insertProfile: (input) => insertProfile(db, input),
   insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 };
 
@@ -142,6 +144,7 @@ const retentionPolicy = {
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
+  profilesDays: config.retention.profilesDays,
   breadcrumbsDays: config.retention.breadcrumbsDays,
   deadLetterJobsDays: config.retention.deadLetterJobsDays,
   sourceMapsEnabled: config.sourceMaps.retention.enabled,

@@ -33,6 +33,7 @@ function createWriter(): TelemetryWriter {
     insertTrace: vi.fn(async () => undefined),
     insertSpan: vi.fn(async () => undefined),
     insertWebVital: vi.fn(async () => undefined),
+    insertProfile: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
@@ -362,6 +363,44 @@ describe("processTelemetryJob", () => {
           token: "[REDACTED]",
           nested: { authorization: "[REDACTED]" }
         }
+      })
+    );
+  });
+
+  it("persists runtime profile jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "profile",
+      id: "prf_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        trace_id: "trace_1",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        started_at: "2026-05-11T12:00:00.000Z",
+        duration_ms: 120,
+        sample_count: 2,
+        top_functions: [{ function_name: "tick", self_time_ms: 14, sample_count: 2 }],
+        summary: { token: "secret" }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "prf_1",
+        traceId: "trace_1",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        durationMs: 120,
+        sampleCount: 2,
+        topFunctions: [expect.objectContaining({ functionName: "tick", selfTimeMs: 14, sampleCount: 2 })],
+        summary: { token: "[REDACTED]" }
       })
     );
   });
@@ -956,6 +995,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -971,6 +1011,7 @@ describe("runRetentionOnce", () => {
             spans: 4,
             llmCalls: 5,
             webVitals: 0,
+          profiles: 0,
           breadcrumbs: 6,
             deadLetterJobs: 0,
             sourceMapArtifacts: 0,
@@ -1003,6 +1044,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1031,6 +1073,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1064,6 +1107,7 @@ describe("runRetentionOnce", () => {
           traces: 0,
           llmCalls: 0,
           webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1090,6 +1134,7 @@ describe("runRetentionOnce", () => {
           tracesDays: 90,
           spansDays: 90,
           llmCallsDays: 180,
+          profilesDays: 30,
           breadcrumbsDays: 30,
           deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1108,6 +1153,7 @@ describe("runRetentionOnce", () => {
                   spans: 4,
                   llmCalls: 5,
                   webVitals: 0,
+          profiles: 0,
           breadcrumbs: 6,
                   deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1141,6 +1187,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1158,6 +1205,7 @@ describe("runRetentionOnce", () => {
               spans: 0,
               llmCalls: 0,
               webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
               deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1194,6 +1242,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: false,
@@ -1210,6 +1259,7 @@ describe("runRetentionOnce", () => {
             spans: 0,
             llmCalls: 0,
             webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
             deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1240,6 +1290,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1258,6 +1309,7 @@ describe("runRetentionOnce", () => {
                 spans: 0,
                 llmCalls: 0,
                 webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
                 deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1284,6 +1336,7 @@ describe("runRetentionOnce", () => {
           spans: 0,
           llmCalls: 0,
           webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1306,6 +1359,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1322,6 +1376,7 @@ describe("runRetentionOnce", () => {
             spans: 0,
             llmCalls: 0,
             webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
             deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1345,6 +1400,7 @@ describe("runRetentionOnce", () => {
           spans: 0,
           llmCalls: 0,
           webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 1,

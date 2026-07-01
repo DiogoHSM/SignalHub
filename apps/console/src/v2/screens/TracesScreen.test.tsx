@@ -121,6 +121,11 @@ function mockList(data: TraceListItemVM[] | null, status: "loading" | "ok" | "er
       metrics: webVitalMetrics,
       totals: { samples: 3, routes: 1, releases: 2, poorSamples: 1, p75LcpMs: 2925, p75InpMs: 180, p75Cls: 0.08 },
     },
+    runtimeProfiles: {
+      profiles: [],
+      hotFunctions: [],
+      totals: null,
+    },
     totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
     status,
     reload: vi.fn()
@@ -178,6 +183,11 @@ describe("TracesScreen — index", () => {
       webVitals: {
         metrics: webVitalMetrics,
         totals: { samples: 3, routes: 1, releases: 2, poorSamples: 1, p75LcpMs: 2925, p75InpMs: 180, p75Cls: 0.08 },
+      },
+      runtimeProfiles: {
+        profiles: [],
+        hotFunctions: [],
+        totals: null,
       },
       totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
       status: "ok",

@@ -209,6 +209,68 @@ export function SignalMonitorBrowserCapture() {
 }
 ```
 
+## Runtime Profiles
+
+Node runtime profiling is opt-in and bounded. Use it around worker jobs, scheduled tasks, CLI commands,
+or suspicious request paths when you need CPU hot functions or memory snapshots in the Traces/APM view.
+Profiles are sent to `/v1/profiles` and retained by `RETENTION_PROFILES_DAYS`.
+
+```ts
+import {
+  captureNodeMemoryProfile,
+  createSignalMonitorClient,
+  startNodeCpuProfile
+} from "@sigmon/sdk/node";
+
+const sigmon = createSignalMonitorClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.SIGMON_API_KEY ?? "",
+  defaultContext: {
+    source: "worker",
+    release: process.env.APP_VERSION,
+    metadata: { service: "worker" }
+  }
+});
+
+const cpu = await startNodeCpuProfile(sigmon, {
+  name: "worker.reconcileInvoices",
+  service: "worker",
+  maxDurationMs: 10_000,
+  flush: true
+});
+
+try {
+  await reconcileInvoices();
+} finally {
+  await cpu.stop();
+}
+
+await captureNodeMemoryProfile(sigmon, {
+  name: "worker.reconcileInvoices.memory",
+  service: "worker",
+  flush: true
+});
+```
+
+For custom runtimes or external profilers, call `sigmon.profile(...)` directly:
+
+```ts
+await sigmon.profile({
+  name: "api.checkout.cpu",
+  kind: "cpu",
+  runtime: "node",
+  service: "api",
+  startedAt: new Date().toISOString(),
+  endedAt: new Date().toISOString(),
+  durationMs: 250,
+  sampleCount: 120,
+  topFunctions: [
+    { functionName: "priceCart", selfTimeMs: 80, totalTimeMs: 120, sampleCount: 30 }
+  ],
+  summary: { trigger: "manual-smoke" }
+});
+```
+
 ## Traces, Spans, and Propagation
 
 Use `startTrace` around request or workflow boundaries. New traces created without a custom `traceId` use W3C-compatible ids and expose `traceparent` headers for downstream calls.

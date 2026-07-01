@@ -77,6 +77,7 @@ import {
   insertError,
   insertEvent,
   insertLlmCall,
+  insertProfile,
   insertSpan,
   insertTrace,
   insertWebVital
@@ -93,6 +94,7 @@ import {
   getApmEndpoints,
   getServiceMap,
   getWebVitals,
+  getRuntimeProfiles,
   getOverview,
   getErrorForSourceMapResolution,
   getTraceAggregates,
@@ -5169,6 +5171,7 @@ describe("repositories", () => {
         spans: 4,
         llmCalls: 5,
         webVitals: 0,
+          profiles: 0,
           breadcrumbs: 6,
         deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -5180,6 +5183,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5226,6 +5230,7 @@ describe("repositories", () => {
           spans: 4,
           llmCalls: 5,
           webVitals: 0,
+          profiles: 0,
           breadcrumbs: 6,
           deadLetterJobs: 0,
           sourceMapArtifacts: 7,
@@ -5237,6 +5242,7 @@ describe("repositories", () => {
           tracesDays: 90,
           spansDays: 90,
           llmCallsDays: 180,
+          profilesDays: 30,
           breadcrumbsDays: 30,
           deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5422,6 +5428,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5436,6 +5443,7 @@ describe("repositories", () => {
         spans: 1,
         llmCalls: 1,
         webVitals: 1,
+        profiles: 0,
         breadcrumbs: 0,
         deadLetterJobs: 0,
         sourceMapArtifacts: 0,
@@ -5514,6 +5522,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5566,6 +5575,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -6652,6 +6662,72 @@ describe("repositories", () => {
           })
         ])
       );
+    });
+  });
+
+  it("aggregates runtime profiles with hot functions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Runtime Profiles" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: now,
+        source: "node",
+        metadata: {}
+      };
+
+      await insertProfile(db, {
+        ...base,
+        id: "prf_cpu_1",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        service: "worker",
+        startedAt: new Date("2026-05-24T11:55:00.000Z"),
+        durationMs: 1000,
+        sampleCount: 5,
+        cpuUsagePercent: "42",
+        topFunctions: [
+          { functionName: "tick", url: "file:///app/worker.ts", selfTimeMs: 25, totalTimeMs: 30, sampleCount: 5 }
+        ]
+      });
+      await insertProfile(db, {
+        ...base,
+        id: "prf_mem_1",
+        name: "worker.memory",
+        kind: "memory",
+        runtime: "node",
+        service: "worker",
+        timestamp: new Date("2026-05-24T11:56:00.000Z"),
+        startedAt: new Date("2026-05-24T11:56:00.000Z"),
+        heapUsedBytes: "2048",
+        rssBytes: "4096"
+      });
+
+      const profiles = await getRuntimeProfiles(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(profiles.totals).toMatchObject({
+        profiles: 2,
+        cpuProfiles: 1,
+        memoryProfiles: 1,
+        samples: 5,
+        avgCpuUsagePercent: 42,
+        maxHeapUsedBytes: 2048
+      });
+      expect(profiles.hotFunctions).toEqual([
+        expect.objectContaining({ functionName: "tick", selfTimeMs: 25, sampleCount: 5 })
+      ]);
+      expect(profiles.profiles.map((profile) => profile.id)).toEqual(["prf_mem_1", "prf_cpu_1"]);
     });
   });
 

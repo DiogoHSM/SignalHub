@@ -4,6 +4,7 @@ import {
   errorPayloadSchema,
   eventPayloadSchema,
   llmCallPayloadSchema,
+  profilePayloadSchema,
   spanPayloadSchema,
   tenantIdentifyPayloadSchema,
   tracePayloadSchema,
@@ -74,6 +75,51 @@ describe("ingestion schemas", () => {
     expect(parsed.name).toBe("LCP");
     expect(parsed.route).toBe("/dashboard");
     expect(parsed.value).toBe(2450.5);
+  });
+
+  it("accepts bounded runtime profile summaries", () => {
+    const parsed = profilePayloadSchema.parse({
+      name: "POST /api/checkout",
+      kind: "cpu",
+      runtime: "node",
+      service: "api",
+      route: "POST /api/checkout",
+      started_at: "2026-05-02T12:00:00.000Z",
+      ended_at: "2026-05-02T12:00:01.000Z",
+      duration_ms: 1000,
+      sample_count: 3,
+      top_functions: [
+        {
+          function_name: "checkout",
+          url: "file:///app/checkout.ts",
+          line_number: 12,
+          self_time_ms: 38,
+          sample_count: 3
+        }
+      ],
+      metadata: { service: "api" }
+    });
+
+    expect(parsed.kind).toBe("cpu");
+    expect(parsed.top_functions[0]?.function_name).toBe("checkout");
+  });
+
+  it("rejects runtime profiles without matching measurements", () => {
+    expect(() =>
+      profilePayloadSchema.parse({
+        name: "empty cpu",
+        kind: "cpu",
+        started_at: "2026-05-02T12:00:00.000Z"
+      })
+    ).toThrow();
+
+    expect(() =>
+      profilePayloadSchema.parse({
+        name: "empty memory",
+        kind: "memory",
+        started_at: "2026-05-02T12:00:00.000Z"
+      })
+    ).toThrow();
   });
 
   it("rejects direct high-risk strings that exceed schema limits", () => {

@@ -188,6 +188,7 @@ describe("screen registry", () => {
       endpoints: [],
       serviceMap: { edges: [], totals: null },
       webVitals: { metrics: [], totals: null },
+      runtimeProfiles: { profiles: [], hotFunctions: [], totals: null },
       totals: null,
       status: "loading",
       reload: vi.fn()

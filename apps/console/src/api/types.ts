@@ -637,6 +637,62 @@ export type WebVitalsResponse = {
   metrics: WebVitalMetric[];
 };
 
+export type RuntimeProfile = {
+  id: string;
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service: string | null;
+  route: string | null;
+  traceId: string | null;
+  source: string | null;
+  release: string | null;
+  startedAt: string;
+  durationMs: number | null;
+  sampleCount: number;
+  cpuUsagePercent: number | null;
+  heapUsedBytes: number | null;
+  rssBytes: number | null;
+  topFunction: string | null;
+  topFunctionSelfTimeMs: number | null;
+};
+
+export type RuntimeProfileHotFunction = {
+  functionName: string;
+  url: string | null;
+  lineNumber: number | null;
+  columnNumber: number | null;
+  selfTimeMs: number;
+  totalTimeMs: number | null;
+  sampleCount: number;
+  profileCount: number;
+  lastSeenAt: string | null;
+};
+
+export type RuntimeProfilesResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    profiles: number;
+    cpuProfiles: number;
+    memoryProfiles: number;
+    samples: number;
+    avgCpuUsagePercent: number | null;
+    maxHeapUsedBytes: number | null;
+    p95DurationMs: number | null;
+  };
+  profiles: RuntimeProfile[];
+  hotFunctions: RuntimeProfileHotFunction[];
+};
+
 export type OperationsMonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
 
 export type OperationsStatusCounts = {
@@ -1062,6 +1118,8 @@ export type SystemHealthResponse = {
         traces: number;
         spans: number;
         llmCalls: number;
+        webVitals: number;
+        profiles: number;
         breadcrumbs: number;
         deadLetterJobs: number;
         sourceMapArtifacts: number;
@@ -1075,6 +1133,7 @@ export type SystemHealthResponse = {
       tracesDays: number;
       spansDays: number;
       llmCallsDays: number;
+      profilesDays: number;
       breadcrumbsDays: number;
       deadLetterJobsDays: number;
       sourceMapsEnabled: boolean;

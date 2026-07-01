@@ -27,7 +27,8 @@ const migrations = [
   { name: "0021_investigation_query_indexes.sql", url: new URL("../migrations/0021_investigation_query_indexes.sql", import.meta.url) },
   { name: "0022_error_stack_resolution_scope.sql", url: new URL("../migrations/0022_error_stack_resolution_scope.sql", import.meta.url) },
   { name: "0023_alert_on_call_triage.sql", url: new URL("../migrations/0023_alert_on_call_triage.sql", import.meta.url) },
-  { name: "0024_web_vitals.sql", url: new URL("../migrations/0024_web_vitals.sql", import.meta.url) }
+  { name: "0024_web_vitals.sql", url: new URL("../migrations/0024_web_vitals.sql", import.meta.url) },
+  { name: "0025_runtime_profiles.sql", url: new URL("../migrations/0025_runtime_profiles.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

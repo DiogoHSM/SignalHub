@@ -8,7 +8,16 @@ type SystemDb = Db | Transaction<Database>;
 
 const retentionAdvisoryLockId = 927380402914;
 const defaultMaxBatchesPerTable = 25;
-const retentionTables = ["events", "errors", "traces", "spans", "llm_calls", "web_vitals", "breadcrumbs"] as const;
+const retentionTables = [
+  "events",
+  "errors",
+  "traces",
+  "spans",
+  "llm_calls",
+  "web_vitals",
+  "profiles",
+  "breadcrumbs"
+] as const;
 type RetentionTable = (typeof retentionTables)[number];
 const retentionTableSet = new Set<string>(retentionTables);
 
@@ -24,6 +33,7 @@ export type RetentionPolicy = {
   tracesDays: number;
   spansDays: number;
   llmCallsDays: number;
+  profilesDays: number;
   breadcrumbsDays: number;
   deadLetterJobsDays: number;
   sourceMapsEnabled: boolean;
@@ -44,6 +54,7 @@ export type RetentionDeletedCounts = {
   spans: number;
   llmCalls: number;
   webVitals: number;
+  profiles: number;
   breadcrumbs: number;
   deadLetterJobs: number;
   sourceMapArtifacts: number;
@@ -74,6 +85,7 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       spans: row.deleted_spans,
       llmCalls: row.deleted_llm_calls,
       webVitals: row.deleted_web_vitals,
+      profiles: row.deleted_profiles,
       breadcrumbs: row.deleted_breadcrumbs,
       deadLetterJobs: row.deleted_dead_letter_jobs,
       sourceMapArtifacts: row.deleted_source_map_artifacts,
@@ -85,6 +97,7 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       tracesDays: row.traces_days,
       spansDays: row.spans_days,
       llmCallsDays: row.llm_calls_days,
+      profilesDays: row.profiles_days,
       breadcrumbsDays: row.breadcrumbs_days,
       deadLetterJobsDays: row.dead_letter_jobs_days,
       sourceMapsEnabled: row.source_maps_enabled,
@@ -212,6 +225,13 @@ export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExe
       options.batchSize,
       maxBatches
     ),
+    profiles: await deleteExpiredBatchesFromTable(
+      db,
+      "profiles",
+      cutoff(options.profilesDays),
+      options.batchSize,
+      maxBatches
+    ),
     breadcrumbs: await deleteExpiredBatchesFromTable(
       db,
       "breadcrumbs",
@@ -249,6 +269,7 @@ export async function recordRetentionRun(
       deleted_spans: input.deleted.spans,
       deleted_llm_calls: input.deleted.llmCalls,
       deleted_web_vitals: input.deleted.webVitals,
+      deleted_profiles: input.deleted.profiles,
       deleted_breadcrumbs: input.deleted.breadcrumbs,
       deleted_dead_letter_jobs: input.deleted.deadLetterJobs,
       deleted_source_map_artifacts: input.deleted.sourceMapArtifacts,
@@ -258,6 +279,7 @@ export async function recordRetentionRun(
       traces_days: input.policy.tracesDays,
       spans_days: input.policy.spansDays,
       llm_calls_days: input.policy.llmCallsDays,
+      profiles_days: input.policy.profilesDays,
       breadcrumbs_days: input.policy.breadcrumbsDays,
       dead_letter_jobs_days: input.policy.deadLetterJobsDays,
       source_maps_enabled: input.policy.sourceMapsEnabled,

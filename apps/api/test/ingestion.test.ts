@@ -190,6 +190,47 @@ describe("ingestion routes", () => {
     });
   });
 
+  it("accepts a valid runtime profile payload and enqueues it", async () => {
+    const enqueued: EnqueuedJob[] = [];
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/profiles",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        name: "worker.tick",
+        kind: "memory",
+        runtime: "node",
+        started_at: "2026-05-11T12:00:00.000Z",
+        heap_used_bytes: 1024
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body.id).toMatch(/^prf_/);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({
+      kind: "profile",
+      id: body.id,
+      payload: {
+        name: "worker.tick",
+        kind: "memory",
+        heap_used_bytes: 1024
+      }
+    });
+  });
+
   it("returns 503 when enqueue fails", async () => {
     app = await buildApp({
       readiness,

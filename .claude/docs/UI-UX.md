@@ -139,6 +139,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Clicking an endpoint filters the recent trace list to that route; opening a trace then continues into the existing waterfall/span detail view.
 - The Service map panel sits near APM endpoints and shows inferred dependency edges from span metadata so operators can spot slow or failing service, database, cache, HTTP, or LLM dependencies before opening individual traces.
 - The Web Vitals panel sits with APM endpoints and service map in Traces. It summarizes LCP p75, INP p75, CLS p75, poor samples, route-level p75, sample counts, rating counts, latest release, and regression against the previous release.
+- The Runtime profiles panel sits with APM endpoints, Web Vitals, and Service map in Traces. It summarizes CPU and memory profile counts, average profile duration, latest memory usage, recent bounded captures, and hot functions so operators can decide whether to inspect a route/job, add a targeted profiler window, or correlate with traces.
 - APM cards should remain compact and dark, with no white table rows or detached chart-only surfaces.
 - The default APM window is 24h for day-to-day operational debugging; broader historical analytics can add window controls later.
 

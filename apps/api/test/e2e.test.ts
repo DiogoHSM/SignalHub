@@ -21,6 +21,7 @@ import {
   insertEvent,
   insertBreadcrumb,
   insertLlmCall,
+  insertProfile,
   insertSpan,
   insertTrace,
   insertWebVital
@@ -41,6 +42,7 @@ function telemetryWriter(db: Db): TelemetryWriter {
     insertTrace: (input) => insertTrace(db, input),
     insertSpan: (input) => insertSpan(db, input),
     insertWebVital: (input) => insertWebVital(db, input),
+    insertProfile: (input) => insertProfile(db, input),
     insertBreadcrumb: (input) => insertBreadcrumb(db, input)
   };
 }

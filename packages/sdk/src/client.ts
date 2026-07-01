@@ -5,6 +5,7 @@ import {
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
+  createRuntimeProfileSignal,
   createSpanSignal,
   createTraceSignal,
   createWebVitalSignal
@@ -24,6 +25,7 @@ import type {
   IdentifyUserInput,
   LlmInput,
   QueuedSignal,
+  RuntimeProfileInput,
   SignalContext,
   SignalMonitorClient,
   SignalMonitorClientOptions,
@@ -305,6 +307,10 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
 
     webVital(input: WebVitalInput, context?: SignalContext): void {
       enqueue(createWebVitalSignal(input, context, defaultContext));
+    },
+
+    profile(input: RuntimeProfileInput, context?: SignalContext): void {
+      enqueue(createRuntimeProfileSignal(input, context, defaultContext));
     },
 
     identify(context: SignalContext): void {

@@ -39,6 +39,7 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  RuntimeProfilesResponse,
   SessionTimelineQuery,
   SessionTimelineResponse,
   SilenceIncidentInput,
@@ -261,6 +262,7 @@ export type ApiClient = {
   getApmEndpoints?: (query: ApmQuery) => Promise<AggregateResponse<ApmEndpointsResponse>>;
   getServiceMap?: (query: ApmQuery) => Promise<AggregateResponse<ServiceMapResponse>>;
   getWebVitals?: (query: ApmQuery) => Promise<AggregateResponse<WebVitalsResponse>>;
+  getRuntimeProfiles?: (query: ApmQuery) => Promise<AggregateResponse<RuntimeProfilesResponse>>;
   getIncidentMttr?: (query: IncidentMttrQuery) => Promise<AggregateResponse<IncidentMttrResult>>;
   getLlmSummary?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmSummary>>;
   getLlmByTenant?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmTenantRow[]>>;
@@ -573,6 +575,16 @@ function webVitalsPath(query: ApmQuery): string {
   return `/query/apm/web-vitals?${params.toString()}`;
 }
 
+function runtimeProfilesPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/apm/profiles?${params.toString()}`;
+}
+
 function incidentMttrPath(query: IncidentMttrQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -852,6 +864,8 @@ export function createApiClient(
     getApmEndpoints: (query) => request<AggregateResponse<ApmEndpointsResponse>>(path(apiBasePath, apmEndpointsPath(query))),
     getServiceMap: (query) => request<AggregateResponse<ServiceMapResponse>>(path(apiBasePath, serviceMapPath(query))),
     getWebVitals: (query) => request<AggregateResponse<WebVitalsResponse>>(path(apiBasePath, webVitalsPath(query))),
+    getRuntimeProfiles: (query) =>
+      request<AggregateResponse<RuntimeProfilesResponse>>(path(apiBasePath, runtimeProfilesPath(query))),
     getIncidentMttr: (query) => request<AggregateResponse<IncidentMttrResult>>(path(apiBasePath, incidentMttrPath(query))),
     getLlmSummary: (query) =>
       request<AggregateResponse<LlmSummary>>(path(apiBasePath, llmAggregatePath("summary", query))),

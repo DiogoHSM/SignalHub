@@ -4,6 +4,7 @@ import {
   eventPayloadSchema,
   errorPayloadSchema,
   llmCallPayloadSchema,
+  profilePayloadSchema,
   spanPayloadSchema,
   tracePayloadSchema,
   webVitalPayloadSchema
@@ -15,6 +16,7 @@ import type {
   InsertErrorInput,
   InsertEventInput,
   InsertLlmCallInput,
+  InsertProfileInput,
   InsertSpanInput,
   InsertTraceInput,
   InsertWebVitalInput
@@ -27,6 +29,7 @@ export type TelemetryWriter = {
   insertTrace(input: InsertTraceInput): Promise<void>;
   insertSpan(input: InsertSpanInput): Promise<void>;
   insertWebVital(input: InsertWebVitalInput): Promise<void>;
+  insertProfile(input: InsertProfileInput): Promise<void>;
   insertBreadcrumb?(input: InsertBreadcrumbInput): Promise<void>;
 };
 
@@ -207,6 +210,42 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         rating: payload.rating,
         route: payload.route,
         navigationType: payload.navigation_type
+      });
+      return;
+    }
+
+    case "profile": {
+      const payload = profilePayloadSchema.parse(job.payload);
+      await writer.insertProfile({
+        ...baseInput(job, payload, receivedAt, payload.started_at),
+        name: payload.name,
+        kind: payload.kind,
+        runtime: payload.runtime,
+        service: payload.service,
+        route: payload.route,
+        startedAt: new Date(payload.started_at),
+        endedAt: payload.ended_at ? new Date(payload.ended_at) : undefined,
+        durationMs: payload.duration_ms,
+        sampleCount: payload.sample_count,
+        samplingIntervalMs: payload.sampling_interval_ms,
+        cpuUsagePercent: payload.cpu_usage_percent === undefined ? undefined : String(payload.cpu_usage_percent),
+        cpuUserMs: payload.cpu_user_ms,
+        cpuSystemMs: payload.cpu_system_ms,
+        rssBytes: payload.rss_bytes === undefined ? undefined : String(payload.rss_bytes),
+        heapUsedBytes: payload.heap_used_bytes === undefined ? undefined : String(payload.heap_used_bytes),
+        heapTotalBytes: payload.heap_total_bytes === undefined ? undefined : String(payload.heap_total_bytes),
+        externalBytes: payload.external_bytes === undefined ? undefined : String(payload.external_bytes),
+        arrayBuffersBytes: payload.array_buffers_bytes === undefined ? undefined : String(payload.array_buffers_bytes),
+        topFunctions: payload.top_functions.map((frame) => ({
+          functionName: frame.function_name,
+          url: frame.url,
+          lineNumber: frame.line_number,
+          columnNumber: frame.column_number,
+          selfTimeMs: frame.self_time_ms,
+          totalTimeMs: frame.total_time_ms,
+          sampleCount: frame.sample_count
+        })),
+        summary: sanitizeValue(payload.summary)
       });
       return;
     }

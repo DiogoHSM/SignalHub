@@ -6,6 +6,7 @@ import type {
   IdentifyUserInput,
   LlmInput,
   QueuedSignal,
+  RuntimeProfileInput,
   SignalContext,
   SignalMetadata,
   SpanInput,
@@ -266,6 +267,61 @@ export function createWebVitalSignal(
   return {
     kind: "web_vital",
     endpointPath: "/v1/web-vitals",
+    payload
+  };
+}
+
+export function createRuntimeProfileSignal(
+  input: RuntimeProfileInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const startedAt = input.startedAt ?? new Date();
+  const endedAt = input.endedAt;
+  const mergedContext = {
+    ...context,
+    timestamp: input.timestamp,
+    metadata: {
+      ...(context?.metadata ?? {}),
+      ...(input.metadata ?? {})
+    }
+  };
+  const payload = {
+    ...mergeContext(defaultContext, mergedContext),
+    name: input.name,
+    kind: input.kind,
+    runtime: input.runtime ?? "node",
+    started_at: serializeDate(startedAt),
+    sample_count: input.sampleCount ?? 0,
+    top_functions: (input.topFunctions ?? []).map((frame) => ({
+      function_name: frame.functionName,
+      url: frame.url,
+      line_number: frame.lineNumber,
+      column_number: frame.columnNumber,
+      self_time_ms: frame.selfTimeMs ?? 0,
+      total_time_ms: frame.totalTimeMs,
+      sample_count: frame.sampleCount ?? 0
+    })),
+    summary: input.summary ?? {}
+  };
+
+  assignDefined(payload, "service", input.service);
+  assignDefined(payload, "route", input.route);
+  assignDefined(payload, "ended_at", serializeDate(endedAt));
+  assignDefined(payload, "duration_ms", input.durationMs ?? computeDurationMs(startedAt, endedAt));
+  assignDefined(payload, "sampling_interval_ms", input.samplingIntervalMs);
+  assignDefined(payload, "cpu_usage_percent", input.cpuUsagePercent);
+  assignDefined(payload, "cpu_user_ms", input.cpuUserMs);
+  assignDefined(payload, "cpu_system_ms", input.cpuSystemMs);
+  assignDefined(payload, "rss_bytes", input.rssBytes);
+  assignDefined(payload, "heap_used_bytes", input.heapUsedBytes);
+  assignDefined(payload, "heap_total_bytes", input.heapTotalBytes);
+  assignDefined(payload, "external_bytes", input.externalBytes);
+  assignDefined(payload, "array_buffers_bytes", input.arrayBuffersBytes);
+
+  return {
+    kind: "profile",
+    endpointPath: "/v1/profiles",
     payload
   };
 }

@@ -93,6 +93,7 @@ export type SystemHealthSnapshot = {
         spans: number;
         llmCalls: number;
         webVitals: number;
+        profiles: number;
         breadcrumbs: number;
         deadLetterJobs: number;
         sourceMapArtifacts: number;
@@ -106,6 +107,7 @@ export type SystemHealthSnapshot = {
       tracesDays: number;
       spansDays: number;
       llmCallsDays: number;
+      profilesDays: number;
       breadcrumbsDays: number;
       deadLetterJobsDays: number;
       sourceMapsEnabled: boolean;

@@ -537,6 +537,46 @@ export function SignalMonitorBrowserCapture() {
               <code>installBrowserWebVitals</code> captures LCP, INP, CLS, FCP, FID, and TTFB as
               route-level samples. The APM Traces view shows p75 by route and release regression.
             </p>
+            <h3>Node runtime profiles</h3>
+            <p>
+              CPU and memory profiling is opt-in and bounded. Use it around worker jobs, cron tasks,
+              CLI commands, or suspicious request paths when you need hot functions or memory snapshots
+              in the APM view.
+            </p>
+            <pre><code>import {
+  captureNodeMemoryProfile,
+  createSignalMonitorClient,
+  startNodeCpuProfile
+} from "@sigmon/sdk/node";
+
+const sigmon = createSignalMonitorClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.SIGMON_API_KEY ?? "",
+  defaultContext: {
+    source: "worker",
+    release: process.env.APP_VERSION,
+    metadata: { service: "worker" }
+  }
+});
+
+const cpu = await startNodeCpuProfile(sigmon, {
+  name: "worker.reconcileInvoices",
+  service: "worker",
+  maxDurationMs: 10_000,
+  flush: true
+});
+
+try {
+  await reconcileInvoices();
+} finally {
+  await cpu.stop();
+}
+
+await captureNodeMemoryProfile(sigmon, {
+  name: "worker.reconcileInvoices.memory",
+  service: "worker",
+  flush: true
+});</code></pre>
             <h3>Manual breadcrumbs</h3>
             <pre><code>sigmonBrowser.breadcrumb({
   type: "click",

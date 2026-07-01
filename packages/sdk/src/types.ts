@@ -4,6 +4,7 @@ export type BreadcrumbType = "navigation" | "click" | "console" | "network" | "c
 export type BreadcrumbLevel = "debug" | "info" | "warning" | "error" | "fatal";
 export type WebVitalName = "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
 export type WebVitalRating = "good" | "needs-improvement" | "poor";
+export type ProfileKind = "cpu" | "memory";
 
 export type JsonValue =
   | string
@@ -113,6 +114,40 @@ export type WebVitalInput = EventInput & {
   metadata?: SignalMetadata;
 };
 
+export type RuntimeProfileFunction = {
+  functionName: string;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  selfTimeMs?: number;
+  totalTimeMs?: number;
+  sampleCount?: number;
+};
+
+export type RuntimeProfileInput = EventInput & {
+  name: string;
+  kind: ProfileKind;
+  runtime?: string;
+  service?: string;
+  route?: string;
+  startedAt?: Date | string;
+  endedAt?: Date | string;
+  durationMs?: number;
+  sampleCount?: number;
+  samplingIntervalMs?: number;
+  cpuUsagePercent?: number;
+  cpuUserMs?: number;
+  cpuSystemMs?: number;
+  rssBytes?: number;
+  heapUsedBytes?: number;
+  heapTotalBytes?: number;
+  externalBytes?: number;
+  arrayBuffersBytes?: number;
+  topFunctions?: RuntimeProfileFunction[];
+  summary?: SignalMetadata;
+  metadata?: SignalMetadata;
+};
+
 export type StartTraceInput = Omit<TraceInput, "name" | "startedAt"> & {
   startedAt?: Date | string;
 };
@@ -162,6 +197,7 @@ export type SignalMonitorClient = {
   startTrace: (name: string, input?: StartTraceInput & SignalContext) => ActiveTrace;
   span: (input: SpanInput, context?: SignalContext) => void;
   webVital: (input: WebVitalInput, context?: SignalContext) => void;
+  profile: (input: RuntimeProfileInput, context?: SignalContext) => void;
   identify: (context: SignalContext) => void;
   identifyUser: (userId: string, traits?: SignalMetadata, context?: IdentifyUserInput) => void;
   identifyTenant: (tenantId: string, traits?: SignalMetadata, context?: IdentifyTenantInput) => void;
@@ -176,6 +212,7 @@ export type SignalKind =
   | "trace"
   | "span"
   | "web_vital"
+  | "profile"
   | "breadcrumb"
   | "identify_user"
   | "identify_tenant";

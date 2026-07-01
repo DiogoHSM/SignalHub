@@ -1539,6 +1539,30 @@ describe("query routes", () => {
     expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 12 }]);
   });
 
+  it("forwards runtime profile query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getRuntimeProfiles: async (filters) => {
+          receivedFilters.push(filters);
+          return { profiles: [], hotFunctions: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/apm/profiles?project_id=prj_1&environment_id=env_1&window=24h&limit=20"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { profiles: [], hotFunctions: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "24h", limit: 20 }]);
+  });
+
   it("rejects unsupported operations windows", async () => {
     app = await buildApp({
       readiness,

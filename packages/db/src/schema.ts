@@ -273,6 +273,41 @@ export interface WebVitalsTable {
   navigation_type: string | null;
 }
 
+export interface ProfilesTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service: string | null;
+  route: string | null;
+  started_at: Timestamp;
+  ended_at: NullableTimestamp;
+  duration_ms: number | null;
+  sample_count: DefaultedInteger;
+  sampling_interval_ms: number | null;
+  cpu_usage_percent: NullableNumericString;
+  cpu_user_ms: number | null;
+  cpu_system_ms: number | null;
+  rss_bytes: NullableNumericString;
+  heap_used_bytes: NullableNumericString;
+  heap_total_bytes: NullableNumericString;
+  external_bytes: NullableNumericString;
+  array_buffers_bytes: NullableNumericString;
+  top_functions: JsonColumn;
+  summary: JsonColumn;
+}
+
 export interface DeadLetterJobsTable {
   id: string;
   project_id: string | null;
@@ -308,6 +343,7 @@ export interface RetentionRunsTable {
   deleted_spans: DefaultedInteger;
   deleted_llm_calls: DefaultedInteger;
   deleted_web_vitals: DefaultedInteger;
+  deleted_profiles: DefaultedInteger;
   deleted_breadcrumbs: DefaultedInteger;
   deleted_dead_letter_jobs: DefaultedInteger;
   source_maps_enabled: DefaultedBoolean;
@@ -320,6 +356,7 @@ export interface RetentionRunsTable {
   traces_days: number;
   spans_days: number;
   llm_calls_days: number;
+  profiles_days: DefaultedInteger;
   breadcrumbs_days: DefaultedInteger;
   dead_letter_jobs_days: DefaultedInteger;
   created_at: Timestamp;
@@ -554,6 +591,7 @@ export interface Database {
   traces: TracesTable;
   spans: SpansTable;
   web_vitals: WebVitalsTable;
+  profiles: ProfilesTable;
   dead_letter_jobs: DeadLetterJobsTable;
   dead_letter_job_actions: DeadLetterJobActionsTable;
   retention_runs: RetentionRunsTable;

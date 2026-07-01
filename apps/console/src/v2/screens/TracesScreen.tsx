@@ -62,6 +62,18 @@ function formatApdex(value: number | null): string {
   return value === null ? "—" : value.toFixed(2);
 }
 
+function formatBytes(value: number | null): string {
+  if (value === null) return "—";
+  if (value < 1024) return `${Math.round(value)} B`;
+  const units = ["KB", "MB", "GB"];
+  let n = value / 1024;
+  for (const unit of units) {
+    if (n < 1024 || unit === "GB") return `${n >= 10 ? n.toFixed(0) : n.toFixed(1)} ${unit}`;
+    n /= 1024;
+  }
+  return `${Math.round(value)} B`;
+}
+
 function formatWebVitalValue(metric: WebVitalMetricVM["name"], value: number | null): string {
   if (value === null) return "—";
   if (metric === "CLS") return value.toFixed(3);
@@ -347,6 +359,109 @@ function WebVitalsPanel({ webVitals }: { webVitals: UseTracesResult["webVitals"]
   );
 }
 
+function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesResult["runtimeProfiles"] }) {
+  const totals = runtimeProfiles.totals;
+  const hotFunctions = runtimeProfiles.hotFunctions.slice(0, 8);
+  const profiles = runtimeProfiles.profiles.slice(0, 6);
+
+  return (
+    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="sh-card__head">
+        <div>
+          <h2 className="sh-h2">Runtime profiles</h2>
+          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            Opt-in CPU and memory snapshots from Node.js workers, jobs and route handlers.
+          </p>
+        </div>
+        <span className="sh-tag">
+          {totals?.profiles ?? 0} profiles · {totals?.samples ?? 0} samples
+        </span>
+      </div>
+      <div className="sh-card__body" style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+          <SummaryStat label="CPU profiles" value={String(totals?.cpuProfiles ?? 0)} />
+          <SummaryStat label="Memory snapshots" value={String(totals?.memoryProfiles ?? 0)} />
+          <SummaryStat label="Avg CPU" value={formatPercent(totals?.avgCpuUsagePercent ?? null)} />
+          <SummaryStat label="Max heap" value={formatBytes(totals?.maxHeapUsedBytes ?? null)} mono />
+        </div>
+        {hotFunctions.length === 0 && profiles.length === 0 ? (
+          <EmptyHint icon="activity" title="No runtime profiles yet" sub="Use @sigmon/sdk/node to capture targeted CPU windows or memory snapshots." />
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, .9fr)", gap: 12 }}>
+            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+              <h3 className="sh-h3">Hot functions</h3>
+              {hotFunctions.length === 0 ? (
+                <EmptyHint icon="activity" title="No CPU hotspots" sub="CPU profiles will show aggregated self time here." />
+              ) : (
+                hotFunctions.map((frame) => (
+                  <div
+                    key={`${frame.functionName}:${frame.url ?? ""}:${frame.selfTimeMs}`}
+                    className="sh-row"
+                    style={{
+                      gridTemplateColumns: "minmax(160px, 1fr) 86px 72px 72px",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 10,
+                      background: "rgba(255,255,255,0.015)",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {frame.functionName}
+                      </div>
+                      <div className="sh-muted sh-mono" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {frame.url ?? "runtime"} · {frame.lastSeenAt ? relativeTime(frame.lastSeenAt) : "never"}
+                      </div>
+                    </div>
+                    <span className="sh-mono">{formatLatency(frame.selfTimeMs)}</span>
+                    <span className="sh-mono">{frame.sampleCount} smp</span>
+                    <span className="sh-mono">{frame.profileCount} prof</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+              <h3 className="sh-h3">Recent profiles</h3>
+              {profiles.length === 0 ? (
+                <EmptyHint icon="waterfall" title="No recent snapshots" sub="Captured profiles will appear here with route and trace context." />
+              ) : (
+                profiles.map((profile) => (
+                  <div
+                    key={profile.id}
+                    style={{
+                      padding: "10px 12px",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 10,
+                      background: "rgba(255,255,255,0.015)",
+                      minWidth: 0,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                      <span className={`sh-tag ${profile.kind === "cpu" ? "warn" : "mono"}`}>{profile.kind}</span>
+                      <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {profile.name}
+                      </strong>
+                    </div>
+                    <div className="sh-muted sh-mono" style={{ fontSize: 11 }}>
+                      {profile.route ?? profile.service ?? profile.runtime} · {relativeTime(profile.startedAt)}
+                    </div>
+                    <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                      <span className="sh-mono">{formatLatency(profile.durationMs)}</span>
+                      <span className="sh-mono">{profile.sampleCount} samples</span>
+                      <span className="sh-mono">heap {formatBytes(profile.heapUsedBytes)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TraceListView({
   ctx,
   traces,
@@ -354,6 +469,7 @@ function TraceListView({
   totals,
   serviceMap,
   webVitals,
+  runtimeProfiles,
   activeEndpoint,
   onSelectEndpoint,
   onClearEndpoint,
@@ -365,6 +481,7 @@ function TraceListView({
   totals: UseTracesResult["totals"];
   serviceMap: UseTracesResult["serviceMap"];
   webVitals: UseTracesResult["webVitals"];
+  runtimeProfiles: UseTracesResult["runtimeProfiles"];
   activeEndpoint: string | null;
   onSelectEndpoint: (name: string) => void;
   onClearEndpoint: () => void;
@@ -402,6 +519,7 @@ function TraceListView({
       </div>
       <EndpointTable endpoints={endpoints} activeEndpoint={activeEndpoint} onSelect={onSelectEndpoint} />
       <WebVitalsPanel webVitals={webVitals} />
+      <RuntimeProfilesPanel runtimeProfiles={runtimeProfiles} />
       <ServiceMapPanel serviceMap={serviceMap} />
       <div className="sh-card" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="sh-card__head">
@@ -716,7 +834,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(undefined);
   const [selectedEndpointName, setSelectedEndpointName] = useState<string | null>(null);
 
-  const { data, endpoints, serviceMap, webVitals, totals, status } = useTraces({
+  const { data, endpoints, serviceMap, webVitals, runtimeProfiles, totals, status } = useTraces({
     client: ctx.client,
     projectId,
     environmentId,
@@ -768,6 +886,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
       totals={totals}
       serviceMap={serviceMap}
       webVitals={webVitals}
+      runtimeProfiles={runtimeProfiles}
       activeEndpoint={selectedEndpointName}
       onSelectEndpoint={(name) => {
         setSelectedTraceId(undefined);

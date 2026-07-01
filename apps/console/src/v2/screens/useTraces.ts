@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { ApmEndpoint, ServiceMapEdge, TraceRecord, WebVitalMetric } from "../../api/types";
+import type { ApmEndpoint, RuntimeProfile, RuntimeProfileHotFunction, ServiceMapEdge, WebVitalMetric } from "../../api/types";
 
 // ---------------------------------------------------------------------------
 // View-model types
@@ -61,6 +61,33 @@ export type WebVitalMetricVM = {
   lastSeenAt: string | null;
 };
 
+export type RuntimeProfileVM = {
+  id: string;
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service: string | null;
+  route: string | null;
+  traceId: string | null;
+  startedAt: string;
+  durationMs: number | null;
+  sampleCount: number;
+  cpuUsagePercent: number | null;
+  heapUsedBytes: number | null;
+  topFunction: string | null;
+  topFunctionSelfTimeMs: number | null;
+};
+
+export type RuntimeProfileHotFunctionVM = {
+  functionName: string;
+  url: string | null;
+  selfTimeMs: number;
+  totalTimeMs: number | null;
+  sampleCount: number;
+  profileCount: number;
+  lastSeenAt: string | null;
+};
+
 export type UseTracesResult = {
   data: TraceListItemVM[] | null;
   endpoints: ApmEndpointVM[];
@@ -86,6 +113,19 @@ export type UseTracesResult = {
       p75Cls: number | null;
     } | null;
   };
+  runtimeProfiles: {
+    profiles: RuntimeProfileVM[];
+    hotFunctions: RuntimeProfileHotFunctionVM[];
+    totals: {
+      profiles: number;
+      cpuProfiles: number;
+      memoryProfiles: number;
+      samples: number;
+      avgCpuUsagePercent: number | null;
+      maxHeapUsedBytes: number | null;
+      p95DurationMs: number | null;
+    } | null;
+  };
   totals: {
     endpoints: number;
     requests: number;
@@ -104,6 +144,7 @@ type UseTracesArgs = {
     getApmEndpoints?: ApiClient["getApmEndpoints"];
     getServiceMap?: ApiClient["getServiceMap"];
     getWebVitals?: ApiClient["getWebVitals"];
+    getRuntimeProfiles?: ApiClient["getRuntimeProfiles"];
   };
   projectId: string | undefined;
   environmentId: string | undefined;
@@ -114,6 +155,7 @@ const RECENT_TRACES_LIMIT = 25;
 const APM_ENDPOINT_LIMIT = 50;
 const SERVICE_MAP_LIMIT = 50;
 const WEB_VITALS_LIMIT = 50;
+const RUNTIME_PROFILES_LIMIT = 50;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -173,6 +215,37 @@ function mapWebVitalMetric(row: WebVitalMetric): WebVitalMetricVM {
   };
 }
 
+function mapRuntimeProfile(row: RuntimeProfile): RuntimeProfileVM {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    runtime: row.runtime,
+    service: row.service,
+    route: row.route,
+    traceId: row.traceId,
+    startedAt: row.startedAt,
+    durationMs: row.durationMs,
+    sampleCount: row.sampleCount,
+    cpuUsagePercent: row.cpuUsagePercent,
+    heapUsedBytes: row.heapUsedBytes,
+    topFunction: row.topFunction,
+    topFunctionSelfTimeMs: row.topFunctionSelfTimeMs,
+  };
+}
+
+function mapRuntimeHotFunction(row: RuntimeProfileHotFunction): RuntimeProfileHotFunctionVM {
+  return {
+    functionName: row.functionName,
+    url: row.url,
+    selfTimeMs: row.selfTimeMs,
+    totalTimeMs: row.totalTimeMs,
+    sampleCount: row.sampleCount,
+    profileCount: row.profileCount,
+    lastSeenAt: row.lastSeenAt,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -183,6 +256,11 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
   const [endpoints, setEndpoints] = useState<ApmEndpointVM[]>([]);
   const [serviceMap, setServiceMap] = useState<UseTracesResult["serviceMap"]>({ edges: [], totals: null });
   const [webVitals, setWebVitals] = useState<UseTracesResult["webVitals"]>({ metrics: [], totals: null });
+  const [runtimeProfiles, setRuntimeProfiles] = useState<UseTracesResult["runtimeProfiles"]>({
+    profiles: [],
+    hotFunctions: [],
+    totals: null,
+  });
   const [totals, setTotals] = useState<UseTracesResult["totals"]>(null);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
@@ -210,9 +288,12 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
     const webVitalsPromise = client.getWebVitals
       ? client.getWebVitals({ projectId, environmentId, window: "24h", limit: WEB_VITALS_LIMIT }).then((res) => res.data)
       : Promise.resolve(null);
+    const runtimeProfilesPromise = client.getRuntimeProfiles
+      ? client.getRuntimeProfiles({ projectId, environmentId, window: "24h", limit: RUNTIME_PROFILES_LIMIT }).then((res) => res.data)
+      : Promise.resolve(null);
 
-    Promise.all([tracesPromise, apmPromise, serviceMapPromise, webVitalsPromise])
-      .then(([res, apm, map, vitals]) => {
+    Promise.all([tracesPromise, apmPromise, serviceMapPromise, webVitalsPromise, runtimeProfilesPromise])
+      .then(([res, apm, map, vitals, profiles]) => {
         if (gen !== genRef.current) return;
         const rows: TraceListItemVM[] = res.data.map((t) => ({
           id: t.id,
@@ -235,6 +316,11 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
           metrics: vitals?.metrics.map(mapWebVitalMetric) ?? [],
           totals: vitals?.totals ?? null,
         });
+        setRuntimeProfiles({
+          profiles: profiles?.profiles.map(mapRuntimeProfile) ?? [],
+          hotFunctions: profiles?.hotFunctions.map(mapRuntimeHotFunction) ?? [],
+          totals: profiles?.totals ?? null,
+        });
         setTotals(apm?.totals ?? null);
         setStatus("ok");
       })
@@ -245,6 +331,7 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
         setEndpoints([]);
         setServiceMap({ edges: [], totals: null });
         setWebVitals({ metrics: [], totals: null });
+        setRuntimeProfiles({ profiles: [], hotFunctions: [], totals: null });
         setTotals(null);
         setStatus("error");
       });
@@ -255,5 +342,5 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, environmentId, endpointName, tick]);
 
-  return { data, endpoints, serviceMap, webVitals, totals, status, reload };
+  return { data, endpoints, serviceMap, webVitals, runtimeProfiles, totals, status, reload };
 }

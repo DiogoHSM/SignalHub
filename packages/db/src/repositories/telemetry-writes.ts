@@ -1,3 +1,5 @@
+import { sql } from "kysely";
+
 import type { Db } from "../client.js";
 import { refreshErrorGroupStats, upsertErrorGroupForOccurrence } from "./error-groups.js";
 import { touchTenantProfileLastSeen, touchUserProfileLastSeen } from "./identity-profiles.js";
@@ -76,6 +78,39 @@ export interface InsertWebVitalInput extends TelemetryBaseInput {
   navigationType?: string;
 }
 
+export interface InsertProfileFunctionInput {
+  functionName: string;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  selfTimeMs?: number;
+  totalTimeMs?: number;
+  sampleCount?: number;
+}
+
+export interface InsertProfileInput extends TelemetryBaseInput {
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service?: string;
+  route?: string;
+  startedAt: Date;
+  endedAt?: Date;
+  durationMs?: number;
+  sampleCount?: number;
+  samplingIntervalMs?: number;
+  cpuUsagePercent?: string;
+  cpuUserMs?: number;
+  cpuSystemMs?: number;
+  rssBytes?: string;
+  heapUsedBytes?: string;
+  heapTotalBytes?: string;
+  externalBytes?: string;
+  arrayBuffersBytes?: string;
+  topFunctions?: InsertProfileFunctionInput[];
+  summary?: unknown;
+}
+
 export interface InsertBreadcrumbInput extends TelemetryBaseInput {
   type: "navigation" | "click" | "console" | "network" | "custom";
   category?: string;
@@ -107,6 +142,10 @@ function baseColumns(input: TelemetryBaseInput) {
 
 function inserted(result: { id: string }[]): boolean {
   return result.length > 0;
+}
+
+function jsonb(value: unknown) {
+  return sql<unknown>`${JSON.stringify(value)}::jsonb`;
 }
 
 async function assertActiveTelemetryScope(db: Db, input: TelemetryBaseInput): Promise<void> {
@@ -325,6 +364,48 @@ export async function insertWebVital(db: Db, input: InsertWebVitalInput): Promis
         rating: input.rating,
         route: nullable(input.route),
         navigation_type: nullable(input.navigationType)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertProfile(db: Db, input: InsertProfileInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("profiles").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const result = await trx
+      .insertInto("profiles")
+      .values({
+        ...baseColumns(input),
+        name: input.name,
+        kind: input.kind,
+        runtime: input.runtime,
+        service: nullable(input.service),
+        route: nullable(input.route),
+        started_at: input.startedAt,
+        ended_at: nullable(input.endedAt),
+        duration_ms: nullable(input.durationMs),
+        sample_count: input.sampleCount ?? 0,
+        sampling_interval_ms: nullable(input.samplingIntervalMs),
+        cpu_usage_percent: nullable(input.cpuUsagePercent),
+        cpu_user_ms: nullable(input.cpuUserMs),
+        cpu_system_ms: nullable(input.cpuSystemMs),
+        rss_bytes: nullable(input.rssBytes),
+        heap_used_bytes: nullable(input.heapUsedBytes),
+        heap_total_bytes: nullable(input.heapTotalBytes),
+        external_bytes: nullable(input.externalBytes),
+        array_buffers_bytes: nullable(input.arrayBuffersBytes),
+        top_functions: jsonb(input.topFunctions ?? []),
+        summary: jsonb(input.summary ?? {})
       })
       .onConflict((oc) => oc.column("id").doNothing())
       .returning("id")

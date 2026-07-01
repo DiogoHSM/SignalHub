@@ -22,6 +22,7 @@ type RetentionDeletedCounts = {
   spans: number;
   llmCalls: number;
   webVitals: number;
+  profiles: number;
   breadcrumbs: number;
   deadLetterJobs: number;
   sourceMapArtifacts: number;
@@ -206,6 +207,7 @@ function toRetentionPolicy(policy: RetentionPolicy): RetentionPolicy {
     tracesDays: policy.tracesDays,
     spansDays: policy.spansDays,
     llmCallsDays: policy.llmCallsDays,
+    profilesDays: policy.profilesDays,
     breadcrumbsDays: policy.breadcrumbsDays,
     deadLetterJobsDays: policy.deadLetterJobsDays,
     sourceMapsEnabled: policy.sourceMapsEnabled,
@@ -222,6 +224,7 @@ function toRetentionDeletedCounts(deleted: RetentionDeletedCounts): RetentionDel
     spans: deleted.spans,
     llmCalls: deleted.llmCalls,
     webVitals: deleted.webVitals,
+    profiles: deleted.profiles,
     breadcrumbs: deleted.breadcrumbs,
     deadLetterJobs: deleted.deadLetterJobs,
     sourceMapArtifacts: deleted.sourceMapArtifacts,

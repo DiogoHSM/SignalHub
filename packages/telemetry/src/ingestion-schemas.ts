@@ -3,6 +3,7 @@ import { z } from "zod";
 const SHORT_TEXT_MAX = 256;
 const MEDIUM_TEXT_MAX = 2_000;
 const LONG_TEXT_MAX = 20_000;
+const PROFILE_TOP_FUNCTIONS_MAX = 100;
 
 const shortTextSchema = z.string().min(1).max(SHORT_TEXT_MAX);
 const mediumTextSchema = z.string().min(1).max(MEDIUM_TEXT_MAX);
@@ -93,6 +94,71 @@ export const webVitalPayloadSchema = sharedEnvelopeSchema.extend({
   navigation_type: shortTextSchema.optional()
 });
 
+const profileFunctionSchema = z.object({
+  function_name: shortTextSchema,
+  url: z.string().max(MEDIUM_TEXT_MAX).optional(),
+  line_number: z.number().int().nonnegative().optional(),
+  column_number: z.number().int().nonnegative().optional(),
+  self_time_ms: z.number().nonnegative().default(0),
+  total_time_ms: z.number().nonnegative().optional(),
+  sample_count: z.number().int().nonnegative().default(0)
+});
+
+export const profilePayloadSchema = sharedEnvelopeSchema
+  .extend({
+    name: shortTextSchema,
+    kind: z.enum(["cpu", "memory"]),
+    runtime: shortTextSchema.default("node"),
+    service: shortTextSchema.optional(),
+    route: shortTextSchema.optional(),
+    started_at: timestampSchema,
+    ended_at: timestampSchema.optional(),
+    duration_ms: z.number().int().nonnegative().optional(),
+    sample_count: z.number().int().nonnegative().default(0),
+    sampling_interval_ms: z.number().int().positive().optional(),
+    cpu_usage_percent: z.number().min(0).max(100).optional(),
+    cpu_user_ms: z.number().int().nonnegative().optional(),
+    cpu_system_ms: z.number().int().nonnegative().optional(),
+    rss_bytes: z.number().int().nonnegative().optional(),
+    heap_used_bytes: z.number().int().nonnegative().optional(),
+    heap_total_bytes: z.number().int().nonnegative().optional(),
+    external_bytes: z.number().int().nonnegative().optional(),
+    array_buffers_bytes: z.number().int().nonnegative().optional(),
+    top_functions: z.array(profileFunctionSchema).max(PROFILE_TOP_FUNCTIONS_MAX).default([]),
+    summary: jsonObjectSchema
+  })
+  .superRefine((value, context) => {
+    if (
+      value.kind === "cpu" &&
+      value.cpu_usage_percent === undefined &&
+      value.cpu_user_ms === undefined &&
+      value.cpu_system_ms === undefined &&
+      value.sample_count === 0 &&
+      value.top_functions.length === 0
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["kind"],
+        message: "CPU profiles require at least one CPU measurement or top function"
+      });
+    }
+
+    if (
+      value.kind === "memory" &&
+      value.rss_bytes === undefined &&
+      value.heap_used_bytes === undefined &&
+      value.heap_total_bytes === undefined &&
+      value.external_bytes === undefined &&
+      value.array_buffers_bytes === undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["kind"],
+        message: "Memory profiles require at least one memory measurement"
+      });
+    }
+  });
+
 export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
   type: z.enum(["navigation", "click", "console", "network", "custom"]),
   category: shortTextSchema.optional(),
@@ -119,6 +185,7 @@ export type LlmCallPayload = z.infer<typeof llmCallPayloadSchema>;
 export type TracePayload = z.infer<typeof tracePayloadSchema>;
 export type SpanPayload = z.infer<typeof spanPayloadSchema>;
 export type WebVitalPayload = z.infer<typeof webVitalPayloadSchema>;
+export type ProfilePayload = z.infer<typeof profilePayloadSchema>;
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 export type UserIdentifyPayload = z.infer<typeof userIdentifyPayloadSchema>;
 export type TenantIdentifyPayload = z.infer<typeof tenantIdentifyPayloadSchema>;

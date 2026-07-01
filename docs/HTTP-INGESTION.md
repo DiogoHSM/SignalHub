@@ -8,7 +8,7 @@ Use this guide for non-TypeScript clients, smoke tests, and code agents that nee
 
 | Credential | Used by | Keep secret? | Notes |
 | --- | --- | --- | --- |
-| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/llm`, `/v1/web-vitals`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
+| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
 | Heartbeat secret | `/v1/heartbeats/{id}` | Yes | Generated per heartbeat monitor. Use from cron, workers, and schedulers. |
 | Source-map upload token | `/v1/source-maps` | Yes | CI-only token created from the Artifacts console. |
 | Session cookie | `/admin/*`, `/query/*`, `/system/*` | Browser session only | Used by logged-in human operators and the console. |
@@ -46,6 +46,7 @@ Content-Type: application/json
 | Breadcrumbs | `POST /v1/breadcrumbs` | Ingestion API key |
 | LLM calls | `POST /v1/llm` | Ingestion API key |
 | Web Vitals | `POST /v1/web-vitals` | Ingestion API key |
+| Runtime profiles | `POST /v1/profiles` | Ingestion API key |
 | Traces | `POST /v1/traces` | Ingestion API key |
 | Spans | `POST /v1/spans` | Ingestion API key |
 | Identify user | `POST /v1/identify/user` | Ingestion API key |
@@ -212,6 +213,82 @@ curl -i https://sigmon.example.com/v1/llm \
     "trace_id": "trace_abc",
     "metadata": {
       "feature": "support"
+    }
+  }'
+```
+
+## Web Vitals
+
+Required fields:
+
+- `name`: one of `CLS`, `FCP`, `FID`, `INP`, `LCP`, or `TTFB`.
+- `value`: numeric metric value. CLS is unitless; timing metrics are milliseconds.
+
+Optional fields:
+
+- Shared fields.
+- `rating`: one of `good`, `needs-improvement`, or `poor`.
+- `route`: route or path where the metric was observed.
+- `navigation_type`: browser navigation type.
+
+```bash
+curl -i https://sigmon.example.com/v1/web-vitals \
+  -H "Authorization: Bearer sh_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "LCP",
+    "value": 1820,
+    "rating": "good",
+    "route": "/checkout",
+    "source": "web",
+    "release": "2026.05.02"
+  }'
+```
+
+## Runtime Profiles
+
+Required fields:
+
+- `name`: profile name, usually a route, worker job, scheduler task, or CLI command.
+- `kind`: `cpu` or `memory`.
+- `started_at`: ISO datetime when the profile window started.
+
+Optional fields:
+
+- Shared fields.
+- `runtime`: runtime name. Defaults to `node`.
+- `service`: logical service, such as `api`, `worker`, or `scheduler`.
+- `route`: route or operation name.
+- `ended_at`, `duration_ms`, `sample_count`, `sampling_interval_ms`.
+- CPU fields: `cpu_usage_percent`, `cpu_user_ms`, `cpu_system_ms`, `top_functions`.
+- Memory fields: `rss_bytes`, `heap_used_bytes`, `heap_total_bytes`, `external_bytes`, `array_buffers_bytes`.
+- `summary`: small JSON object for profiler metadata.
+
+CPU profiles must include at least one CPU measurement or `top_functions`. Memory profiles must include at least one memory measurement.
+
+```bash
+curl -i https://sigmon.example.com/v1/profiles \
+  -H "Authorization: Bearer sh_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "worker.reconcileInvoices",
+    "kind": "cpu",
+    "runtime": "node",
+    "service": "worker",
+    "started_at": "2026-05-02T12:00:00.000Z",
+    "ended_at": "2026-05-02T12:00:10.000Z",
+    "duration_ms": 10000,
+    "sample_count": 250,
+    "top_functions": [
+      {
+        "function_name": "reconcileInvoices",
+        "self_time_ms": 420,
+        "total_time_ms": 900,
+        "sample_count": 42
+      }
+    ],
+    "summary": {
+      "trigger": "manual-smoke"
     }
   }'
 ```

@@ -6,6 +6,7 @@ import {
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
+  createRuntimeProfileSignal,
   createSpanSignal,
   createTraceSignal,
   createWebVitalSignal,
@@ -112,6 +113,49 @@ describe("payload mapping", () => {
         source: "browser",
         release: "1.2.3",
         metadata: {}
+      }
+    });
+  });
+
+  it("maps runtime profiles to /v1/profiles with top functions", () => {
+    expect(
+      createRuntimeProfileSignal(
+        {
+          name: "worker.tick",
+          kind: "cpu",
+          startedAt: new Date("2026-05-02T12:00:00.000Z"),
+          endedAt: new Date("2026-05-02T12:00:01.000Z"),
+          sampleCount: 2,
+          topFunctions: [{ functionName: "tick", selfTimeMs: 25, sampleCount: 2 }],
+          metadata: { worker: "queue" }
+        },
+        { source: "node" }
+      )
+    ).toEqual({
+      kind: "profile",
+      endpointPath: "/v1/profiles",
+      payload: {
+        metadata: { worker: "queue" },
+        source: "node",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        started_at: "2026-05-02T12:00:00.000Z",
+        ended_at: "2026-05-02T12:00:01.000Z",
+        duration_ms: 1000,
+        sample_count: 2,
+        top_functions: [
+          {
+            function_name: "tick",
+            url: undefined,
+            line_number: undefined,
+            column_number: undefined,
+            self_time_ms: 25,
+            total_time_ms: undefined,
+            sample_count: 2
+          }
+        ],
+        summary: {}
       }
     });
   });

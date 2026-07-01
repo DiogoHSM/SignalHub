@@ -92,6 +92,7 @@ import {
 } from "@sigmon/db/repositories/source-map-upload-tokens.js";
 import {
   getApmEndpoints,
+  getRuntimeProfiles,
   getServiceMap,
   getWebVitals,
   getErrorAggregates,
@@ -256,6 +257,7 @@ const retentionPolicy = {
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
+  profilesDays: config.retention.profilesDays,
   breadcrumbsDays: config.retention.breadcrumbsDays,
   deadLetterJobsDays: config.retention.deadLetterJobsDays,
   sourceMapsEnabled: config.sourceMaps.retention.enabled,
@@ -612,6 +614,7 @@ const app = await buildApp({
     getApmEndpoints: (filters) => getApmEndpoints(db, filters),
     getServiceMap: (filters) => getServiceMap(db, filters),
     getWebVitals: (filters) => getWebVitals(db, filters),
+    getRuntimeProfiles: (filters) => getRuntimeProfiles(db, filters),
     getTraceAggregates: (filters) => getTraceAggregates(db, filters),
     listEntityTenants: (filters) => listEntityTenants(db, filters),
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),

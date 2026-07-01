@@ -325,6 +325,58 @@ export const openApiDocument = {
           timestamp: { type: "string", format: "date-time" }
         }
       },
+      ProfilePayload: {
+        type: "object",
+        required: ["name", "kind", "started_at"],
+        description:
+          "Bounded runtime profile summary. Use @sigmon/sdk/node helpers for targeted CPU windows and memory snapshots; do not upload raw heap dumps or full profiler files.",
+        properties: {
+          name: { type: "string", description: "Route, job, worker task, or operation being profiled." },
+          kind: { type: "string", enum: ["cpu", "memory"] },
+          runtime: { type: "string", default: "node" },
+          service: { type: "string", description: "Service or process name, for example api, worker, scheduler." },
+          route: { type: "string", description: "HTTP route or job name when applicable." },
+          started_at: { type: "string", format: "date-time" },
+          ended_at: { type: "string", format: "date-time" },
+          duration_ms: { type: "integer", minimum: 0 },
+          sample_count: { type: "integer", minimum: 0 },
+          sampling_interval_ms: { type: "integer", minimum: 1 },
+          cpu_usage_percent: { type: "number", minimum: 0, maximum: 100 },
+          cpu_user_ms: { type: "integer", minimum: 0 },
+          cpu_system_ms: { type: "integer", minimum: 0 },
+          rss_bytes: { type: "integer", minimum: 0 },
+          heap_used_bytes: { type: "integer", minimum: 0 },
+          heap_total_bytes: { type: "integer", minimum: 0 },
+          external_bytes: { type: "integer", minimum: 0 },
+          array_buffers_bytes: { type: "integer", minimum: 0 },
+          top_functions: {
+            type: "array",
+            maxItems: 100,
+            items: {
+              type: "object",
+              required: ["function_name"],
+              properties: {
+                function_name: { type: "string" },
+                url: { type: "string" },
+                line_number: { type: "integer", minimum: 0 },
+                column_number: { type: "integer", minimum: 0 },
+                self_time_ms: { type: "number", minimum: 0 },
+                total_time_ms: { type: "number", minimum: 0 },
+                sample_count: { type: "integer", minimum: 0 }
+              }
+            }
+          },
+          summary: { type: "object", additionalProperties: true },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["node"] },
+          release: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
       TracePayload: {
         type: "object",
         required: ["name", "started_at"],
@@ -645,6 +697,20 @@ export const openApiDocument = {
         source: "web",
         release: "2026.05.24",
         metadata: { effective_type: "4g" }
+      })
+    },
+    "/v1/profiles": {
+      post: ingestionOperation("Ingest a runtime profile", "Track bounded CPU and memory profile summaries for Node.js routes, workers, jobs, and other runtime tasks.", "ProfilePayload", {
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        service: "worker",
+        started_at: "2026-05-24T12:00:00.000Z",
+        duration_ms: 1000,
+        sample_count: 5,
+        top_functions: [{ function_name: "tick", self_time_ms: 25, sample_count: 5 }],
+        source: "node",
+        release: "2026.05.24"
       })
     },
     "/v1/traces": {
@@ -1056,6 +1122,12 @@ export const openApiDocument = {
       get: sessionRoute(
         "Query APM Web Vitals",
         "Read browser Web Vital rollups for a project environment, including p75 by metric and route, sample counts, rating counts, latest release p75, previous release p75, and regression percent. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
+    "/query/apm/profiles": {
+      get: sessionRoute(
+        "Query APM runtime profiles",
+        "Read runtime CPU and memory profile rollups for a project environment, including profile counts, CPU/memory totals, recent profiles, and hot functions. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
     "/system/health": {
