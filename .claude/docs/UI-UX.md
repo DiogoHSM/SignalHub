@@ -141,6 +141,8 @@ SignalMonitor includes an admin-only Integration Console.
 - Alert rule fields should expose units in labels or nearby help: windows and cooldowns are minutes, error-rate thresholds are percentages, trace p95 thresholds are milliseconds, critical/error count thresholds are counts, and LLM cost thresholds are USD.
 - Alert rule rows expose compact edit actions. Editing reuses the rule form, preserves project/environment scope, and should update the row after saving without forcing a full page refresh.
 - Alert rule rows expose compact destructive actions; archiving requires confirmation and removes the rule from the active rule list.
+- Alerts include an on-call queue for triggered alert events. Operators can acknowledge, snooze for a short interval, or resolve events directly from the queue, and the queue should make escalation state visible without requiring a separate incident page.
+- Escalation controls belong in the alert rule form near the primary channel: primary channel, escalation delay in minutes, and optional escalation channel. Empty escalation means no escalation delivery.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
 - Notification channel rows expose compact edit actions. Editing reuses the channel form, keeps saved webhook secrets write-only, and should update the channel row without forcing a full page refresh.
