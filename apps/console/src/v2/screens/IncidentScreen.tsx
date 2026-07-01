@@ -89,6 +89,28 @@ function RelItem({
   );
 }
 
+function SummaryCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        minWidth: 118,
+        padding: "10px 12px",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 10,
+        background: "var(--bg-surface-2)",
+      }}
+    >
+      <div className="sh-kpi__label">{label}</div>
+      <div
+        className="sh-kpi__value"
+        style={{ color: "var(--sev-critical)", fontSize: 22, marginTop: 3 }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // IncidentScreen
 // ---------------------------------------------------------------------------
@@ -151,6 +173,7 @@ export function IncidentScreen({
   const now = Date.now();
   const silencedUntilDate = vm.silencedUntil ? new Date(vm.silencedUntil) : null;
   const isSilenced = silencedUntilDate != null && silencedUntilDate.getTime() > now;
+  const isCrash = vm.severity === "fatal";
 
   // ── Related: only rows that have a meaningful target ─────────────────────
   const renderedRelated = vm.related.filter((r) => r.target != null);
@@ -230,6 +253,42 @@ export function IncidentScreen({
           </p>
         ) : null}
       </div>
+
+      {isCrash ? (
+        <section
+          aria-label="Crash impact"
+          className="sh-card"
+          style={{
+            borderColor: "var(--sev-critical-border)",
+            background: "linear-gradient(90deg, var(--sev-critical-bg), var(--bg-surface) 68%)",
+          }}
+        >
+          <div
+            className="sh-card__body"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(240px, 1fr) repeat(3, minmax(120px, auto))",
+              gap: 16,
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div className="sh-eyebrow" style={{ color: "var(--sev-critical)" }}>
+                Crash reporting
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
+                Fatal runtime crash detected
+              </div>
+              <div className="sh-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Prioritize this before lower-severity error groups. Review the stack, affected scope, and related trace context.
+              </div>
+            </div>
+            <SummaryCell label="Occurrences" value={String(vm.occurrenceCount)} />
+            <SummaryCell label="Users affected" value={String(vm.affectedUsers)} />
+            <SummaryCell label="Tenants affected" value={String(vm.affectedTenants)} />
+          </div>
+        </section>
+      ) : null}
 
       {/* ── Action bar ────────────────────────────────────────────────────── */}
       <div

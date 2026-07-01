@@ -19,6 +19,7 @@ export type ErrorTabsVM = {
 export type ErrorSummaryVM = {
   errors24h: number;
   openGroups: number;
+  crashes: number;
   critical: number;
   mttr: null;
   topRelease: string | null;
@@ -28,6 +29,7 @@ export type ErrorRowVM = {
   id: string;
   message: string;
   severity: string;
+  isCrash: boolean;
   status: string;
   priority: "P1" | "P2" | "P3" | "P4" | null;
   events: number;
@@ -162,6 +164,9 @@ export function useErrors({
         const critical = overview.top.errorSeverity
           .filter((e) => criticalSeverities.has(e.severity))
           .reduce((sum, e) => sum + e.total, 0);
+        const crashes = overview.top.errorSeverity
+          .filter((e) => e.severity === "fatal")
+          .reduce((sum, e) => sum + e.total, 0);
 
         const openStatuses = new Set<string>(["open", "investigating"]);
         const openGroups = groups.filter((g) => openStatuses.has(g.status)).length;
@@ -169,6 +174,7 @@ export function useErrors({
         const summary: ErrorSummaryVM = {
           errors24h: kpis.errors,
           openGroups,
+          crashes,
           critical,
           mttr: null,
           topRelease: topRelease(groups)
@@ -179,6 +185,7 @@ export function useErrors({
           id: g.id,
           message: g.message,
           severity: g.severity,
+          isCrash: g.severity === "fatal",
           status: g.status,
           priority: mapPriority(g.priority),
           events: g.occurrenceCount,

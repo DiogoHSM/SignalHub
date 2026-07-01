@@ -53,6 +53,16 @@ const SILENCED_VM: IncidentVM = {
   silencedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1h in the future
 };
 
+const CRASH_VM: IncidentVM = {
+  ...MOCK_VM,
+  severity: "fatal",
+  severityColor: "var(--sev-critical)",
+  title: "RuntimeCrash: worker process exited unexpectedly",
+  occurrenceCount: 3,
+  affectedUsers: 1,
+  affectedTenants: 1,
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -171,6 +181,20 @@ describe("IncidentScreen", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.getByText(/critical/i)).toBeInTheDocument();
+    });
+
+    it("renders crash impact banner for fatal incidents", () => {
+      mockUseIncident(CRASH_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByRole("region", { name: /crash impact/i })).toBeInTheDocument();
+      expect(screen.getByText(/fatal runtime crash detected/i)).toBeInTheDocument();
+      expect(screen.getByText(/prioritize this before lower-severity error groups/i)).toBeInTheDocument();
+    });
+
+    it("does not render crash impact banner for non-fatal incidents", () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.queryByRole("region", { name: /crash impact/i })).not.toBeInTheDocument();
     });
 
     it("warning incident severity tag has 'warn' class, not 'critical'", () => {

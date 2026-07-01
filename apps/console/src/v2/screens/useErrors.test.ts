@@ -183,6 +183,7 @@ describe("useErrors", () => {
     expect(row.id).toBe("eg_1");
     expect(row.message).toBe("TypeError: cannot read 'x'");
     expect(row.severity).toBe("critical");
+    expect(row.isCrash).toBe(false);
     expect(row.status).toBe("open");
     expect(row.events).toBe(42); // occurrenceCount
     expect(row.users).toBe(7);   // affectedUsersCount
@@ -230,6 +231,25 @@ describe("useErrors", () => {
 
     // critical=15, fatal=5 → 20
     expect(result.current.data!.summary.critical).toBe(20);
+  });
+
+  it("summary.crashes = sum of fatal top.errorSeverity buckets", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.summary.crashes).toBe(5);
+  });
+
+  it("marks fatal rows as crashes", async () => {
+    const client = makeClient([GROUP_3]);
+    const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.rows[0].severity).toBe("fatal");
+    expect(result.current.data!.rows[0].isCrash).toBe(true);
   });
 
   it("summary.openGroups = count of fetched rows with status open or investigating", async () => {

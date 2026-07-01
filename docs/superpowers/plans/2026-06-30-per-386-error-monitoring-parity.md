@@ -16,6 +16,6 @@
 ## Later PER-386 Slices
 
 - [x] Node worker/runtime unhandled exception and rejection capture.
-- [ ] Crash/fatal reporting workflow with dedicated filters and operational impact.
+- [x] Crash/fatal reporting workflow with dedicated filters and operational impact.
 - [ ] Source-map release validation and unresolved-stack guidance.
 - [ ] On-call routing with ack, mute/snooze, notification history, and escalation.

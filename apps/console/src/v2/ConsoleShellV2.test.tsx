@@ -243,13 +243,14 @@ describe("ConsoleShellV2", () => {
   describe("drill/back navigation", () => {
     const ERRORS_VM_FOR_DRILL = {
       tabs: { events: 0, errors: 1, traces: 0, llm: 0, tenants: 0, users: 0 },
-      summary: { errors24h: 1, openGroups: 1, critical: 1, mttr: null, topRelease: null },
+      summary: { errors24h: 1, openGroups: 1, crashes: 0, critical: 1, mttr: null, topRelease: null },
       volume: [],
       rows: [
         {
           id: "g1",
           message: "TestError: drill navigation test",
           severity: "critical",
+          isCrash: false,
           status: "open",
           priority: null as null,
           events: 10,

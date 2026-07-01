@@ -25,6 +25,7 @@ const ERRORS_VM: ErrorsVM = {
   summary: {
     errors24h: 2481,
     openGroups: 14,
+    crashes: 3,
     critical: 2,
     mttr: null,
     topRelease: "v2026.05.14",
@@ -32,9 +33,22 @@ const ERRORS_VM: ErrorsVM = {
   volume: [12, 18, 22, 28, 32, 38, 46, 52, 68, 82, 124, 168, 142, 98, 72, 58, 42, 32, 28, 24],
   rows: [
     {
+      id: "err_grp_fatal",
+      message: "RuntimeCrash: worker process exited unexpectedly",
+      severity: "fatal",
+      isCrash: true,
+      status: "open",
+      priority: "P1",
+      events: 3,
+      users: 1,
+      tenants: 1,
+      last: "2s ago",
+    },
+    {
       id: "err_grp_8a2f",
       message: "PaymentTimeoutError: provider timeout after 12000ms",
       severity: "critical",
+      isCrash: false,
       status: "investigating",
       priority: "P1",
       events: 412,
@@ -46,6 +60,7 @@ const ERRORS_VM: ErrorsVM = {
       id: "err_grp_4c1d",
       message: "StripeAPIError: rate_limited",
       severity: "critical",
+      isCrash: false,
       status: "open",
       priority: "P1",
       events: 184,
@@ -57,6 +72,7 @@ const ERRORS_VM: ErrorsVM = {
       id: "err_grp_2a8c",
       message: "Worker job dlq_telemetry timed out (max_attempts reached)",
       severity: "error",
+      isCrash: false,
       status: "investigating",
       priority: "P2",
       events: 28,
@@ -68,6 +84,7 @@ const ERRORS_VM: ErrorsVM = {
       id: "err_grp_0e91",
       message: "AbortError: signal timeout in /llm/generate",
       severity: "warning",
+      isCrash: false,
       status: "ignored",
       priority: "P4",
       events: 12,
@@ -80,7 +97,7 @@ const ERRORS_VM: ErrorsVM = {
 
 const EMPTY_VM: ErrorsVM = {
   tabs: { events: 0, errors: 0, traces: 0, llm: 0, tenants: 0, users: 0 },
-  summary: { errors24h: 0, openGroups: 0, critical: 0, mttr: null, topRelease: null },
+  summary: { errors24h: 0, openGroups: 0, crashes: 0, critical: 0, mttr: null, topRelease: null },
   volume: [],
   rows: [],
 };
@@ -238,12 +255,13 @@ describe("ErrorsScreen", () => {
   });
 
   describe("severity filter", () => {
-    it("renders severity segmented options: all, critical, error, warning", () => {
+    it("renders severity segmented options: all, crashes, critical, error, warning", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       // using aria-pressed to find segmented options
       const allBtn = screen.getByRole("button", { name: /severity: all/i });
       expect(allBtn).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /crashes/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^critical$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^error$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^warning$/i })).toBeInTheDocument();
@@ -267,6 +285,20 @@ describe("ErrorsScreen", () => {
         const calls = spy.mock.calls;
         const lastCall = calls[calls.length - 1][0];
         expect(lastCall.severity).toBe("critical");
+      });
+    });
+
+    it("calls useErrors with fatal severity when crash filter changes", async () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /crashes/i }));
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall.severity).toBe("fatal");
       });
     });
 
@@ -299,6 +331,13 @@ describe("ErrorsScreen", () => {
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByText(/open groups/i)).toBeInTheDocument();
       expect(screen.getByText("14")).toBeInTheDocument();
+    });
+
+    it("renders Crashes count", () => {
+      mockUseErrors(ERRORS_VM);
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(screen.getAllByText(/crashes/i).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText("3").length).toBeGreaterThanOrEqual(1);
     });
 
     it("renders Critical count", () => {
@@ -394,6 +433,7 @@ describe("ErrorsScreen", () => {
             id: "err_null_prio",
             message: "SomeError: null priority row",
             severity: "error",
+            isCrash: false,
             status: "open",
             priority: null,
             events: 5,
@@ -448,6 +488,13 @@ describe("ErrorsScreen", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByText("8s ago")).toBeInTheDocument();
+    });
+
+    it("marks fatal rows as crashes", () => {
+      mockUseErrors(ERRORS_VM);
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(screen.getByText(/RuntimeCrash/i)).toBeInTheDocument();
+      expect(screen.getByText("Crash")).toBeInTheDocument();
     });
   });
 
