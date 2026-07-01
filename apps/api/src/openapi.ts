@@ -1002,7 +1002,16 @@ export const openApiDocument = {
       get: sessionRoute("Query LLM calls", "Read project/environment scoped LLM call telemetry.")
     },
     "/query/traces": {
-      get: sessionRoute("Query traces", "Read project/environment scoped trace telemetry.")
+      get: sessionRoute(
+        "Query traces",
+        "Read project/environment scoped trace telemetry. Supports trace drilldown filters such as trace_id, trace_name, status, tenant_id, user_id, session_id, from, to, limit, and cursor."
+      )
+    },
+    "/query/apm/endpoints": {
+      get: sessionRoute(
+        "Query APM endpoints",
+        "Read endpoint-level APM rollups for a project environment, including throughput, errors, error rate, p50/p95/p99 latency, average latency, Apdex, and last seen timestamp. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
     },
     "/system/health": {
       get: sessionRoute("Read system health", "Read API, worker, Postgres, Redis, queue, freshness, retention, and backup status.")

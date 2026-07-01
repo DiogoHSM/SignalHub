@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ScreenCtx } from "./registry";
 import { useTraces } from "./useTraces";
-import type { TraceListItemVM } from "./useTraces";
+import type { ApmEndpointVM, TraceListItemVM, UseTracesResult } from "./useTraces";
 import { SPAN_KIND_COLOR, useTraceSpans } from "./useTraceSpans";
 import type { SpanNodeVM } from "./useTraceSpans";
 import {
@@ -52,6 +52,14 @@ function spanAttributes(span: SpanNodeVM): string {
     attrs.metadata = span.metadata;
   }
   return boundText(JSON.stringify(attrs, null, 2));
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+function formatApdex(value: number | null): string {
+  return value === null ? "—" : value.toFixed(2);
 }
 
 // Build the ruler tick labels (0 … totalMs) for the waterfall header.
@@ -110,9 +118,106 @@ function TraceListRow({ trace, onOpen }: { trace: TraceListItemVM; onOpen: () =>
   );
 }
 
-function TraceListView({ ctx, traces, onOpen }: {
+function EndpointRow({
+  endpoint,
+  active,
+  onSelect
+}: {
+  endpoint: ApmEndpointVM;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const tone = endpoint.errors > 0 ? "critical" : endpoint.p95DurationMs != null && endpoint.p95DurationMs > 1000 ? "warn" : "ok";
+  return (
+    <button
+      className={`sh-row sh-row--btn ${active ? "is-active" : ""}`}
+      style={{
+        gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
+        alignItems: "center",
+        width: "100%",
+        textAlign: "left",
+        border: "none",
+        borderBottom: "1px solid var(--border-subtle)",
+        background: active ? "rgba(87, 242, 135, 0.12)" : "transparent",
+        cursor: "pointer",
+      }}
+      onClick={onSelect}
+    >
+      <span className="sh-mono" style={{ color: "var(--fg)", fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {endpoint.name}
+      </span>
+      <span className="sh-mono">{endpoint.requests}</span>
+      <span className={`sh-tag ${tone}`}>{endpoint.errors}</span>
+      <span className="sh-mono">{formatPercent(endpoint.errorRatePercent)}</span>
+      <span className="sh-mono">{formatLatency(endpoint.p50DurationMs)}</span>
+      <span className="sh-mono">{formatLatency(endpoint.p95DurationMs)}</span>
+      <span className="sh-mono">{formatLatency(endpoint.p99DurationMs)}</span>
+      <span className="sh-mono">{formatApdex(endpoint.apdex)}</span>
+    </button>
+  );
+}
+
+function EndpointTable({
+  endpoints,
+  activeEndpoint,
+  onSelect
+}: {
+  endpoints: ApmEndpointVM[];
+  activeEndpoint: string | null;
+  onSelect: (name: string) => void;
+}) {
+  return (
+    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="sh-card__head">
+        <h2 className="sh-h2">APM endpoints</h2>
+        <span className="sh-tag">slowest by p95</span>
+      </div>
+      <div
+        className="sh-row"
+        style={{
+          gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
+          padding: "8px 18px",
+          borderBottom: "1px solid var(--border-subtle)",
+          color: "var(--fg-faint)",
+          fontSize: 11,
+          fontWeight: 700,
+        }}
+      >
+        <span>Endpoint</span>
+        <span>Req</span>
+        <span>Errors</span>
+        <span>Error rate</span>
+        <span>p50</span>
+        <span>p95</span>
+        <span>p99</span>
+        <span>Apdex</span>
+      </div>
+      <div style={{ overflow: "auto", maxHeight: 260 }}>
+        {endpoints.length === 0 ? (
+          <EmptyHint icon="waterfall" title="No APM data yet" sub="Trace endpoints will appear here as traffic arrives." />
+        ) : (
+          endpoints.map((endpoint) => (
+            <EndpointRow
+              key={endpoint.name}
+              endpoint={endpoint}
+              active={endpoint.name === activeEndpoint}
+              onSelect={() => onSelect(endpoint.name)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TraceListView({ ctx, traces, endpoints, totals, activeEndpoint, onSelectEndpoint, onClearEndpoint, onOpen }: {
   ctx: ScreenCtx;
   traces: TraceListItemVM[];
+  endpoints: ApmEndpointVM[];
+  totals: UseTracesResult["totals"];
+  activeEndpoint: string | null;
+  onSelectEndpoint: (name: string) => void;
+  onClearEndpoint: () => void;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -121,29 +226,34 @@ function TraceListView({ ctx, traces, onOpen }: {
         title="Traces"
         sub={
           <>
-            Recent traces for{" "}
+            APM endpoint performance and recent traces for{" "}
             <strong style={{ color: "var(--fg)" }}>
               {ctx.project?.name} · {ctx.environment?.name}
             </strong>{" "}
-            — {traces.length} shown.
+            — {traces.length} traces shown.
           </>
         }
         actions={
           <>
-            <button className="sh-btn" onClick={() => ctx.pushToast("Trace history is not yet available")}>
-              <Icon name="history" size={14} />
-              History
-            </button>
-            <button className="sh-btn" onClick={() => ctx.pushToast("Trace filters are not yet available")}>
-              <Icon name="filter" size={14} />
-              Filters
-            </button>
+            {activeEndpoint ? (
+              <button className="sh-btn" onClick={onClearEndpoint}>
+                <Icon name="x" size={14} />
+                Clear endpoint
+              </button>
+            ) : null}
           </>
         }
       />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Endpoints" value={String(totals?.endpoints ?? endpoints.length)} /></div></div>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Requests" value={String(totals?.requests ?? 0)} /></div></div>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Errors" value={String(totals?.errors ?? 0)} tone={(totals?.errors ?? 0) > 0 ? "danger" : undefined} /></div></div>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Apdex" value={formatApdex(totals?.apdex ?? null)} /></div></div>
+      </div>
+      <EndpointTable endpoints={endpoints} activeEndpoint={activeEndpoint} onSelect={onSelectEndpoint} />
       <div className="sh-card" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="sh-card__head">
-          <h2 className="sh-h2">Recent traces</h2>
+          <h2 className="sh-h2">{activeEndpoint ? `Recent traces · ${activeEndpoint}` : "Recent traces"}</h2>
           <span className="sh-tag">latest 25</span>
         </div>
         <div style={{ overflow: "auto", flex: 1 }}>
@@ -452,8 +562,14 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
   const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(undefined);
+  const [selectedEndpointName, setSelectedEndpointName] = useState<string | null>(null);
 
-  const { data, status } = useTraces({ client: ctx.client, projectId, environmentId });
+  const { data, endpoints, totals, status } = useTraces({
+    client: ctx.client,
+    projectId,
+    environmentId,
+    endpointName: selectedEndpointName,
+  });
 
   if (!ctx.project || !ctx.environment) {
     return (
@@ -492,5 +608,19 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
     );
   }
 
-  return <TraceListView ctx={ctx} traces={data} onOpen={setSelectedTraceId} />;
+  return (
+    <TraceListView
+      ctx={ctx}
+      traces={data}
+      endpoints={endpoints}
+      totals={totals}
+      activeEndpoint={selectedEndpointName}
+      onSelectEndpoint={(name) => {
+        setSelectedTraceId(undefined);
+        setSelectedEndpointName(name);
+      }}
+      onClearEndpoint={() => setSelectedEndpointName(null)}
+      onOpen={setSelectedTraceId}
+    />
+  );
 }

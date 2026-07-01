@@ -13,6 +13,7 @@ export type QueryFilters = {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  traceName?: string;
   eventName?: string;
   provider?: string;
   model?: string;
@@ -47,6 +48,15 @@ export type OperationsFilters = {
   projectId: string;
   environmentId: string;
   window: OperationsWindow;
+};
+
+export type ApmWindow = "24h" | "7d" | "30d";
+
+export type ApmFilters = {
+  projectId: string;
+  environmentId: string;
+  window: ApmWindow;
+  limit: number;
 };
 
 export type EntityWindow = "24h" | "7d" | "30d";
@@ -165,6 +175,7 @@ export type QueryDependencies = {
   getTraceAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getOverview?: (filters: OverviewFilters) => Promise<unknown>;
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
+  getApmEndpoints?: (filters: ApmFilters) => Promise<unknown>;
   listEntityTenants?: (filters: EntityTenantListFilters) => Promise<unknown>;
   getEntityTenantDetail?: (tenantId: string, filters: EntityTenantDetailFilters) => Promise<unknown>;
   listUsersActivity?: (filters: UserListFilters) => Promise<unknown>;
@@ -318,7 +329,7 @@ function parseDate(raw: RawQuery, key: string): Date | undefined | null {
 
 function parseFilters(
   query: unknown,
-  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean } = {}
+  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeTraceFilters?: boolean } = {}
 ): QueryFilters | undefined {
   const raw = (query ?? {}) as RawQuery;
   const projectId = parseRequiredId(raw, "project_id");
@@ -343,6 +354,7 @@ function parseFilters(
   const userId = optionalNonEmpty(raw, "user_id");
   const sessionId = optionalNonEmpty(raw, "session_id");
   const traceId = optionalNonEmpty(raw, "trace_id");
+  const traceName = optionalNonEmpty(raw, "trace_name");
   const eventName = optionalNonEmpty(raw, "event_name");
   const cursor = optionalNonEmpty(raw, "cursor");
 
@@ -357,6 +369,16 @@ function parseFilters(
   }
   if (traceId) {
     filters.traceId = traceId;
+  }
+  if (options.includeTraceFilters) {
+    const status = optionalNonEmpty(raw, "status");
+    if (traceName) {
+      filters.traceName = traceName;
+      filters.eventName = traceName;
+    }
+    if (status) {
+      filters.status = status;
+    }
   }
   if (options.includeEventName && eventName) {
     filters.eventName = eventName;
@@ -666,6 +688,27 @@ function parseOperationsFilters(query: unknown): OperationsFilters | undefined {
   };
 }
 
+function parseApmFilters(query: unknown): ApmFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "24h";
+  if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    window: rawWindow,
+    limit: parseLimit(raw)
+  };
+}
+
 function parseEntityWindow(raw: RawQuery): EntityWindow | undefined {
   const rawWindow = optionalNonEmpty(raw, "window") ?? "7d";
   if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
@@ -963,7 +1006,7 @@ async function handleListRoute(
   options: QueryRouteOptions,
   hasMethod: () => boolean,
   run: ListRunner,
-  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean }
+  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeTraceFilters?: boolean }
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -1118,6 +1161,28 @@ async function handleOperationsRoute(request: FastifyRequest, reply: FastifyRepl
 
   try {
     return reply.send({ data: await options.query.getOperations(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleApmEndpointsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getApmEndpoints) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseApmFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getApmEndpoints(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1671,6 +1736,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
       () => !!options.query?.getLlmCostByModel,
       (filters) => options.query!.getLlmCostByModel!(filters)));
   app.get("/query/operations", (request, reply) => handleOperationsRoute(request, reply, options));
+  app.get("/query/apm/endpoints", (request, reply) => handleApmEndpointsRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));
@@ -1729,7 +1795,14 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     )
   );
   app.get("/query/traces", (request, reply) =>
-    handleListRoute(request, reply, options, () => !!options.query?.listTraces, (filters) => options.query!.listTraces!(filters))
+    handleListRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.listTraces,
+      (filters) => options.query!.listTraces!(filters),
+      { includeTraceFilters: true }
+    )
   );
   app.get("/query/traces/:id/spans", (request, reply) => handleTraceSpansRoute(request, reply, options));
 

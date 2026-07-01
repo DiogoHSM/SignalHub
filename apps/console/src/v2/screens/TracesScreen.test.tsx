@@ -7,7 +7,7 @@ import { TracesScreen } from "./TracesScreen";
 import type { ScreenCtx } from "./registry";
 import * as useTracesModule from "./useTraces";
 import * as useTraceSpansModule from "./useTraceSpans";
-import type { TraceListItemVM } from "./useTraces";
+import type { ApmEndpointVM, TraceListItemVM, UseTracesResult } from "./useTraces";
 import type { TraceDetailVM } from "./useTraceSpans";
 
 afterEach(() => {
@@ -35,6 +35,33 @@ const traces: TraceListItemVM[] = [
     durationMs: 12, startedAt: "2026-06-23T12:30:00.000Z", tenantId: null, userId: null },
 ];
 
+const endpoints: ApmEndpointVM[] = [
+  {
+    name: "POST /api/dashboards",
+    requests: 42,
+    errors: 3,
+    errorRatePercent: 7.1,
+    p50DurationMs: 180,
+    p95DurationMs: 2380,
+    p99DurationMs: 3100,
+    averageDurationMs: 430,
+    apdex: 0.82,
+    lastSeenAt: "2026-06-23T12:42:08.412Z",
+  },
+  {
+    name: "GET /api/health",
+    requests: 100,
+    errors: 0,
+    errorRatePercent: 0,
+    p50DurationMs: 8,
+    p95DurationMs: 12,
+    p99DurationMs: 18,
+    averageDurationMs: 9,
+    apdex: 1,
+    lastSeenAt: "2026-06-23T12:30:00.000Z",
+  },
+];
+
 const detail: TraceDetailVM = {
   summary: { totalMs: 2380, spanCount: 3, llmCostUsd: 0.024, llmTimeMs: 1716, dbTimeMs: 430, errorCount: 1 },
   spans: [
@@ -49,10 +76,21 @@ const detail: TraceDetailVM = {
 };
 
 function mockList(data: TraceListItemVM[] | null, status: "loading" | "ok" | "error" = "ok") {
-  vi.spyOn(useTracesModule, "useTraces").mockReturnValue({ data, status, reload: vi.fn() });
+  const result: UseTracesResult = {
+    data,
+    endpoints,
+    totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
+    status,
+    reload: vi.fn()
+  };
+  vi.spyOn(useTracesModule, "useTraces").mockReturnValue(result);
 }
 function mockSpans(data: TraceDetailVM | null, status: "loading" | "ok" | "error" = "ok") {
   vi.spyOn(useTraceSpansModule, "useTraceSpans").mockReturnValue({ data, status, reload: vi.fn() });
+}
+
+async function openDashboardTrace() {
+  await userEvent.click(screen.getAllByText("POST /api/dashboards")[1]);
 }
 
 describe("TracesScreen — index", () => {
@@ -75,18 +113,27 @@ describe("TracesScreen — index", () => {
     mockList(traces);
     render(<TracesScreen ctx={makeCtx()} />);
     expect(screen.getByText("Traces")).toBeInTheDocument();
-    expect(screen.getByText("POST /api/dashboards")).toBeInTheDocument();
-    expect(screen.getByText("GET /api/health")).toBeInTheDocument();
+    expect(screen.getByText("APM endpoints")).toBeInTheDocument();
+    expect(screen.getByText("Endpoints")).toBeInTheDocument();
+    expect(screen.getAllByText("POST /api/dashboards").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("GET /api/health").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("History and Filters are stub toasts", async () => {
-    mockList(traces);
-    const ctx = makeCtx();
-    render(<TracesScreen ctx={ctx} />);
-    await userEvent.click(screen.getByText("History"));
-    await userEvent.click(screen.getByText("Filters"));
-    expect(ctx.pushToast).toHaveBeenCalledWith("Trace history is not yet available");
-    expect(ctx.pushToast).toHaveBeenCalledWith("Trace filters are not yet available");
+  it("selects an endpoint and can clear the endpoint filter", async () => {
+    const useTracesSpy = vi.spyOn(useTracesModule, "useTraces");
+    useTracesSpy.mockReturnValue({
+      data: traces,
+      endpoints,
+      totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
+      status: "ok",
+      reload: vi.fn()
+    });
+    render(<TracesScreen ctx={makeCtx()} />);
+    await userEvent.click(screen.getAllByText("POST /api/dashboards")[0]);
+    expect(useTracesSpy).toHaveBeenLastCalledWith(expect.objectContaining({ endpointName: "POST /api/dashboards" }));
+    expect(screen.getByText(/clear endpoint/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByText(/clear endpoint/i));
+    expect(useTracesSpy).toHaveBeenLastCalledWith(expect.objectContaining({ endpointName: null }));
   });
 
   it("empty list shows a hint", () => {
@@ -101,7 +148,7 @@ describe("TracesScreen — detail", () => {
     mockList(traces);
     mockSpans(detail);
     render(<TracesScreen ctx={makeCtx()} />);
-    await userEvent.click(screen.getByText("POST /api/dashboards"));
+    await openDashboardTrace();
     // header
     expect(screen.getByText(/has error/i)).toBeInTheDocument();
     expect(screen.getByText(/2026-06-23 12:42:08.412 UTC/)).toBeInTheDocument();
@@ -119,7 +166,7 @@ describe("TracesScreen — detail", () => {
     mockList(traces);
     mockSpans(detail);
     render(<TracesScreen ctx={makeCtx()} />);
-    await userEvent.click(screen.getByText("POST /api/dashboards"));
+    await openDashboardTrace();
     // default-selected span is the first errored one → error block visible
     expect(screen.getByText("Span detail")).toBeInTheDocument();
     expect(screen.getByText(/AbortError/)).toBeInTheDocument();
@@ -132,7 +179,7 @@ describe("TracesScreen — detail", () => {
     mockSpans(detail);
     const ctx = makeCtx();
     render(<TracesScreen ctx={ctx} />);
-    await userEvent.click(screen.getByText("POST /api/dashboards"));
+    await openDashboardTrace();
     await userEvent.click(screen.getByText("Open incident"));
     expect(ctx.pushToast).toHaveBeenCalledWith("Linking spans to incidents is not yet available");
     await userEvent.click(screen.getByText("Copy ID"));
@@ -143,7 +190,7 @@ describe("TracesScreen — detail", () => {
     mockList(traces);
     mockSpans(detail);
     render(<TracesScreen ctx={makeCtx()} />);
-    await userEvent.click(screen.getByText("POST /api/dashboards"));
+    await openDashboardTrace();
     const waterfall = screen.getByText("Waterfall").closest(".sh-card") as HTMLElement;
     await userEvent.click(within(waterfall).getByText("Errors"));
     // only the errored span name remains in the waterfall list
@@ -155,9 +202,9 @@ describe("TracesScreen — detail", () => {
     mockList(traces);
     mockSpans(detail);
     render(<TracesScreen ctx={makeCtx()} />);
-    await userEvent.click(screen.getByText("POST /api/dashboards"));
+    await openDashboardTrace();
     await userEvent.click(screen.getByText(/recent traces/i));
     expect(screen.getByText("Traces")).toBeInTheDocument();
-    expect(screen.getByText("GET /api/health")).toBeInTheDocument();
+    expect(screen.getAllByText("GET /api/health").length).toBeGreaterThanOrEqual(2);
   });
 });

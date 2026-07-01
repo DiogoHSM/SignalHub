@@ -89,6 +89,7 @@ import {
   getLlmByTenant,
   getLlmCostByModel,
   getLlmSummary,
+  getApmEndpoints,
   getOverview,
   getErrorForSourceMapResolution,
   getTraceAggregates,
@@ -6366,6 +6367,102 @@ describe("repositories", () => {
       await expect(getErrorAggregates(db, filters)).resolves.toMatchObject({ total: 1, open: 1 });
       await expect(getLlmAggregates(db, filters)).resolves.toMatchObject({ totalCalls: 1, totalInputTokens: 3 });
       await expect(getTraceAggregates(db, filters)).resolves.toMatchObject({ total: 1, averageDurationMs: 20 });
+    });
+  });
+
+  it("aggregates APM endpoint latency, throughput, error rate, and Apdex", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "APM Endpoint Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:55:01.000Z"),
+        startedAt: new Date("2026-05-24T11:55:00.000Z"),
+        endedAt: new Date("2026-05-24T11:55:01.000Z"),
+        metadata: {}
+      };
+
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_orders_1",
+        traceId: "trace_apm_orders_1",
+        name: "GET /api/orders",
+        status: "success",
+        durationMs: 100
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_orders_2",
+        traceId: "trace_apm_orders_2",
+        name: "GET /api/orders",
+        status: "success",
+        durationMs: 600
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_orders_3",
+        traceId: "trace_apm_orders_3",
+        name: "GET /api/orders",
+        status: "error",
+        durationMs: 2400
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_health",
+        traceId: "trace_apm_health",
+        name: "GET /api/health",
+        status: "success",
+        durationMs: 20
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_old",
+        traceId: "trace_apm_old",
+        timestamp: new Date("2026-05-20T11:55:00.000Z"),
+        name: "GET /api/old",
+        status: "error",
+        durationMs: 5000
+      });
+
+      const apm = await getApmEndpoints(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(apm.totals).toMatchObject({
+        endpoints: 2,
+        requests: 4,
+        errors: 1,
+        errorRatePercent: 25
+      });
+      expect(apm.endpoints[0]).toMatchObject({
+        name: "GET /api/orders",
+        requests: 3,
+        errors: 1,
+        errorRatePercent: 33,
+        p50DurationMs: 600,
+        p95DurationMs: 2220,
+        p99DurationMs: 2364,
+        averageDurationMs: 1033,
+        apdex: 0.5
+      });
+      expect(apm.endpoints[1]).toMatchObject({
+        name: "GET /api/health",
+        requests: 1,
+        errors: 0,
+        p95DurationMs: 20,
+        apdex: 1
+      });
+      await expect(
+        listTraces(db, { projectId: project.id, environmentId: environment.id, traceName: "GET /api/orders", limit: 10 })
+      ).resolves.toMatchObject({ data: expect.arrayContaining([expect.objectContaining({ name: "GET /api/orders" })]) });
     });
   });
 

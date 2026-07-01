@@ -183,7 +183,13 @@ describe("screen registry", () => {
   });
 
   it("renders the v2 Traces screen (not wrapped in the legacy island)", () => {
-    vi.spyOn(useTracesModule, "useTraces").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    vi.spyOn(useTracesModule, "useTraces").mockReturnValue({
+      data: null,
+      endpoints: [],
+      totals: null,
+      status: "loading",
+      reload: vi.fn()
+    });
     const ctx = makeCtx();
     const node = renderSection("traces", ctx);
     const { container } = render(<>{node}</>);

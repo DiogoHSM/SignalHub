@@ -1,6 +1,8 @@
 import type {
   AddTriageNoteInput,
   AggregateResponse,
+  ApmEndpointsResponse,
+  ApmQuery,
   ApiKey,
   BrowserOrigin,
   AlertEventListQuery,
@@ -254,6 +256,7 @@ export type ApiClient = {
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
+  getApmEndpoints?: (query: ApmQuery) => Promise<AggregateResponse<ApmEndpointsResponse>>;
   getIncidentMttr?: (query: IncidentMttrQuery) => Promise<AggregateResponse<IncidentMttrResult>>;
   getLlmSummary?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmSummary>>;
   getLlmByTenant?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmTenantRow[]>>;
@@ -380,7 +383,13 @@ function encodePathSegment(value: string): string {
 function queryPath(
   route: string,
   filters: QueryFilters,
-  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeLimit?: boolean } = {}
+  options: {
+    includeEventName?: boolean;
+    includeErrorFilters?: boolean;
+    includeLlmFilters?: boolean;
+    includeTraceFilters?: boolean;
+    includeLimit?: boolean;
+  } = {}
 ): string {
   const params = new URLSearchParams();
   params.set("project_id", filters.projectId);
@@ -390,6 +399,10 @@ function queryPath(
   if (filters.userId) params.set("user_id", filters.userId);
   if (filters.sessionId) params.set("session_id", filters.sessionId);
   if (filters.traceId) params.set("trace_id", filters.traceId);
+  if (options.includeTraceFilters) {
+    if (filters.traceName) params.set("trace_name", filters.traceName);
+    if (filters.status) params.set("status", filters.status);
+  }
   if (options.includeEventName && filters.eventName) params.set("event_name", filters.eventName);
   if (options.includeErrorFilters) {
     if (filters.severity) params.set("severity", filters.severity);
@@ -524,6 +537,16 @@ function operationsPath(query: OperationsQuery): string {
   params.set("window", query.window);
 
   return `/query/operations?${params.toString()}`;
+}
+
+function apmEndpointsPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/apm/endpoints?${params.toString()}`;
 }
 
 function incidentMttrPath(query: IncidentMttrQuery): string {
@@ -782,7 +805,8 @@ export function createApiClient(
       );
       return response.data;
     },
-    listTraces: (filters) => request<QueryListResponse<TraceRecord>>(path(apiBasePath, queryPath("/query/traces", filters))),
+    listTraces: (filters) =>
+      request<QueryListResponse<TraceRecord>>(path(apiBasePath, queryPath("/query/traces", filters, { includeTraceFilters: true }))),
     listTraceSpans: (traceId, filters) =>
       request<QueryListResponse<SpanRecord>>(
         path(apiBasePath, queryPath(`/query/traces/${encodePathSegment(traceId)}/spans`, filters))
@@ -801,6 +825,7 @@ export function createApiClient(
       request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
+    getApmEndpoints: (query) => request<AggregateResponse<ApmEndpointsResponse>>(path(apiBasePath, apmEndpointsPath(query))),
     getIncidentMttr: (query) => request<AggregateResponse<IncidentMttrResult>>(path(apiBasePath, incidentMttrPath(query))),
     getLlmSummary: (query) =>
       request<AggregateResponse<LlmSummary>>(path(apiBasePath, llmAggregatePath("summary", query))),

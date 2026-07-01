@@ -132,6 +132,14 @@ SignalMonitor includes an admin-only Integration Console.
 - Operations opens with recommended next actions ranked from incidents, monitor gaps, alert delivery, slow traces, and error-rate outliers so the operator has an immediate response path.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
 
+## Traces / APM UX
+
+- Traces now starts with an APM endpoint table before raw recent traces so operators can find slow or noisy routes first.
+- Endpoint rows should prioritize operation name, request volume, errors, error rate, p50, p95, p99, and Apdex in a dense table.
+- Clicking an endpoint filters the recent trace list to that route; opening a trace then continues into the existing waterfall/span detail view.
+- APM cards should remain compact and dark, with no white table rows or detached chart-only surfaces.
+- The default APM window is 24h for day-to-day operational debugging; broader historical analytics can add window controls later.
+
 ## Alerts UX
 
 - Alerts should stay dense and operational: rules, channels, recent events, and delivery status should be visible without a marketing-style layout.

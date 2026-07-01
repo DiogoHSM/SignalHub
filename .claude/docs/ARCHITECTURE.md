@@ -160,6 +160,7 @@ Query:
 - `GET /query/users/:userKey`
 - `GET /query/overview`
 - `GET /query/operations`
+- `GET /query/apm/endpoints`
 - `GET /query/aggregates/events`
 - `GET /query/aggregates/errors`
 - `GET /query/aggregates/llm`

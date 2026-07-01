@@ -519,6 +519,50 @@ export type OperationsQuery = {
   window: OperationsWindow;
 };
 
+export type ApmWindow = OperationsWindow;
+
+export type ApmQuery = {
+  projectId: string;
+  environmentId: string;
+  window: ApmWindow;
+  limit?: number;
+};
+
+export type ApmEndpoint = {
+  name: string;
+  requests: number;
+  errors: number;
+  errorRatePercent: number | null;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+  p99DurationMs: number | null;
+  averageDurationMs: number | null;
+  apdex: number | null;
+  lastSeenAt: string | null;
+};
+
+export type ApmEndpointsResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    endpoints: number;
+    requests: number;
+    errors: number;
+    errorRatePercent: number | null;
+    p95DurationMs: number | null;
+    apdex: number | null;
+  };
+  endpoints: ApmEndpoint[];
+};
+
 export type OperationsMonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
 
 export type OperationsStatusCounts = {
@@ -1296,6 +1340,7 @@ export type QueryFilters = {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  traceName?: string;
   eventName?: string;
   severity?: string;
   status?: string;

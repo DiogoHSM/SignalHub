@@ -186,6 +186,8 @@ describe("createApiClient", () => {
       projectId: "prj_1",
       environmentId: "env_1",
       traceId: "trace_1",
+      traceName: "GET /api/orders",
+      status: "success",
       tenantId: "tenant_1",
       userId: "user_1",
       sessionId: "session_1",
@@ -195,7 +197,7 @@ describe("createApiClient", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/query/traces?project_id=prj_1&environment_id=env_1&tenant_id=tenant_1&user_id=user_1&session_id=session_1&trace_id=trace_1&from=2026-05-04T12%3A00%3A00.000Z&to=2026-05-04T13%3A00%3A00.000Z&limit=25",
+      "/query/traces?project_id=prj_1&environment_id=env_1&tenant_id=tenant_1&user_id=user_1&session_id=session_1&trace_id=trace_1&trace_name=GET+%2Fapi%2Forders&status=success&from=2026-05-04T12%3A00%3A00.000Z&to=2026-05-04T13%3A00%3A00.000Z&limit=25",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -364,6 +366,23 @@ describe("createApiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/query/operations?project_id=prj_1&environment_id=env_1&window=7d",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes APM endpoint query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { endpoints: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getApmEndpoints?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "24h",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/apm/endpoints?project_id=prj_1&environment_id=env_1&window=24h&limit=25",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -601,7 +620,7 @@ describe("createApiClient", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/query/traces?project_id=prj_1&environment_id=env_1",
+      "/query/traces?project_id=prj_1&environment_id=env_1&status=success",
       expect.objectContaining({ method: "GET" })
     );
   });

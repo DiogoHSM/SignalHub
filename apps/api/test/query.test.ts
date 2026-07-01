@@ -1124,6 +1124,39 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards trace endpoint filters for APM drilldown", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listTraces: async (filters) => {
+          received.push(filters);
+          return [{ id: "trc_1", name: "GET /api/orders" }];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/traces?project_id=prj_1&environment_id=env_1&trace_name=GET+%2Fapi%2Forders&status=success"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: [{ id: "trc_1", name: "GET /api/orders" }] });
+    expect(received).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        traceName: "GET /api/orders",
+        eventName: "GET /api/orders",
+        status: "success",
+        limit: 50
+      }
+    ]);
+  });
+
   it("rejects conflicting trace ids for trace span queries", async () => {
     app = await buildApp({
       readiness,
@@ -1432,6 +1465,30 @@ describe("query routes", () => {
       { projectId: "prj_1", environmentId: "env_1", window: "7d" },
       { projectId: "prj_1", environmentId: "env_1", window: "30d" }
     ]);
+  });
+
+  it("forwards APM endpoint query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getApmEndpoints: async (filters) => {
+          receivedFilters.push(filters);
+          return { endpoints: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/apm/endpoints?project_id=prj_1&environment_id=env_1&window=7d&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { endpoints: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 25 }]);
   });
 
   it("rejects unsupported operations windows", async () => {

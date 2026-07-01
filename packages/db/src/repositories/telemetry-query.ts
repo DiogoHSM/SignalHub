@@ -20,6 +20,7 @@ export interface TelemetryFilters {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  traceName?: string;
   eventName?: string;
   provider?: string;
   model?: string;
@@ -113,6 +114,51 @@ export interface TraceAggregates extends CountAggregate {
 
 export type OverviewWindow = "24h" | "7d" | "30d";
 export type OverviewTrendBucket = "hour" | "day";
+
+export type ApmWindow = OverviewWindow;
+
+export interface ApmFilters {
+  projectId: string;
+  environmentId: string;
+  window: ApmWindow;
+  now?: Date;
+  limit?: number;
+}
+
+export interface ApmEndpointRow {
+  name: string;
+  requests: number;
+  errors: number;
+  errorRatePercent: number | null;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+  p99DurationMs: number | null;
+  averageDurationMs: number | null;
+  apdex: number | null;
+  lastSeenAt: string | null;
+}
+
+export interface ApmEndpointsResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    endpoints: number;
+    requests: number;
+    errors: number;
+    errorRatePercent: number | null;
+    p95DurationMs: number | null;
+    apdex: number | null;
+  };
+  endpoints: ApmEndpointRow[];
+}
 
 export interface OverviewFilters {
   projectId: string;
@@ -484,6 +530,10 @@ function toRoundedOrNull(value: unknown): number | null {
   return n === null ? null : Math.round(n);
 }
 
+function toNullableNumber(value: unknown): number | null {
+  return toFiniteSafeNumber(value);
+}
+
 export function buildBucketAxis(from: Date, to: Date, bucket: OverviewTrendBucket): string[] {
   const stepHours = bucket === "hour" ? 1 : 24;
   const start = new Date(from);
@@ -665,7 +715,8 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
-  if (filters.eventName) query = query.where("name", "=", filters.eventName);
+  const traceName = filters.traceName ?? filters.eventName;
+  if (traceName) query = query.where("name", "=", traceName);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
   if (cursor) {
@@ -749,6 +800,8 @@ export async function listTraces(db: Db, filters: TelemetryFilters): Promise<Tel
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+  if (filters.eventName) query = query.where("name", "=", filters.eventName);
+  if (filters.status) query = query.where("status", "=", filters.status);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
   if (cursor) {
@@ -759,6 +812,141 @@ export async function listTraces(db: Db, filters: TelemetryFilters): Promise<Tel
 
   const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
   return listResult(filters, rows, toTrace);
+}
+
+export async function getApmEndpoints(db: Db, filters: ApmFilters): Promise<ApmEndpointsResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const endpointsResult = await sql<{
+    name: string;
+    requests: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+    p50_duration_ms: unknown;
+    p95_duration_ms: unknown;
+    p99_duration_ms: unknown;
+    average_duration_ms: unknown;
+    apdex: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(name, ''), '(unnamed trace)') as name,
+        status,
+        duration_ms,
+        timestamp
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    grouped as (
+      select
+        name,
+        count(*) as requests,
+        count(*) filter (where status <> 'success') as errors,
+        case
+          when count(*) = 0 then null
+          else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+        end as error_rate_percent,
+        percentile_cont(0.50) within group (order by duration_ms) filter (where duration_ms is not null) as p50_duration_ms,
+        percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
+        percentile_cont(0.99) within group (order by duration_ms) filter (where duration_ms is not null) as p99_duration_ms,
+        avg(duration_ms) filter (where duration_ms is not null) as average_duration_ms,
+        case
+          when count(*) filter (where duration_ms is not null) = 0 then null
+          else (
+            (
+              (count(*) filter (where duration_ms <= 500))::numeric +
+              ((count(*) filter (where duration_ms > 500 and duration_ms <= 2000))::numeric / 2)
+            ) / (count(*) filter (where duration_ms is not null))::numeric
+          )
+        end as apdex,
+        max(timestamp) as last_seen_at
+      from scoped
+      group by name
+    )
+    select *
+    from grouped
+    order by p95_duration_ms desc nulls last, requests desc, name asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    endpoints: unknown;
+    requests: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+    p95_duration_ms: unknown;
+    apdex: unknown;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(name, ''), '(unnamed trace)') as name,
+        status,
+        duration_ms
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    )
+    select
+      count(distinct name) as endpoints,
+      count(*) as requests,
+      count(*) filter (where status <> 'success') as errors,
+      case
+        when count(*) = 0 then null
+        else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+      end as error_rate_percent,
+      percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
+      case
+        when count(*) filter (where duration_ms is not null) = 0 then null
+        else (
+          (
+            (count(*) filter (where duration_ms <= 500))::numeric +
+            ((count(*) filter (where duration_ms > 500 and duration_ms <= 2000))::numeric / 2)
+          ) / (count(*) filter (where duration_ms is not null))::numeric
+        )
+      end as apdex
+    from scoped
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      endpoints: toNumber(totals?.endpoints),
+      requests: toNumber(totals?.requests),
+      errors: toNumber(totals?.errors),
+      errorRatePercent: toRoundedOrNull(totals?.error_rate_percent),
+      p95DurationMs: toRoundedOrNull(totals?.p95_duration_ms),
+      apdex: toNullableNumber(totals?.apdex)
+    },
+    endpoints: endpointsResult.rows.map((row) => ({
+      name: row.name,
+      requests: toNumber(row.requests),
+      errors: toNumber(row.errors),
+      errorRatePercent: toRoundedOrNull(row.error_rate_percent),
+      p50DurationMs: toRoundedOrNull(row.p50_duration_ms),
+      p95DurationMs: toRoundedOrNull(row.p95_duration_ms),
+      p99DurationMs: toRoundedOrNull(row.p99_duration_ms),
+      averageDurationMs: toRoundedOrNull(row.average_duration_ms),
+      apdex: toNullableNumber(row.apdex),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
 }
 
 export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<SpanRecord>> {
