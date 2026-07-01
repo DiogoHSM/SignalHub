@@ -44,7 +44,7 @@ Keep these scopes separate:
 ## Node.js
 
 ```ts
-import { createSignalMonitorClient } from "@sigmon/sdk/node";
+import { createSignalMonitorClient, installNodeErrorCapture } from "@sigmon/sdk/node";
 
 const sigmon = createSignalMonitorClient({
   endpoint: process.env.SIGMON_ENDPOINT ?? "https://my.sigmon.app",
@@ -73,6 +73,21 @@ sigmon.captureError(new Error("Payment provider timeout"), {
 
 await sigmon.flush();
 ```
+
+Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
+
+```ts
+installNodeErrorCapture(sigmon, {
+  captureUncaughtExceptions: true,
+  captureUnhandledRejections: true,
+  flush: true,
+  context: {
+    metadata: { service: "worker" }
+  }
+});
+```
+
+The helper records `mechanism` as `node.uncaughtException` or `node.unhandledRejection`, marks the event as unhandled, defaults severity to `fatal`, and returns a cleanup function for tests or hot reloads.
 
 ## Browser
 

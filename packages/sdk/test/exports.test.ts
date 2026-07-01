@@ -60,4 +60,11 @@ describe("SDK exports", () => {
     expect(next.withSignalMonitorRoute).toBeTypeOf("function");
     expect(next.withSignalMonitorAction).toBeTypeOf("function");
   });
+
+  it("exposes Node.js runtime error capture from the node entrypoint", async () => {
+    const node = await import("../src/node.js");
+
+    expect(node.createSignalMonitorClient).toBeTypeOf("function");
+    expect(node.installNodeErrorCapture).toBeTypeOf("function");
+  });
 });

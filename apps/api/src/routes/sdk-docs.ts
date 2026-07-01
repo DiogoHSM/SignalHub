@@ -400,7 +400,7 @@ yarn add @sigmon/sdk</code></pre>
           <section id="quick-start">
             <h2>Quick start</h2>
             <p>Create a server-side client and flush before process exit or at the end of short-lived jobs.</p>
-            <pre><code>import { createSignalMonitorClient } from "@sigmon/sdk/node";
+            <pre><code>import { createSignalMonitorClient, installNodeErrorCapture } from "@sigmon/sdk/node";
 
 const sigmon = createSignalMonitorClient({
   endpoint: process.env.SIGMON_ENDPOINT ?? "https://my.sigmon.app",
@@ -428,6 +428,19 @@ sigmon.captureError(new Error("Payment provider timeout"), {
 });
 
 await sigmon.flush();</code></pre>
+            <h3>Workers, queues, and CLIs</h3>
+            <p>
+              Install runtime-level capture in long-running Node.js processes so unhandled exceptions
+              and rejected promises arrive as fatal errors with consistent mechanism context.
+            </p>
+            <pre><code>installNodeErrorCapture(sigmon, {
+  captureUncaughtExceptions: true,
+  captureUnhandledRejections: true,
+  flush: true,
+  context: {
+    metadata: { service: "worker" }
+  }
+});</code></pre>
             <div class="callout">
               Do not send secrets, cookies, authorization headers, full request bodies, or raw payment data
               in properties, context, breadcrumbs, span input, span output, or error metadata.
