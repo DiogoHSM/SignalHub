@@ -208,6 +208,7 @@ describe("screen registry", () => {
       updateChannel: vi.fn().mockResolvedValue(true),
       archiveChannel: vi.fn().mockResolvedValue(true),
       createFromSuggestion: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage: vi.fn().mockResolvedValue(true),
     });
     const ctx = makeCtx();
     const node = renderSection("alerts", ctx);

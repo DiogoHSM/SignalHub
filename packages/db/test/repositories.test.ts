@@ -39,11 +39,14 @@ import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
+  listAlertEscalationsDue,
   listActiveAlertRules,
   listAlertEvents,
+  markAlertEventEscalated,
   recordAlertEvent,
   recordNotificationDelivery,
   updateNotificationChannel,
+  updateAlertEventTriage,
   updateAlertRule,
   updateAlertRuleEvaluation,
   withAlertEvaluationLock
@@ -358,8 +361,8 @@ describe("repositories", () => {
       await migrate(db);
 
       await sql`select id, type, enabled from notification_channels limit 0`.execute(db);
-      await sql`select id, type, threshold from alert_rules limit 0`.execute(db);
-      await sql`select id, observed_value from alert_events limit 0`.execute(db);
+      await sql`select id, type, threshold, escalation_minutes, escalation_channel_id from alert_rules limit 0`.execute(db);
+      await sql`select id, observed_value, acknowledged_at, snoozed_until, escalation_due_at, escalated_at from alert_events limit 0`.execute(db);
       await sql`select id, status from notification_deliveries limit 0`.execute(db);
     });
   });
@@ -2991,15 +2994,19 @@ describe("repositories", () => {
         projectId: project.id,
         environmentId: environment.id,
         notificationChannelId: channel.id,
+        escalationChannelId: channel.id,
         name: "Critical errors",
         type: "critical_errors",
         severity: "critical",
         windowMinutes: 10,
         threshold: "1",
         cooldownMinutes: 30,
+        escalationMinutes: 5,
         enabled: true
       });
       expect(rule.type).toBe("critical_errors");
+      expect(rule.escalationChannelId).toBe(channel.id);
+      expect(rule.escalationMinutes).toBe(5);
 
       const evaluatedAt = new Date("2026-05-06T12:00:00.000Z");
       await updateAlertRuleEvaluation(db, {
@@ -3035,7 +3042,45 @@ describe("repositories", () => {
       });
 
       const events = await listAlertEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
-      expect(events[0]).toMatchObject({ id: event.id, latestDeliveryStatus: "success" });
+      expect(events[0]).toMatchObject({
+        id: event.id,
+        latestDeliveryStatus: "success",
+        escalationDueAt: new Date("2026-05-06T12:05:00.000Z")
+      });
+
+      const dueBeforeAck = await listAlertEscalationsDue(db, {
+        now: new Date("2026-05-06T12:06:00.000Z")
+      });
+      expect(dueBeforeAck[0]).toMatchObject({
+        id: event.id,
+        ruleEscalationChannelId: channel.id,
+        ruleName: "Critical errors"
+      });
+
+      await updateAlertEventTriage(db, event.id, {
+        status: "acknowledged",
+        actorUserId: null,
+        actorEmail: "ops@example.com",
+        now: new Date("2026-05-06T12:02:00.000Z"),
+        note: "investigating"
+      });
+
+      await expect(
+        listAlertEscalationsDue(db, { now: new Date("2026-05-06T12:06:00.000Z") })
+      ).resolves.toEqual([]);
+
+      await updateAlertEventTriage(db, event.id, {
+        status: "triggered",
+        actorUserId: null,
+        actorEmail: "ops@example.com",
+        now: new Date("2026-05-06T12:03:00.000Z")
+      });
+      await markAlertEventEscalated(db, event.id, new Date("2026-05-06T12:06:00.000Z"));
+      const escalated = await listAlertEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
+      expect(escalated[0]).toMatchObject({
+        status: "triggered",
+        escalatedAt: new Date("2026-05-06T12:06:00.000Z")
+      });
     });
   });
 

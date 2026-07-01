@@ -59,6 +59,7 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),

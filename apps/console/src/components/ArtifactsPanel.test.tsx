@@ -50,6 +50,7 @@ function client(overrides: Partial<ApiClient & SourceMapApiClient> = {}): ApiCli
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn(),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn(),

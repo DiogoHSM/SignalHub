@@ -365,12 +365,14 @@ export interface AlertRulesTable {
   project_id: string;
   environment_id: string;
   notification_channel_id: string | null;
+  escalation_channel_id: string | null;
   name: string;
   type: AlertRuleType;
   severity: AlertSeverity;
   window_minutes: number;
   threshold: RequiredNumericString;
   cooldown_minutes: number;
+  escalation_minutes: number | null;
   route_pattern: string | null;
   minimum_sample_size: number;
   enabled: DefaultedBoolean;
@@ -387,7 +389,7 @@ export interface AlertEventsTable {
   monitor_id: string | null;
   project_id: string;
   environment_id: string;
-  status: "triggered";
+  status: "triggered" | "acknowledged" | "snoozed" | "resolved";
   severity: AlertSeverity;
   triggered_at: Timestamp;
   window_start: Timestamp;
@@ -396,6 +398,16 @@ export interface AlertEventsTable {
   threshold: RequiredNumericString;
   message: string;
   metadata: JsonColumn;
+  acknowledged_at: NullableTimestamp;
+  acknowledged_by_user_id: string | null;
+  acknowledged_by_email: string | null;
+  resolved_at: NullableTimestamp;
+  resolved_by_user_id: string | null;
+  resolved_by_email: string | null;
+  snoozed_until: NullableTimestamp;
+  triage_note: string | null;
+  escalation_due_at: NullableTimestamp;
+  escalated_at: NullableTimestamp;
   created_at: Timestamp;
 }
 

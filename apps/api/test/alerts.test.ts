@@ -66,12 +66,14 @@ function alertRule(overrides: Partial<AlertRuleRecord> = {}): AlertRuleRecord {
     projectId: "prj_1",
     environmentId: "env_1",
     notificationChannelId: "chn_1",
+    escalationChannelId: null,
     name: "Critical errors",
     type: "critical_errors",
     severity: "critical",
     windowMinutes: 5,
     threshold: "1",
     cooldownMinutes: 10,
+    escalationMinutes: null,
     routePattern: null,
     minimumSampleSize: 1,
     enabled: true,
@@ -100,6 +102,16 @@ function alertEvent(overrides: Partial<AlertEventRecord> = {}): AlertEventRecord
     threshold: "1",
     message: "Critical errors threshold reached",
     metadata: { count: 2 },
+    acknowledgedAt: null,
+    acknowledgedByUserId: null,
+    acknowledgedByEmail: null,
+    resolvedAt: null,
+    resolvedByUserId: null,
+    resolvedByEmail: null,
+    snoozedUntil: null,
+    triageNote: null,
+    escalationDueAt: null,
+    escalatedAt: null,
     createdAt,
     latestDeliveryStatus: "success",
     ...overrides
@@ -249,6 +261,57 @@ describe("alert history routes", () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "alert_event_not_found" });
+  });
+
+  it("updates alert event triage for authenticated users", async () => {
+    const received: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      alerts: {
+        updateAlertEventTriage: async (id, input) => {
+          received.push({ id, input });
+          return alertEvent({ id, status: input.status, acknowledgedByEmail: input.actorEmail });
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/alerts/events/evt_1/triage",
+      payload: { status: "acknowledged", note: "looking" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      id: "evt_1",
+      status: "acknowledged",
+      acknowledgedByEmail: "member@example.com"
+    });
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      id: "evt_1",
+      input: { status: "acknowledged", actorUserId: "usr_member", actorEmail: "member@example.com", note: "looking" }
+    });
+  });
+
+  it("rejects snooze triage without a snoozedUntil timestamp", async () => {
+    app = await buildApp({
+      readiness,
+      auth: userAuth,
+      alerts: {
+        updateAlertEventTriage: async () => alertEvent()
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/alerts/events/evt_1/triage",
+      payload: { status: "snoozed" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_alert_triage_request" });
   });
 
   it("returns alert suggestions for authenticated users", async () => {

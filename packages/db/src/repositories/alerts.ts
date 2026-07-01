@@ -18,6 +18,13 @@ type AlertRuleRow = Selectable<AlertRulesTable>;
 type AlertEventRow = Selectable<AlertEventsTable>;
 type NotificationDeliveryRow = Selectable<NotificationDeliveriesTable>;
 type AlertEventWithDeliveryRow = AlertEventRow & { latest_delivery_status: "success" | "failed" | null };
+type AlertEventEscalationRow = AlertEventWithDeliveryRow & {
+  rule_notification_channel_id: string | null;
+  rule_escalation_channel_id: string | null;
+  rule_name: string | null;
+  rule_type: AlertRuleType | null;
+  rule_window_minutes: number | null;
+};
 
 const ALERT_EVALUATION_LOCK_ID = 927380402915;
 const MAX_EMAIL_RECIPIENTS = 10;
@@ -84,12 +91,14 @@ export type AlertRuleRecord = {
   projectId: string;
   environmentId: string;
   notificationChannelId: string | null;
+  escalationChannelId: string | null;
   name: string;
   type: AlertRuleType;
   severity: AlertSeverity;
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  escalationMinutes: number | null;
   routePattern: string | null;
   minimumSampleSize: number;
   enabled: boolean;
@@ -106,7 +115,7 @@ export type AlertEventRecord = {
   monitorId: string | null;
   projectId: string;
   environmentId: string;
-  status: "triggered";
+  status: "triggered" | "acknowledged" | "snoozed" | "resolved";
   severity: AlertSeverity;
   triggeredAt: Date;
   windowStart: Date;
@@ -115,8 +124,26 @@ export type AlertEventRecord = {
   threshold: string;
   message: string;
   metadata: unknown;
+  acknowledgedAt: Date | null;
+  acknowledgedByUserId: string | null;
+  acknowledgedByEmail: string | null;
+  resolvedAt: Date | null;
+  resolvedByUserId: string | null;
+  resolvedByEmail: string | null;
+  snoozedUntil: Date | null;
+  triageNote: string | null;
+  escalationDueAt: Date | null;
+  escalatedAt: Date | null;
   createdAt: Date;
   latestDeliveryStatus: "success" | "failed" | null;
+};
+
+export type AlertEscalationRecord = AlertEventRecord & {
+  ruleNotificationChannelId: string | null;
+  ruleEscalationChannelId: string | null;
+  ruleName: string | null;
+  ruleType: AlertRuleType | null;
+  ruleWindowMinutes: number | null;
 };
 
 export type NotificationDeliveryRecord = {
@@ -216,12 +243,14 @@ export function toAlertRule(row: AlertRuleRow): AlertRuleRecord {
     projectId: row.project_id,
     environmentId: row.environment_id,
     notificationChannelId: row.notification_channel_id,
+    escalationChannelId: row.escalation_channel_id,
     name: row.name,
     type: row.type,
     severity: row.severity,
     windowMinutes: row.window_minutes,
     threshold: normalizeNumeric(row.threshold),
     cooldownMinutes: row.cooldown_minutes,
+    escalationMinutes: row.escalation_minutes,
     routePattern: row.route_pattern,
     minimumSampleSize: row.minimum_sample_size,
     enabled: row.enabled,
@@ -249,8 +278,29 @@ export function toAlertEvent(row: AlertEventWithDeliveryRow): AlertEventRecord {
     threshold: normalizeNumeric(row.threshold),
     message: row.message,
     metadata: row.metadata,
+    acknowledgedAt: row.acknowledged_at,
+    acknowledgedByUserId: row.acknowledged_by_user_id,
+    acknowledgedByEmail: row.acknowledged_by_email,
+    resolvedAt: row.resolved_at,
+    resolvedByUserId: row.resolved_by_user_id,
+    resolvedByEmail: row.resolved_by_email,
+    snoozedUntil: row.snoozed_until,
+    triageNote: row.triage_note,
+    escalationDueAt: row.escalation_due_at,
+    escalatedAt: row.escalated_at,
     createdAt: row.created_at,
     latestDeliveryStatus: row.latest_delivery_status
+  };
+}
+
+function toAlertEscalation(row: AlertEventEscalationRow): AlertEscalationRecord {
+  return {
+    ...toAlertEvent(row),
+    ruleNotificationChannelId: row.rule_notification_channel_id,
+    ruleEscalationChannelId: row.rule_escalation_channel_id,
+    ruleName: row.rule_name,
+    ruleType: row.rule_type,
+    ruleWindowMinutes: row.rule_window_minutes
   };
 }
 
@@ -431,12 +481,14 @@ export async function createAlertRule(
     projectId: string;
     environmentId: string;
     notificationChannelId?: string | null;
+    escalationChannelId?: string | null;
     name: string;
     type: AlertRuleType;
     severity: AlertSeverity;
     windowMinutes: number;
     threshold: string;
     cooldownMinutes: number;
+    escalationMinutes?: number | null;
     routePattern?: string | null;
     minimumSampleSize?: number;
     enabled: boolean;
@@ -450,12 +502,14 @@ export async function createAlertRule(
       project_id: input.projectId,
       environment_id: input.environmentId,
       notification_channel_id: input.notificationChannelId ?? null,
+      escalation_channel_id: input.escalationChannelId ?? null,
       name: input.name,
       type: input.type,
       severity: input.severity,
       window_minutes: input.windowMinutes,
       threshold: input.threshold,
       cooldown_minutes: input.cooldownMinutes,
+      escalation_minutes: input.escalationMinutes ?? null,
       route_pattern: input.routePattern ?? null,
       minimum_sample_size: input.minimumSampleSize ?? 1,
       enabled: input.enabled
@@ -521,12 +575,14 @@ export async function updateAlertRule(
     projectId?: string;
     environmentId?: string;
     notificationChannelId?: string | null;
+    escalationChannelId?: string | null;
     name?: string;
     type?: AlertRuleType;
     severity?: AlertSeverity;
     windowMinutes?: number;
     threshold?: string;
     cooldownMinutes?: number;
+    escalationMinutes?: number | null;
     routePattern?: string | null;
     minimumSampleSize?: number;
     enabled?: boolean;
@@ -557,12 +613,16 @@ export async function updateAlertRule(
       ...(input.notificationChannelId !== undefined
         ? { notification_channel_id: input.notificationChannelId }
         : {}),
+      ...(input.escalationChannelId !== undefined
+        ? { escalation_channel_id: input.escalationChannelId }
+        : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.type !== undefined ? { type: input.type } : {}),
       ...(input.severity !== undefined ? { severity: input.severity } : {}),
       ...(input.windowMinutes !== undefined ? { window_minutes: input.windowMinutes } : {}),
       ...(input.threshold !== undefined ? { threshold: input.threshold } : {}),
       ...(input.cooldownMinutes !== undefined ? { cooldown_minutes: input.cooldownMinutes } : {}),
+      ...(input.escalationMinutes !== undefined ? { escalation_minutes: input.escalationMinutes } : {}),
       ...(input.routePattern !== undefined ? { route_pattern: input.routePattern } : {}),
       ...(input.minimumSampleSize !== undefined ? { minimum_sample_size: input.minimumSampleSize } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
@@ -744,7 +804,11 @@ export async function recordAlertEvent(
       observed_value: input.observedValue,
       threshold: input.rule.threshold,
       message: input.message,
-      metadata: input.metadata
+      metadata: input.metadata,
+      escalation_due_at:
+        input.rule.escalationMinutes === null
+          ? null
+          : new Date(input.triggeredAt.getTime() + input.rule.escalationMinutes * 60 * 1000)
     })
     .returningAll()
     .executeTakeFirstOrThrow();
@@ -777,6 +841,118 @@ export async function recordNotificationDelivery(
     .executeTakeFirstOrThrow();
 
   return toNotificationDelivery(row);
+}
+
+export async function updateAlertEventTriage(
+  db: AlertDb,
+  id: string,
+  input: {
+    status: AlertEventRecord["status"];
+    actorUserId: string | null;
+    actorEmail: string;
+    now: Date;
+    snoozedUntil?: Date | null;
+    note?: string | null;
+  }
+): Promise<AlertEventRecord | undefined> {
+  const note = input.note?.trim() || null;
+  const row = await db
+    .updateTable("alert_events")
+    .set({
+      status: input.status,
+      triage_note: note,
+      ...(input.status === "acknowledged"
+        ? {
+            acknowledged_at: input.now,
+            acknowledged_by_user_id: input.actorUserId,
+            acknowledged_by_email: input.actorEmail,
+            snoozed_until: null
+          }
+        : {}),
+      ...(input.status === "snoozed"
+        ? {
+            acknowledged_at: input.now,
+            acknowledged_by_user_id: input.actorUserId,
+            acknowledged_by_email: input.actorEmail,
+            snoozed_until: input.snoozedUntil ?? null
+          }
+        : {}),
+      ...(input.status === "resolved"
+        ? {
+            resolved_at: input.now,
+            resolved_by_user_id: input.actorUserId,
+            resolved_by_email: input.actorEmail,
+            snoozed_until: null
+          }
+        : {}),
+      ...(input.status === "triggered"
+        ? {
+            acknowledged_at: null,
+            acknowledged_by_user_id: null,
+            acknowledged_by_email: null,
+            resolved_at: null,
+            resolved_by_user_id: null,
+            resolved_by_email: null,
+            snoozed_until: null
+          }
+        : {})
+    })
+    .where("id", "=", id)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toAlertEvent({ ...row, latest_delivery_status: null }) : undefined;
+}
+
+export async function listAlertEscalationsDue(
+  db: AlertDb,
+  input: { now: Date; limit?: number } = { now: new Date() }
+): Promise<AlertEscalationRecord[]> {
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 250);
+  const result = await sql<AlertEventEscalationRow>`
+    select
+      alert_events.*,
+      latest_delivery.status as latest_delivery_status,
+      alert_rules.notification_channel_id as rule_notification_channel_id,
+      alert_rules.escalation_channel_id as rule_escalation_channel_id,
+      alert_rules.name as rule_name,
+      alert_rules.type as rule_type,
+      alert_rules.window_minutes as rule_window_minutes
+    from alert_events
+    inner join alert_rules on alert_rules.id = alert_events.rule_id
+    left join lateral (
+      select status
+      from notification_deliveries
+      where notification_deliveries.alert_event_id = alert_events.id
+      order by attempted_at desc, created_at desc
+      limit 1
+    ) latest_delivery on true
+    where alert_events.escalation_due_at is not null
+      and alert_events.escalation_due_at <= ${input.now}
+      and alert_events.escalated_at is null
+      and alert_events.status = 'triggered'
+      and alert_rules.archived_at is null
+    order by alert_events.escalation_due_at asc, alert_events.triggered_at asc
+    limit ${limit}
+  `.execute(db);
+
+  return result.rows.map(toAlertEscalation);
+}
+
+export async function markAlertEventEscalated(
+  db: AlertDb,
+  id: string,
+  escalatedAt: Date
+): Promise<AlertEventRecord | undefined> {
+  const row = await db
+    .updateTable("alert_events")
+    .set({ escalated_at: escalatedAt })
+    .where("id", "=", id)
+    .where("escalated_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toAlertEvent({ ...row, latest_delivery_status: null }) : undefined;
 }
 
 export async function updateAlertRuleEvaluation(

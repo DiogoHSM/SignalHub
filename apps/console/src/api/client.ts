@@ -54,6 +54,7 @@ import type {
   TenantListResponse,
   TraceRecord,
   TriageNoteRecord,
+  UpdateAlertEventTriageInput,
   User,
   UserDetailQuery,
   UserDetailResponse,
@@ -145,6 +146,7 @@ export type AlertApiClient = {
   archiveAlertRule: (id: string) => Promise<void>;
   listAlertEvents: (query: AlertEventListQuery) => Promise<QueryListResponse<AlertEventResponse>>;
   getAlertEvent: (id: string) => Promise<AggregateResponse<AlertEventResponse>>;
+  updateAlertEventTriage: (id: string, input: UpdateAlertEventTriageInput) => Promise<AggregateResponse<AlertEventResponse>>;
 };
 
 export type AlertSuggestionApiClient = {
@@ -882,6 +884,11 @@ export function createApiClient(
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>
       request<AggregateResponse<AlertEventResponse>>(path(apiBasePath, `/alerts/events/${encodePathSegment(id)}`)),
+    updateAlertEventTriage: (id, input) =>
+      request<AggregateResponse<AlertEventResponse>>(
+        path(apiBasePath, `/alerts/events/${encodePathSegment(id)}/triage`),
+        { method: "PATCH", body: input }
+      ),
     listAlertSuggestions: (query) =>
       request<{ suggestions: AlertSuggestionResponse[] }>(path(apiBasePath, alertSuggestionsPath(query))),
     fetchFleet: () => request<FleetResponse>(path(apiBasePath, "/query/fleet"))

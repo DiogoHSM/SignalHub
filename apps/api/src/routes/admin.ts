@@ -366,12 +366,14 @@ const alertRuleBaseSchema = z.object({
   projectId: z.string().trim().min(1),
   environmentId: z.string().trim().min(1),
   notificationChannelId: z.string().trim().min(1).nullable().optional(),
+  escalationChannelId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(256),
   type: z.enum(["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost", "dead_letter_count"]),
   severity: z.enum(["info", "warning", "critical"]),
   windowMinutes: z.number().int().min(1),
   threshold: thresholdSchema,
   cooldownMinutes: z.number().int().min(1),
+  escalationMinutes: z.number().int().min(1).nullable().optional(),
   routePattern: z.string().trim().min(1).max(256).nullable().optional(),
   minimumSampleSize: minimumSampleSizeSchema,
   enabled: z.boolean()
@@ -1746,6 +1748,9 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     if (!(await validateAlertRuleNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
       return reply;
     }
+    if (!(await validateAlertRuleNotificationChannel(parsed.data.escalationChannelId, options, reply))) {
+      return reply;
+    }
 
     let rule: AlertRuleRecord;
     try {
@@ -1780,6 +1785,9 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_alert_rule_request" });
     }
     if (!(await validateAlertRuleNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
+      return reply;
+    }
+    if (!(await validateAlertRuleNotificationChannel(parsed.data.escalationChannelId, options, reply))) {
       return reply;
     }
 

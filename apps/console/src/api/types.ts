@@ -1055,12 +1055,14 @@ export type AlertRuleResponse = {
   projectId: string;
   environmentId: string;
   notificationChannelId: string | null;
+  escalationChannelId: string | null;
   name: string;
   type: AlertRuleType;
   severity: AlertSeverity;
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  escalationMinutes: number | null;
   routePattern: string | null;
   minimumSampleSize: number;
   enabled: boolean;
@@ -1075,12 +1077,14 @@ export type CreateAlertRuleInput = {
   projectId: string;
   environmentId: string;
   notificationChannelId?: string | null;
+  escalationChannelId?: string | null;
   name: string;
   type: AlertRuleType;
   severity: AlertSeverity;
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  escalationMinutes?: number | null;
   routePattern?: string | null;
   minimumSampleSize?: number;
   enabled?: boolean;
@@ -1099,7 +1103,7 @@ export type AlertEventResponse = {
   monitorId: string | null;
   projectId: string;
   environmentId: string;
-  status: "triggered";
+  status: "triggered" | "acknowledged" | "snoozed" | "resolved";
   severity: AlertSeverity;
   triggeredAt: string;
   windowStart: string;
@@ -1108,8 +1112,24 @@ export type AlertEventResponse = {
   threshold: string;
   message: string;
   metadata: unknown;
+  acknowledgedAt: string | null;
+  acknowledgedByUserId: string | null;
+  acknowledgedByEmail: string | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  resolvedByEmail: string | null;
+  snoozedUntil: string | null;
+  triageNote: string | null;
+  escalationDueAt: string | null;
+  escalatedAt: string | null;
   createdAt: string;
   latestDeliveryStatus: "success" | "failed" | null;
+};
+
+export type UpdateAlertEventTriageInput = {
+  status: AlertEventResponse["status"];
+  snoozedUntil?: Date | string | null;
+  note?: string | null;
 };
 
 export type AlertSuggestionResponse = {

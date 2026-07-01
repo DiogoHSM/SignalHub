@@ -4,7 +4,11 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import type { AppConfig } from "@sigmon/config";
-import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
+import type {
+  AlertEscalationRecord,
+  AlertRuleRecord,
+  NotificationChannelRecord
+} from "@sigmon/db/repositories/alerts.js";
 import {
   assertSafeResolvedAddresses,
   assertSafeWebhookHost,
@@ -69,6 +73,8 @@ export type AlertEvaluationRuntime = {
     responseStatus: number | null;
     errorMessage: string | null;
   }) => Promise<unknown>;
+  listEscalationsDue?: (input: { now: Date; limit?: number }) => Promise<AlertEscalationRecord[]>;
+  markEscalated?: (id: string, escalatedAt: Date) => Promise<unknown>;
 };
 
 type PendingDelivery = {
@@ -168,6 +174,43 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
   });
 
   if (!lockResult.locked) return { ran: false, skipped: true, evaluated: 0, triggered: 0 };
+
+  if (runtime.listEscalationsDue && runtime.markEscalated) {
+    const dueEscalations = await runtime.listEscalationsDue({ now: runtime.now(), limit: 50 });
+    for (const escalation of dueEscalations) {
+      const channelId = escalation.ruleEscalationChannelId ?? escalation.ruleNotificationChannelId;
+      if (!channelId) {
+        await runtime.markEscalated(escalation.id, runtime.now());
+        continue;
+      }
+
+      const channel = await runtime.getNotificationChannel(channelId);
+      if (!channel || channel.enabled !== true || channel.archivedAt !== null) {
+        await runtime.markEscalated(escalation.id, runtime.now());
+        continue;
+      }
+
+      let delivery: DeliveryResult;
+      try {
+        delivery = await runtime.deliver(channel, toEscalationPayload(escalation, channel.id));
+      } catch (error) {
+        console.error(`Alert escalation delivery ${escalation.id} failed`, error);
+        continue;
+      }
+
+      try {
+        await runtime.recordDelivery({
+          alertEventId: escalation.id,
+          notificationChannelId: channel.id,
+          attemptedAt: runtime.now(),
+          ...delivery
+        });
+        await runtime.markEscalated(escalation.id, runtime.now());
+      } catch (error) {
+        console.error(`Alert escalation ${escalation.id} recording failed`, error);
+      }
+    }
+  }
 
   for (const pending of lockResult.result.pendingDeliveries) {
     let delivery: DeliveryResult;
@@ -613,6 +656,34 @@ function toWebhookPayload(
     observedValue,
     threshold: rule.threshold,
     message,
+    sigmon: { source: "sigmon" }
+  };
+}
+
+function toEscalationPayload(escalation: AlertEscalationRecord, channelId: string): AlertWebhookPayload {
+  const windowMinutes = Math.max(
+    1,
+    escalation.ruleWindowMinutes ??
+      Math.round((escalation.windowEnd.getTime() - escalation.windowStart.getTime()) / 60_000)
+  );
+
+  return {
+    alertEventId: escalation.id,
+    ruleId: escalation.ruleId ?? "unknown",
+    ruleName: escalation.ruleName ?? "Alert escalation",
+    ruleType: escalation.ruleType ?? "critical_errors",
+    severity: escalation.severity,
+    projectId: escalation.projectId,
+    environmentId: escalation.environmentId,
+    triggeredAt: escalation.triggeredAt.toISOString(),
+    window: {
+      from: escalation.windowStart.toISOString(),
+      to: escalation.windowEnd.toISOString(),
+      minutes: windowMinutes
+    },
+    observedValue: escalation.observedValue,
+    threshold: escalation.threshold,
+    message: sanitizeMessage(`Escalation: ${escalation.message} (channel ${channelId})`),
     sigmon: { source: "sigmon" }
   };
 }

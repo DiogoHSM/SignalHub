@@ -1092,6 +1092,24 @@ describe("createApiClient", () => {
     );
   });
 
+  it("updates alert event triage state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "ale_1", status: "acknowledged" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").updateAlertEventTriage("ale/1", {
+      status: "acknowledged",
+      note: "Looking now"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alerts/events/ale%2F1/triage",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "acknowledged", note: "Looking now" })
+      })
+    );
+  });
+
   it("lists alert events with optional limit", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);

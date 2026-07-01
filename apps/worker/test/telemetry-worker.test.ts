@@ -1444,12 +1444,14 @@ describe("runAlertEvaluationOnce", () => {
           projectId: "prj_1",
           environmentId: "env_1",
           notificationChannelId: "chn_1",
+          escalationChannelId: null,
           name: "Critical errors",
           type: "critical_errors",
           severity: "critical",
           windowMinutes: 10,
           threshold: "1",
           cooldownMinutes: 30,
+          escalationMinutes: null,
           routePattern: null,
           minimumSampleSize: 1,
           enabled: true,
@@ -1529,6 +1531,100 @@ describe("runAlertEvaluationOnce", () => {
     ]);
   });
 
+  it("delivers due escalations once for unacknowledged alert events", async () => {
+    const now = new Date("2026-05-06T12:10:00.000Z");
+    const deliveries: unknown[] = [];
+    const marked: unknown[] = [];
+    const payloads: unknown[] = [];
+
+    const result = await runAlertEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listActiveRules: async () => [],
+      getNotificationChannel: async () => ({
+        id: "chn_escalation",
+        name: "Escalation",
+        type: "webhook",
+        url: "https://hooks.example.com/escalation",
+        emailRecipients: [],
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      }),
+      evaluateRule: async () => ({ observedValue: "0" }),
+      recordAlertEvent: async () => ({ id: "evt_new" }),
+      updateRuleEvaluation: async () => undefined,
+      deliver: async (_channel, payload) => {
+        payloads.push(payload);
+        return { status: "success", responseStatus: 202, errorMessage: null };
+      },
+      recordDelivery: async (input) => {
+        deliveries.push(input);
+      },
+      listEscalationsDue: async () => [
+        {
+          id: "evt_due",
+          ruleId: "rule_1",
+          monitorId: null,
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status: "triggered",
+          severity: "critical",
+          triggeredAt: new Date("2026-05-06T12:00:00.000Z"),
+          windowStart: new Date("2026-05-06T11:50:00.000Z"),
+          windowEnd: new Date("2026-05-06T12:00:00.000Z"),
+          observedValue: "2",
+          threshold: "1",
+          message: "Critical errors threshold reached",
+          metadata: { ruleType: "critical_errors" },
+          acknowledgedAt: null,
+          acknowledgedByUserId: null,
+          acknowledgedByEmail: null,
+          resolvedAt: null,
+          resolvedByUserId: null,
+          resolvedByEmail: null,
+          snoozedUntil: null,
+          triageNote: null,
+          escalationDueAt: new Date("2026-05-06T12:05:00.000Z"),
+          escalatedAt: null,
+          createdAt: new Date("2026-05-06T12:00:00.000Z"),
+          latestDeliveryStatus: "success",
+          ruleNotificationChannelId: "chn_primary",
+          ruleEscalationChannelId: "chn_escalation",
+          ruleName: "Critical errors",
+          ruleType: "critical_errors",
+          ruleWindowMinutes: 10
+        }
+      ],
+      markEscalated: async (id, escalatedAt) => {
+        marked.push({ id, escalatedAt });
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, evaluated: 0, triggered: 0 });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        alertEventId: "evt_due",
+        ruleId: "rule_1",
+        ruleName: "Critical errors",
+        message: expect.stringContaining("Escalation:")
+      })
+    ]);
+    expect(deliveries).toEqual([
+      expect.objectContaining({
+        alertEventId: "evt_due",
+        notificationChannelId: "chn_escalation",
+        status: "success",
+        responseStatus: 202
+      })
+    ]);
+    expect(marked).toEqual([{ id: "evt_due", escalatedAt: now }]);
+  });
+
   it("suppresses events during cooldown while updating evaluation time", async () => {
     const now = new Date("2026-05-06T12:00:00.000Z");
     const updated: unknown[] = [];
@@ -1543,12 +1639,14 @@ describe("runAlertEvaluationOnce", () => {
           projectId: "prj_1",
           environmentId: "env_1",
           notificationChannelId: null,
+          escalationChannelId: null,
           name: "Errors",
           type: "error_count",
           severity: "warning",
           windowMinutes: 10,
           threshold: "1",
           cooldownMinutes: 30,
+          escalationMinutes: null,
           routePattern: null,
           minimumSampleSize: 1,
           enabled: true,
@@ -1612,12 +1710,14 @@ describe("runAlertEvaluationOnce", () => {
           projectId: "prj_1",
           environmentId: "env_1",
           notificationChannelId: "chn_1",
+          escalationChannelId: null,
           name: "Critical errors",
           type: "critical_errors",
           severity: "critical",
           windowMinutes: 10,
           threshold: "1",
           cooldownMinutes: 30,
+          escalationMinutes: null,
           routePattern: null,
           minimumSampleSize: 1,
           enabled: true,

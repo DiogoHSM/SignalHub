@@ -8,6 +8,7 @@ import type {
   CreateAlertRuleInput,
   CreateNotificationChannelInput,
   NotificationChannelResponse,
+  UpdateAlertEventTriageInput,
   UpdateAlertRuleInput,
   UpdateNotificationChannelInput,
 } from "../../api/types";
@@ -26,15 +27,18 @@ export type AlertRuleRowVM = {
   severityTag: SeverityTag;
   enabled: boolean;
   channelLabel: string;
+  escalationLabel: string;
   fires7d: number;
   // raw editable fields for inline editor
   type: AlertRuleResponse["type"];
   threshold: string;
   windowMinutes: number;
   cooldownMinutes: number;
+  escalationMinutes: number | null;
   routePattern: string | null;
   minimumSampleSize: number;
   notificationChannelId: string | null;
+  escalationChannelId: string | null;
 };
 
 export type ChannelRowVM = {
@@ -69,9 +73,23 @@ export type TimelineDayVM = { label: string; fires: TimelineFireVM[] };
 
 export type AlertsHeaderVM = { activeRuleCount: number; fires7d: number };
 
+export type AlertEventRowVM = {
+  id: string;
+  message: string;
+  status: AlertEventResponse["status"];
+  severity: AlertSeverity;
+  sourceLabel: string;
+  observedLabel: string;
+  deliveryLabel: string;
+  escalationLabel: string;
+  triggeredAtLabel: string;
+  snoozedUntil: string | null;
+};
+
 export type AlertsVM = {
   header: AlertsHeaderVM;
   rules: AlertRuleRowVM[];
+  events: AlertEventRowVM[];
   channels: ChannelRowVM[];
   timeline: TimelineDayVM[];
   suggestions: SuggestionRowVM[];
@@ -91,9 +109,11 @@ export type CreateRuleForm = {
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  escalationMinutes?: number | null;
   routePattern?: string | null;
   minimumSampleSize?: number;
   notificationChannelId?: string | null;
+  escalationChannelId?: string | null;
   enabled?: boolean;
 };
 
@@ -105,6 +125,7 @@ export type UseAlertsResult = {
   createRule: (form: CreateRuleForm) => Promise<boolean>;
   updateRule: (id: string, input: UpdateAlertRuleInput) => Promise<boolean>;
   archiveRule: (id: string) => Promise<boolean>;
+  updateAlertEventTriage: (id: string, input: UpdateAlertEventTriageInput) => Promise<boolean>;
   createChannel: (input: CreateNotificationChannelInput) => Promise<boolean>;
   updateChannel: (id: string, input: UpdateNotificationChannelInput) => Promise<boolean>;
   archiveChannel: (id: string) => Promise<boolean>;
@@ -159,15 +180,55 @@ export function buildAlertsVM(input: AlertsInput, nowMs: number): AlertsVM {
     enabled: r.enabled,
     channelLabel:
       (r.notificationChannelId && channelName.get(r.notificationChannelId)) || "Unassigned",
+    escalationLabel:
+      r.escalationMinutes && (r.escalationChannelId || r.notificationChannelId)
+        ? `${r.escalationMinutes}m -> ${
+            (r.escalationChannelId && channelName.get(r.escalationChannelId)) ||
+            (r.notificationChannelId && channelName.get(r.notificationChannelId)) ||
+            "channel"
+          }`
+        : "No escalation",
     fires7d: firesByRule.get(r.id) ?? 0,
     type: r.type,
     threshold: r.threshold,
     windowMinutes: r.windowMinutes,
     cooldownMinutes: r.cooldownMinutes,
+    escalationMinutes: r.escalationMinutes,
     routePattern: r.routePattern,
     minimumSampleSize: r.minimumSampleSize,
     notificationChannelId: r.notificationChannelId,
+    escalationChannelId: r.escalationChannelId,
   }));
+
+  const ruleById = new Map(rules.map((r) => [r.id, r]));
+  const eventRows: AlertEventRowVM[] = recentEvents.slice(0, 20).map((alertEvent) => {
+    const rule = alertEvent.ruleId ? ruleById.get(alertEvent.ruleId) : undefined;
+    const deliveryLabel =
+      alertEvent.latestDeliveryStatus === "success"
+        ? "Delivered"
+        : alertEvent.latestDeliveryStatus === "failed"
+          ? "Delivery failed"
+          : "No delivery";
+    const escalationLabel =
+      alertEvent.escalatedAt
+        ? `Escalated ${new Date(alertEvent.escalatedAt).toLocaleString()}`
+        : alertEvent.escalationDueAt
+          ? `Escalates ${new Date(alertEvent.escalationDueAt).toLocaleString()}`
+          : "No escalation";
+
+    return {
+      id: alertEvent.id,
+      message: alertEvent.message,
+      status: alertEvent.status,
+      severity: alertEvent.severity,
+      sourceLabel: rule?.name ?? (alertEvent.monitorId ? "Monitor alert" : "Alert"),
+      observedLabel: `${alertEvent.observedValue} / ${alertEvent.threshold}`,
+      deliveryLabel,
+      escalationLabel,
+      triggeredAtLabel: new Date(alertEvent.triggeredAt).toLocaleString(),
+      snoozedUntil: alertEvent.snoozedUntil,
+    };
+  });
 
   const channelRows: ChannelRowVM[] = channels.map((c) => ({
     id: c.id,
@@ -219,6 +280,7 @@ export function buildAlertsVM(input: AlertsInput, nowMs: number): AlertsVM {
   return {
     header: { activeRuleCount, fires7d: recentEvents.length },
     rules: ruleRows,
+    events: eventRows,
     channels: channelRows,
     timeline,
     suggestions: suggestionRows,
@@ -238,6 +300,7 @@ type UseAlertsArgs = {
     | "createAlertRule"
     | "updateAlertRule"
     | "archiveAlertRule"
+    | "updateAlertEventTriage"
     | "createNotificationChannel"
     | "updateNotificationChannel"
     | "archiveNotificationChannel"
@@ -328,9 +391,11 @@ export function useAlerts({ client, projectId, environmentId }: UseAlertsArgs): 
           windowMinutes: form.windowMinutes,
           threshold: form.threshold,
           cooldownMinutes: form.cooldownMinutes,
+          escalationMinutes: form.escalationMinutes,
           routePattern: form.routePattern,
           minimumSampleSize: form.minimumSampleSize,
           notificationChannelId: form.notificationChannelId,
+          escalationChannelId: form.escalationChannelId,
           enabled: form.enabled ?? true,
         };
         await client.createAlertRule(input);
@@ -350,6 +415,14 @@ export function useAlerts({ client, projectId, environmentId }: UseAlertsArgs): 
     (id: string) =>
       run(async () => {
         await client.archiveAlertRule(id);
+      }),
+    [client, run],
+  );
+
+  const updateAlertEventTriage = useCallback(
+    (id: string, input: UpdateAlertEventTriageInput) =>
+      run(async () => {
+        await client.updateAlertEventTriage(id, input);
       }),
     [client, run],
   );
@@ -394,6 +467,8 @@ export function useAlerts({ client, projectId, environmentId }: UseAlertsArgs): 
           routePattern: s.routePattern,
           minimumSampleSize: s.minimumSampleSize,
           notificationChannelId: undefined,
+          escalationChannelId: undefined,
+          escalationMinutes: null,
           enabled: true,
         };
         await client.createAlertRule(input);
@@ -409,6 +484,7 @@ export function useAlerts({ client, projectId, environmentId }: UseAlertsArgs): 
     createRule,
     updateRule,
     archiveRule,
+    updateAlertEventTriage,
     createChannel,
     updateChannel,
     archiveChannel,

@@ -50,6 +50,7 @@ function client(getSystemHealth: ApiClient["getSystemHealth"]): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn(),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),

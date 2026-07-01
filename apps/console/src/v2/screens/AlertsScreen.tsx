@@ -3,6 +3,7 @@ import { ConfirmButton, EmptyHint, Icon, PageHead, Segmented } from "../../compo
 import type { ScreenCtx } from "./registry";
 import { useAlerts } from "./useAlerts";
 import type {
+  AlertEventRowVM,
   AlertRuleRowVM,
   ChannelRowVM,
   CreateRuleForm,
@@ -11,7 +12,7 @@ import type {
 } from "./useAlerts";
 import type { AlertRuleResponse, CreateNotificationChannelInput } from "../../api/types";
 
-const RULE_GRID = "1.5fr 96px 90px 1fr 70px 84px";
+const RULE_GRID = "1.4fr 90px 84px 1fr 1fr 70px 84px";
 const FILTERS = ["All", "Active", "Paused"] as const;
 type RuleFilter = (typeof FILTERS)[number];
 
@@ -197,9 +198,11 @@ function RuleEditor({ mode, channels, onSave, onCancel, busy }: RuleEditorProps)
           windowMinutes: 15,
           threshold: "1",
           cooldownMinutes: 60,
+          escalationMinutes: null,
           routePattern: null,
           minimumSampleSize: undefined,
           notificationChannelId: null,
+          escalationChannelId: null,
         }
       : mode.initial;
 
@@ -210,6 +213,11 @@ function RuleEditor({ mode, channels, onSave, onCancel, busy }: RuleEditorProps)
   }
 
   const thresholdValid = /^\d+(\.\d{1,6})?$/.test(form.threshold) && Number(form.threshold) > 0;
+  const escalationValid =
+    form.escalationMinutes == null ||
+    (Number.isInteger(form.escalationMinutes) &&
+      form.escalationMinutes > 0 &&
+      Boolean(form.escalationChannelId || form.notificationChannelId));
 
   return (
     <div className="sh-card">
@@ -297,7 +305,7 @@ function RuleEditor({ mode, channels, onSave, onCancel, busy }: RuleEditorProps)
           </label>
         )}
         <label style={{ display: "grid", gap: 4 }}>
-          <span className="sh-eyebrow">Notification channel</span>
+          <span className="sh-eyebrow">Primary notification channel</span>
           <select
             className="sh-select"
             value={form.notificationChannelId ?? ""}
@@ -309,10 +317,40 @@ function RuleEditor({ mode, channels, onSave, onCancel, busy }: RuleEditorProps)
             ))}
           </select>
         </label>
+        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 12 }}>
+          <label style={{ display: "grid", gap: 4 }}>
+            <span className="sh-eyebrow">Escalate after (min)</span>
+            <input
+              className="sh-input sh-mono"
+              type="number"
+              min={1}
+              value={form.escalationMinutes ?? ""}
+              onChange={(e) => set("escalationMinutes", e.target.value ? Number(e.target.value) : null)}
+              placeholder="off"
+            />
+          </label>
+          <label style={{ display: "grid", gap: 4 }}>
+            <span className="sh-eyebrow">Escalation channel</span>
+            <select
+              className="sh-select"
+              value={form.escalationChannelId ?? ""}
+              onChange={(e) => set("escalationChannelId", e.target.value || null)}
+            >
+              <option value="">Use primary channel</option>
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="sh-faint" style={{ fontSize: 11, lineHeight: 1.4, margin: 0 }}>
+          Escalation sends one additional notification if the alert is still triggered after the delay.
+          Acknowledged, resolved, and snoozed alerts do not escalate.
+        </p>
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button
             className="sh-btn primary"
-            disabled={!form.name.trim() || !thresholdValid || busy}
+            disabled={!form.name.trim() || !thresholdValid || !escalationValid || busy}
             onClick={() => onSave(form)}
           >
             {mode === "create" ? "Create rule" : "Save changes"}
@@ -364,6 +402,9 @@ function AlertRuleRow({ row, onPauseResume, onArchive, onEditOpen, busy }: Alert
         </span>
       </span>
       <span style={{ fontSize: 12 }}>{row.channelLabel}</span>
+      <span style={{ fontSize: 12, color: row.escalationLabel === "No escalation" ? "var(--fg-muted)" : "var(--fg)" }}>
+        {row.escalationLabel}
+      </span>
       <span
         className="sh-mono"
         style={{
@@ -543,6 +584,102 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
 }
 
 // ---------------------------------------------------------------------------
+// On-call queue
+// ---------------------------------------------------------------------------
+
+type OnCallQueueProps = {
+  events: AlertEventRowVM[];
+  busy: boolean;
+  onTriage: (
+    id: string,
+    input: { status: AlertEventRowVM["status"]; snoozedUntil?: string | null; note?: string | null }
+  ) => void;
+};
+
+function statusTone(status: AlertEventRowVM["status"]): "critical" | "warn" | "" {
+  if (status === "triggered") return "critical";
+  if (status === "snoozed") return "warn";
+  return "";
+}
+
+function OnCallQueue({ events, busy, onTriage }: OnCallQueueProps) {
+  return (
+    <div className="sh-card">
+      <div className="sh-card__head">
+        <h2 className="sh-h2">On-call queue</h2>
+        <span className="sh-faint" style={{ fontSize: 11 }}>
+          ack, snooze, resolve
+        </span>
+      </div>
+      <div className="sh-card__body flush">
+        {events.length === 0 ? (
+          <EmptyHint icon="bell" title="No alert events" sub="No alert activity in the selected window." />
+        ) : (
+          events.map((event) => {
+            const done = event.status === "resolved";
+            const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+            return (
+              <div
+                key={event.id}
+                className="sh-row"
+                style={{
+                  gridTemplateColumns: "1.4fr 92px 110px 1fr 150px 260px",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ fontSize: 12.5 }}>{event.message}</strong>
+                  <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
+                    {event.sourceLabel} · {event.triggeredAtLabel}
+                  </div>
+                </div>
+                <span className={`sh-tag ${statusTone(event.status)}`}>{event.status}</span>
+                <span className={`sh-tag ${event.severity === "critical" ? "critical" : event.severity === "warning" ? "warn" : ""}`}>
+                  {event.severity}
+                </span>
+                <span className="sh-faint" style={{ fontSize: 12 }}>
+                  {event.deliveryLabel} · {event.escalationLabel}
+                </span>
+                <span className="sh-mono" style={{ fontSize: 12 }}>
+                  {event.observedLabel}
+                </span>
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                  <button
+                    className="sh-btn ghost"
+                    style={{ padding: "5px 9px", fontSize: 12 }}
+                    disabled={busy || done}
+                    onClick={() => onTriage(event.id, { status: "acknowledged" })}
+                  >
+                    Ack
+                  </button>
+                  <button
+                    className="sh-btn ghost"
+                    style={{ padding: "5px 9px", fontSize: 12 }}
+                    disabled={busy || done}
+                    onClick={() => onTriage(event.id, { status: "snoozed", snoozedUntil })}
+                  >
+                    Snooze 30m
+                  </button>
+                  <button
+                    className="sh-btn primary"
+                    style={{ padding: "5px 9px", fontSize: 12 }}
+                    disabled={busy || done}
+                    onClick={() => onTriage(event.id, { status: "resolved" })}
+                  >
+                    Resolve
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AlertsScreen
 // ---------------------------------------------------------------------------
 
@@ -561,6 +698,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
     createRule,
     updateRule,
     archiveRule,
+    updateAlertEventTriage,
     createChannel,
     archiveChannel,
     createFromSuggestion,
@@ -594,7 +732,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
     );
   }
 
-  const { header, rules, channels, timeline, suggestions } = data;
+  const { header, rules, events, channels, timeline, suggestions } = data;
   const shownRules = rules.filter((r) =>
     filter === "All" ? true : filter === "Active" ? r.enabled : !r.enabled,
   );
@@ -617,9 +755,11 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
       windowMinutes: form.windowMinutes,
       threshold: form.threshold,
       cooldownMinutes: form.cooldownMinutes,
+      escalationMinutes: form.escalationMinutes,
       routePattern: form.routePattern,
       minimumSampleSize: form.minimumSampleSize,
       notificationChannelId: form.notificationChannelId,
+      escalationChannelId: form.escalationChannelId,
     });
     if (ok) {
       setRuleEditor("closed");
@@ -637,6 +777,18 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
   async function handleArchiveRule(id: string) {
     const ok = await archiveRule(id);
     if (!ok) ctx.pushToast("Failed to archive rule");
+  }
+
+  async function handleAlertTriage(
+    id: string,
+    input: { status: AlertEventRowVM["status"]; snoozedUntil?: string | null; note?: string | null }
+  ) {
+    const ok = await updateAlertEventTriage(id, input);
+    if (ok) {
+      ctx.pushToast(`Alert ${input.status}`);
+    } else {
+      ctx.pushToast("Failed to update alert");
+    }
   }
 
   async function handleCreateChannel(input: Parameters<typeof createChannel>[0]) {
@@ -681,9 +833,11 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
         windowMinutes: row.windowMinutes,
         threshold: row.threshold,
         cooldownMinutes: row.cooldownMinutes,
+        escalationMinutes: row.escalationMinutes,
         routePattern: row.routePattern,
         minimumSampleSize: row.minimumSampleSize,
         notificationChannelId: row.notificationChannelId,
+        escalationChannelId: row.escalationChannelId,
       },
     });
   }
@@ -755,6 +909,8 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
       </div>
 
+      <OnCallQueue events={events} busy={busy} onTriage={handleAlertTriage} />
+
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16 }}>
         <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div className="sh-card__head">
@@ -766,6 +922,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
             <span>Severity</span>
             <span>State</span>
             <span>Channel</span>
+            <span>Escalation</span>
             <span>7d</span>
             <span>Actions</span>
           </div>

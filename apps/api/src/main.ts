@@ -33,6 +33,7 @@ import {
   listAlertRules,
   listNotificationChannels,
   updateAlertRule,
+  updateAlertEventTriage,
   updateNotificationChannel
 } from "@sigmon/db/repositories/alerts.js";
 import {
@@ -661,6 +662,7 @@ const app = await buildApp({
     archiveAlertRule: (id) => archiveAlertRule(db, id),
     listAlertEvents: (filters) => listAlertEvents(db, filters),
     getAlertEvent: (id) => getAlertEvent(db, id),
+    updateAlertEventTriage: (id, input) => updateAlertEventTriage(db, id, input),
     listAlertSuggestions: (filters) =>
       buildAlertSuggestions(db, { ...filters, now: new Date() })
   },
