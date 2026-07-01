@@ -484,8 +484,7 @@ export const submitCheckout = withSignalMonitorAction(async (formData: FormData)
             <pre><code>"use client";
 
 import { useEffect } from "react";
-import { createSignalMonitorClient } from "@sigmon/sdk/browser";
-import { installBrowserErrorCapture } from "@sigmon/sdk/next";
+import { createSignalMonitorClient, installBrowserErrorCapture } from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
   endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
@@ -518,6 +517,12 @@ export function SignalMonitorBrowserCapture() {
 sigmonBrowser.track("checkout.pay_clicked", {
   plan: "team"
 });</code></pre>
+            <h3>Common ingest failures</h3>
+            <ul>
+              <li><code>invalid_api_key</code>: send <code>Authorization: Bearer &lt;key&gt;</code> and use a browser-scoped key for browser calls.</li>
+              <li><code>invalid_ingestion_payload</code>: compare the body with <code>/docs</code> or <code>/openapi.json</code>, or use SDK helpers.</li>
+              <li><code>ingestion_unavailable</code>: check Sigmon Redis connectivity and worker/scheduler health.</li>
+            </ul>
           </section>
 
           <section id="identity">

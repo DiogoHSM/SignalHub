@@ -45,6 +45,14 @@ describe("SDK exports", () => {
     expect(source).not.toMatch(/from ["']crypto/);
   });
 
+  it("exposes browser error capture from the browser entrypoint", async () => {
+    const browser = await import("../src/browser.js");
+
+    expect(browser.createSignalMonitorClient).toBeTypeOf("function");
+    expect(browser.installBrowserErrorCapture).toBeTypeOf("function");
+    expect(browser.createBrowserBreadcrumbs).toBeTypeOf("function");
+  });
+
   it("exposes a Next.js wrapper entrypoint", async () => {
     const next = await import("../src/next.js");
 

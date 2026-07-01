@@ -22,11 +22,14 @@ describe("SnippetPanel", () => {
     expect(screen.getByText("Next.js App Router")).toBeInTheDocument();
     expect(screen.getByText("HTTP")).toBeInTheDocument();
     expect(screen.getByText("Environment")).toBeInTheDocument();
-    expect(screen.getByText(/createSignalMonitorClient/)).toBeInTheDocument();
+    expect(screen.getAllByText(/createSignalMonitorClient/)).toHaveLength(2);
     expect(screen.getByText(/@sigmon\/sdk\/next/)).toBeInTheDocument();
+    expect(screen.getByText(/@sigmon\/sdk\/browser/)).toBeInTheDocument();
     expect(screen.getByText(/withSignalMonitorRoute/)).toBeInTheDocument();
     expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(4);
     expect(screen.getByText(/SIGMON_ENDPOINT=https:\/\/sigmon.example.com/)).toBeInTheDocument();
+    expect(screen.getByText(/NEXT_PUBLIC_SIGMON_ENDPOINT=https:\/\/sigmon.example.com/)).toBeInTheDocument();
+    expect(screen.getByText(/NEXT_PUBLIC_SIGMON_BROWSER_KEY=sh_BROWSER_INGESTION_KEY/)).toBeInTheDocument();
     expect(screen.getByText(/SIGMON_PROJECT_ID=prj_1/)).toBeInTheDocument();
     expect(screen.getByText(/SIGMON_ENVIRONMENT_ID=env_1/)).toBeInTheDocument();
     expect(screen.getByText(/\/v1\/events/)).toBeInTheDocument();
@@ -38,6 +41,7 @@ describe("SnippetPanel", () => {
     render(<SnippetPanel environmentId="env_1" projectId="prj_1" />);
 
     expect(screen.getAllByText(/SIGMON_API_KEY/)).toHaveLength(4);
+    expect(screen.getAllByText(/NEXT_PUBLIC_SIGMON_BROWSER_KEY/)).toHaveLength(2);
     expect(screen.queryByText(/sh_secret_value/)).not.toBeInTheDocument();
   });
 });

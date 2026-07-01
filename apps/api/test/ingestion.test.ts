@@ -209,7 +209,10 @@ describe("ingestion routes", () => {
     });
 
     expect(response.statusCode).toBe(503);
-    expect(response.json()).toEqual({ error: "ingestion_unavailable" });
+    expect(response.json()).toEqual({
+      error: "ingestion_unavailable",
+      hint: "Sigmon accepted the request path but could not enqueue telemetry. Check Redis connectivity and worker/scheduler health."
+    });
   });
 
   it("returns 401 when the bearer token is missing or invalid", async () => {
@@ -240,9 +243,15 @@ describe("ingestion routes", () => {
     });
 
     expect(missingResponse.statusCode).toBe(401);
-    expect(missingResponse.json()).toEqual({ error: "invalid_api_key" });
+    expect(missingResponse.json()).toEqual({
+      error: "invalid_api_key",
+      hint: "Send a project/environment ingestion key as Authorization: Bearer <key>. Browser calls must use a browser-scoped key for the same environment."
+    });
     expect(invalidResponse.statusCode).toBe(401);
-    expect(invalidResponse.json()).toEqual({ error: "invalid_api_key" });
+    expect(invalidResponse.json()).toEqual({
+      error: "invalid_api_key",
+      hint: "Send a project/environment ingestion key as Authorization: Bearer <key>. Browser calls must use a browser-scoped key for the same environment."
+    });
     expect(verifyCalls).toBe(1);
   });
 
@@ -265,6 +274,7 @@ describe("ingestion routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
       error: "invalid_ingestion_payload",
+      hint: "Check the endpoint payload shape in /docs or /openapi.json. SDK payloads are generated for the correct schema automatically.",
       details: expect.arrayContaining([
         expect.objectContaining({
           path: ["name"]

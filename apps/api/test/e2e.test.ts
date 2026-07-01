@@ -168,7 +168,10 @@ describe("telemetry core e2e", () => {
         }
       });
       expect(archivedResponse.statusCode).toBe(401);
-      expect(archivedResponse.json()).toEqual({ error: "invalid_api_key" });
+      expect(archivedResponse.json()).toMatchObject({
+        error: "invalid_api_key",
+        hint: expect.any(String)
+      });
 
       const eventPayload = {
         timestamp: "2026-05-02T12:00:00.000Z",

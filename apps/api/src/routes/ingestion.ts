@@ -41,10 +41,16 @@ function validationDetails(error: { issues: Array<{ path: PropertyKey[]; message
   }));
 }
 
+const invalidPayloadHint =
+  "Check the endpoint payload shape in /docs or /openapi.json. SDK payloads are generated for the correct schema automatically.";
+
+const ingestionUnavailableHint =
+  "Sigmon accepted the request path but could not enqueue telemetry. Check Redis connectivity and worker/scheduler health.";
+
 export function registerIngestionRoutes(app: FastifyInstance, ingestion?: IngestionDependencies): void {
   for (const route of ingestionRoutes) {
     app.post(route.path, async (request, reply) => {
-      const scope = await requireApiKeyScope(request, reply, ingestion?.verifyApiKey);
+      const scope = await requireApiKeyScope(request, reply, ingestion?.verifyApiKey, { includeHints: true });
       if (!scope || !ingestion) {
         return reply;
       }
@@ -53,6 +59,7 @@ export function registerIngestionRoutes(app: FastifyInstance, ingestion?: Ingest
       if (!parsed.success) {
         return reply.status(400).send({
           error: "invalid_ingestion_payload",
+          hint: invalidPayloadHint,
           details: validationDetails(parsed.error)
         });
       }
@@ -69,7 +76,10 @@ export function registerIngestionRoutes(app: FastifyInstance, ingestion?: Ingest
       try {
         await ingestion.enqueue(job);
       } catch {
-        return reply.status(503).send({ error: "ingestion_unavailable" });
+        return reply.status(503).send({
+          error: "ingestion_unavailable",
+          hint: ingestionUnavailableHint
+        });
       }
 
       return reply.status(202).send({ accepted: true, id });

@@ -549,8 +549,7 @@ Browser global error capture is explicit and opt-in. Install it from a Client Co
 "use client";
 
 import { useEffect } from "react";
-import { createSignalMonitorClient } from "@sigmon/sdk/browser";
-import { installBrowserErrorCapture } from "@sigmon/sdk/next";
+import { createSignalMonitorClient, installBrowserErrorCapture } from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
   endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://sigmon.example.com",

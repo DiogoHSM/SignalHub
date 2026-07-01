@@ -1,4 +1,8 @@
 import { createSignalMonitorClient } from "./client.js";
+import {
+  installBrowserErrorCapture as installBrowserErrorCaptureBase,
+  type BrowserErrorCaptureOptions as BaseBrowserErrorCaptureOptions
+} from "./browser-errors.js";
 import type {
   ErrorInput,
   ErrorSeverity,
@@ -52,27 +56,12 @@ export type SignalMonitorActionOptions<TArgs extends unknown[] = unknown[]> = Ne
   getContext?: (...args: TArgs) => MaybePromise<SignalContext | undefined>;
 };
 
-export type BrowserErrorCaptureOptions = {
-  captureErrors?: boolean;
-  captureUnhandledRejections?: boolean;
-  flush?: boolean;
-  context?: NextRequestErrorInput;
-};
-
-type ErrorEventLike = {
-  error?: unknown;
-  message?: string;
-  filename?: string;
-  lineno?: number;
-  colno?: number;
-};
-
-type PromiseRejectionEventLike = {
-  reason?: unknown;
-};
-
 const DEFAULT_CORRELATION_HEADER = "x-request-id";
 const FALLBACK_CORRELATION_HEADER = "x-correlation-id";
+
+export type BrowserErrorCaptureOptions = Omit<BaseBrowserErrorCaptureOptions, "context"> & {
+  context?: NextRequestErrorInput;
+};
 
 export function buildNextContext(input?: NextContextInput): SignalContext {
   const {
@@ -164,48 +153,20 @@ export function installBrowserErrorCapture(
   client: SignalMonitorClient,
   options: BrowserErrorCaptureOptions = {}
 ): () => void {
-  const captureErrors = options.captureErrors ?? true;
-  const captureUnhandledRejections = options.captureUnhandledRejections ?? true;
-  let stopped = false;
+  const bridgeClient: SignalMonitorClient = {
+    ...client,
+    captureError(error: unknown, input?: ErrorInput): void {
+      const nextInput = input as NextRequestErrorInput | undefined;
+      const normalizedInput =
+        nextInput?.source === "browser" && nextInput.routeName
+          ? { ...nextInput, source: undefined }
+          : nextInput;
 
-  const capture = (error: unknown, eventContext?: SignalMetadata): void => {
-    captureRequestError(client, error, mergeErrorInputContext(options.context, eventContext));
-
-    if (options.flush === true) {
-      void client.flush().catch(() => undefined);
+      captureRequestError(client, error, normalizedInput);
     }
   };
 
-  const onError = (event: ErrorEventLike): void => {
-    capture(event.error ?? event.message ?? "Unknown browser error", browserErrorEventContext(event));
-  };
-  const onUnhandledRejection = (event: PromiseRejectionEventLike): void => {
-    capture(event.reason ?? "Unhandled promise rejection", { type: "unhandledrejection" });
-  };
-
-  if (captureErrors) {
-    globalThis.addEventListener?.("error", onError);
-  }
-
-  if (captureUnhandledRejections) {
-    globalThis.addEventListener?.("unhandledrejection", onUnhandledRejection);
-  }
-
-  return () => {
-    if (stopped) {
-      return;
-    }
-
-    stopped = true;
-
-    if (captureErrors) {
-      globalThis.removeEventListener?.("error", onError);
-    }
-
-    if (captureUnhandledRejections) {
-      globalThis.removeEventListener?.("unhandledrejection", onUnhandledRejection);
-    }
-  };
+  return installBrowserErrorCaptureBase(bridgeClient, options as BaseBrowserErrorCaptureOptions);
 }
 
 async function handleWrapperError(
@@ -287,34 +248,6 @@ function mergeNextContext(base: NextContextInput, context?: SignalContext): Next
   };
 }
 
-function mergeErrorInputContext(
-  base: NextRequestErrorInput | undefined,
-  context: SignalMetadata | undefined
-): NextRequestErrorInput | undefined {
-  if (base === undefined && context === undefined) {
-    return undefined;
-  }
-
-  return {
-    ...(base ?? {}),
-    context: {
-      ...(base?.context ?? {}),
-      ...(context ?? {})
-    }
-  };
-}
-
-function browserErrorEventContext(event: ErrorEventLike): SignalMetadata {
-  const context: SignalMetadata = {};
-
-  assignEventContext(context, "message", event.message);
-  assignEventContext(context, "filename", event.filename);
-  assignEventContext(context, "lineno", event.lineno);
-  assignEventContext(context, "colno", event.colno);
-
-  return context;
-}
-
 function buildRequestMetadata(input?: NextContextInput): SignalMetadata {
   const metadata: SignalMetadata = {};
   const correlationId =
@@ -330,16 +263,6 @@ function buildRequestMetadata(input?: NextContextInput): SignalMetadata {
   assignMetadata(metadata, "route_name", input?.routeName);
 
   return metadata;
-}
-
-function assignEventContext(
-  context: SignalMetadata,
-  key: string,
-  value: string | number | undefined
-): void {
-  if (value !== undefined) {
-    context[key] = value;
-  }
 }
 
 function assignMetadata(metadata: SignalMetadata, key: string, value: string | undefined): void {

@@ -128,8 +128,7 @@ Install browser global error capture from a Client Component:
 "use client";
 
 import { useEffect } from "react";
-import { createSignalMonitorClient } from "@sigmon/sdk/browser";
-import { installBrowserErrorCapture } from "@sigmon/sdk/next";
+import { createSignalMonitorClient, installBrowserErrorCapture } from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
   endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
@@ -265,6 +264,12 @@ fetch("https://my.sigmon.app/v1/events", {
 ```
 
 Expected result is `202` and a new event in the selected project/environment. A `401` means the key is wrong or scoped to a different project/environment; a browser CORS failure means the app origin is not allowlisted in Sigmon.
+
+Common ingest failures now include a `hint` field:
+
+- `invalid_api_key`: check that the request sends `Authorization: Bearer <key>` and that browser calls use a browser-scoped key for the same project/environment.
+- `invalid_ingestion_payload`: compare the request body with `/docs` or `/openapi.json`, or use the SDK to generate schema-compatible payloads.
+- `ingestion_unavailable`: check Sigmon Redis connectivity and worker/scheduler health.
 
 ## OpenAPI
 

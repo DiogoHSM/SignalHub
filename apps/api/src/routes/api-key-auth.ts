@@ -6,6 +6,19 @@ export type ApiKeyScope = {
 };
 
 export type ApiKeyVerifier = (secret: string) => Promise<ApiKeyScope | null | undefined>;
+export type ApiKeyAuthOptions = {
+  includeHints?: boolean;
+};
+
+const invalidApiKeyResponse = {
+  error: "invalid_api_key",
+  hint: "Send a project/environment ingestion key as Authorization: Bearer <key>. Browser calls must use a browser-scoped key for the same environment."
+};
+
+const ingestionUnavailableResponse = {
+  error: "ingestion_unavailable",
+  hint: "Sigmon accepted the request path but could not enqueue telemetry. Check Redis connectivity and worker/scheduler health."
+};
 
 export function parseBearerToken(request: FastifyRequest): string | undefined {
   const header = request.headers.authorization;
@@ -20,16 +33,21 @@ export function parseBearerToken(request: FastifyRequest): string | undefined {
 export async function requireApiKeyScope(
   request: FastifyRequest,
   reply: FastifyReply,
-  verifyApiKey?: ApiKeyVerifier
+  verifyApiKey?: ApiKeyVerifier,
+  options: ApiKeyAuthOptions = {}
 ): Promise<ApiKeyScope | undefined> {
+  const invalidApiKey = options.includeHints ? invalidApiKeyResponse : { error: "invalid_api_key" };
+  const ingestionUnavailable = options.includeHints
+    ? ingestionUnavailableResponse
+    : { error: "ingestion_unavailable" };
   const secret = parseBearerToken(request);
   if (!secret) {
-    reply.status(401).send({ error: "invalid_api_key" });
+    reply.status(401).send(invalidApiKey);
     return undefined;
   }
 
   if (!verifyApiKey) {
-    reply.status(503).send({ error: "ingestion_unavailable" });
+    reply.status(503).send(ingestionUnavailable);
     return undefined;
   }
 
@@ -37,12 +55,12 @@ export async function requireApiKeyScope(
   try {
     scope = await verifyApiKey(secret);
   } catch {
-    reply.status(503).send({ error: "ingestion_unavailable" });
+    reply.status(503).send(ingestionUnavailable);
     return undefined;
   }
 
   if (!scope) {
-    reply.status(401).send({ error: "invalid_api_key" });
+    reply.status(401).send(invalidApiKey);
     return undefined;
   }
 

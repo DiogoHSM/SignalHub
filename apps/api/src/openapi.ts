@@ -215,7 +215,11 @@ export const openApiDocument = {
         type: "object",
         required: ["error"],
         properties: {
-          error: { type: "string" }
+          error: { type: "string" },
+          hint: {
+            type: "string",
+            description: "Optional actionable setup guidance returned by ingestion endpoints for common integration failures."
+          }
         }
       },
       EventPayload: {
