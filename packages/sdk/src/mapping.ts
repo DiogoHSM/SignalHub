@@ -9,7 +9,8 @@ import type {
   SignalContext,
   SignalMetadata,
   SpanInput,
-  TraceInput
+  TraceInput,
+  WebVitalInput
 } from "./types.js";
 
 const UNSERIALIZABLE_THROWN_VALUE_MESSAGE = "[Unserializable thrown value]";
@@ -235,6 +236,36 @@ export function createSpanSignal(
   return {
     kind: "span",
     endpointPath: "/v1/spans",
+    payload
+  };
+}
+
+export function createWebVitalSignal(
+  input: WebVitalInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const mergedContext = {
+    ...context,
+    timestamp: input.timestamp,
+    metadata: {
+      ...(context?.metadata ?? {}),
+      ...(input.metadata ?? {})
+    }
+  };
+  const payload = {
+    ...mergeContext(defaultContext, mergedContext),
+    name: input.name,
+    value: input.value
+  };
+
+  assignDefined(payload, "rating", input.rating);
+  assignDefined(payload, "route", input.route);
+  assignDefined(payload, "navigation_type", input.navigationType);
+
+  return {
+    kind: "web_vital",
+    endpointPath: "/v1/web-vitals",
     payload
   };
 }

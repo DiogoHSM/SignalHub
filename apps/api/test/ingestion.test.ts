@@ -47,7 +47,7 @@ describe("ingestion routes", () => {
     expect(Number(response.headers["x-ratelimit-reset"])).toBeGreaterThan(0);
   });
 
-  it("allows browser preflight requests for configured ingestion origins", async () => {
+  it("allows browser preflight requests for configured browser ingestion origins", async () => {
     app = await buildApp({
       readiness,
       browserCorsOrigins: ["https://app.controledaempresa.com"],
@@ -59,7 +59,7 @@ describe("ingestion routes", () => {
 
     const response = await app.inject({
       method: "OPTIONS",
-      url: "/v1/errors",
+      url: "/v1/web-vitals",
       headers: {
         origin: "https://app.controledaempresa.com",
         "access-control-request-method": "POST",

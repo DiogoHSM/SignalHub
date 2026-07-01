@@ -8,7 +8,7 @@ Use this guide for non-TypeScript clients, smoke tests, and code agents that nee
 
 | Credential | Used by | Keep secret? | Notes |
 | --- | --- | --- | --- |
-| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/llm`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
+| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/llm`, `/v1/web-vitals`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
 | Heartbeat secret | `/v1/heartbeats/{id}` | Yes | Generated per heartbeat monitor. Use from cron, workers, and schedulers. |
 | Source-map upload token | `/v1/source-maps` | Yes | CI-only token created from the Artifacts console. |
 | Session cookie | `/admin/*`, `/query/*`, `/system/*` | Browser session only | Used by logged-in human operators and the console. |
@@ -45,6 +45,7 @@ Content-Type: application/json
 | Errors | `POST /v1/errors` | Ingestion API key |
 | Breadcrumbs | `POST /v1/breadcrumbs` | Ingestion API key |
 | LLM calls | `POST /v1/llm` | Ingestion API key |
+| Web Vitals | `POST /v1/web-vitals` | Ingestion API key |
 | Traces | `POST /v1/traces` | Ingestion API key |
 | Spans | `POST /v1/spans` | Ingestion API key |
 | Identify user | `POST /v1/identify/user` | Ingestion API key |

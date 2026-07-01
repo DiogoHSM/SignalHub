@@ -93,6 +93,7 @@ import {
 import {
   getApmEndpoints,
   getServiceMap,
+  getWebVitals,
   getErrorAggregates,
   getErrorForSourceMapResolution,
   getEventAggregates,
@@ -610,6 +611,7 @@ const app = await buildApp({
     getOperations: (filters) => getOperations(db, filters),
     getApmEndpoints: (filters) => getApmEndpoints(db, filters),
     getServiceMap: (filters) => getServiceMap(db, filters),
+    getWebVitals: (filters) => getWebVitals(db, filters),
     getTraceAggregates: (filters) => getTraceAggregates(db, filters),
     listEntityTenants: (filters) => listEntityTenants(db, filters),
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),

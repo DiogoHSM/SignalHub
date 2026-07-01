@@ -68,6 +68,14 @@ export interface InsertSpanInput extends TelemetryBaseInput {
   costUsd?: string;
 }
 
+export interface InsertWebVitalInput extends TelemetryBaseInput {
+  name: "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+  value: number;
+  rating: "good" | "needs-improvement" | "poor";
+  route?: string;
+  navigationType?: string;
+}
+
 export interface InsertBreadcrumbInput extends TelemetryBaseInput {
   type: "navigation" | "click" | "console" | "network" | "custom";
   category?: string;
@@ -290,6 +298,33 @@ export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> 
         output: nullable(input.output),
         error: nullable(input.error),
         cost_usd: nullable(input.costUsd)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertWebVital(db: Db, input: InsertWebVitalInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("web_vitals").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const result = await trx
+      .insertInto("web_vitals")
+      .values({
+        ...baseColumns(input),
+        name: input.name,
+        value: input.value,
+        rating: input.rating,
+        route: nullable(input.route),
+        navigation_type: nullable(input.navigationType)
       })
       .onConflict((oc) => oc.column("id").doNothing())
       .returning("id")

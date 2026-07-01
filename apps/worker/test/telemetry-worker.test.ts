@@ -32,6 +32,7 @@ function createWriter(): TelemetryWriter {
     insertLlmCall: vi.fn(async () => undefined),
     insertTrace: vi.fn(async () => undefined),
     insertSpan: vi.fn(async () => undefined),
+    insertWebVital: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
@@ -969,7 +970,8 @@ describe("runRetentionOnce", () => {
             traces: 3,
             spans: 4,
             llmCalls: 5,
-            breadcrumbs: 6,
+            webVitals: 0,
+          breadcrumbs: 6,
             deadLetterJobs: 0,
             sourceMapArtifacts: 0,
             sourceMapFiles: 0
@@ -1061,6 +1063,7 @@ describe("runRetentionOnce", () => {
           spans: 0,
           traces: 0,
           llmCalls: 0,
+          webVitals: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1104,7 +1107,8 @@ describe("runRetentionOnce", () => {
                   traces: 3,
                   spans: 4,
                   llmCalls: 5,
-                  breadcrumbs: 6,
+                  webVitals: 0,
+          breadcrumbs: 6,
                   deadLetterJobs: 0,
           sourceMapArtifacts: 0,
                   sourceMapFiles: 0
@@ -1153,7 +1157,8 @@ describe("runRetentionOnce", () => {
               traces: 0,
               spans: 0,
               llmCalls: 0,
-              breadcrumbs: 0,
+              webVitals: 0,
+          breadcrumbs: 0,
               deadLetterJobs: 0,
           sourceMapArtifacts: 0,
               sourceMapFiles: 0
@@ -1204,7 +1209,8 @@ describe("runRetentionOnce", () => {
             traces: 0,
             spans: 0,
             llmCalls: 0,
-            breadcrumbs: 0,
+            webVitals: 0,
+          breadcrumbs: 0,
             deadLetterJobs: 0,
           sourceMapArtifacts: 0,
             sourceMapFiles: 0
@@ -1251,7 +1257,8 @@ describe("runRetentionOnce", () => {
                 traces: 0,
                 spans: 0,
                 llmCalls: 0,
-                breadcrumbs: 0,
+                webVitals: 0,
+          breadcrumbs: 0,
                 deadLetterJobs: 0,
           sourceMapArtifacts: 0,
                 sourceMapFiles: 0
@@ -1276,6 +1283,7 @@ describe("runRetentionOnce", () => {
           traces: 0,
           spans: 0,
           llmCalls: 0,
+          webVitals: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1313,7 +1321,8 @@ describe("runRetentionOnce", () => {
             traces: 0,
             spans: 0,
             llmCalls: 0,
-            breadcrumbs: 0,
+            webVitals: 0,
+          breadcrumbs: 0,
             deadLetterJobs: 0,
           sourceMapArtifacts: 0,
             sourceMapFiles: 0
@@ -1335,6 +1344,7 @@ describe("runRetentionOnce", () => {
           traces: 0,
           spans: 0,
           llmCalls: 0,
+          webVitals: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 1,

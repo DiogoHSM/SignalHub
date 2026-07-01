@@ -1515,6 +1515,30 @@ describe("query routes", () => {
     expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "30d", limit: 15 }]);
   });
 
+  it("forwards web vitals query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getWebVitals: async (filters) => {
+          receivedFilters.push(filters);
+          return { metrics: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/apm/web-vitals?project_id=prj_1&environment_id=env_1&window=7d&limit=12"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { metrics: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 12 }]);
+  });
+
   it("rejects unsupported operations windows", async () => {
     app = await buildApp({
       readiness,

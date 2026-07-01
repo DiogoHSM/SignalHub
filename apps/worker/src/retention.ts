@@ -8,6 +8,7 @@ const zeroDeleted: RetentionDeletedCounts = {
   traces: 0,
   spans: 0,
   llmCalls: 0,
+  webVitals: 0,
   breadcrumbs: 0,
   deadLetterJobs: 0,
   sourceMapArtifacts: 0,

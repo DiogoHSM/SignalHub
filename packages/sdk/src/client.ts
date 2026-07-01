@@ -6,7 +6,8 @@ import {
   createIdentifyUserSignal,
   createLlmSignal,
   createSpanSignal,
-  createTraceSignal
+  createTraceSignal,
+  createWebVitalSignal
 } from "./mapping.js";
 import { createSignalQueue } from "./queue.js";
 import { sendSignal } from "./retry.js";
@@ -30,7 +31,8 @@ import type {
   SignalMetadata,
   SpanInput,
   StartTraceInput,
-  TraceInput
+  TraceInput,
+  WebVitalInput
 } from "./types.js";
 import {
   DEFAULT_MAX_QUEUE_SIZE,
@@ -299,6 +301,10 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
 
     span(input: SpanInput, context?: SignalContext): void {
       enqueue(createSpanSignal(input, context, defaultContext));
+    },
+
+    webVital(input: WebVitalInput, context?: SignalContext): void {
+      enqueue(createWebVitalSignal(input, context, defaultContext));
     },
 
     identify(context: SignalContext): void {

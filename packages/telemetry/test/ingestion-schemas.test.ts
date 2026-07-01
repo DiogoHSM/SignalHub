@@ -7,7 +7,8 @@ import {
   spanPayloadSchema,
   tenantIdentifyPayloadSchema,
   tracePayloadSchema,
-  userIdentifyPayloadSchema
+  userIdentifyPayloadSchema,
+  webVitalPayloadSchema
 } from "../src/ingestion-schemas.js";
 
 describe("ingestion schemas", () => {
@@ -55,6 +56,24 @@ describe("ingestion schemas", () => {
     });
 
     expect(parsed.parent_span_id).toBe("span_parent");
+  });
+
+  it("accepts web vitals with route and rating context", () => {
+    const parsed = webVitalPayloadSchema.parse({
+      name: "LCP",
+      value: 2450.5,
+      rating: "needs-improvement",
+      route: "/dashboard",
+      navigation_type: "navigate",
+      timestamp: "2026-05-02T12:00:00.000Z",
+      source: "browser",
+      release: "1.2.3",
+      metadata: { browser: "Chrome" }
+    });
+
+    expect(parsed.name).toBe("LCP");
+    expect(parsed.route).toBe("/dashboard");
+    expect(parsed.value).toBe(2450.5);
   });
 
   it("rejects direct high-risk strings that exceed schema limits", () => {

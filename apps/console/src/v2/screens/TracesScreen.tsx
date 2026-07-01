@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ScreenCtx } from "./registry";
 import { useTraces } from "./useTraces";
-import type { ApmEndpointVM, ServiceMapEdgeVM, TraceListItemVM, UseTracesResult } from "./useTraces";
+import type { ApmEndpointVM, ServiceMapEdgeVM, TraceListItemVM, UseTracesResult, WebVitalMetricVM } from "./useTraces";
 import { SPAN_KIND_COLOR, useTraceSpans } from "./useTraceSpans";
 import type { SpanNodeVM } from "./useTraceSpans";
 import {
@@ -60,6 +60,18 @@ function formatPercent(value: number | null): string {
 
 function formatApdex(value: number | null): string {
   return value === null ? "—" : value.toFixed(2);
+}
+
+function formatWebVitalValue(metric: WebVitalMetricVM["name"], value: number | null): string {
+  if (value === null) return "—";
+  if (metric === "CLS") return value.toFixed(3);
+  return formatLatency(value);
+}
+
+function webVitalTone(metric: WebVitalMetricVM): "ok" | "warn" | "critical" {
+  if (metric.poor > 0) return "critical";
+  if (metric.needsImprovement > 0 || (metric.regressionPercent ?? 0) > 20) return "warn";
+  return "ok";
 }
 
 // Build the ruler tick labels (0 … totalMs) for the waterfall header.
@@ -268,12 +280,80 @@ function ServiceMapEdgeRow({ edge }: { edge: ServiceMapEdgeVM }) {
   );
 }
 
+function WebVitalsPanel({ webVitals }: { webVitals: UseTracesResult["webVitals"] }) {
+  const totals = webVitals.totals;
+  const metrics = webVitals.metrics.slice(0, 8);
+  return (
+    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="sh-card__head">
+        <div>
+          <h2 className="sh-h2">Web vitals</h2>
+          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            Browser experience p75 by route, metric and release.
+          </p>
+        </div>
+        <span className="sh-tag">
+          {totals?.samples ?? 0} samples · {totals?.routes ?? 0} routes
+        </span>
+      </div>
+      <div className="sh-card__body" style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+          <SummaryStat label="LCP p75" value={formatWebVitalValue("LCP", totals?.p75LcpMs ?? null)} />
+          <SummaryStat label="INP p75" value={formatWebVitalValue("INP", totals?.p75InpMs ?? null)} />
+          <SummaryStat label="CLS p75" value={formatWebVitalValue("CLS", totals?.p75Cls ?? null)} mono />
+          <SummaryStat
+            label="Poor samples"
+            value={String(totals?.poorSamples ?? 0)}
+            tone={(totals?.poorSamples ?? 0) > 0 ? "danger" : undefined}
+          />
+        </div>
+        {metrics.length === 0 ? (
+          <EmptyHint icon="activity" title="No Web Vitals yet" sub="Install browser Web Vitals capture to see route-level UX regressions." />
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {metrics.map((metric) => {
+              const tone = webVitalTone(metric);
+              return (
+                <div
+                  key={`${metric.name}:${metric.route}`}
+                  className="sh-row"
+                  style={{
+                    gridTemplateColumns: "76px minmax(180px, 1.2fr) repeat(5, minmax(78px, .5fr))",
+                    alignItems: "center",
+                    padding: "10px 12px",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: 10,
+                    background: "rgba(255,255,255,0.015)",
+                  }}
+                >
+                  <span className={`sh-tag ${tone}`}>{metric.name}</span>
+                  <span className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {metric.route}
+                  </span>
+                  <span className="sh-mono">p75 {formatWebVitalValue(metric.name, metric.p75Value)}</span>
+                  <span className="sh-mono">{metric.samples} samples</span>
+                  <span className="sh-mono">{metric.poor} poor</span>
+                  <span className="sh-mono">{metric.latestRelease ?? "no release"}</span>
+                  <span className={`sh-tag ${(metric.regressionPercent ?? 0) > 20 ? "warn" : "mono"}`}>
+                    {metric.regressionPercent === null ? "no baseline" : `${formatPercent(metric.regressionPercent)} vs prev`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TraceListView({
   ctx,
   traces,
   endpoints,
   totals,
   serviceMap,
+  webVitals,
   activeEndpoint,
   onSelectEndpoint,
   onClearEndpoint,
@@ -284,6 +364,7 @@ function TraceListView({
   endpoints: ApmEndpointVM[];
   totals: UseTracesResult["totals"];
   serviceMap: UseTracesResult["serviceMap"];
+  webVitals: UseTracesResult["webVitals"];
   activeEndpoint: string | null;
   onSelectEndpoint: (name: string) => void;
   onClearEndpoint: () => void;
@@ -320,6 +401,7 @@ function TraceListView({
         <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Apdex" value={formatApdex(totals?.apdex ?? null)} /></div></div>
       </div>
       <EndpointTable endpoints={endpoints} activeEndpoint={activeEndpoint} onSelect={onSelectEndpoint} />
+      <WebVitalsPanel webVitals={webVitals} />
       <ServiceMapPanel serviceMap={serviceMap} />
       <div className="sh-card" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="sh-card__head">
@@ -634,7 +716,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(undefined);
   const [selectedEndpointName, setSelectedEndpointName] = useState<string | null>(null);
 
-  const { data, endpoints, serviceMap, totals, status } = useTraces({
+  const { data, endpoints, serviceMap, webVitals, totals, status } = useTraces({
     client: ctx.client,
     projectId,
     environmentId,
@@ -685,6 +767,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
       endpoints={endpoints}
       totals={totals}
       serviceMap={serviceMap}
+      webVitals={webVitals}
       activeEndpoint={selectedEndpointName}
       onSelectEndpoint={(name) => {
         setSelectedTraceId(undefined);

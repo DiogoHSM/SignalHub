@@ -5,7 +5,8 @@ import {
   errorPayloadSchema,
   llmCallPayloadSchema,
   spanPayloadSchema,
-  tracePayloadSchema
+  tracePayloadSchema,
+  webVitalPayloadSchema
 } from "@sigmon/telemetry/ingestion-schemas";
 import { sanitizePreviewText, sanitizeValue } from "@sigmon/telemetry/sanitization";
 import type { InsertDeadLetterJobInput } from "@sigmon/db/repositories/dead-letter.js";
@@ -15,7 +16,8 @@ import type {
   InsertEventInput,
   InsertLlmCallInput,
   InsertSpanInput,
-  InsertTraceInput
+  InsertTraceInput,
+  InsertWebVitalInput
 } from "@sigmon/db/repositories/telemetry-writes.js";
 
 export type TelemetryWriter = {
@@ -24,6 +26,7 @@ export type TelemetryWriter = {
   insertLlmCall(input: InsertLlmCallInput): Promise<void>;
   insertTrace(input: InsertTraceInput): Promise<void>;
   insertSpan(input: InsertSpanInput): Promise<void>;
+  insertWebVital(input: InsertWebVitalInput): Promise<void>;
   insertBreadcrumb?(input: InsertBreadcrumbInput): Promise<void>;
 };
 
@@ -191,6 +194,19 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         output: sanitizeValue(payload.output),
         error: sanitizeValue(payload.error),
         costUsd: payload.cost_usd === undefined ? undefined : String(payload.cost_usd)
+      });
+      return;
+    }
+
+    case "web_vital": {
+      const payload = webVitalPayloadSchema.parse(job.payload);
+      await writer.insertWebVital({
+        ...baseInput(job, payload, receivedAt),
+        name: payload.name,
+        value: payload.value,
+        rating: payload.rating,
+        route: payload.route,
+        navigationType: payload.navigation_type
       });
       return;
     }

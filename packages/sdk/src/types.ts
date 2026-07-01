@@ -2,6 +2,8 @@ export type SignalStatus = "success" | "error" | "pending";
 export type ErrorSeverity = "debug" | "info" | "warning" | "error" | "critical" | "fatal";
 export type BreadcrumbType = "navigation" | "click" | "console" | "network" | "custom";
 export type BreadcrumbLevel = "debug" | "info" | "warning" | "error" | "fatal";
+export type WebVitalName = "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+export type WebVitalRating = "good" | "needs-improvement" | "poor";
 
 export type JsonValue =
   | string
@@ -102,6 +104,15 @@ export type SpanInput = {
   timestamp?: Date | string;
 };
 
+export type WebVitalInput = EventInput & {
+  name: WebVitalName;
+  value: number;
+  rating?: WebVitalRating;
+  route?: string;
+  navigationType?: string;
+  metadata?: SignalMetadata;
+};
+
 export type StartTraceInput = Omit<TraceInput, "name" | "startedAt"> & {
   startedAt?: Date | string;
 };
@@ -150,6 +161,7 @@ export type SignalMonitorClient = {
   trace: (input: TraceInput, context?: SignalContext) => void;
   startTrace: (name: string, input?: StartTraceInput & SignalContext) => ActiveTrace;
   span: (input: SpanInput, context?: SignalContext) => void;
+  webVital: (input: WebVitalInput, context?: SignalContext) => void;
   identify: (context: SignalContext) => void;
   identifyUser: (userId: string, traits?: SignalMetadata, context?: IdentifyUserInput) => void;
   identifyTenant: (tenantId: string, traits?: SignalMetadata, context?: IdentifyTenantInput) => void;
@@ -163,6 +175,7 @@ export type SignalKind =
   | "llm"
   | "trace"
   | "span"
+  | "web_vital"
   | "breadcrumb"
   | "identify_user"
   | "identify_tenant";

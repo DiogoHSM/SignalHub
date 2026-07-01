@@ -92,6 +92,7 @@ export type SystemHealthSnapshot = {
         traces: number;
         spans: number;
         llmCalls: number;
+        webVitals: number;
         breadcrumbs: number;
         deadLetterJobs: number;
         sourceMapArtifacts: number;

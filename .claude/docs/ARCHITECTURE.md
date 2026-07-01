@@ -12,7 +12,7 @@ SignalMonitor is a self-hosted operational core with five runtime components:
 
 Ingestion:
 
-1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/llm`, `/v1/traces`, or `/v1/spans`.
+1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/llm`, `/v1/web-vitals`, `/v1/traces`, or `/v1/spans`.
 2. API extracts the bearer API key and verifies the stored hash with `API_KEY_PEPPER`.
 3. API validates the JSON payload with Zod.
 4. API generates a signal id, attaches project and environment scope from the API key, enqueues the job, and returns `202 Accepted`.
@@ -69,6 +69,7 @@ Telemetry tables:
 - `errors`
 - `breadcrumbs`
 - `llm_calls`
+- `web_vitals`
 - `traces`
 - `spans`
 
@@ -89,6 +90,8 @@ Source-map CI uploads use dedicated `source_map_upload_tokens`, not ingestion AP
 Archived projects and environments are inactive scopes. Ingestion API key verification, identify writes, source-map token creation, source-map uploads, source-map resolution reads, and worker telemetry writes all require an active project/environment pair. This protects already-queued telemetry jobs from writing into archived scopes after an operator archives a project or environment.
 
 Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
+
+Web Vitals are stored in the `web_vitals` telemetry table. Browser SDK helpers send LCP, INP, CLS, FCP, FID, and TTFB samples through `POST /v1/web-vitals` with route, navigation type, rating, release, and the shared telemetry envelope. `GET /query/apm/web-vitals` aggregates p75 values by metric and route, rating counts, latest/previous release p75 values, and regression percentage for the Traces/APM workspace.
 
 ## API Surface
 
@@ -135,6 +138,7 @@ Ingestion:
 - `POST /v1/identify/user`
 - `POST /v1/identify/tenant`
 - `POST /v1/llm`
+- `POST /v1/web-vitals`
 - `POST /v1/heartbeats/:id`
 - `POST /v1/source-maps`
 - `POST /v1/traces`
@@ -161,6 +165,8 @@ Query:
 - `GET /query/overview`
 - `GET /query/operations`
 - `GET /query/apm/endpoints`
+- `GET /query/apm/service-map`
+- `GET /query/apm/web-vitals`
 - `GET /query/aggregates/events`
 - `GET /query/aggregates/errors`
 - `GET /query/aggregates/llm`
@@ -186,7 +192,7 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including a `deleted_dead_letter_jobs` count.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals` and `deleted_dead_letter_jobs` counts.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 

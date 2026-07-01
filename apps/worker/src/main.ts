@@ -13,7 +13,8 @@ import {
   insertEvent,
   insertLlmCall,
   insertSpan,
-  insertTrace
+  insertTrace,
+  insertWebVital
 } from "@sigmon/db/repositories/telemetry-writes.js";
 import { deleteExpiredDeadLetterJobs, insertDeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
 import {
@@ -85,6 +86,7 @@ const writer: TelemetryWriter = {
   insertLlmCall: (input) => insertLlmCall(db, input),
   insertTrace: (input) => insertTrace(db, input),
   insertSpan: (input) => insertSpan(db, input),
+  insertWebVital: (input) => insertWebVital(db, input),
   insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 };
 

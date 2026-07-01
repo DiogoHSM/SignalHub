@@ -68,6 +68,34 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("webVital enqueues a browser performance metric", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        source: "browser",
+        release: "1.2.3"
+      }
+    });
+
+    client.webVital({ name: "LCP", value: 2200, rating: "good", route: "/dashboard" });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/web-vitals", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      name: "LCP",
+      value: 2200,
+      rating: "good",
+      route: "/dashboard",
+      source: "browser",
+      release: "1.2.3",
+      metadata: {}
+    });
+  });
+
   it("retains retryable failures by default and discards them when requested", async () => {
     const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));

@@ -2,7 +2,14 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTraces, isErrorStatus } from "./useTraces";
-import type { AggregateResponse, ApmEndpointsResponse, QueryListResponse, ServiceMapResponse, TraceRecord } from "../../api/types";
+import type {
+  AggregateResponse,
+  ApmEndpointsResponse,
+  QueryListResponse,
+  ServiceMapResponse,
+  TraceRecord,
+  WebVitalsResponse
+} from "../../api/types";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -61,6 +68,31 @@ function makeClient(rows: TraceRecord[], over: Record<string, unknown> = {}) {
         }]
       }
     })),
+    getWebVitals: vi.fn(async (): Promise<AggregateResponse<WebVitalsResponse>> => ({
+      data: {
+        window: "24h",
+        generatedAt: "2026-06-23T00:00:00.000Z",
+        scope: { projectId: "p", environmentId: "e" },
+        range: { from: "2026-06-22T00:00:00.000Z", to: "2026-06-23T00:00:00.000Z" },
+        totals: { samples: 3, routes: 1, releases: 2, poorSamples: 1, p75LcpMs: 2925, p75InpMs: 180, p75Cls: 0.08 },
+        metrics: [{
+          name: "LCP",
+          route: "/dashboard",
+          samples: 2,
+          good: 1,
+          needsImprovement: 1,
+          poor: 0,
+          averageValue: 2650,
+          p75Value: 2925,
+          latestRelease: "1.0.1",
+          latestReleaseP75Value: 3200,
+          previousRelease: "1.0.0",
+          previousReleaseP75Value: 2100,
+          regressionPercent: 52,
+          lastSeenAt: "2026-06-23T00:00:00.000Z"
+        }]
+      }
+    })),
     ...over,
   } as never;
 }
@@ -94,9 +126,12 @@ describe("useTraces", () => {
     expect(result.current.totals).toMatchObject({ endpoints: 1, requests: 2, errors: 1 });
     expect(result.current.endpoints[0]).toMatchObject({ name: "POST /api/x", p95DurationMs: 2000, apdex: 0.75 });
     expect(result.current.serviceMap.edges[0]).toMatchObject({ source: "api", target: "postgres", dependencyType: "database" });
+    expect(result.current.webVitals.metrics[0]).toMatchObject({ name: "LCP", route: "/dashboard", p75Value: 2925 });
     expect((client as never as { getApmEndpoints: { mock: { calls: unknown[][] } } }).getApmEndpoints.mock.calls[0][0])
       .toMatchObject({ projectId: "p", environmentId: "e", window: "24h", limit: 50 });
     expect((client as never as { getServiceMap: { mock: { calls: unknown[][] } } }).getServiceMap.mock.calls[0][0])
+      .toMatchObject({ projectId: "p", environmentId: "e", window: "24h", limit: 50 });
+    expect((client as never as { getWebVitals: { mock: { calls: unknown[][] } } }).getWebVitals.mock.calls[0][0])
       .toMatchObject({ projectId: "p", environmentId: "e", window: "24h", limit: 50 });
   });
 
@@ -118,6 +153,7 @@ describe("useTraces", () => {
     expect(result.current.data).toBeNull();
     expect(result.current.endpoints).toEqual([]);
     expect(result.current.serviceMap).toEqual({ edges: [], totals: null });
+    expect(result.current.webVitals).toEqual({ metrics: [], totals: null });
     expect(result.current.totals).toBeNull();
     errSpy.mockRestore();
   });

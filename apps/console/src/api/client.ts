@@ -67,6 +67,7 @@ import type {
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput,
+  WebVitalsResponse,
   LlmAggregateQuery,
   LlmSummary,
   LlmTenantRow,
@@ -259,6 +260,7 @@ export type ApiClient = {
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getApmEndpoints?: (query: ApmQuery) => Promise<AggregateResponse<ApmEndpointsResponse>>;
   getServiceMap?: (query: ApmQuery) => Promise<AggregateResponse<ServiceMapResponse>>;
+  getWebVitals?: (query: ApmQuery) => Promise<AggregateResponse<WebVitalsResponse>>;
   getIncidentMttr?: (query: IncidentMttrQuery) => Promise<AggregateResponse<IncidentMttrResult>>;
   getLlmSummary?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmSummary>>;
   getLlmByTenant?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmTenantRow[]>>;
@@ -561,6 +563,16 @@ function serviceMapPath(query: ApmQuery): string {
   return `/query/apm/service-map?${params.toString()}`;
 }
 
+function webVitalsPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/apm/web-vitals?${params.toString()}`;
+}
+
 function incidentMttrPath(query: IncidentMttrQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -839,6 +851,7 @@ export function createApiClient(
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getApmEndpoints: (query) => request<AggregateResponse<ApmEndpointsResponse>>(path(apiBasePath, apmEndpointsPath(query))),
     getServiceMap: (query) => request<AggregateResponse<ServiceMapResponse>>(path(apiBasePath, serviceMapPath(query))),
+    getWebVitals: (query) => request<AggregateResponse<WebVitalsResponse>>(path(apiBasePath, webVitalsPath(query))),
     getIncidentMttr: (query) => request<AggregateResponse<IncidentMttrResult>>(path(apiBasePath, incidentMttrPath(query))),
     getLlmSummary: (query) =>
       request<AggregateResponse<LlmSummary>>(path(apiBasePath, llmAggregatePath("summary", query))),

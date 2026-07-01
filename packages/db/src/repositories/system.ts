@@ -8,7 +8,7 @@ type SystemDb = Db | Transaction<Database>;
 
 const retentionAdvisoryLockId = 927380402914;
 const defaultMaxBatchesPerTable = 25;
-const retentionTables = ["events", "errors", "traces", "spans", "llm_calls", "breadcrumbs"] as const;
+const retentionTables = ["events", "errors", "traces", "spans", "llm_calls", "web_vitals", "breadcrumbs"] as const;
 type RetentionTable = (typeof retentionTables)[number];
 const retentionTableSet = new Set<string>(retentionTables);
 
@@ -43,6 +43,7 @@ export type RetentionDeletedCounts = {
   traces: number;
   spans: number;
   llmCalls: number;
+  webVitals: number;
   breadcrumbs: number;
   deadLetterJobs: number;
   sourceMapArtifacts: number;
@@ -72,6 +73,7 @@ export function toRetentionRunRecord(row: RetentionRunRow): RetentionRunRecord {
       traces: row.deleted_traces,
       spans: row.deleted_spans,
       llmCalls: row.deleted_llm_calls,
+      webVitals: row.deleted_web_vitals,
       breadcrumbs: row.deleted_breadcrumbs,
       deadLetterJobs: row.deleted_dead_letter_jobs,
       sourceMapArtifacts: row.deleted_source_map_artifacts,
@@ -203,6 +205,13 @@ export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExe
     traces: await deleteExpiredBatchesFromTable(db, "traces", cutoff(options.tracesDays), options.batchSize, maxBatches),
     spans: await deleteExpiredBatchesFromTable(db, "spans", cutoff(options.spansDays), options.batchSize, maxBatches),
     llmCalls: await deleteExpiredBatchesFromTable(db, "llm_calls", cutoff(options.llmCallsDays), options.batchSize, maxBatches),
+    webVitals: await deleteExpiredBatchesFromTable(
+      db,
+      "web_vitals",
+      cutoff(options.eventsDays),
+      options.batchSize,
+      maxBatches
+    ),
     breadcrumbs: await deleteExpiredBatchesFromTable(
       db,
       "breadcrumbs",
@@ -239,6 +248,7 @@ export async function recordRetentionRun(
       deleted_traces: input.deleted.traces,
       deleted_spans: input.deleted.spans,
       deleted_llm_calls: input.deleted.llmCalls,
+      deleted_web_vitals: input.deleted.webVitals,
       deleted_breadcrumbs: input.deleted.breadcrumbs,
       deleted_dead_letter_jobs: input.deleted.deadLetterJobs,
       deleted_source_map_artifacts: input.deleted.sourceMapArtifacts,

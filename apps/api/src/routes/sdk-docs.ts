@@ -497,7 +497,11 @@ export const submitCheckout = withSignalMonitorAction(async (formData: FormData)
             <pre><code>"use client";
 
 import { useEffect } from "react";
-import { createSignalMonitorClient, installBrowserErrorCapture } from "@sigmon/sdk/browser";
+import {
+  createSignalMonitorClient,
+  installBrowserErrorCapture,
+  installBrowserWebVitals
+} from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
   endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
@@ -510,15 +514,29 @@ const sigmonBrowser = createSignalMonitorClient({
 
 export function SignalMonitorBrowserCapture() {
   useEffect(() => {
-    return installBrowserErrorCapture(sigmonBrowser, {
+    const stopErrors = installBrowserErrorCapture(sigmonBrowser, {
       captureErrors: true,
       captureUnhandledRejections: true,
       flush: true
     });
+    const stopVitals = installBrowserWebVitals(sigmonBrowser, {
+      route: () => window.location.pathname,
+      metadata: { service: "web" },
+      flush: true
+    });
+    return () => {
+      stopVitals();
+      stopErrors();
+    };
   }, []);
 
   return null;
 }</code></pre>
+            <h3>Browser Web Vitals</h3>
+            <p>
+              <code>installBrowserWebVitals</code> captures LCP, INP, CLS, FCP, FID, and TTFB as
+              route-level samples. The APM Traces view shows p75 by route and release regression.
+            </p>
             <h3>Manual breadcrumbs</h3>
             <pre><code>sigmonBrowser.breadcrumb({
   type: "click",

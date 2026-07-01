@@ -6,7 +6,8 @@ import {
   eventPayloadSchema,
   llmCallPayloadSchema,
   spanPayloadSchema,
-  tracePayloadSchema
+  tracePayloadSchema,
+  webVitalPayloadSchema
 } from "@sigmon/telemetry/ingestion-schemas";
 import type { FastifyInstance } from "fastify";
 import type { ZodType } from "zod";
@@ -30,6 +31,7 @@ const ingestionRoutes: IngestionRouteConfig[] = [
   { path: "/v1/llm", kind: "llm", idPrefix: "llm", schema: llmCallPayloadSchema },
   { path: "/v1/traces", kind: "trace", idPrefix: "trc", schema: tracePayloadSchema },
   { path: "/v1/spans", kind: "span", idPrefix: "spn", schema: spanPayloadSchema },
+  { path: "/v1/web-vitals", kind: "web_vital", idPrefix: "wvt", schema: webVitalPayloadSchema },
   { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ];
 

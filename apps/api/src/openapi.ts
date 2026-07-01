@@ -94,7 +94,7 @@ const identifyOperation = (
   }
 });
 
-const apiDescription = `Self-hosted telemetry API for product events, errors, breadcrumbs, LLM calls, traces, spans, source maps, and operator workflows.
+const apiDescription = `Self-hosted telemetry API for product events, errors, breadcrumbs, LLM calls, traces, spans, Web Vitals, source maps, and operator workflows.
 
 ## Integration guide
 
@@ -109,7 +109,7 @@ Raw HTTP remains the stable contract for other languages, automation, and direct
 3. Use server-only variables such as \`SIGMON_ENDPOINT\` and \`SIGMON_API_KEY\` for API routes, workers, server actions, and scheduled jobs.
 4. Use browser variables such as \`NEXT_PUBLIC_SIGMON_ENDPOINT\` and \`NEXT_PUBLIC_SIGMON_BROWSER_KEY\` only with a browser-scoped ingestion key.
 5. Send \`identifyUser\` / \`POST /v1/identify/user\` after login or session load, and \`identifyTenant\` / \`POST /v1/identify/tenant\` after tenant/workspace selection.
-6. Send events, errors, breadcrumbs, traces, spans, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
+6. Send events, errors, breadcrumbs, traces, spans, Web Vitals, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
 7. Upload source maps from CI for minified browser bundles so production stacks can be resolved.
 
 ## Key model
@@ -300,6 +300,27 @@ export const openApiDocument = {
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           trace_id: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      WebVitalPayload: {
+        type: "object",
+        required: ["name", "value"],
+        description:
+          "Browser Web Vital sample. Use the browser SDK helper when possible so metric names, ratings, route, navigation type, release, and context are normalized consistently.",
+        properties: {
+          name: { type: "string", enum: ["CLS", "FCP", "FID", "INP", "LCP", "TTFB"] },
+          value: { type: "number", minimum: 0, description: "Metric value. CLS is unitless; timing metrics are milliseconds." },
+          rating: { type: "string", enum: ["good", "needs-improvement", "poor"], default: "good" },
+          route: { type: "string", description: "Browser route or path where the metric was observed." },
+          navigation_type: { type: "string", description: "Browser navigation type such as navigate, reload, back-forward, or prerender." },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["web"] },
+          release: { type: "string", description: "Application version or deploy id used for regression comparison." },
           metadata: { type: "object", additionalProperties: true },
           timestamp: { type: "string", format: "date-time" }
         }
@@ -612,6 +633,18 @@ export const openApiDocument = {
         model: "gpt-5-mini",
         prompt_name: "dashboard_summary",
         status: "success"
+      })
+    },
+    "/v1/web-vitals": {
+      post: ingestionOperation("Ingest Web Vitals", "Track browser UX metrics such as LCP, INP, CLS, FCP, FID, and TTFB by route and release.", "WebVitalPayload", {
+        name: "LCP",
+        value: 2420,
+        rating: "needs-improvement",
+        route: "/dashboard",
+        navigation_type: "navigate",
+        source: "web",
+        release: "2026.05.24",
+        metadata: { effective_type: "4g" }
       })
     },
     "/v1/traces": {
@@ -1017,6 +1050,12 @@ export const openApiDocument = {
       get: sessionRoute(
         "Query APM service map",
         "Read span-derived service dependency edges for a project environment, including source, target, dependency type, span count, distinct trace count, errors, error rate, average latency, p95 latency, and last seen timestamp. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
+    "/query/apm/web-vitals": {
+      get: sessionRoute(
+        "Query APM Web Vitals",
+        "Read browser Web Vital rollups for a project environment, including p75 by metric and route, sample counts, rating counts, latest release p75, previous release p75, and regression percent. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
     "/system/health": {

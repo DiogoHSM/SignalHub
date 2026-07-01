@@ -253,6 +253,26 @@ export interface SpansTable {
   cost_usd: NullableNumericString;
 }
 
+export interface WebVitalsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  name: string;
+  value: RequiredNumericString;
+  rating: string;
+  route: string | null;
+  navigation_type: string | null;
+}
+
 export interface DeadLetterJobsTable {
   id: string;
   project_id: string | null;
@@ -287,6 +307,7 @@ export interface RetentionRunsTable {
   deleted_traces: DefaultedInteger;
   deleted_spans: DefaultedInteger;
   deleted_llm_calls: DefaultedInteger;
+  deleted_web_vitals: DefaultedInteger;
   deleted_breadcrumbs: DefaultedInteger;
   deleted_dead_letter_jobs: DefaultedInteger;
   source_maps_enabled: DefaultedBoolean;
@@ -532,6 +553,7 @@ export interface Database {
   llm_calls: LlmCallsTable;
   traces: TracesTable;
   spans: SpansTable;
+  web_vitals: WebVitalsTable;
   dead_letter_jobs: DeadLetterJobsTable;
   dead_letter_job_actions: DeadLetterJobActionsTable;
   retention_runs: RetentionRunsTable;

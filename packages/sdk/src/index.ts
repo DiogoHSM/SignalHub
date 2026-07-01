@@ -27,7 +27,10 @@ export type {
   SignalStatus,
   SpanInput,
   StartTraceInput,
-  TraceInput
+  TraceInput,
+  WebVitalInput,
+  WebVitalName,
+  WebVitalRating
 } from "./types.js";
 
 export {
@@ -51,6 +54,7 @@ export {
   createLlmSignal,
   createSpanSignal,
   createTraceSignal,
+  createWebVitalSignal,
   mergeContext,
   serializeDate
 } from "./mapping.js";

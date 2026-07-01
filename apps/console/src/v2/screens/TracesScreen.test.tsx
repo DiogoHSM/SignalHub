@@ -7,7 +7,7 @@ import { TracesScreen } from "./TracesScreen";
 import type { ScreenCtx } from "./registry";
 import * as useTracesModule from "./useTraces";
 import * as useTraceSpansModule from "./useTraceSpans";
-import type { ApmEndpointVM, ServiceMapEdgeVM, TraceListItemVM, UseTracesResult } from "./useTraces";
+import type { ApmEndpointVM, ServiceMapEdgeVM, TraceListItemVM, UseTracesResult, WebVitalMetricVM } from "./useTraces";
 import type { TraceDetailVM } from "./useTraceSpans";
 
 afterEach(() => {
@@ -77,6 +77,25 @@ const serviceMapEdges: ServiceMapEdgeVM[] = [
   },
 ];
 
+const webVitalMetrics: WebVitalMetricVM[] = [
+  {
+    name: "LCP",
+    route: "/dashboard",
+    samples: 2,
+    good: 1,
+    needsImprovement: 1,
+    poor: 0,
+    averageValue: 2650,
+    p75Value: 2925,
+    latestRelease: "1.0.1",
+    latestReleaseP75Value: 3200,
+    previousRelease: "1.0.0",
+    previousReleaseP75Value: 2100,
+    regressionPercent: 52,
+    lastSeenAt: "2026-06-23T12:42:08.412Z",
+  },
+];
+
 const detail: TraceDetailVM = {
   summary: { totalMs: 2380, spanCount: 3, llmCostUsd: 0.024, llmTimeMs: 1716, dbTimeMs: 430, errorCount: 1 },
   spans: [
@@ -97,6 +116,10 @@ function mockList(data: TraceListItemVM[] | null, status: "loading" | "ok" | "er
     serviceMap: {
       edges: serviceMapEdges,
       totals: { services: 2, edges: 1, spans: 12, errors: 1, errorRatePercent: 8.3 },
+    },
+    webVitals: {
+      metrics: webVitalMetrics,
+      totals: { samples: 3, routes: 1, releases: 2, poorSamples: 1, p75LcpMs: 2925, p75InpMs: 180, p75Cls: 0.08 },
     },
     totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
     status,
@@ -133,6 +156,9 @@ describe("TracesScreen — index", () => {
     render(<TracesScreen ctx={makeCtx()} />);
     expect(screen.getByText("Traces")).toBeInTheDocument();
     expect(screen.getByText("APM endpoints")).toBeInTheDocument();
+    expect(screen.getByText("Web vitals")).toBeInTheDocument();
+    expect(screen.getByText("LCP")).toBeInTheDocument();
+    expect(screen.getByText("/dashboard")).toBeInTheDocument();
     expect(screen.getByText("Service map")).toBeInTheDocument();
     expect(screen.getByText("postgres")).toBeInTheDocument();
     expect(screen.getByText("Endpoints")).toBeInTheDocument();
@@ -148,6 +174,10 @@ describe("TracesScreen — index", () => {
       serviceMap: {
         edges: serviceMapEdges,
         totals: { services: 2, edges: 1, spans: 12, errors: 1, errorRatePercent: 8.3 },
+      },
+      webVitals: {
+        metrics: webVitalMetrics,
+        totals: { samples: 3, routes: 1, releases: 2, poorSamples: 1, p75LcpMs: 2925, p75InpMs: 180, p75Cls: 0.08 },
       },
       totals: { endpoints: 2, requests: 142, errors: 3, errorRatePercent: 2.1, p95DurationMs: 2380, apdex: 0.91 },
       status: "ok",

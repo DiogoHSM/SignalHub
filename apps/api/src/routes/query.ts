@@ -177,6 +177,7 @@ export type QueryDependencies = {
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   getApmEndpoints?: (filters: ApmFilters) => Promise<unknown>;
   getServiceMap?: (filters: ApmFilters) => Promise<unknown>;
+  getWebVitals?: (filters: ApmFilters) => Promise<unknown>;
   listEntityTenants?: (filters: EntityTenantListFilters) => Promise<unknown>;
   getEntityTenantDetail?: (tenantId: string, filters: EntityTenantDetailFilters) => Promise<unknown>;
   listUsersActivity?: (filters: UserListFilters) => Promise<unknown>;
@@ -1211,6 +1212,28 @@ async function handleServiceMapRoute(request: FastifyRequest, reply: FastifyRepl
   }
 }
 
+async function handleWebVitalsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getWebVitals) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseApmFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getWebVitals(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleSessionTimelineRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -1761,6 +1784,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/operations", (request, reply) => handleOperationsRoute(request, reply, options));
   app.get("/query/apm/endpoints", (request, reply) => handleApmEndpointsRoute(request, reply, options));
   app.get("/query/apm/service-map", (request, reply) => handleServiceMapRoute(request, reply, options));
+  app.get("/query/apm/web-vitals", (request, reply) => handleWebVitalsRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));

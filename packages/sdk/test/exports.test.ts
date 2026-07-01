@@ -50,6 +50,7 @@ describe("SDK exports", () => {
 
     expect(browser.createSignalMonitorClient).toBeTypeOf("function");
     expect(browser.installBrowserErrorCapture).toBeTypeOf("function");
+    expect(browser.installBrowserWebVitals).toBeTypeOf("function");
     expect(browser.createBrowserBreadcrumbs).toBeTypeOf("function");
   });
 

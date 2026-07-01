@@ -8,6 +8,7 @@ import {
   createLlmSignal,
   createSpanSignal,
   createTraceSignal,
+  createWebVitalSignal,
   mergeContext,
   serializeDate
 } from "../src/mapping.js";
@@ -80,6 +81,36 @@ describe("payload mapping", () => {
         user_id: "user_1",
         session_id: "session_1",
         trace_id: "trace_1",
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps web vitals to /v1/web-vitals with route and rating fields", () => {
+    expect(
+      createWebVitalSignal(
+        {
+          name: "INP",
+          value: 180,
+          rating: "good",
+          route: "/checkout",
+          navigationType: "reload",
+          timestamp: new Date("2026-05-02T12:00:00.000Z")
+        },
+        { source: "browser", release: "1.2.3" }
+      )
+    ).toEqual({
+      kind: "web_vital",
+      endpointPath: "/v1/web-vitals",
+      payload: {
+        name: "INP",
+        value: 180,
+        rating: "good",
+        route: "/checkout",
+        navigation_type: "reload",
+        timestamp: "2026-05-02T12:00:00.000Z",
+        source: "browser",
+        release: "1.2.3",
         metadata: {}
       }
     });

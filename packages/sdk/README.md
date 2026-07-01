@@ -167,6 +167,48 @@ export function SignalMonitorBrowserCapture() {
 }
 ```
 
+Install browser Web Vitals capture from the same Client Component when you want route-level LCP,
+INP, CLS, FCP, FID, and TTFB in the APM view. The helper uses the browser PerformanceObserver API
+directly, sends p75-ready samples to `/v1/web-vitals`, and stays opt-in so public browser keys are
+only used from allowlisted origins.
+
+```tsx
+"use client";
+
+import { useEffect } from "react";
+import {
+  createSignalMonitorClient,
+  installBrowserErrorCapture,
+  installBrowserWebVitals
+} from "@sigmon/sdk/browser";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY ?? "",
+  defaultContext: {
+    source: "web",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+export function SignalMonitorBrowserCapture() {
+  useEffect(() => {
+    const stopErrors = installBrowserErrorCapture(sigmonBrowser, { flush: true });
+    const stopVitals = installBrowserWebVitals(sigmonBrowser, {
+      route: () => window.location.pathname,
+      metadata: { service: "web" },
+      flush: true
+    });
+    return () => {
+      stopVitals();
+      stopErrors();
+    };
+  }, []);
+
+  return null;
+}
+```
+
 ## Traces, Spans, and Propagation
 
 Use `startTrace` around request or workflow boundaries. New traces created without a custom `traceId` use W3C-compatible ids and expose `traceparent` headers for downstream calls.

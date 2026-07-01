@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { ApmEndpoint, ServiceMapEdge, TraceRecord } from "../../api/types";
+import type { ApmEndpoint, ServiceMapEdge, TraceRecord, WebVitalMetric } from "../../api/types";
 
 // ---------------------------------------------------------------------------
 // View-model types
@@ -44,6 +44,23 @@ export type ServiceMapEdgeVM = {
   lastSeenAt: string | null;
 };
 
+export type WebVitalMetricVM = {
+  name: "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+  route: string;
+  samples: number;
+  good: number;
+  needsImprovement: number;
+  poor: number;
+  averageValue: number | null;
+  p75Value: number | null;
+  latestRelease: string | null;
+  latestReleaseP75Value: number | null;
+  previousRelease: string | null;
+  previousReleaseP75Value: number | null;
+  regressionPercent: number | null;
+  lastSeenAt: string | null;
+};
+
 export type UseTracesResult = {
   data: TraceListItemVM[] | null;
   endpoints: ApmEndpointVM[];
@@ -55,6 +72,18 @@ export type UseTracesResult = {
       spans: number;
       errors: number;
       errorRatePercent: number | null;
+    } | null;
+  };
+  webVitals: {
+    metrics: WebVitalMetricVM[];
+    totals: {
+      samples: number;
+      routes: number;
+      releases: number;
+      poorSamples: number;
+      p75LcpMs: number | null;
+      p75InpMs: number | null;
+      p75Cls: number | null;
     } | null;
   };
   totals: {
@@ -74,6 +103,7 @@ type UseTracesArgs = {
     listTraces: ApiClient["listTraces"];
     getApmEndpoints?: ApiClient["getApmEndpoints"];
     getServiceMap?: ApiClient["getServiceMap"];
+    getWebVitals?: ApiClient["getWebVitals"];
   };
   projectId: string | undefined;
   environmentId: string | undefined;
@@ -83,6 +113,7 @@ type UseTracesArgs = {
 const RECENT_TRACES_LIMIT = 25;
 const APM_ENDPOINT_LIMIT = 50;
 const SERVICE_MAP_LIMIT = 50;
+const WEB_VITALS_LIMIT = 50;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,6 +154,25 @@ function mapServiceMapEdge(row: ServiceMapEdge): ServiceMapEdgeVM {
   };
 }
 
+function mapWebVitalMetric(row: WebVitalMetric): WebVitalMetricVM {
+  return {
+    name: row.name,
+    route: row.route,
+    samples: row.samples,
+    good: row.good,
+    needsImprovement: row.needsImprovement,
+    poor: row.poor,
+    averageValue: row.averageValue,
+    p75Value: row.p75Value,
+    latestRelease: row.latestRelease,
+    latestReleaseP75Value: row.latestReleaseP75Value,
+    previousRelease: row.previousRelease,
+    previousReleaseP75Value: row.previousReleaseP75Value,
+    regressionPercent: row.regressionPercent,
+    lastSeenAt: row.lastSeenAt,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -132,6 +182,7 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
   const [data, setData] = useState<TraceListItemVM[] | null>(null);
   const [endpoints, setEndpoints] = useState<ApmEndpointVM[]>([]);
   const [serviceMap, setServiceMap] = useState<UseTracesResult["serviceMap"]>({ edges: [], totals: null });
+  const [webVitals, setWebVitals] = useState<UseTracesResult["webVitals"]>({ metrics: [], totals: null });
   const [totals, setTotals] = useState<UseTracesResult["totals"]>(null);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
@@ -156,9 +207,12 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
     const serviceMapPromise = client.getServiceMap
       ? client.getServiceMap({ projectId, environmentId, window: "24h", limit: SERVICE_MAP_LIMIT }).then((res) => res.data)
       : Promise.resolve(null);
+    const webVitalsPromise = client.getWebVitals
+      ? client.getWebVitals({ projectId, environmentId, window: "24h", limit: WEB_VITALS_LIMIT }).then((res) => res.data)
+      : Promise.resolve(null);
 
-    Promise.all([tracesPromise, apmPromise, serviceMapPromise])
-      .then(([res, apm, map]) => {
+    Promise.all([tracesPromise, apmPromise, serviceMapPromise, webVitalsPromise])
+      .then(([res, apm, map, vitals]) => {
         if (gen !== genRef.current) return;
         const rows: TraceListItemVM[] = res.data.map((t) => ({
           id: t.id,
@@ -177,6 +231,10 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
           edges: map?.edges.map(mapServiceMapEdge) ?? [],
           totals: map?.totals ?? null,
         });
+        setWebVitals({
+          metrics: vitals?.metrics.map(mapWebVitalMetric) ?? [],
+          totals: vitals?.totals ?? null,
+        });
         setTotals(apm?.totals ?? null);
         setStatus("ok");
       })
@@ -186,6 +244,7 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
         setData(null);
         setEndpoints([]);
         setServiceMap({ edges: [], totals: null });
+        setWebVitals({ metrics: [], totals: null });
         setTotals(null);
         setStatus("error");
       });
@@ -196,5 +255,5 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, environmentId, endpointName, tick]);
 
-  return { data, endpoints, serviceMap, totals, status, reload };
+  return { data, endpoints, serviceMap, webVitals, totals, status, reload };
 }

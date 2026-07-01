@@ -21,6 +21,7 @@ type RetentionDeletedCounts = {
   traces: number;
   spans: number;
   llmCalls: number;
+  webVitals: number;
   breadcrumbs: number;
   deadLetterJobs: number;
   sourceMapArtifacts: number;
@@ -220,6 +221,7 @@ function toRetentionDeletedCounts(deleted: RetentionDeletedCounts): RetentionDel
     traces: deleted.traces,
     spans: deleted.spans,
     llmCalls: deleted.llmCalls,
+    webVitals: deleted.webVitals,
     breadcrumbs: deleted.breadcrumbs,
     deadLetterJobs: deleted.deadLetterJobs,
     sourceMapArtifacts: deleted.sourceMapArtifacts,

@@ -15,7 +15,7 @@ Implemented capabilities:
 - Bootstrap admin seed and local email/password login.
 - Admin APIs for users, projects, environments, and ingestion API keys.
 - Admin Integration Console for setup and API key generation.
-- API-key authenticated ingestion for events, errors, LLM calls, traces, and spans.
+- API-key authenticated ingestion for events, errors, LLM calls, Web Vitals, traces, and spans.
 - API-key authenticated identify endpoints and SDK helpers for project/environment-scoped user and tenant profile traits.
 - Redis/BullMQ queueing between API acceptance and worker persistence.
 - Worker-side sanitization and typed Postgres writes.
@@ -33,6 +33,7 @@ Implemented capabilities:
 - Read-only Traces investigation workspace with lazy ordered span details.
 - Endpoint-level APM rollups for project/environment traces, including request volume, error count/rate, p50/p95/p99 latency, average latency, Apdex, and drilldown from an endpoint row into matching recent traces/spans.
 - SDK trace propagation helpers for W3C `traceparent`, Next.js request context extraction, and a span-derived service map that highlights dependency edges by service, target, error rate, p95 latency, and volume.
+- Browser Web Vitals ingestion, SDK opt-in capture helper, retention, and Traces/APM UI rollups for p75 LCP/INP/CLS, route-level rating counts, and release regressions.
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, trait-derived labels and chips, selected tenant top users, and cross-signal timeline drilldowns.
 - Read-only Users investigation workspace with impact-ranked user summaries, trait-derived labels and chips, selected user recent sessions, and cross-signal timeline drilldowns.
@@ -52,7 +53,7 @@ Implemented capabilities:
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 - Next.js apps can use App Router route/action wrappers and opt-in browser global error capture through the JavaScript SDK.
 - Browser SDK telemetry can post directly to public ingestion endpoints from project-scoped Browser origins configured in Project Settings, with `BROWSER_CORS_ORIGINS` as an optional global allowlist.
-- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, event-based Experiments/A-B instrumentation, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`.
+- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, event-based Experiments/A-B instrumentation, Web Vitals, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`.
 - Public npm package metadata, package README, and Trusted Publishing release workflow for publishing `@sigmon/sdk`.
 
 ## Out of Scope for Current Phase

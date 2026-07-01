@@ -78,7 +78,8 @@ import {
   insertEvent,
   insertLlmCall,
   insertSpan,
-  insertTrace
+  insertTrace,
+  insertWebVital
 } from "../src/repositories/telemetry-writes.js";
 import {
   buildBucketAxis,
@@ -91,6 +92,7 @@ import {
   getLlmSummary,
   getApmEndpoints,
   getServiceMap,
+  getWebVitals,
   getOverview,
   getErrorForSourceMapResolution,
   getTraceAggregates,
@@ -5166,7 +5168,8 @@ describe("repositories", () => {
         traces: 3,
         spans: 4,
         llmCalls: 5,
-        breadcrumbs: 6,
+        webVitals: 0,
+          breadcrumbs: 6,
         deadLetterJobs: 0,
           sourceMapArtifacts: 0,
         sourceMapFiles: 0
@@ -5222,6 +5225,7 @@ describe("repositories", () => {
           traces: 3,
           spans: 4,
           llmCalls: 5,
+          webVitals: 0,
           breadcrumbs: 6,
           deadLetterJobs: 0,
           sourceMapArtifacts: 7,
@@ -5387,6 +5391,28 @@ describe("repositories", () => {
         model: "gpt-5",
         status: "success"
       });
+      await insertWebVital(db, {
+        id: "wvt_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        name: "LCP",
+        value: 2400,
+        rating: "needs-improvement",
+        route: "/old"
+      });
+      await insertWebVital(db, {
+        id: "wvt_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        name: "LCP",
+        value: 1200,
+        rating: "good",
+        route: "/fresh"
+      });
 
       const deleted = await deleteExpiredTelemetry(db, {
         now: new Date("2026-05-06T12:00:00.000Z"),
@@ -5409,9 +5435,10 @@ describe("repositories", () => {
         traces: 1,
         spans: 1,
         llmCalls: 1,
+        webVitals: 1,
         breadcrumbs: 0,
         deadLetterJobs: 0,
-          sourceMapArtifacts: 0,
+        sourceMapArtifacts: 0,
         sourceMapFiles: 0
       });
 
@@ -5431,6 +5458,10 @@ describe("repositories", () => {
       await expect(listLlmCalls(db, filters)).resolves.toMatchObject({
         data: [expect.objectContaining({ id: "llm_fresh_retention" })]
       });
+      await expect(db.selectFrom("web_vitals").select("id").where("id", "=", "wvt_old_retention").executeTakeFirst())
+        .resolves.toBeUndefined();
+      await expect(db.selectFrom("web_vitals").select("id").where("id", "=", "wvt_fresh_retention").executeTakeFirst())
+        .resolves.toMatchObject({ id: "wvt_fresh_retention" });
     });
   });
 
@@ -6535,6 +6566,92 @@ describe("repositories", () => {
         averageDurationMs: 310,
         p95DurationMs: 481
       });
+    });
+  });
+
+  it("aggregates web vitals by route and release with p75 metrics", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Web Vitals Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:55:01.000Z"),
+        source: "browser",
+        metadata: {}
+      };
+
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_lcp_1",
+        name: "LCP",
+        value: 2100,
+        rating: "good",
+        route: "/dashboard",
+        release: "1.0.0"
+      });
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_lcp_2",
+        timestamp: new Date("2026-05-24T11:56:00.000Z"),
+        name: "LCP",
+        value: 3200,
+        rating: "needs-improvement",
+        route: "/dashboard",
+        release: "1.0.1"
+      });
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_inp_1",
+        timestamp: new Date("2026-05-24T11:56:00.000Z"),
+        name: "INP",
+        value: 180,
+        rating: "good",
+        route: "/dashboard",
+        release: "1.0.1"
+      });
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_old",
+        timestamp: new Date("2026-05-20T11:55:00.000Z"),
+        name: "LCP",
+        value: 9000,
+        rating: "poor",
+        route: "/old",
+        release: "1.0.1"
+      });
+
+      const vitals = await getWebVitals(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(vitals.totals).toMatchObject({ samples: 3, routes: 1, releases: 2 });
+      expect(vitals.metrics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "LCP",
+            route: "/dashboard",
+            samples: 2,
+            p75Value: 2925,
+            latestRelease: "1.0.1",
+            previousRelease: "1.0.0",
+            regressionPercent: 52
+          }),
+          expect.objectContaining({
+            name: "INP",
+            route: "/dashboard",
+            samples: 1,
+            p75Value: 180
+          })
+        ])
+      );
     });
   });
 

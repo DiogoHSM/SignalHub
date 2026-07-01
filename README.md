@@ -543,13 +543,17 @@ export const GET = withSignalMonitorRoute(async () => {
 });
 ```
 
-Browser global error capture is explicit and opt-in. Install it from a Client Component with a scoped public browser ingestion key, and clean it up on unmount.
+Browser global error capture and Web Vitals capture are explicit and opt-in. Install them from a Client Component with a scoped public browser ingestion key, and clean them up on unmount.
 
 ```tsx
 "use client";
 
 import { useEffect } from "react";
-import { createSignalMonitorClient, installBrowserErrorCapture } from "@sigmon/sdk/browser";
+import {
+  createSignalMonitorClient,
+  installBrowserErrorCapture,
+  installBrowserWebVitals
+} from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
   endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://sigmon.example.com",
@@ -562,11 +566,20 @@ const sigmonBrowser = createSignalMonitorClient({
 
 export function SignalMonitorBrowserCapture() {
   useEffect(() => {
-    return installBrowserErrorCapture(sigmonBrowser, {
+    const stopErrors = installBrowserErrorCapture(sigmonBrowser, {
       captureErrors: true,
       captureUnhandledRejections: true,
       flush: true
     });
+    const stopVitals = installBrowserWebVitals(sigmonBrowser, {
+      route: () => window.location.pathname,
+      metadata: { service: "web" },
+      flush: true
+    });
+    return () => {
+      stopVitals();
+      stopErrors();
+    };
   }, []);
 
   return null;

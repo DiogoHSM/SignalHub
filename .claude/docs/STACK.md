@@ -38,7 +38,7 @@
 - `apps/worker`: telemetry worker process.
 - `packages/cli`: Node-based SignalMonitor CLI, currently focused on source-map CI uploads.
 - `packages/sdk`: TypeScript SDK for sending telemetry and identify calls to the existing ingestion API. It is packaged for public npm publication as `@sigmon/sdk`.
-- The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb`, optional browser breadcrumb helpers, explicit `@sigmon/sdk/browser` and `@sigmon/sdk/node` entrypoints, and `@sigmon/sdk/next` for Next.js App Router route/action wrappers. The older `client.identify(context)` method updates in-memory default context for future telemetry, while `client.identifyUser` and `client.identifyTenant` persist sanitized profile traits through `/v1/identify/user` and `/v1/identify/tenant`.
+- The JavaScript SDK exports manual breadcrumb capture through `client.breadcrumb`, optional browser breadcrumb helpers, opt-in browser Web Vitals capture through `installBrowserWebVitals`, explicit `@sigmon/sdk/browser` and `@sigmon/sdk/node` entrypoints, and `@sigmon/sdk/next` for Next.js App Router route/action wrappers. The older `client.identify(context)` method updates in-memory default context for future telemetry, while `client.identifyUser` and `client.identifyTenant` persist sanitized profile traits through `/v1/identify/user` and `/v1/identify/tenant`.
 - `packages/config`: environment parsing and validation.
 - `packages/db`: Kysely client, schema, migrations, repositories.
 - `packages/queues`: BullMQ queue creation and enqueue helpers.

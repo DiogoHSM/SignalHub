@@ -183,7 +183,7 @@ describe("MonitorsPanel", () => {
 
     const posture = await screen.findByRole("region", { name: "Monitor posture" });
     expect(within(posture).getByText("Total monitors")).toBeInTheDocument();
-    expect(within(posture).getByText("3")).toBeInTheDocument();
+    await waitFor(() => expect(within(posture).getByText("3")).toBeInTheDocument());
     expect(within(posture).getByText("Down")).toBeInTheDocument();
     expect(within(posture).getByText("Degraded")).toBeInTheDocument();
     expect(within(posture).getByText("Without channel")).toBeInTheDocument();

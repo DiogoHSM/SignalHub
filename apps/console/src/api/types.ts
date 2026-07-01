@@ -597,6 +597,46 @@ export type ServiceMapResponse = {
   edges: ServiceMapEdge[];
 };
 
+export type WebVitalMetric = {
+  name: "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+  route: string;
+  samples: number;
+  good: number;
+  needsImprovement: number;
+  poor: number;
+  averageValue: number | null;
+  p75Value: number | null;
+  latestRelease: string | null;
+  latestReleaseP75Value: number | null;
+  previousRelease: string | null;
+  previousReleaseP75Value: number | null;
+  regressionPercent: number | null;
+  lastSeenAt: string | null;
+};
+
+export type WebVitalsResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    samples: number;
+    routes: number;
+    releases: number;
+    poorSamples: number;
+    p75LcpMs: number | null;
+    p75InpMs: number | null;
+    p75Cls: number | null;
+  };
+  metrics: WebVitalMetric[];
+};
+
 export type OperationsMonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
 
 export type OperationsStatusCounts = {

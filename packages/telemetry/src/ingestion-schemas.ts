@@ -85,6 +85,14 @@ export const spanPayloadSchema = sharedEnvelopeSchema.extend({
   cost_usd: z.number().nonnegative().optional()
 });
 
+export const webVitalPayloadSchema = sharedEnvelopeSchema.extend({
+  name: z.enum(["CLS", "FCP", "FID", "INP", "LCP", "TTFB"]),
+  value: z.number().nonnegative(),
+  rating: z.enum(["good", "needs-improvement", "poor"]).default("good"),
+  route: shortTextSchema.optional(),
+  navigation_type: shortTextSchema.optional()
+});
+
 export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
   type: z.enum(["navigation", "click", "console", "network", "custom"]),
   category: shortTextSchema.optional(),
@@ -110,6 +118,7 @@ export type ErrorPayload = z.infer<typeof errorPayloadSchema>;
 export type LlmCallPayload = z.infer<typeof llmCallPayloadSchema>;
 export type TracePayload = z.infer<typeof tracePayloadSchema>;
 export type SpanPayload = z.infer<typeof spanPayloadSchema>;
+export type WebVitalPayload = z.infer<typeof webVitalPayloadSchema>;
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 export type UserIdentifyPayload = z.infer<typeof userIdentifyPayloadSchema>;
 export type TenantIdentifyPayload = z.infer<typeof tenantIdentifyPayloadSchema>;

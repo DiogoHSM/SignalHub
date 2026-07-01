@@ -404,6 +404,23 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes web vitals query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { metrics: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getWebVitals?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      limit: 15
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/apm/web-vitals?project_id=prj_1&environment_id=env_1&window=30d&limit=15",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

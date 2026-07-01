@@ -194,6 +194,46 @@ export interface ServiceMapResponse {
   edges: ServiceMapEdge[];
 }
 
+export interface WebVitalMetricRow {
+  name: "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+  route: string;
+  samples: number;
+  good: number;
+  needsImprovement: number;
+  poor: number;
+  averageValue: number | null;
+  p75Value: number | null;
+  latestRelease: string | null;
+  latestReleaseP75Value: number | null;
+  previousRelease: string | null;
+  previousReleaseP75Value: number | null;
+  regressionPercent: number | null;
+  lastSeenAt: string | null;
+}
+
+export interface WebVitalsResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    samples: number;
+    routes: number;
+    releases: number;
+    poorSamples: number;
+    p75LcpMs: number | null;
+    p75InpMs: number | null;
+    p75Cls: number | null;
+  };
+  metrics: WebVitalMetricRow[];
+}
+
 export interface OverviewFilters {
   projectId: string;
   environmentId: string;
@@ -978,6 +1018,157 @@ export async function getApmEndpoints(db: Db, filters: ApmFilters): Promise<ApmE
       p99DurationMs: toRoundedOrNull(row.p99_duration_ms),
       averageDurationMs: toRoundedOrNull(row.average_duration_ms),
       apdex: toNullableNumber(row.apdex),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
+}
+
+export async function getWebVitals(db: Db, filters: ApmFilters): Promise<WebVitalsResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const metricsResult = await sql<{
+    name: WebVitalMetricRow["name"];
+    route: string | null;
+    samples: unknown;
+    good: unknown;
+    needs_improvement: unknown;
+    poor: unknown;
+    average_value: unknown;
+    p75_value: unknown;
+    latest_release: string | null;
+    latest_release_p75_value: unknown;
+    previous_release: string | null;
+    previous_release_p75_value: unknown;
+    regression_percent: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select
+        name,
+        coalesce(nullif(route, ''), '(unknown route)') as route,
+        value,
+        rating,
+        release,
+        timestamp
+      from web_vitals
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    grouped as (
+      select
+        name,
+        route,
+        count(*) as samples,
+        count(*) filter (where rating = 'good') as good,
+        count(*) filter (where rating = 'needs-improvement') as needs_improvement,
+        count(*) filter (where rating = 'poor') as poor,
+        avg(value) as average_value,
+        percentile_cont(0.75) within group (order by value) as p75_value,
+        max(timestamp) as last_seen_at
+      from scoped
+      group by name, route
+    ),
+    release_ranked as (
+      select
+        name,
+        route,
+        release,
+        percentile_cont(0.75) within group (order by value) as p75_value,
+        max(timestamp) as last_seen_at,
+        row_number() over (partition by name, route order by max(timestamp) desc) as release_rank
+      from scoped
+      where release is not null
+      group by name, route, release
+    )
+    select
+      grouped.*,
+      latest.release as latest_release,
+      latest.p75_value as latest_release_p75_value,
+      previous.release as previous_release,
+      previous.p75_value as previous_release_p75_value,
+      case
+        when previous.p75_value is null or previous.p75_value = 0 or latest.p75_value is null then null
+        else ((latest.p75_value - previous.p75_value) / previous.p75_value) * 100
+      end as regression_percent
+    from grouped
+    left join release_ranked latest
+      on latest.name = grouped.name
+      and latest.route = grouped.route
+      and latest.release_rank = 1
+    left join release_ranked previous
+      on previous.name = grouped.name
+      and previous.route = grouped.route
+      and previous.release_rank = 2
+    order by poor desc, p75_value desc nulls last, samples desc, name asc, route asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    samples: unknown;
+    routes: unknown;
+    releases: unknown;
+    poor_samples: unknown;
+    p75_lcp_ms: unknown;
+    p75_inp_ms: unknown;
+    p75_cls: unknown;
+  }>`
+    with scoped as (
+      select name, route, release, rating, value
+      from web_vitals
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    )
+    select
+      count(*) as samples,
+      count(distinct coalesce(nullif(route, ''), '(unknown route)')) as routes,
+      count(distinct release) filter (where release is not null) as releases,
+      count(*) filter (where rating = 'poor') as poor_samples,
+      percentile_cont(0.75) within group (order by value) filter (where name = 'LCP') as p75_lcp_ms,
+      percentile_cont(0.75) within group (order by value) filter (where name = 'INP') as p75_inp_ms,
+      percentile_cont(0.75) within group (order by value) filter (where name = 'CLS') as p75_cls
+    from scoped
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      samples: toNumber(totals?.samples),
+      routes: toNumber(totals?.routes),
+      releases: toNumber(totals?.releases),
+      poorSamples: toNumber(totals?.poor_samples),
+      p75LcpMs: toRoundedOrNull(totals?.p75_lcp_ms),
+      p75InpMs: toRoundedOrNull(totals?.p75_inp_ms),
+      p75Cls: toRoundedOrNull(totals?.p75_cls)
+    },
+    metrics: metricsResult.rows.map((row) => ({
+      name: row.name,
+      route: row.route ?? "(unknown route)",
+      samples: toNumber(row.samples),
+      good: toNumber(row.good),
+      needsImprovement: toNumber(row.needs_improvement),
+      poor: toNumber(row.poor),
+      averageValue: toRoundedOrNull(row.average_value),
+      p75Value: toRoundedOrNull(row.p75_value),
+      latestRelease: row.latest_release,
+      latestReleaseP75Value: toRoundedOrNull(row.latest_release_p75_value),
+      previousRelease: row.previous_release,
+      previousReleaseP75Value: toRoundedOrNull(row.previous_release_p75_value),
+      regressionPercent: toRoundedOrNull(row.regression_percent),
       lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
     }))
   };
