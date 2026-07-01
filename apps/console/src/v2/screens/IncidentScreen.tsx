@@ -33,6 +33,12 @@ const REL_BG: Record<string, string> = {
   neutral: "var(--bg-surface-2)",
 };
 
+function sourceMapTone(status: string): "ok" | "warn" | "error" {
+  if (status === "resolved") return "ok";
+  if (status === "partially_resolved") return "warn";
+  return "error";
+}
+
 function RelItem({
   rel,
   onClick,
@@ -490,12 +496,14 @@ export function IncidentScreen({
             <div className="sh-card__head">
               <h2 className="sh-h2">Stack trace</h2>
               <div style={{ display: "flex", gap: 6 }}>
-                {vm.sourceMapBadge.resolved ? (
-                  <span className="sh-tag ok">
+                <span className={`sh-tag ${sourceMapTone(vm.sourceMapDiagnostic.status)}`}>
+                  {vm.sourceMapDiagnostic.status === "resolved" ? (
                     <Icon name="check" size={11} stroke={2.4} />
-                    source maps resolved · {vm.sourceMapBadge.frameCount} frames
-                  </span>
-                ) : null}
+                  ) : (
+                    <Icon name="alert" size={11} stroke={2.4} />
+                  )}
+                  {vm.sourceMapDiagnostic.label}
+                </span>
                 {vm.release ? (
                   <span className="sh-tag mono">{vm.release}</span>
                 ) : null}
@@ -505,6 +513,31 @@ export function IncidentScreen({
               className="sh-card__body flush"
               style={{ overflow: "auto", flex: 1 }}
             >
+              <div
+                style={{
+                  margin: "12px 16px 0",
+                  padding: "10px 12px",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: 8,
+                  background: "var(--bg-surface-2)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: 12.5 }}>{vm.sourceMapDiagnostic.label}</strong>
+                  {vm.sourceMapDiagnostic.release ? (
+                    <span className="sh-tag mono">release {vm.sourceMapDiagnostic.release}</span>
+                  ) : null}
+                  {vm.sourceMapDiagnostic.frameCount > 0 ? (
+                    <span className="sh-tag ok">{vm.sourceMapDiagnostic.frameCount} frames</span>
+                  ) : null}
+                  {vm.sourceMapDiagnostic.unresolvedFrameCount > 0 ? (
+                    <span className="sh-tag warn">{vm.sourceMapDiagnostic.unresolvedFrameCount} unresolved</span>
+                  ) : null}
+                </div>
+                <div className="sh-muted" style={{ fontSize: 12, marginTop: 5 }}>
+                  {vm.sourceMapDiagnostic.detail}
+                </div>
+              </div>
               {vm.stack ? (
                 <pre
                   style={{

@@ -394,6 +394,103 @@ describe("useIncident", () => {
     expect(r2.current.data?.sourceMapBadge).toEqual({ resolved: false, frameCount: 0 });
   });
 
+  it("maps cached source-map diagnostic from incident resolution", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.data?.sourceMapDiagnostic).toMatchObject({
+      status: "resolved",
+      label: "Source maps resolved",
+      frameCount: 5,
+      unresolvedFrameCount: 0
+    });
+  });
+
+  it("explains unresolved source maps when release is missing", async () => {
+    const client = makeClient({
+      getErrorGroupIncident: vi.fn().mockResolvedValue({
+        data: makeIncident({
+          sourceMapResolution: { status: "none" },
+          group: makeGroup({ latestRelease: null }),
+          primaryOccurrence: makeErrorRecord({ release: null })
+        }),
+        meta: {}
+      })
+    });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.data?.sourceMapDiagnostic).toMatchObject({
+      status: "unresolved",
+      label: "Source maps not applied",
+      release: null
+    });
+    expect(result.current.data?.sourceMapDiagnostic.detail).toMatch(/Configure the SDK release/i);
+  });
+
+  it("fetches detailed source-map resolution for the primary occurrence", async () => {
+    const getErrorSourceMapResolution = vi.fn().mockResolvedValue({
+      errorId: "err_1",
+      release: "v1.2.0",
+      status: "partially_resolved",
+      frames: [
+        {
+          frameIndex: 0,
+          minifiedFile: "main.js",
+          minifiedLine: 10,
+          minifiedColumn: 5,
+          originalSource: "src/main.ts",
+          originalLine: 25,
+          originalColumn: 10,
+          originalName: "foo",
+          sourceMapArtifactId: "smap_1"
+        }
+      ],
+      unresolvedFrameCount: 2
+    });
+    const client = makeClient({ getErrorSourceMapResolution });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(getErrorSourceMapResolution).toHaveBeenCalledWith("err_1", {
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+    expect(result.current.data?.sourceMapDiagnostic).toMatchObject({
+      status: "partially_resolved",
+      frameCount: 1,
+      unresolvedFrameCount: 2
+    });
+  });
+
   it("maps breadcrumbs from stronglyRelated items", async () => {
     const client = makeClient();
     const { result } = renderHook(() =>

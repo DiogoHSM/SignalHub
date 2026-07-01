@@ -251,6 +251,15 @@ pnpm source-maps:upload \
 
 Use `--file ./dist/assets/app.js.map --minified-file assets/app.js` for a single map, or `--bundle ./dist/source-maps.zip` for multiple maps. Use `--timeout-ms` or `SIGMON_UPLOAD_TIMEOUT_MS` when CI needs a non-default upload timeout.
 
+When an incident still shows minified frames, use the source-map diagnostic in the incident stack panel:
+
+- `Source maps resolved`: the release and generated file path matched an uploaded artifact.
+- `Source maps partially resolved`: at least one generated file matched, but another frame did not. Upload maps for every generated chunk in the stack.
+- `Source maps not applied`: the error has no release, no matching uploaded artifact for that release, or the generated file path differs from the uploaded `--minified-file`.
+- `Source maps unavailable`: the Sigmon source-map storage or artifacts API needs operational attention.
+
+For Vercel/Next.js, the most common failure is a release mismatch: browser/server errors must send the same `NEXT_PUBLIC_APP_VERSION` (or deploy id/commit SHA) that CI used in `pnpm source-maps:upload --release`.
+
 ## Production Smoke Tests
 
 Use curl to validate a server key:

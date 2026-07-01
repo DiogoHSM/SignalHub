@@ -717,6 +717,13 @@ try {
               environments with slow uploads, set <code>--timeout-ms</code> or
               <code>SIGMON_UPLOAD_TIMEOUT_MS</code>.
             </p>
+            <p>
+              The incident stack panel explains source-map lifecycle status. <strong>Source maps resolved</strong>
+              means the release and generated file path matched an uploaded artifact.
+              <strong>Partially resolved</strong> means some chunks are missing. <strong>Not applied</strong>
+              usually means the error has no release, the upload used a different release, or
+              <code>--minified-file</code> does not match the generated frame path.
+            </p>
           </section>
 
           <section id="smoke-tests">

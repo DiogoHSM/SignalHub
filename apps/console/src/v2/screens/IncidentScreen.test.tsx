@@ -31,6 +31,14 @@ const MOCK_VM: IncidentVM = {
   silencedUntil: null,
   stack: "PaymentTimeoutError: provider timeout after 12000ms\n    at chargeCustomer (src/services/payment/charge.ts:84:12)",
   sourceMapBadge: { resolved: true, frameCount: 3 },
+  sourceMapDiagnostic: {
+    status: "resolved",
+    label: "Source maps resolved",
+    detail: "3 stack frames resolved for release v2026.05.14.",
+    release: "v2026.05.14",
+    frameCount: 3,
+    unresolvedFrameCount: 0,
+  },
   breadcrumbs: [
     { kind: "navigation", timeRelative: "2m ago", title: "/cart" },
     { kind: "click", timeRelative: "2m ago", title: "button[data-cta='checkout']" },
@@ -418,7 +426,31 @@ describe("IncidentScreen", () => {
     it("renders 'source maps resolved' badge when resolved", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      expect(screen.getByText(/source maps resolved/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/source maps resolved/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("renders source-map diagnostic detail", () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByText(/3 stack frames resolved for release/i)).toBeInTheDocument();
+    });
+
+    it("renders actionable unresolved source-map guidance", () => {
+      mockUseIncident({
+        ...MOCK_VM,
+        sourceMapBadge: { resolved: false, frameCount: 0 },
+        sourceMapDiagnostic: {
+          status: "unresolved",
+          label: "Source maps not applied",
+          detail: "This error has a stack trace but no release. Configure the SDK release and upload matching maps from CI.",
+          release: null,
+          frameCount: 0,
+          unresolvedFrameCount: 0,
+        },
+      });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getAllByText(/source maps not applied/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/configure the sdk release/i)).toBeInTheDocument();
     });
 
     it("shows frame count when source maps resolved", () => {
@@ -428,7 +460,18 @@ describe("IncidentScreen", () => {
     });
 
     it("does not show resolved badge when source maps not resolved", () => {
-      mockUseIncident({ ...MOCK_VM, sourceMapBadge: { resolved: false, frameCount: 0 } });
+      mockUseIncident({
+        ...MOCK_VM,
+        sourceMapBadge: { resolved: false, frameCount: 0 },
+        sourceMapDiagnostic: {
+          status: "unresolved",
+          label: "Source maps not applied",
+          detail: "No matching source map resolved for release v2026.05.14.",
+          release: "v2026.05.14",
+          frameCount: 0,
+          unresolvedFrameCount: 0,
+        },
+      });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.queryByText(/source maps resolved/i)).not.toBeInTheDocument();
     });
