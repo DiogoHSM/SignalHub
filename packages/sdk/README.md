@@ -157,6 +157,11 @@ if (flag.value === true) {
 
 The helper records `sigmon.feature_flag.evaluated` unless `trackExposure: false` is set.
 
+Beta programs are managed in the Sigmon console or admin API and can be linked to a feature flag.
+When you add or remove beta participants, Sigmon updates scoped targeting rules on that linked flag.
+Application code still reads the rollout through `evaluateFlag`, so early access fails closed with the
+same default/off variant as any other feature flag.
+
 Click maps are separate from click breadcrumbs. Breadcrumbs tell the story around an error or session;
 click maps aggregate opt-in browser coordinates by route and safe selector. Add stable
 `data-sigmon-id` attributes to meaningful controls before enabling click capture.
@@ -557,6 +562,11 @@ same definition shape in server or browser code, and keep `trackExposure` enable
 to count usage of a flag.
 
 Experiment readouts are directional operational views, not a statistical-significance engine. Use them to spot obvious changes in conversion, quality, latency, or cost before drilling into events, users, tenants, traces, errors, or LLM calls.
+
+Beta programs live beside feature flags in the console. Create a program, link it to a flag and variant,
+then add user or tenant participants. Sigmon syncs those participants into flag targeting rules, while
+your application continues to call `evaluateFlag` with a safe fallback. Adoption is measured from normal
+event telemetry emitted by participating users or tenants.
 
 ## Source Maps
 

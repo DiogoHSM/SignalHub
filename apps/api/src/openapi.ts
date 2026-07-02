@@ -294,6 +294,66 @@ export const openApiDocument = {
           ruleDescription: { type: ["string", "null"] }
         }
       },
+      BetaProgram: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "actorType", "featureFlagVariant"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["checkout_beta"] },
+          name: { type: "string", examples: ["Checkout beta"] },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          actorType: { type: "string", enum: ["user", "tenant"] },
+          featureFlagId: { type: ["string", "null"], description: "Optional linked flag. Active participants are synced as targeting rules." },
+          featureFlagVariant: { type: "string", examples: ["on"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      BetaProgramParticipant: {
+        type: "object",
+        required: ["id", "programId", "projectId", "environmentId", "actorType", "actorId", "status"],
+        properties: {
+          id: { type: "string" },
+          programId: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          actorType: { type: "string", enum: ["user", "tenant"] },
+          actorId: { type: "string" },
+          status: { type: "string", enum: ["invited", "active", "opted_out", "removed"] },
+          notes: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          removedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      BetaProgramAdoption: {
+        type: "object",
+        required: ["programId", "window", "participants", "activeParticipants", "activeActorsWithEvents", "events", "adoptionRate", "samples"],
+        properties: {
+          programId: { type: "string" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          participants: { type: "integer" },
+          activeParticipants: { type: "integer" },
+          activeActorsWithEvents: { type: "integer" },
+          events: { type: "integer" },
+          adoptionRate: { type: "number" },
+          samples: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                actorId: { type: "string" },
+                events: { type: "integer" },
+                lastSeenAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
       EventPayload: {
         type: "object",
         required: ["name"],
@@ -1204,6 +1264,217 @@ export const openApiDocument = {
           "200": {
             description: "Feature flag evaluation",
             content: { "application/json": { schema: { type: "object", properties: { evaluation: { $ref: "#/components/schemas/FeatureFlagEvaluation" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List beta programs",
+        description: "List early-access/beta programs for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Beta programs",
+            content: { "application/json": { schema: { type: "object", properties: { programs: { type: "array", items: { $ref: "#/components/schemas/BetaProgram" } } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create beta program",
+        description: "Create an early-access cohort. When featureFlagId is set, active participants are synced into that flag as targeting rules.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  actorType: { type: "string", enum: ["user", "tenant"], default: "user" },
+                  featureFlagId: { type: ["string", "null"] },
+                  featureFlagVariant: { type: "string", default: "on" }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "checkout_beta",
+                    name: "Checkout beta",
+                    status: "active",
+                    actorType: "user",
+                    featureFlagId: "flg_123",
+                    featureFlagVariant: "on"
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Beta program created",
+            content: { "application/json": { schema: { type: "object", properties: { program: { $ref: "#/components/schemas/BetaProgram" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update beta program",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+        responses: {
+          "200": { description: "Beta program updated", content: { "application/json": { schema: { type: "object", properties: { program: { $ref: "#/components/schemas/BetaProgram" } } } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Beta program not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive beta program",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Beta program archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}/participants": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List beta program participants",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Participants",
+            content: { "application/json": { schema: { type: "object", properties: { participants: { type: "array", items: { $ref: "#/components/schemas/BetaProgramParticipant" } } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Add beta program participant",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "actorId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  actorType: { type: "string", enum: ["user", "tenant"], default: "user" },
+                  actorId: { type: "string" },
+                  status: { type: "string", enum: ["invited", "active", "opted_out", "removed"], default: "active" },
+                  notes: { type: ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Participant added",
+            content: { "application/json": { schema: { type: "object", properties: { participant: { $ref: "#/components/schemas/BetaProgramParticipant" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}/participants/{participantId}": {
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Remove beta program participant",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "participantId", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Participant removed" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}/adoption": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "Read beta program adoption",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"] } }
+        ],
+        responses: {
+          "200": {
+            description: "Adoption summary",
+            content: { "application/json": { schema: { type: "object", properties: { adoption: { $ref: "#/components/schemas/BetaProgramAdoption" } } } } }
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },

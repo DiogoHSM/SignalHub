@@ -64,6 +64,16 @@ import {
   updateFeatureFlag
 } from "../src/repositories/feature-flags.js";
 import {
+  addBetaProgramParticipant,
+  archiveBetaProgram,
+  createBetaProgram,
+  getBetaProgramAdoption,
+  listBetaProgramParticipants,
+  listBetaPrograms,
+  removeBetaProgramParticipant,
+  updateBetaProgram
+} from "../src/repositories/beta-programs.js";
+import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
@@ -9836,6 +9846,135 @@ describe("repositories", () => {
       await expect(listFeatureFlagAudit(db, { featureFlagId: flag.id, projectId: project.id, environmentId: environment.id })).resolves.toEqual(
         expect.arrayContaining([expect.objectContaining({ action: "archived", actorId: "admin_3" })])
       );
+    });
+  });
+
+  it("manages beta programs, participants, adoption, and linked feature flag access", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Beta Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const flag = await createFeatureFlag(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "new_checkout",
+        name: "New checkout",
+        status: "active",
+        defaultVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ]
+      });
+
+      const program = await createBetaProgram(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "checkout_beta",
+        name: "Checkout beta",
+        description: "Early access for checkout redesign.",
+        status: "active",
+        featureFlagId: flag.id,
+        featureFlagVariant: "on",
+        actorType: "user"
+      });
+
+      await expect(listBetaPrograms(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: program.id, key: "checkout_beta", featureFlagId: flag.id })
+      ]);
+
+      const participant = await addBetaProgramParticipant(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_1",
+        status: "active",
+        notes: "Requested access from support."
+      });
+
+      expect(participant).toMatchObject({ actorId: "user_1", status: "active", notes: "Requested access from support." });
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "on", matched: true });
+
+      await insertEvent(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "evt_beta_u1",
+        userId: "user_1",
+        name: "checkout.opened",
+        properties: {},
+        timestamp: new Date("2026-05-04T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      });
+
+      const adoption = await getBetaProgramAdoption(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+      expect(adoption).toMatchObject({ programId: program.id, participants: 1, activeParticipants: 1, activeActorsWithEvents: 1, events: 1 });
+
+      await expect(
+        updateBetaProgram(db, { id: program.id, projectId: project.id, environmentId: environment.id, patch: { name: "Checkout preview" } })
+      ).resolves.toEqual(expect.objectContaining({ name: "Checkout preview" }));
+      await expect(listBetaProgramParticipants(db, { programId: program.id, projectId: project.id, environmentId: environment.id })).resolves.toHaveLength(1);
+
+      await removeBetaProgramParticipant(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        participantId: participant.id
+      });
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "off", matched: false });
+
+      await addBetaProgramParticipant(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_1",
+        status: "active"
+      });
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "on", matched: true });
+
+      await archiveBetaProgram(db, { id: program.id, projectId: project.id, environmentId: environment.id });
+      await expect(listBetaPrograms(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "off", matched: false });
     });
   });
 

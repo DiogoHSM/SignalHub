@@ -191,6 +191,13 @@ Example exposure event body:
 Keep flag keys stable and always provide a default/off variant in application code so a missing or
 paused flag fails closed.
 
+### Beta programs
+
+Operators can create beta programs in the console or admin API, link a program to a feature flag
+variant, and add user or tenant participants. Sigmon syncs active participants into targeting rules
+on the linked feature flag. Runtime code does not need a separate beta API call: keep using the
+feature-flag evaluator with a safe fallback, and use normal event telemetry to measure beta adoption.
+
 ### Retention curves
 
 Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Retention uses the first `entry_event` per actor as the cohort start, then counts actors who later emit `return_event` across daily, weekly, or monthly intervals.

@@ -58,6 +58,17 @@ import type {
   FeatureFlagVariant,
   UpdateFeatureFlagInput
 } from "@sigmon/db/repositories/feature-flags.js";
+import type {
+  AddBetaProgramParticipantInput,
+  BetaProgramActorType,
+  BetaProgramAdoption,
+  BetaProgramParticipantRecord,
+  BetaProgramParticipantStatus,
+  BetaProgramRecord,
+  BetaProgramStatus,
+  CreateBetaProgramInput,
+  UpdateBetaProgramInput
+} from "@sigmon/db/repositories/beta-programs.js";
 
 export interface AdminProject {
   id: string;
@@ -139,6 +150,7 @@ export type AdminResourceDependencies = {
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
   experiments?: ExperimentAdministrationDependencies;
   featureFlags?: FeatureFlagAdministrationDependencies;
+  betaPrograms?: BetaProgramAdministrationDependencies;
 };
 
 export type AnalyticsSegmentAdministrationDependencies = {
@@ -193,6 +205,22 @@ export type FeatureFlagAdministrationDependencies = {
     subject?: FeatureFlagEvaluationSubject;
     fallbackVariant?: string;
   }) => Promise<FeatureFlagEvaluation>;
+};
+
+export type BetaProgramAdministrationDependencies = {
+  list: (filters: { projectId: string; environmentId: string }) => Promise<BetaProgramRecord[]>;
+  create: (input: CreateBetaProgramInput) => Promise<BetaProgramRecord>;
+  update: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    patch: UpdateBetaProgramInput;
+  }) => Promise<BetaProgramRecord | null | undefined>;
+  archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+  listParticipants: (input: { programId: string; projectId: string; environmentId: string }) => Promise<BetaProgramParticipantRecord[]>;
+  addParticipant: (input: AddBetaProgramParticipantInput) => Promise<BetaProgramParticipantRecord>;
+  removeParticipant: (input: { programId: string; projectId: string; environmentId: string; participantId: string }) => Promise<void>;
+  getAdoption: (input: { programId: string; projectId: string; environmentId: string; window?: "24h" | "7d" | "30d" }) => Promise<BetaProgramAdoption>;
 };
 
 export type AlertAdministrationDependencies = {
@@ -806,6 +834,54 @@ type UpdateFeatureFlagBody = z.infer<typeof updateFeatureFlagSchema> & {
   status?: FeatureFlagStatus;
   variants?: FeatureFlagVariant[];
   rules?: FeatureFlagRule[];
+};
+const betaProgramStatusSchema = z.enum(["draft", "active", "paused", "archived"]);
+const betaProgramActorTypeSchema = z.enum(["user", "tenant"]);
+const betaProgramParticipantStatusSchema = z.enum(["invited", "active", "opted_out", "removed"]);
+const betaProgramScopeQuerySchema = analyticsSegmentScopeQuerySchema;
+const betaProgramAdoptionQuerySchema = betaProgramScopeQuerySchema.extend({
+  window: z.enum(["24h", "7d", "30d"]).optional()
+});
+const betaProgramSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  key: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  status: betaProgramStatusSchema.default("draft"),
+  actorType: betaProgramActorTypeSchema.default("user"),
+  featureFlagId: z.string().trim().min(1).max(256).nullable().optional(),
+  featureFlagVariant: z.string().trim().min(1).max(80).default("on")
+});
+const updateBetaProgramSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional(),
+    description: z.string().trim().max(1024).nullable().optional(),
+    status: betaProgramStatusSchema.optional(),
+    actorType: betaProgramActorTypeSchema.optional(),
+    featureFlagId: z.string().trim().min(1).max(256).nullable().optional(),
+    featureFlagVariant: z.string().trim().min(1).max(80).optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+const betaProgramParticipantSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  actorType: betaProgramActorTypeSchema.default("user"),
+  actorId: z.string().trim().min(1).max(256),
+  status: betaProgramParticipantStatusSchema.default("active"),
+  notes: z.string().trim().max(2048).nullable().optional()
+});
+type CreateBetaProgramBody = z.infer<typeof betaProgramSchema> & {
+  status: BetaProgramStatus;
+  actorType: BetaProgramActorType;
+};
+type UpdateBetaProgramBody = z.infer<typeof updateBetaProgramSchema> & {
+  status?: BetaProgramStatus;
+  actorType?: BetaProgramActorType;
+};
+type CreateBetaProgramParticipantBody = z.infer<typeof betaProgramParticipantSchema> & {
+  actorType: BetaProgramActorType;
+  status: BetaProgramParticipantStatus;
 };
 type CreateNotificationChannelInput = z.infer<typeof notificationChannelSchema>;
 type UpdateNotificationChannelInput = z.infer<typeof updateNotificationChannelSchema>;
@@ -1968,6 +2044,203 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(204).send();
     } catch {
       return reply.status(503).send({ error: "feature_flags_unavailable" });
+    }
+  });
+
+  app.get("/admin/beta-programs", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const query = betaProgramScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      const programs = await options.adminResources.betaPrograms.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ programs });
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.post("/admin/beta-programs", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const parsed = betaProgramSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      const program = await options.adminResources.betaPrograms.create(parsed.data as CreateBetaProgramBody);
+      return reply.status(201).send({ program });
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.patch("/admin/beta-programs/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = betaProgramScopeQuerySchema.safeParse(request.query);
+    const parsed = updateBetaProgramSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      const program = await options.adminResources.betaPrograms.update({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        patch: parsed.data as UpdateBetaProgramBody
+      });
+      if (!program) return reply.status(404).send({ error: "beta_program_not_found" });
+      return reply.send({ program });
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.delete("/admin/beta-programs/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = betaProgramScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      await options.adminResources.betaPrograms.archive({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.get("/admin/beta-programs/:id/participants", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = betaProgramScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      const participants = await options.adminResources.betaPrograms.listParticipants({
+        programId: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ participants });
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.post("/admin/beta-programs/:id/participants", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const parsed = betaProgramParticipantSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      const participant = await options.adminResources.betaPrograms.addParticipant({
+        ...(parsed.data as CreateBetaProgramParticipantBody),
+        programId: params.data.id
+      });
+      return reply.status(201).send({ participant });
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.delete("/admin/beta-programs/:id/participants/:participantId", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const params = z.object({ id: z.string().trim().min(1), participantId: z.string().trim().min(1) }).safeParse(request.params);
+    const query = betaProgramScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      await options.adminResources.betaPrograms.removeParticipant({
+        programId: params.data.id,
+        participantId: params.data.participantId,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.get("/admin/beta-programs/:id/adoption", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.betaPrograms) {
+      return reply.status(501).send({ error: "beta_programs_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = betaProgramAdoptionQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_beta_program_request" });
+    }
+
+    try {
+      const adoption = await options.adminResources.betaPrograms.getAdoption({
+        programId: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        window: query.data.window
+      });
+      return reply.send({ adoption });
+    } catch {
+      return reply.status(503).send({ error: "beta_programs_unavailable" });
     }
   });
 

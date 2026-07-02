@@ -819,6 +819,67 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages beta programs, participants, and adoption", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { programs: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listBetaPrograms?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { program: { id: "beta_1" } }));
+    await createApiClient("/api").createBetaProgram?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "checkout_beta",
+      name: "Checkout beta",
+      actorType: "user",
+      featureFlagId: "flg_1",
+      featureFlagVariant: "on"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { participants: [] }));
+    await createApiClient("/api").listBetaProgramParticipants?.("beta/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/participants?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { participant: { id: "betap_1" } }));
+    await createApiClient("/api").addBetaProgramParticipant?.("beta/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      actorType: "user",
+      actorId: "user_1",
+      status: "active",
+      notes: "Requested access"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/participants",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { adoption: { participants: 1 } }));
+    await createApiClient("/api").getBetaProgramAdoption?.("beta/1", { projectId: "prj_1", environmentId: "env_1", window: "7d" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/adoption?project_id=prj_1&environment_id=env_1&window=7d",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await createApiClient("/api").removeBetaProgramParticipant?.("beta/1", "betap/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/participants/betap%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

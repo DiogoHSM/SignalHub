@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
+import type { BetaProgram, BetaProgramAdoption, BetaProgramParticipant, Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
 
 type Props = {
   client: ApiClient;
@@ -21,6 +21,13 @@ const defaultFlagDraft = {
   key: "new_checkout",
   name: "New checkout",
   enabledUserId: ""
+};
+
+const defaultBetaDraft = {
+  key: "checkout_beta",
+  name: "Checkout beta",
+  featureFlagId: "",
+  participantId: ""
 };
 
 function formatPercent(value: number): string {
@@ -55,14 +62,21 @@ function interpretation(row: ExperimentResultsResponse["variants"][number], inde
 export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const [draft, setDraft] = useState(defaultDraft);
   const [flagDraft, setFlagDraft] = useState(defaultFlagDraft);
+  const [betaDraft, setBetaDraft] = useState(defaultBetaDraft);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
+  const [betaPrograms, setBetaPrograms] = useState<BetaProgram[]>([]);
+  const [betaParticipants, setBetaParticipants] = useState<BetaProgramParticipant[]>([]);
+  const [betaAdoption, setBetaAdoption] = useState<BetaProgramAdoption | null>(null);
   const [selectedId, setSelectedId] = useState("");
+  const [selectedBetaId, setSelectedBetaId] = useState("");
   const [results, setResults] = useState<ExperimentResultsResponse | null>(null);
   const [state, setState] = useState<LoadState>("idle");
   const [flagsState, setFlagsState] = useState<LoadState>("idle");
+  const [betaState, setBetaState] = useState<LoadState>("idle");
   const [error, setError] = useState("");
   const [flagError, setFlagError] = useState("");
+  const [betaError, setBetaError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -132,7 +146,43 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
     };
   }, [client, environmentId, projectId, reloadToken]);
 
+  useEffect(() => {
+    if (!projectId || !environmentId) {
+      setBetaPrograms([]);
+      setSelectedBetaId("");
+      setBetaState("idle");
+      return;
+    }
+    if (!client.listBetaPrograms) {
+      setBetaState("unavailable");
+      return;
+    }
+
+    let cancelled = false;
+    setBetaState("loading");
+    setBetaError("");
+    void client.listBetaPrograms({ projectId, environmentId }).then(
+      ({ programs }) => {
+        if (cancelled) return;
+        setBetaPrograms(programs);
+        setSelectedBetaId((current) => (programs.some((program) => program.id === current) ? current : programs[0]?.id ?? ""));
+        setBetaState(programs.length > 0 ? "ready" : "empty");
+      },
+      () => {
+        if (cancelled) return;
+        setBetaPrograms([]);
+        setSelectedBetaId("");
+        setBetaState("unavailable");
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, reloadToken]);
+
   const selected = useMemo(() => experiments.find((experiment) => experiment.id === selectedId) ?? null, [experiments, selectedId]);
+  const selectedBeta = useMemo(() => betaPrograms.find((program) => program.id === selectedBetaId) ?? null, [betaPrograms, selectedBetaId]);
 
   useEffect(() => {
     if (!projectId || !environmentId || !selected || !client.getExperimentResults) {
@@ -152,6 +202,33 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
       cancelled = true;
     };
   }, [client, environmentId, projectId, selected]);
+
+  useEffect(() => {
+    if (!projectId || !environmentId || !selectedBeta) {
+      setBetaParticipants([]);
+      setBetaAdoption(null);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      client.listBetaProgramParticipants?.(selectedBeta.id, { projectId, environmentId }) ?? Promise.resolve({ participants: [] }),
+      client.getBetaProgramAdoption?.(selectedBeta.id, { projectId, environmentId, window: "30d" }) ?? Promise.resolve({ adoption: null })
+    ]).then(
+      ([participantsResponse, adoptionResponse]) => {
+        if (cancelled) return;
+        setBetaParticipants(participantsResponse.participants);
+        setBetaAdoption(adoptionResponse.adoption);
+      },
+      () => {
+        if (cancelled) return;
+        setBetaParticipants([]);
+        setBetaAdoption(null);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selectedBeta]);
 
   async function createExperiment() {
     if (!projectId || !environmentId || !client.createExperiment) return;
@@ -218,6 +295,53 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
     await client.archiveFeatureFlag(flag.id, { projectId, environmentId });
     setFlags((current) => current.filter((row) => row.id !== flag.id));
     setFlagsState((current) => (flags.length <= 1 ? "empty" : current));
+  }
+
+  async function createBetaProgram() {
+    if (!projectId || !environmentId || !client.createBetaProgram) return;
+    if (!betaDraft.key.trim() || !betaDraft.name.trim()) {
+      setBetaError("Program key and name are required.");
+      return;
+    }
+    setBetaError("");
+    const response = await client.createBetaProgram({
+      projectId,
+      environmentId,
+      key: betaDraft.key,
+      name: betaDraft.name,
+      status: "active",
+      actorType: "user",
+      featureFlagId: betaDraft.featureFlagId || null,
+      featureFlagVariant: "on"
+    });
+    setBetaPrograms((current) => [response.program, ...current]);
+    setSelectedBetaId(response.program.id);
+    setBetaState("ready");
+  }
+
+  async function addBetaParticipant() {
+    if (!projectId || !environmentId || !selectedBeta || !client.addBetaProgramParticipant) return;
+    const actorId = betaDraft.participantId.trim();
+    if (!actorId) {
+      setBetaError("Participant id is required.");
+      return;
+    }
+    setBetaError("");
+    const response = await client.addBetaProgramParticipant(selectedBeta.id, {
+      projectId,
+      environmentId,
+      actorType: selectedBeta.actorType,
+      actorId,
+      status: "active"
+    });
+    setBetaParticipants((current) => [response.participant, ...current.filter((participant) => participant.id !== response.participant.id)]);
+    setBetaDraft((current) => ({ ...current, participantId: "" }));
+  }
+
+  async function removeBetaParticipant(participant: BetaProgramParticipant) {
+    if (!projectId || !environmentId || !selectedBeta || !client.removeBetaProgramParticipant) return;
+    await client.removeBetaProgramParticipant(selectedBeta.id, participant.id, { projectId, environmentId });
+    setBetaParticipants((current) => current.filter((row) => row.id !== participant.id));
   }
 
   return (
@@ -416,6 +540,139 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="experiments-readout" aria-label="Beta programs">
+        <div className="panel-header">
+          <h2>Beta programs</h2>
+          <span>{betaPrograms.length} programs</span>
+        </div>
+        <p className="muted-text">Manage early access cohorts and optionally sync active participants into a linked feature flag.</p>
+
+        <div className="experiments-form">
+          <label>
+            Program key
+            <span>Stable id for this early-access group.</span>
+            <input aria-label="Beta program key" value={betaDraft.key} onChange={(event) => setBetaDraft((current) => ({ ...current, key: event.target.value }))} />
+          </label>
+          <label>
+            Program name
+            <span>Operator-facing name.</span>
+            <input aria-label="Beta program name" value={betaDraft.name} onChange={(event) => setBetaDraft((current) => ({ ...current, name: event.target.value }))} />
+          </label>
+          <label>
+            Controlled flag
+            <span>Optional flag that receives participant targeting rules.</span>
+            <select
+              aria-label="Controlled flag"
+              value={betaDraft.featureFlagId}
+              onChange={(event) => setBetaDraft((current) => ({ ...current, featureFlagId: event.target.value }))}
+            >
+              <option value="">No linked flag</option>
+              {flags.map((flag) => (
+                <option key={flag.id} value={flag.id}>
+                  {flag.key}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={() => void createBetaProgram()}>
+            Create beta program
+          </button>
+        </div>
+
+        {betaError ? <p className="status-box unavailable">{betaError}</p> : null}
+        {betaState === "loading" ? <p className="muted-text">Loading beta programs</p> : null}
+        {betaState === "unavailable" ? (
+          <div className="status-box unavailable">
+            <strong>Beta programs unavailable</strong>
+            <button type="button" onClick={() => setReloadToken((current) => current + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {betaState === "empty" ? <p className="muted-text">No beta programs yet. Create one and add users or tenants below.</p> : null}
+
+        {betaPrograms.length > 0 ? (
+          <div className="experiments-panel__grid">
+            <article>
+              <label className="experiments-picker">
+                Program
+                <span>Early-access program for this environment.</span>
+                <select aria-label="Beta program" value={selectedBetaId} onChange={(event) => setSelectedBetaId(event.target.value)}>
+                  {betaPrograms.map((program) => (
+                    <option key={program.id} value={program.id}>
+                      {program.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedBeta ? (
+                <div className="experiments-summary" aria-label="Beta program summary">
+                  <div>
+                    <span>Status</span>
+                    <strong>{selectedBeta.status}</strong>
+                  </div>
+                  <div>
+                    <span>Participants</span>
+                    <strong>{betaAdoption?.participants ?? betaParticipants.length}</strong>
+                  </div>
+                  <div>
+                    <span>Adoption</span>
+                    <strong>{(betaAdoption?.adoptionRate ?? 0).toFixed(1)}% adoption</strong>
+                  </div>
+                </div>
+              ) : null}
+              <div className="experiments-form compact">
+                <label>
+                  Participant id
+                  <span>User or tenant id, according to program actor type.</span>
+                  <input
+                    aria-label="Participant id"
+                    value={betaDraft.participantId}
+                    onChange={(event) => setBetaDraft((current) => ({ ...current, participantId: event.target.value }))}
+                  />
+                </label>
+                <button type="button" onClick={() => void addBetaParticipant()}>
+                  Add participant
+                </button>
+              </div>
+            </article>
+            <article>
+              <div className="panel-header">
+                <h3>Participants</h3>
+                <span>{betaParticipants.length}</span>
+              </div>
+              {betaParticipants.length === 0 ? <p className="muted-text">No participants yet.</p> : null}
+              <div className="experiments-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Actor</th>
+                      <th>Status</th>
+                      <th>Notes</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {betaParticipants.map((participant) => (
+                      <tr key={participant.id}>
+                        <th scope="row">{participant.actorId}</th>
+                        <td>{participant.status}</td>
+                        <td>{participant.notes ?? "none"}</td>
+                        <td>
+                          <button type="button" onClick={() => void removeBetaParticipant(participant)}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
           </div>
         ) : null}
       </section>

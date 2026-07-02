@@ -7,6 +7,10 @@ import type {
   ApmEndpointsResponse,
   ApmQuery,
   ApiKey,
+  AddBetaProgramParticipantInput,
+  BetaProgram,
+  BetaProgramAdoption,
+  BetaProgramParticipant,
   BrowserOrigin,
   AlertEventListQuery,
   AlertEventResponse,
@@ -17,6 +21,7 @@ import type {
   CreateAlertRuleInput,
   CreateAnalyticsDashboardInput,
   CreateAnalyticsSegmentInput,
+  CreateBetaProgramInput,
   CreateExperimentInput,
   CreateFeatureFlagInput,
   CreateHeartbeatMonitorInput,
@@ -95,6 +100,7 @@ import type {
   UpdateAlertRuleInput,
   UpdateAnalyticsDashboardInput,
   UpdateAnalyticsSegmentInput,
+  UpdateBetaProgramInput,
   UpdateExperimentInput,
   UpdateFeatureFlagInput,
   UpdateErrorGroupStatusInput,
@@ -322,6 +328,28 @@ export type ApiClient = {
     query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">,
     input: { fallbackVariant?: string; subject?: { userId?: string; tenantId?: string; sessionId?: string; traits?: Record<string, string | number | boolean | null> } }
   ) => Promise<{ evaluation: FeatureFlagEvaluation }>;
+  listBetaPrograms?: (query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">) => Promise<{ programs: BetaProgram[] }>;
+  createBetaProgram?: (input: CreateBetaProgramInput) => Promise<{ program: BetaProgram }>;
+  updateBetaProgram?: (
+    id: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">,
+    input: UpdateBetaProgramInput
+  ) => Promise<{ program: BetaProgram }>;
+  archiveBetaProgram?: (id: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">) => Promise<void>;
+  listBetaProgramParticipants?: (
+    id: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">
+  ) => Promise<{ participants: BetaProgramParticipant[] }>;
+  addBetaProgramParticipant?: (id: string, input: AddBetaProgramParticipantInput) => Promise<{ participant: BetaProgramParticipant }>;
+  removeBetaProgramParticipant?: (
+    id: string,
+    participantId: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">
+  ) => Promise<void>;
+  getBetaProgramAdoption?: (
+    id: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+  ) => Promise<{ adoption: BetaProgramAdoption }>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
@@ -837,6 +865,50 @@ function featureFlagEvaluatePath(id: string, query: Pick<CreateFeatureFlagInput,
   return `/admin/feature-flags/${encodePathSegment(id)}/evaluate?${params.toString()}`;
 }
 
+function betaProgramsPath(query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs?${params.toString()}`;
+}
+
+function betaProgramScopedPath(id: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function betaProgramParticipantsPath(id: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}/participants?${params.toString()}`;
+}
+
+function betaProgramParticipantPath(id: string, participantId: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}/participants/${encodePathSegment(participantId)}?${params.toString()}`;
+}
+
+function betaProgramAdoptionPath(
+  id: string,
+  query: Pick<CreateBetaProgramInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.window) params.set("window", query.window);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}/adoption?${params.toString()}`;
+}
+
 function serviceMapPath(query: ApmQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -1093,6 +1165,28 @@ export function createApiClient(
         method: "POST",
         body: input
       }),
+    listBetaPrograms: (query) =>
+      request<{ programs: BetaProgram[] }>(path(apiBasePath, betaProgramsPath(query))),
+    createBetaProgram: (input) =>
+      request<{ program: BetaProgram }>(path(apiBasePath, "/admin/beta-programs"), { method: "POST", body: input }),
+    updateBetaProgram: (id, query, input) =>
+      request<{ program: BetaProgram }>(path(apiBasePath, betaProgramScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveBetaProgram: (id, query) =>
+      request<void>(path(apiBasePath, betaProgramScopedPath(id, query)), { method: "DELETE" }),
+    listBetaProgramParticipants: (id, query) =>
+      request<{ participants: BetaProgramParticipant[] }>(path(apiBasePath, betaProgramParticipantsPath(id, query))),
+    addBetaProgramParticipant: (id, input) =>
+      request<{ participant: BetaProgramParticipant }>(path(apiBasePath, `/admin/beta-programs/${encodePathSegment(id)}/participants`), {
+        method: "POST",
+        body: input
+      }),
+    removeBetaProgramParticipant: (id, participantId, query) =>
+      request<void>(path(apiBasePath, betaProgramParticipantPath(id, participantId, query)), { method: "DELETE" }),
+    getBetaProgramAdoption: (id, query) =>
+      request<{ adoption: BetaProgramAdoption }>(path(apiBasePath, betaProgramAdoptionPath(id, query))),
     listApiKeys: (projectId) =>
       request<{ apiKeys: ApiKey[] }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/api-keys`)),
     createApiKey: (projectId, input) =>

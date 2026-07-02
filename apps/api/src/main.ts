@@ -52,6 +52,16 @@ import {
   updateFeatureFlag
 } from "@sigmon/db/repositories/feature-flags.js";
 import {
+  addBetaProgramParticipant,
+  archiveBetaProgram,
+  createBetaProgram,
+  getBetaProgramAdoption,
+  listBetaProgramParticipants,
+  listBetaPrograms,
+  removeBetaProgramParticipant,
+  updateBetaProgram
+} from "@sigmon/db/repositories/beta-programs.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -644,6 +654,16 @@ const app = await buildApp({
       archive: (input) => archiveFeatureFlag(db, input),
       listAudit: (input) => listFeatureFlagAudit(db, input),
       evaluate: (input) => evaluateFeatureFlagById(db, input)
+    },
+    betaPrograms: {
+      list: (filters) => listBetaPrograms(db, filters),
+      create: (input) => createBetaProgram(db, input),
+      update: (input) => updateBetaProgram(db, input),
+      archive: (input) => archiveBetaProgram(db, input),
+      listParticipants: (input) => listBetaProgramParticipants(db, input),
+      addParticipant: (input) => addBetaProgramParticipant(db, input),
+      removeParticipant: (input) => removeBetaProgramParticipant(db, input),
+      getAdoption: (input) => getBetaProgramAdoption(db, input)
     }
   },
   ingestion: {

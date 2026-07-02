@@ -12,6 +12,11 @@ import type {
   FeatureFlagEvaluation,
   FeatureFlagRecord
 } from "../../../packages/db/src/repositories/feature-flags.js";
+import type {
+  BetaProgramAdoption,
+  BetaProgramParticipantRecord,
+  BetaProgramRecord
+} from "../../../packages/db/src/repositories/beta-programs.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -200,6 +205,76 @@ function featureFlagAuditResponse(overrides: Partial<Record<string, unknown>> = 
   return {
     ...featureFlagAudit(),
     createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function betaProgram(overrides: Partial<BetaProgramRecord> = {}): BetaProgramRecord {
+  return {
+    id: "beta_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "checkout_beta",
+    name: "Checkout beta",
+    description: "Early access for checkout redesign.",
+    status: "active",
+    actorType: "user",
+    featureFlagId: "flg_1",
+    featureFlagVariant: "on",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...betaProgram(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramParticipant(overrides: Partial<BetaProgramParticipantRecord> = {}): BetaProgramParticipantRecord {
+  return {
+    id: "betap_1",
+    programId: "beta_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    actorType: "user",
+    actorId: "user_1",
+    status: "active",
+    notes: "Requested early access.",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    removedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramParticipantResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...betaProgramParticipant(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    removedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramAdoption(overrides: Partial<BetaProgramAdoption> = {}): BetaProgramAdoption {
+  return {
+    programId: "beta_1",
+    window: "30d",
+    participants: 3,
+    activeParticipants: 2,
+    activeActorsWithEvents: 1,
+    events: 4,
+    adoptionRate: 50,
+    samples: [{ actorId: "user_1", events: 4, lastSeenAt: "2026-01-01T00:00:00.000Z" }],
     ...overrides
   };
 }
@@ -1123,6 +1198,101 @@ describe("admin routes", () => {
     });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archive).toHaveBeenCalledWith({ id: "flg_1", projectId: "prj_1", environmentId: "env_1", actorId: "usr_1" });
+  });
+
+  it("manages beta programs, participants, and adoption for admins", async () => {
+    const list = vi.fn(async () => [betaProgram()]);
+    const create = vi.fn(async (input) => betaProgram(input));
+    const update = vi.fn(async (input) => betaProgram({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+    const listParticipants = vi.fn(async () => [betaProgramParticipant()]);
+    const addParticipant = vi.fn(async (input) => betaProgramParticipant(input));
+    const removeParticipant = vi.fn(async () => undefined);
+    const getAdoption = vi.fn(async () => betaProgramAdoption());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        betaPrograms: { list, create, update, archive, listParticipants, addParticipant, removeParticipant, getAdoption }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/beta-programs?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ programs: [betaProgramResponse()] });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/beta-programs",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "checkout_beta",
+        name: "Checkout beta",
+        status: "active",
+        actorType: "user",
+        featureFlagId: "flg_1",
+        featureFlagVariant: "on"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ key: "checkout_beta", actorType: "user" }));
+
+    const participantsResponse = await app.inject({
+      method: "GET",
+      url: "/admin/beta-programs/beta_1/participants?project_id=prj_1&environment_id=env_1"
+    });
+    expect(participantsResponse.statusCode).toBe(200);
+    expect(participantsResponse.json()).toEqual({ participants: [betaProgramParticipantResponse()] });
+
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/admin/beta-programs/beta_1/participants",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        actorType: "user",
+        actorId: "user_1",
+        status: "active",
+        notes: "Requested early access."
+      }
+    });
+    expect(addResponse.statusCode).toBe(201);
+    expect(addParticipant).toHaveBeenCalledWith(expect.objectContaining({ programId: "beta_1", actorId: "user_1", actorType: "user" }));
+
+    const adoptionResponse = await app.inject({
+      method: "GET",
+      url: "/admin/beta-programs/beta_1/adoption?project_id=prj_1&environment_id=env_1&window=30d"
+    });
+    expect(adoptionResponse.statusCode).toBe(200);
+    expect(adoptionResponse.json()).toEqual({ adoption: betaProgramAdoption() });
+    expect(getAdoption).toHaveBeenCalledWith({ programId: "beta_1", projectId: "prj_1", environmentId: "env_1", window: "30d" });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/beta-programs/beta_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({ id: "beta_1", projectId: "prj_1", environmentId: "env_1", patch: { status: "paused" } });
+
+    const removeResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/beta-programs/beta_1/participants/betap_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(removeResponse.statusCode).toBe(204);
+    expect(removeParticipant).toHaveBeenCalledWith({ programId: "beta_1", projectId: "prj_1", environmentId: "env_1", participantId: "betap_1" });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/beta-programs/beta_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "beta_1", projectId: "prj_1", environmentId: "env_1" });
   });
 
   it("rejects invalid browser origins", async () => {

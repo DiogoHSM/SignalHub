@@ -291,6 +291,74 @@ export type FeatureFlagEvaluation = {
   ruleId?: string;
 };
 
+export type BetaProgramStatus = "draft" | "active" | "paused" | "archived";
+export type BetaProgramActorType = "user" | "tenant";
+export type BetaProgramParticipantStatus = "invited" | "active" | "opted_out" | "removed";
+
+export type BetaProgram = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: BetaProgramStatus;
+  actorType: BetaProgramActorType;
+  featureFlagId: string | null;
+  featureFlagVariant: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateBetaProgramInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: BetaProgramStatus;
+  actorType?: BetaProgramActorType;
+  featureFlagId?: string | null;
+  featureFlagVariant?: string;
+};
+
+export type UpdateBetaProgramInput = Partial<Omit<CreateBetaProgramInput, "projectId" | "environmentId" | "key">>;
+
+export type BetaProgramParticipant = {
+  id: string;
+  programId: string;
+  projectId: string;
+  environmentId: string;
+  actorType: BetaProgramActorType;
+  actorId: string;
+  status: BetaProgramParticipantStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  removedAt: string | null;
+};
+
+export type AddBetaProgramParticipantInput = {
+  projectId: string;
+  environmentId: string;
+  actorType: BetaProgramActorType;
+  actorId: string;
+  status?: BetaProgramParticipantStatus;
+  notes?: string | null;
+};
+
+export type BetaProgramAdoption = {
+  programId: string;
+  window: ApmWindow;
+  participants: number;
+  activeParticipants: number;
+  activeActorsWithEvents: number;
+  events: number;
+  adoptionRate: number;
+  samples: Array<{ actorId: string; events: number; lastSeenAt: string }>;
+};
+
 export type CreatedApiKey = ApiKey & {
   secret: string;
 };

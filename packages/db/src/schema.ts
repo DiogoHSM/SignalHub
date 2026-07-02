@@ -118,6 +118,41 @@ export interface FeatureFlagAuditTable {
   created_at: Timestamp;
 }
 
+export type BetaProgramStatus = "draft" | "active" | "paused" | "archived";
+export type BetaProgramActorType = "user" | "tenant";
+
+export interface BetaProgramsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<BetaProgramStatus, BetaProgramStatus | undefined, BetaProgramStatus>;
+  actor_type: ColumnType<BetaProgramActorType, BetaProgramActorType | undefined, BetaProgramActorType>;
+  feature_flag_id: string | null;
+  feature_flag_variant: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export type BetaProgramParticipantStatus = "invited" | "active" | "opted_out" | "removed";
+
+export interface BetaProgramParticipantsTable {
+  id: string;
+  program_id: string;
+  project_id: string;
+  environment_id: string;
+  actor_type: ColumnType<BetaProgramActorType, BetaProgramActorType | undefined, BetaProgramActorType>;
+  actor_id: string;
+  status: ColumnType<BetaProgramParticipantStatus, BetaProgramParticipantStatus | undefined, BetaProgramParticipantStatus>;
+  notes: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  removed_at: NullableTimestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -717,6 +752,8 @@ export interface Database {
   experiments: ExperimentsTable;
   feature_flags: FeatureFlagsTable;
   feature_flag_audit: FeatureFlagAuditTable;
+  beta_programs: BetaProgramsTable;
+  beta_program_participants: BetaProgramParticipantsTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;

@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
+import type { BetaProgram, BetaProgramAdoption, BetaProgramParticipant, Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
 import { ExperimentsPanel } from "./ExperimentsPanel";
 
 const experiment: Experiment = {
@@ -55,6 +55,47 @@ const flag: FeatureFlag = {
   archivedAt: null
 };
 
+const betaProgram: BetaProgram = {
+  id: "beta_1",
+  projectId: "prj_1",
+  environmentId: "env_1",
+  key: "checkout_beta",
+  name: "Checkout beta",
+  description: "Early access",
+  status: "active",
+  actorType: "user",
+  featureFlagId: "flg_1",
+  featureFlagVariant: "on",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null
+};
+
+const betaParticipant: BetaProgramParticipant = {
+  id: "betap_1",
+  programId: "beta_1",
+  projectId: "prj_1",
+  environmentId: "env_1",
+  actorType: "user",
+  actorId: "user_1",
+  status: "active",
+  notes: "Requested early access.",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  removedAt: null
+};
+
+const betaAdoption: BetaProgramAdoption = {
+  programId: "beta_1",
+  window: "30d",
+  participants: 1,
+  activeParticipants: 1,
+  activeActorsWithEvents: 1,
+  events: 3,
+  adoptionRate: 100,
+  samples: [{ actorId: "user_1", events: 3, lastSeenAt: "2026-01-01T00:00:00.000Z" }]
+};
+
 function client(overrides: Partial<ApiClient>): ApiClient {
   return {
     listEvents: vi.fn().mockResolvedValue({ data: [] }),
@@ -66,6 +107,14 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     updateFeatureFlag: vi.fn().mockResolvedValue({ flag }),
     archiveFeatureFlag: vi.fn().mockResolvedValue(undefined),
     listFeatureFlagAudit: vi.fn().mockResolvedValue({ audit: [] }),
+    listBetaPrograms: vi.fn().mockResolvedValue({ programs: [] }),
+    createBetaProgram: vi.fn().mockResolvedValue({ program: betaProgram }),
+    updateBetaProgram: vi.fn().mockResolvedValue({ program: betaProgram }),
+    archiveBetaProgram: vi.fn().mockResolvedValue(undefined),
+    listBetaProgramParticipants: vi.fn().mockResolvedValue({ participants: [] }),
+    addBetaProgramParticipant: vi.fn().mockResolvedValue({ participant: betaParticipant }),
+    removeBetaProgramParticipant: vi.fn().mockResolvedValue(undefined),
+    getBetaProgramAdoption: vi.fn().mockResolvedValue({ adoption: betaAdoption }),
     ...overrides
   } as ApiClient;
 }
@@ -155,6 +204,38 @@ describe("ExperimentsPanel", () => {
           { key: "off", value: false },
           { key: "on", value: true }
         ]
+      })
+    );
+  });
+
+  it("loads beta programs, adds participants, and shows adoption", async () => {
+    const user = userEvent.setup();
+    const addBetaProgramParticipant = vi.fn().mockResolvedValue({ participant: betaParticipant });
+    const api = client({
+      listBetaPrograms: vi.fn().mockResolvedValue({ programs: [betaProgram] }),
+      listBetaProgramParticipants: vi.fn().mockResolvedValue({ participants: [betaParticipant] }),
+      getBetaProgramAdoption: vi.fn().mockResolvedValue({ adoption: betaAdoption }),
+      addBetaProgramParticipant
+    });
+
+    render(<ExperimentsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const betaRegion = await screen.findByRole("region", { name: "Beta programs" });
+    expect(within(betaRegion).getByText("Checkout beta")).toBeInTheDocument();
+    await waitFor(() => expect(within(betaRegion).getByText("100.0% adoption")).toBeInTheDocument());
+    expect(within(betaRegion).getByText("user_1")).toBeInTheDocument();
+
+    await user.type(within(betaRegion).getByLabelText("Participant id"), "user_2");
+    await user.click(within(betaRegion).getByRole("button", { name: "Add participant" }));
+
+    expect(addBetaProgramParticipant).toHaveBeenCalledWith(
+      "beta_1",
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        actorType: "user",
+        actorId: "user_2",
+        status: "active"
       })
     );
   });

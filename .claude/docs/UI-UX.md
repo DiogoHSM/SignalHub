@@ -127,6 +127,8 @@ SignalMonitor includes an admin-only Integration Console.
 - The empty state should tell operators whether they need to create an experiment, emit `sigmon.experiment.exposed`, or track the configured conversion event.
 - Experiments also includes the first Feature Flags surface. Operators can create a boolean-style flag with an off fallback, inspect active definitions, pause/activate, and archive flags without leaving the project/environment workspace.
 - Feature flag rows should make the safe default, current status, variant keys, rule count, and row actions visible. Audit history stays backend-supported even if the compact console only exposes the current definition in this slice.
+- Beta Programs live in the same Experiments workspace. Operators can create an early-access program, link it to a flag variant, add user or tenant participants, and inspect adoption from normal event telemetry without leaving the project/environment context.
+- Beta program controls should make the linked flag, actor scope, participant count, active actor count, adoption percentage, and participant removal actions visible. Runtime setup should be explained as feature-flag evaluation, not as a separate beta SDK path.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Operations UX

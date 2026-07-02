@@ -800,6 +800,12 @@ await sigmon.flush();</code></pre>
 if (flag.value === true) {
   renderNewCheckout();
 }</code></pre>
+            <div class="callout">
+              Beta programs are managed in the console or admin API. Link a program to a feature
+              flag variant, add user or tenant participants, and Sigmon syncs those participants into
+              targeting rules. Application code still uses <code>evaluateFlag</code> with a safe
+              fallback; adoption comes from normal event telemetry.
+            </div>
           </section>
 
           <section id="traces">
