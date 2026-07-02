@@ -720,6 +720,55 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages experiments and fetches experiment results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { experiments: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listExperiments?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/experiments?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { experiment: { id: "exp_1" } }));
+    await createApiClient("/api").createExperiment?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "checkout_copy",
+      name: "Checkout copy",
+      conversionEvent: "checkout.completed",
+      variants: [
+        { key: "control", name: "Control", weight: 50 },
+        { key: "treatment", name: "Treatment", weight: 50 }
+      ],
+      primaryMetric: { eventName: "checkout.completed", windowHours: 24 }
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/experiments",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { experiment: { id: "exp_1" } }));
+    await createApiClient("/api").updateExperiment?.("exp/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/experiments/exp%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { variants: [] } }));
+    await createApiClient("/api").getExperimentResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      experimentId: "exp/1",
+      window: "7d",
+      limit: 50
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/experiments/exp%2F1/results?project_id=prj_1&environment_id=env_1&window=7d&limit=50",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

@@ -38,6 +38,15 @@ import type {
   AnalyticsDashboardWidgetInput,
   AnalyticsDashboardWidgetType
 } from "@sigmon/db/repositories/analytics-dashboards.js";
+import type {
+  CreateExperimentInput,
+  ExperimentActorType,
+  ExperimentRecord,
+  ExperimentStatus,
+  ExperimentVariant,
+  ExperimentPrimaryMetric,
+  UpdateExperimentInput
+} from "@sigmon/db/repositories/experiments.js";
 
 export interface AdminProject {
   id: string;
@@ -117,6 +126,7 @@ export type AdminResourceDependencies = {
   browserOrigins?: BrowserOriginAdministrationDependencies;
   analyticsSegments?: AnalyticsSegmentAdministrationDependencies;
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
+  experiments?: ExperimentAdministrationDependencies;
 };
 
 export type AnalyticsSegmentAdministrationDependencies = {
@@ -137,6 +147,18 @@ export type AnalyticsDashboardAdministrationDependencies = {
     environmentId: string;
     patch: UpdateAnalyticsDashboardInput;
   }) => Promise<AnalyticsDashboardRecord | null | undefined>;
+  archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
+export type ExperimentAdministrationDependencies = {
+  list: (filters: { projectId: string; environmentId: string }) => Promise<ExperimentRecord[]>;
+  create: (input: CreateExperimentInput) => Promise<ExperimentRecord>;
+  update: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    patch: UpdateExperimentInput;
+  }) => Promise<ExperimentRecord | null | undefined>;
   archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
@@ -641,6 +663,55 @@ type UpdateAnalyticsDashboardInput = z.infer<typeof updateAnalyticsDashboardSche
   category?: AnalyticsDashboardCategory;
   filters?: AnalyticsDashboardFilters;
   widgets?: Array<AnalyticsDashboardWidgetInput & { type: AnalyticsDashboardWidgetType }>;
+};
+const experimentStatusSchema = z.enum(["draft", "running", "paused", "completed", "archived"]);
+const experimentActorTypeSchema = z.enum(["user", "tenant", "session"]);
+const experimentVariantSchema = z.object({
+  key: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(120),
+  weight: z.number().int().min(0).max(100)
+});
+const experimentPrimaryMetricSchema = z.object({
+  eventName: z.string().trim().min(1).max(256),
+  windowHours: z.number().int().min(1).max(24 * 30).default(24)
+});
+const experimentScopeQuerySchema = analyticsSegmentScopeQuerySchema;
+const experimentSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  key: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  status: experimentStatusSchema.default("draft"),
+  actorType: experimentActorTypeSchema.default("user"),
+  exposureEvent: z.string().trim().min(1).max(256).default("sigmon.experiment.exposed"),
+  conversionEvent: z.string().trim().min(1).max(256),
+  variants: z.array(experimentVariantSchema).min(2).max(20),
+  primaryMetric: experimentPrimaryMetricSchema
+});
+const updateExperimentSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional(),
+    description: z.string().trim().max(1024).nullable().optional(),
+    status: experimentStatusSchema.optional(),
+    actorType: experimentActorTypeSchema.optional(),
+    exposureEvent: z.string().trim().min(1).max(256).optional(),
+    conversionEvent: z.string().trim().min(1).max(256).optional(),
+    variants: z.array(experimentVariantSchema).min(2).max(20).optional(),
+    primaryMetric: experimentPrimaryMetricSchema.optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+type CreateExperimentBody = z.infer<typeof experimentSchema> & {
+  status: ExperimentStatus;
+  actorType: ExperimentActorType;
+  variants: ExperimentVariant[];
+  primaryMetric: ExperimentPrimaryMetric;
+};
+type UpdateExperimentBody = z.infer<typeof updateExperimentSchema> & {
+  status?: ExperimentStatus;
+  actorType?: ExperimentActorType;
+  variants?: ExperimentVariant[];
+  primaryMetric?: ExperimentPrimaryMetric;
 };
 type CreateNotificationChannelInput = z.infer<typeof notificationChannelSchema>;
 type UpdateNotificationChannelInput = z.infer<typeof updateNotificationChannelSchema>;
@@ -1519,6 +1590,116 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(204).send();
     } catch {
       return reply.status(503).send({ error: "analytics_dashboards_unavailable" });
+    }
+  });
+
+  app.get("/admin/experiments", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.experiments) {
+      return reply.status(501).send({ error: "experiments_repository_unavailable" });
+    }
+
+    const query = experimentScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_experiment_request" });
+    }
+
+    try {
+      const experiments = await options.adminResources.experiments.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ experiments });
+    } catch {
+      return reply.status(503).send({ error: "experiments_unavailable" });
+    }
+  });
+
+  app.post("/admin/experiments", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.experiments) {
+      return reply.status(501).send({ error: "experiments_repository_unavailable" });
+    }
+
+    const parsed = experimentSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_experiment_request" });
+    }
+
+    try {
+      const experiment = await options.adminResources.experiments.create(parsed.data as CreateExperimentBody);
+      return reply.status(201).send({ experiment });
+    } catch {
+      return reply.status(503).send({ error: "experiments_unavailable" });
+    }
+  });
+
+  app.patch("/admin/experiments/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.experiments) {
+      return reply.status(501).send({ error: "experiments_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = experimentScopeQuerySchema.safeParse(request.query);
+    const parsed = updateExperimentSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_experiment_request" });
+    }
+
+    try {
+      const experiment = await options.adminResources.experiments.update({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        patch: parsed.data as UpdateExperimentBody
+      });
+      if (!experiment) {
+        return reply.status(404).send({ error: "experiment_not_found" });
+      }
+      return reply.send({ experiment });
+    } catch {
+      return reply.status(503).send({ error: "experiments_unavailable" });
+    }
+  });
+
+  app.delete("/admin/experiments/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.experiments) {
+      return reply.status(501).send({ error: "experiments_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = experimentScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_experiment_request" });
+    }
+
+    try {
+      await options.adminResources.experiments.archive({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "experiments_unavailable" });
     }
   });
 

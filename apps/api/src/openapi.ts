@@ -109,7 +109,7 @@ Raw HTTP remains the stable contract for other languages, automation, and direct
 3. Use server-only variables such as \`SIGMON_ENDPOINT\` and \`SIGMON_API_KEY\` for API routes, workers, server actions, and scheduled jobs.
 4. Use browser variables such as \`NEXT_PUBLIC_SIGMON_ENDPOINT\` and \`NEXT_PUBLIC_SIGMON_BROWSER_KEY\` only with a browser-scoped ingestion key.
 5. Send \`identifyUser\` / \`POST /v1/identify/user\` after login or session load, and \`identifyTenant\` / \`POST /v1/identify/tenant\` after tenant/workspace selection.
-6. Send events, errors, breadcrumbs, click maps, privacy-safe session replays, traces, spans, Web Vitals, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
+6. Send events, errors, breadcrumbs, click maps, privacy-safe session replays, traces, spans, Web Vitals, experiment exposures, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
 7. Upload source maps from CI for minified browser bundles so production stacks can be resolved.
 
 ## Key model
@@ -1242,6 +1242,12 @@ export const openApiDocument = {
       get: sessionRoute(
         "Query event conversion funnel",
         "Analyze ordered event-step conversion for a project environment. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2+ event names, and optional limit for sample actors."
+      )
+    },
+    "/query/experiments/{id}/results": {
+      get: sessionRoute(
+        "Query experiment results",
+        "Read A/B experiment conversion results by variant. Query with project_id, environment_id, window=24h|7d|30d, and optional limit. Results are derived from exposure and conversion events that include experiment_key and variant properties."
       )
     },
     "/query/events/retention": {

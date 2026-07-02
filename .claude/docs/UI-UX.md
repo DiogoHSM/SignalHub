@@ -119,11 +119,12 @@ SignalMonitor includes an admin-only Integration Console.
 
 ## Experiments UX
 
-- Experiments starts with an event-based A/B test readout using existing event telemetry instead of requiring a separate experiment backend.
-- The readout lets operators map experiment, variant, exposure event, and conversion event fields so teams can adapt existing event naming conventions.
-- When multiple experiments are detected in the sample, operators select one experiment before reading variant metrics so unrelated variants are not mixed.
-- Variant rows should show exposures, conversions, conversion rate, and lift against the first sorted variant as a lightweight baseline.
+- Experiments uses saved project/environment experiment definitions backed by existing event telemetry. Definitions store a stable experiment key, weighted variants, actor scope, exposure event, conversion event, and primary metric metadata.
+- Operators can create a lightweight running A/B test from the console, then hand the SDK assignment snippet to product code so browser/server events emit consistent exposure and conversion properties.
+- Experiment result panels load one saved experiment at a time and query conversion outcomes from the selected environment, so unrelated variants and ad hoc event names are not mixed.
+- Variant rows should show configured weight, exposures, conversions, conversion rate, and lift against the first configured variant as a lightweight baseline.
 - Variant interpretation should stay directional: baseline, needs sample, directional lead/lag, or flat. Do not imply statistical significance until the backend supports it.
+- The empty state should tell operators whether they need to create an experiment, emit `sigmon.experiment.exposed`, or track the configured conversion event.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Operations UX

@@ -673,6 +673,12 @@ sigmonBrowser.track("checkout.pay_clicked", {
               SDK call; stable event names, actor IDs, and properties let operators compose metric, trend,
               and top-list widgets in the Sigmon console.
             </p>
+            <p>
+              A/B experiments use deterministic SDK assignment plus normal event telemetry. Create the
+              experiment in the Sigmon console, call <code>assignExperiment</code> with weighted variants,
+              and keep <code>experiment_key</code> plus <code>variant</code> on conversion events so
+              <code>GET /query/experiments/:id/results</code> can compare variants.
+            </p>
             <h3>Common ingest failures</h3>
             <ul>
               <li><code>invalid_api_key</code>: send <code>Authorization: Bearer &lt;key&gt;</code> and use a browser-scoped key for browser calls.</li>

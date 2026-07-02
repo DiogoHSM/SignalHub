@@ -164,6 +164,26 @@ export type RuntimeProfileInput = EventInput & {
   metadata?: SignalMetadata;
 };
 
+export type ExperimentVariantInput = {
+  key: string;
+  weight: number;
+};
+
+export type ExperimentAssignmentInput = {
+  experimentKey: string;
+  subjectId: string;
+  variants: ExperimentVariantInput[];
+  exposureEvent?: string;
+  properties?: SignalMetadata;
+  trackExposure?: boolean;
+};
+
+export type ExperimentAssignment = {
+  experimentKey: string;
+  subjectId: string;
+  variant: string;
+};
+
 export type ReplayEventType = "navigation" | "click" | "input" | "console" | "network" | "error" | "custom";
 
 export type SessionReplayEventInput = {
@@ -230,6 +250,7 @@ export type SignalMonitorError = {
 
 export type SignalMonitorClient = {
   track: (name: string, properties?: SignalMetadata, context?: SignalContext & EventInput) => void;
+  assignExperiment: (input: ExperimentAssignmentInput, context?: SignalContext & EventInput) => ExperimentAssignment;
   captureError: (error: unknown, input?: ErrorInput) => void;
   breadcrumb: (input: BreadcrumbInput, context?: SignalContext) => void;
   llm: (input: LlmInput, context?: SignalContext) => void;

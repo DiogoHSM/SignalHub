@@ -6,6 +6,7 @@ import type { ErrorFilterValues } from "./ErrorFilters";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
 import type { EventFilterValues } from "./EventFilters";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
+import { ExperimentsPanel } from "./ExperimentsPanel";
 import type { LlmFilterValues } from "./LlmFilters";
 import { LlmInvestigationPanel } from "./LlmInvestigationPanel";
 import { TraceInvestigationPanel } from "./TraceInvestigationPanel";
@@ -21,7 +22,7 @@ type Props = {
   onOpenIncident?: (groupId: string, options?: { errorId?: string }) => void;
 };
 
-export type InvestigationTab = "dashboards" | "events" | "errors" | "traces" | "llm" | "entities" | "users";
+export type InvestigationTab = "dashboards" | "events" | "errors" | "traces" | "llm" | "experiments" | "entities" | "users";
 
 export type InvestigationInitialFilters = {
   events?: Partial<EventFilterValues>;
@@ -98,6 +99,9 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
         <button aria-pressed={activeTab === "llm"} onClick={() => setActiveTab("llm")} type="button">
           LLM
         </button>
+        <button aria-pressed={activeTab === "experiments"} onClick={() => setActiveTab("experiments")} type="button">
+          Experiments
+        </button>
         <button aria-pressed={activeTab === "entities"} onClick={() => setActiveTab("entities")} type="button">
           Entities
         </button>
@@ -135,6 +139,9 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
       ) : null}
       {activeTab === "llm" ? (
         <LlmInvestigationPanel client={client} environmentId={environmentId} initialFilters={mergedInitialFilters.llm} projectId={projectId} />
+      ) : null}
+      {activeTab === "experiments" ? (
+        <ExperimentsPanel client={client} environmentId={environmentId} projectId={projectId} />
       ) : null}
       {activeTab === "entities" ? (
         <EntitiesInvestigationPanel

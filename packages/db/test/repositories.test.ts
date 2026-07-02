@@ -49,6 +49,13 @@ import {
   updateAnalyticsDashboard
 } from "../src/repositories/analytics-dashboards.js";
 import {
+  createExperiment,
+  getExperimentResults,
+  listExperiments,
+  updateExperiment,
+  archiveExperiment
+} from "../src/repositories/experiments.js";
+import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
@@ -9615,6 +9622,134 @@ describe("repositories", () => {
 
       await archiveAnalyticsDashboard(db, { id: dashboard.id, projectId: project.id, environmentId: environment.id });
       await expect(listAnalyticsDashboards(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages A/B experiments and calculates variant conversion results", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Experiments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      const experiment = await createExperiment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "checkout_copy",
+        name: "Checkout copy",
+        description: "Compare headline copy.",
+        actorType: "user",
+        exposureEvent: "sigmon.experiment.exposed",
+        conversionEvent: "checkout.completed",
+        variants: [
+          { key: "control", name: "Control", weight: 50 },
+          { key: "treatment", name: "Treatment", weight: 50 }
+        ],
+        primaryMetric: { eventName: "checkout.completed", windowHours: 24 }
+      });
+
+      expect(experiment).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "checkout_copy",
+        status: "draft",
+        variants: [
+          { key: "control", name: "Control", weight: 50 },
+          { key: "treatment", name: "Treatment", weight: 50 }
+        ]
+      });
+
+      await updateExperiment(db, {
+        id: experiment.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        patch: { status: "running" }
+      });
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u1_exposure",
+        userId: "user_1",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "control" },
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u1_conversion",
+        userId: "user_1",
+        name: "checkout.completed",
+        properties: { experiment_key: "checkout_copy", variant: "control" },
+        timestamp: new Date("2026-05-04T12:10:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u2_exposure",
+        userId: "user_2",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "control" },
+        timestamp: new Date("2026-05-04T12:20:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u3_exposure",
+        userId: "user_3",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:30:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u3_conversion",
+        userId: "user_3",
+        name: "checkout.completed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:40:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u4_exposure",
+        userId: "user_4",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:50:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u4_conversion",
+        userId: "user_4",
+        name: "checkout.completed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:55:00.000Z")
+      });
+
+      await expect(listExperiments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: experiment.id, key: "checkout_copy", status: "running" })
+      ]);
+
+      const results = await getExperimentResults(db, {
+        experimentId: experiment.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+
+      expect(results).not.toBeNull();
+      if (!results) return;
+      expect(results.totals).toEqual({ exposures: 4, conversions: 3, variants: 2 });
+      expect(results.variants).toEqual([
+        expect.objectContaining({ key: "control", exposures: 2, conversions: 1, conversionRate: 50, liftPoints: null }),
+        expect.objectContaining({ key: "treatment", exposures: 2, conversions: 2, conversionRate: 100, liftPoints: 50 })
+      ]);
+
+      await archiveExperiment(db, { id: experiment.id, projectId: project.id, environmentId: environment.id });
+      await expect(listExperiments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
     });
   });
 

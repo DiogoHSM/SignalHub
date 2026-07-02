@@ -110,6 +110,30 @@ Custom dashboards and saved reports are also derived from normal event and error
 need a dashboard-specific SDK call; keep event naming, actor IDs, and product properties consistent so
 operators can compose stable metric, trend, and top-list widgets in the Sigmon console.
 
+A/B experiments use deterministic SDK assignment plus normal event telemetry. Create the experiment in
+the Sigmon console, then assign a subject and let the SDK send the exposure event:
+
+```ts
+const assignment = sigmon.assignExperiment({
+  experimentKey: "checkout_copy",
+  subjectId: "user_456",
+  variants: [
+    { key: "control", weight: 50 },
+    { key: "treatment", weight: 50 }
+  ],
+  properties: { surface: "pricing" }
+});
+
+renderCheckoutCopy(assignment.variant);
+sigmon.track("checkout.completed", {
+  experiment_key: "checkout_copy",
+  variant: assignment.variant
+});
+```
+
+Sigmon reads results from `GET /query/experiments/:id/results`; keep `experiment_key`, `variant`, and
+stable user/tenant/session context on exposure and conversion events.
+
 Click maps are separate from click breadcrumbs. Breadcrumbs tell the story around an error or session;
 click maps aggregate opt-in browser coordinates by route and safe selector. Add stable
 `data-sigmon-id` attributes to meaningful controls before enabling click capture.

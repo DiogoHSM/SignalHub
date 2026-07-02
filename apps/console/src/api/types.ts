@@ -148,6 +148,77 @@ export type DashboardReportResponse = {
   widgets: DashboardReportWidget[];
 };
 
+export type ExperimentStatus = "draft" | "running" | "paused" | "completed" | "archived";
+export type ExperimentActorType = "user" | "tenant" | "session";
+
+export type ExperimentVariant = {
+  key: string;
+  name: string;
+  weight: number;
+};
+
+export type ExperimentPrimaryMetric = {
+  eventName: string;
+  windowHours: number;
+};
+
+export type Experiment = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ExperimentStatus;
+  actorType: ExperimentActorType;
+  exposureEvent: string;
+  conversionEvent: string;
+  variants: ExperimentVariant[];
+  primaryMetric: ExperimentPrimaryMetric;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateExperimentInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: ExperimentStatus;
+  actorType?: ExperimentActorType;
+  exposureEvent?: string;
+  conversionEvent: string;
+  variants: ExperimentVariant[];
+  primaryMetric: ExperimentPrimaryMetric;
+};
+
+export type UpdateExperimentInput = Partial<Omit<CreateExperimentInput, "projectId" | "environmentId" | "key">>;
+
+export type ExperimentResultsQuery = ApmQuery & {
+  experimentId: string;
+};
+
+export type ExperimentVariantResult = ExperimentVariant & {
+  exposures: number;
+  conversions: number;
+  conversionRate: number;
+  liftPoints: number | null;
+  sampleActors: string[];
+};
+
+export type ExperimentResultsResponse = {
+  experiment: Experiment;
+  window: ApmWindow;
+  totals: {
+    exposures: number;
+    conversions: number;
+    variants: number;
+  };
+  variants: ExperimentVariantResult[];
+};
+
 export type CreatedApiKey = ApiKey & {
   secret: string;
 };

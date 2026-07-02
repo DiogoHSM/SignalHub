@@ -17,6 +17,7 @@ import type {
   CreateAlertRuleInput,
   CreateAnalyticsDashboardInput,
   CreateAnalyticsSegmentInput,
+  CreateExperimentInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
   CreatedApiKey,
@@ -24,6 +25,9 @@ import type {
   CreateNotificationChannelInput,
   DashboardReportResponse,
   Environment,
+  Experiment,
+  ExperimentResultsQuery,
+  ExperimentResultsResponse,
   ErrorGroupIncident,
   ErrorGroupIncidentQuery,
   ErrorGroupQuery,
@@ -87,6 +91,7 @@ import type {
   UpdateAlertRuleInput,
   UpdateAnalyticsDashboardInput,
   UpdateAnalyticsSegmentInput,
+  UpdateExperimentInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput,
@@ -289,6 +294,15 @@ export type ApiClient = {
     id: string,
     query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
   ) => Promise<AggregateResponse<DashboardReportResponse>>;
+  listExperiments?: (query: Pick<CreateExperimentInput, "projectId" | "environmentId">) => Promise<{ experiments: Experiment[] }>;
+  createExperiment?: (input: CreateExperimentInput) => Promise<{ experiment: Experiment }>;
+  updateExperiment?: (
+    id: string,
+    query: Pick<CreateExperimentInput, "projectId" | "environmentId">,
+    input: UpdateExperimentInput
+  ) => Promise<{ experiment: Experiment }>;
+  archiveExperiment?: (id: string, query: Pick<CreateExperimentInput, "projectId" | "environmentId">) => Promise<void>;
+  getExperimentResults?: (query: ExperimentResultsQuery) => Promise<AggregateResponse<ExperimentResultsResponse>>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
@@ -746,6 +760,32 @@ function dashboardReportPath(
   return `/query/reports/dashboards/${encodePathSegment(id)}?${params.toString()}`;
 }
 
+function experimentsPath(query: Pick<CreateExperimentInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/experiments?${params.toString()}`;
+}
+
+function experimentScopedPath(id: string, query: Pick<CreateExperimentInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/experiments/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function experimentResultsPath(query: ExperimentResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/experiments/${encodePathSegment(query.experimentId)}/results?${params.toString()}`;
+}
+
 function serviceMapPath(query: ApmQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -971,6 +1011,19 @@ export function createApiClient(
       request<void>(path(apiBasePath, analyticsDashboardScopedPath(id, query)), { method: "DELETE" }),
     getDashboardReport: (id, query) =>
       request<AggregateResponse<DashboardReportResponse>>(path(apiBasePath, dashboardReportPath(id, query))),
+    listExperiments: (query) =>
+      request<{ experiments: Experiment[] }>(path(apiBasePath, experimentsPath(query))),
+    createExperiment: (input) =>
+      request<{ experiment: Experiment }>(path(apiBasePath, "/admin/experiments"), { method: "POST", body: input }),
+    updateExperiment: (id, query, input) =>
+      request<{ experiment: Experiment }>(path(apiBasePath, experimentScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveExperiment: (id, query) =>
+      request<void>(path(apiBasePath, experimentScopedPath(id, query)), { method: "DELETE" }),
+    getExperimentResults: (query) =>
+      request<AggregateResponse<ExperimentResultsResponse>>(path(apiBasePath, experimentResultsPath(query))),
     listApiKeys: (projectId) =>
       request<{ apiKeys: ApiKey[] }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/api-keys`)),
     createApiKey: (projectId, input) =>

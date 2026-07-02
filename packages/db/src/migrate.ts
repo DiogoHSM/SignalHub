@@ -33,7 +33,9 @@ const migrations = [
   { name: "0027_analytics_dashboards.sql", url: new URL("../migrations/0027_analytics_dashboards.sql", import.meta.url) },
   { name: "0028_click_events.sql", url: new URL("../migrations/0028_click_events.sql", import.meta.url) },
   { name: "0029_session_replays.sql", url: new URL("../migrations/0029_session_replays.sql", import.meta.url) },
-  { name: "0030_event_replays.sql", url: new URL("../migrations/0030_event_replays.sql", import.meta.url) }
+  { name: "0030_event_replays.sql", url: new URL("../migrations/0030_event_replays.sql", import.meta.url) },
+  { name: "0031_session_replay_segments.sql", url: new URL("../migrations/0031_session_replay_segments.sql", import.meta.url) },
+  { name: "0032_experiments.sql", url: new URL("../migrations/0032_experiments.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

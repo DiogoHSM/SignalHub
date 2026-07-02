@@ -70,6 +70,10 @@ export type ApmFilters = {
   limit: number;
 };
 
+export type ExperimentResultFilters = ApmFilters & {
+  experimentId: string;
+};
+
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
 
@@ -202,6 +206,7 @@ export type QueryDependencies = {
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
   getEventClickMap?: (filters: EventClickMapFilters) => Promise<unknown>;
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
+  getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
   getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
   getEventPaths?: (
     filters: ApmFilters & {
@@ -281,6 +286,7 @@ const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
 const errorParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupParamsSchema = z.object({ id: z.string().trim().min(1) });
 const dashboardParamsSchema = z.object({ id: z.string().trim().min(1) });
+const experimentParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupStatusSchema = z.enum(["open", "investigating", "resolved", "ignored"]);
 const errorGroupPrioritySchema = z.enum(["urgent", "high", "normal", "low"]);
 const errorGroupIncidentScopeSchema = z.object({
@@ -813,6 +819,19 @@ function parseApmFilters(query: unknown): ApmFilters | undefined {
     environmentId,
     window: rawWindow,
     limit: parseLimit(raw)
+  };
+}
+
+function parseExperimentResultFilters(params: unknown, query: unknown): ExperimentResultFilters | undefined {
+  const parsedParams = experimentParamsSchema.safeParse(params);
+  const base = parseApmFilters(query);
+  if (!parsedParams.success || !base) {
+    return undefined;
+  }
+
+  return {
+    ...base,
+    experimentId: parsedParams.data.id
   };
 }
 
@@ -1633,6 +1652,32 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
   }
 }
 
+async function handleExperimentResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getExperimentResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseExperimentResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getExperimentResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "experiment_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -2352,6 +2397,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/events/click-map", (request, reply) => handleEventClickMapRoute(request, reply, options));
   app.get("/query/events/paths", (request, reply) => handleEventPathsRoute(request, reply, options));
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
+  app.get("/query/experiments/:id/results", (request, reply) => handleExperimentResultsRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
   app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));

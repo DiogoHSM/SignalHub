@@ -22,6 +22,9 @@ import type {
   ClickInput,
   EndTraceInput,
   ErrorInput,
+  EventInput,
+  ExperimentAssignment,
+  ExperimentAssignmentInput,
   FlushOptions,
   FlushResult,
   IdentifyTenantInput,
@@ -247,6 +250,30 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
       enqueue(createEventSignal(name, properties, context, defaultContext));
     },
 
+    assignExperiment(input: ExperimentAssignmentInput, context?: SignalContext & EventInput): ExperimentAssignment {
+      const variant = assignVariant(input.experimentKey, input.subjectId, input.variants);
+      if (input.trackExposure !== false) {
+        enqueue(
+          createEventSignal(
+            input.exposureEvent ?? "sigmon.experiment.exposed",
+            {
+              experiment_key: input.experimentKey,
+              variant,
+              subject_id: input.subjectId,
+              ...(input.properties ?? {})
+            },
+            context,
+            defaultContext
+          )
+        );
+      }
+      return {
+        experimentKey: input.experimentKey,
+        subjectId: input.subjectId,
+        variant
+      };
+    },
+
     captureError(error: unknown, input?: ErrorInput): void {
       enqueue(createErrorSignal(error, input, defaultContext));
     },
@@ -395,4 +422,33 @@ function combineFlushResults(first: FlushResult, second: FlushResult): FlushResu
     retained: first.retained + second.retained,
     dropped: first.dropped + second.dropped
   };
+}
+
+function assignVariant(experimentKey: string, subjectId: string, variants: ExperimentAssignmentInput["variants"]): string {
+  const normalized = variants
+    .filter((variant) => variant.key.trim() && Number.isFinite(variant.weight) && variant.weight > 0)
+    .map((variant) => ({ key: variant.key.trim(), weight: Math.trunc(variant.weight) }));
+  if (normalized.length === 0) {
+    throw new Error("at least one weighted variant is required");
+  }
+
+  const totalWeight = normalized.reduce((sum, variant) => sum + variant.weight, 0);
+  const bucket = stableHash(`${experimentKey}:${subjectId}`) % totalWeight;
+  let cursor = 0;
+  for (const variant of normalized) {
+    cursor += variant.weight;
+    if (bucket < cursor) {
+      return variant.key;
+    }
+  }
+  return normalized[normalized.length - 1]!.key;
+}
+
+function stableHash(input: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }

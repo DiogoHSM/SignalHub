@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { EventRecord } from "../api/types";
+import type { Experiment, ExperimentResultsResponse } from "../api/types";
 
 type Props = {
   client: ApiClient;
@@ -10,128 +10,77 @@ type Props = {
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "unavailable";
 
-type ExperimentConfig = {
-  experimentProperty: string;
-  variantProperty: string;
-  exposureEvent: string;
-  conversionEvent: string;
+const defaultDraft = {
+  key: "checkout_copy",
+  name: "Checkout copy",
+  conversionEvent: "checkout.completed",
+  variants: "control:50,treatment:50"
 };
-
-type VariantRow = {
-  variant: string;
-  exposures: number;
-  conversions: number;
-  conversionRate: number;
-  liftPoints: number | null;
-};
-
-type VariantInterpretation = {
-  label: string;
-  tone: "neutral" | "positive" | "negative" | "warning";
-};
-
-const minimumReadableExposures = 30;
-
-const defaultConfig: ExperimentConfig = {
-  experimentProperty: "experiment",
-  variantProperty: "variant",
-  exposureEvent: "checkout.exposed",
-  conversionEvent: "checkout.completed"
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function propertyValue(event: EventRecord, property: string): string | null {
-  if (!isRecord(event.properties)) return null;
-  const value = event.properties[property];
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
+  return `${value.toFixed(1)}%`;
 }
 
 function formatLift(value: number | null): string {
   if (value === null) return "Baseline";
   const sign = value > 0 ? "+" : "";
-  return `${sign}${(value * 100).toFixed(1)} pp`;
+  return `${sign}${value.toFixed(1)} pp`;
 }
 
-function interpretVariant(row: VariantRow, index: number): VariantInterpretation {
-  if (index === 0) return { label: "Baseline", tone: "neutral" };
-  if (row.exposures < minimumReadableExposures) return { label: "Needs sample", tone: "warning" };
-  if (row.liftPoints === null || Math.abs(row.liftPoints) < 0.005) return { label: "Flat", tone: "neutral" };
-  return row.liftPoints > 0
-    ? { label: "Directional lead", tone: "positive" }
-    : { label: "Directional lag", tone: "negative" };
+function parseVariants(value: string) {
+  return value
+    .split(",")
+    .map((part) => {
+      const [rawKey, rawWeight] = part.split(":");
+      const key = rawKey?.trim();
+      const weight = Number(rawWeight);
+      return key && Number.isFinite(weight) ? { key, name: key, weight } : null;
+    })
+    .filter((variant): variant is { key: string; name: string; weight: number } => Boolean(variant));
 }
 
-function listExperiments(events: EventRecord[], config: ExperimentConfig): string[] {
-  const experiments = new Set<string>();
-  for (const event of events) {
-    const experiment = propertyValue(event, config.experimentProperty);
-    if (experiment) experiments.add(experiment);
-  }
-  return Array.from(experiments).sort((left, right) => left.localeCompare(right));
-}
-
-function buildVariantRows(events: EventRecord[], config: ExperimentConfig): VariantRow[] {
-  const variants = new Map<string, { exposures: number; conversions: number }>();
-
-  for (const event of events) {
-    const experiment = propertyValue(event, config.experimentProperty);
-    const variant = propertyValue(event, config.variantProperty);
-    if (!experiment || !variant) continue;
-
-    const current = variants.get(variant) ?? { exposures: 0, conversions: 0 };
-    if (event.name === config.exposureEvent) current.exposures += 1;
-    if (event.name === config.conversionEvent) current.conversions += 1;
-    variants.set(variant, current);
-  }
-
-  const rows = Array.from(variants, ([variant, counts]) => ({
-    variant,
-    exposures: counts.exposures,
-    conversions: counts.conversions,
-    conversionRate: counts.exposures === 0 ? 0 : counts.conversions / counts.exposures,
-    liftPoints: null
-  })).sort((left, right) => left.variant.localeCompare(right.variant));
-
-  const baselineRate = rows[0]?.conversionRate ?? null;
-  return rows.map((row, index) => ({
-    ...row,
-    liftPoints: index === 0 || baselineRate === null ? null : row.conversionRate - baselineRate
-  }));
+function interpretation(row: ExperimentResultsResponse["variants"][number], index: number): string {
+  if (index === 0) return "Baseline";
+  if (row.exposures < 30) return "Needs sample";
+  if (row.liftPoints === null || Math.abs(row.liftPoints) < 0.5) return "Flat";
+  return row.liftPoints > 0 ? "Directional lead" : "Directional lag";
 }
 
 export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
-  const [draftConfig, setDraftConfig] = useState<ExperimentConfig>(defaultConfig);
-  const [config, setConfig] = useState<ExperimentConfig>(defaultConfig);
-  const [events, setEvents] = useState<EventRecord[]>([]);
+  const [draft, setDraft] = useState(defaultDraft);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [results, setResults] = useState<ExperimentResultsResponse | null>(null);
   const [state, setState] = useState<LoadState>("idle");
+  const [error, setError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
-  const [selectedExperiment, setSelectedExperiment] = useState("");
 
   useEffect(() => {
     if (!projectId || !environmentId) {
-      setEvents([]);
+      setExperiments([]);
+      setResults(null);
       setState("idle");
+      return;
+    }
+    if (!client.listExperiments) {
+      setState("unavailable");
       return;
     }
 
     let cancelled = false;
     setState("loading");
-    void client.listEvents({ projectId, environmentId, limit: 500 }).then(
-      ({ data }) => {
+    setError("");
+    void client.listExperiments({ projectId, environmentId }).then(
+      ({ experiments: rows }) => {
         if (cancelled) return;
-        setEvents(data);
-        setState(data.length > 0 ? "ready" : "empty");
+        setExperiments(rows);
+        setSelectedId((current) => (rows.some((row) => row.id === current) ? current : rows[0]?.id ?? ""));
+        setState(rows.length > 0 ? "ready" : "empty");
       },
       () => {
         if (cancelled) return;
-        setEvents([]);
+        setExperiments([]);
+        setResults(null);
         setState("unavailable");
       }
     );
@@ -141,117 +90,109 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
     };
   }, [client, environmentId, projectId, reloadToken]);
 
-  const experimentNames = useMemo(() => listExperiments(events, config), [events, config]);
+  const selected = useMemo(() => experiments.find((experiment) => experiment.id === selectedId) ?? null, [experiments, selectedId]);
 
   useEffect(() => {
-    setSelectedExperiment((current) => {
-      if (experimentNames.length === 0) return "";
-      return experimentNames.includes(current) ? current : experimentNames[0];
+    if (!projectId || !environmentId || !selected || !client.getExperimentResults) {
+      setResults(null);
+      return;
+    }
+    let cancelled = false;
+    void client.getExperimentResults({ projectId, environmentId, experimentId: selected.id, window: "30d", limit: 500 }).then(
+      ({ data }) => {
+        if (!cancelled) setResults(data);
+      },
+      () => {
+        if (!cancelled) setResults(null);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selected]);
+
+  async function createExperiment() {
+    if (!projectId || !environmentId || !client.createExperiment) return;
+    const variants = parseVariants(draft.variants);
+    if (variants.length < 2) {
+      setError("Add at least two variants as key:weight pairs.");
+      return;
+    }
+
+    setError("");
+    const response = await client.createExperiment({
+      projectId,
+      environmentId,
+      key: draft.key,
+      name: draft.name,
+      status: "running",
+      actorType: "user",
+      exposureEvent: "sigmon.experiment.exposed",
+      conversionEvent: draft.conversionEvent,
+      variants,
+      primaryMetric: { eventName: draft.conversionEvent, windowHours: 24 }
     });
-  }, [experimentNames]);
-
-  const experimentEvents = useMemo(() => {
-    if (!selectedExperiment) return events;
-    return events.filter((event) => propertyValue(event, config.experimentProperty) === selectedExperiment);
-  }, [config.experimentProperty, events, selectedExperiment]);
-
-  const rows = useMemo(() => buildVariantRows(experimentEvents, config), [experimentEvents, config]);
-  const totalExposures = rows.reduce((sum, row) => sum + row.exposures, 0);
-  const totalConversions = rows.reduce((sum, row) => sum + row.conversions, 0);
-  const bestVariant = rows.reduce<VariantRow | null>(
-    (best, row) => (best === null || row.conversionRate > best.conversionRate ? row : best),
-    null
-  );
-
-  function updateField(field: keyof ExperimentConfig, value: string) {
-    setDraftConfig((current) => ({ ...current, [field]: value }));
-  }
-
-  function applyConfig() {
-    setConfig({
-      experimentProperty: draftConfig.experimentProperty.trim() || defaultConfig.experimentProperty,
-      variantProperty: draftConfig.variantProperty.trim() || defaultConfig.variantProperty,
-      exposureEvent: draftConfig.exposureEvent.trim() || defaultConfig.exposureEvent,
-      conversionEvent: draftConfig.conversionEvent.trim() || defaultConfig.conversionEvent
-    });
+    setExperiments((current) => [response.experiment, ...current]);
+    setSelectedId(response.experiment.id);
+    setState("ready");
   }
 
   return (
     <section className="panel experiments-panel" aria-labelledby="experiments-title">
       <p className="eyebrow">Project Workspace</p>
       <h1 id="experiments-title">Experiments</h1>
-      <p className="muted-text">Event-based A/B readouts from telemetry properties already sent to Sigmon.</p>
+      <p className="muted-text">Create A/B tests, assign variants with the SDK, and read conversion by variant from event telemetry.</p>
 
-      <form
-        className="experiments-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          applyConfig();
-        }}
-      >
+      <div className="experiments-form">
         <label>
-          Experiment property
-          <span>Event property used to group tests.</span>
-          <input
-            aria-label="Experiment property"
-            value={draftConfig.experimentProperty}
-            onChange={(event) => updateField("experimentProperty", event.target.value)}
-          />
+          Experiment key
+          <span>Stable key used by SDK assignment and event properties.</span>
+          <input aria-label="Experiment key" value={draft.key} onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))} />
         </label>
         <label>
-          Variant property
-          <span>Event property used to identify each arm.</span>
-          <input
-            aria-label="Variant property"
-            value={draftConfig.variantProperty}
-            onChange={(event) => updateField("variantProperty", event.target.value)}
-          />
-        </label>
-        <label>
-          Exposure event
-          <span>Event counted as a visitor seeing the variant.</span>
-          <input
-            aria-label="Exposure event"
-            value={draftConfig.exposureEvent}
-            onChange={(event) => updateField("exposureEvent", event.target.value)}
-          />
+          Name
+          <span>Operator-facing title for this test.</span>
+          <input aria-label="Experiment name" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
         </label>
         <label>
           Conversion event
-          <span>Event counted as success for the variant.</span>
+          <span>Event counted as success after exposure.</span>
           <input
             aria-label="Conversion event"
-            value={draftConfig.conversionEvent}
-            onChange={(event) => updateField("conversionEvent", event.target.value)}
+            value={draft.conversionEvent}
+            onChange={(event) => setDraft((current) => ({ ...current, conversionEvent: event.target.value }))}
           />
         </label>
-        <button type="submit">Apply experiment</button>
-      </form>
+        <label>
+          Variants
+          <span>Comma-separated key:weight pairs, for example control:50,treatment:50.</span>
+          <input aria-label="Variants" value={draft.variants} onChange={(event) => setDraft((current) => ({ ...current, variants: event.target.value }))} />
+        </label>
+        <button type="button" onClick={() => void createExperiment()}>
+          Create experiment
+        </button>
+      </div>
 
+      {error ? <p className="status-box unavailable">{error}</p> : null}
       {state === "idle" ? <p className="muted-text">Select a project and environment to analyze experiments.</p> : null}
-      {state === "loading" ? <p className="muted-text">Loading experiment events</p> : null}
+      {state === "loading" ? <p className="muted-text">Loading experiments</p> : null}
       {state === "unavailable" ? (
         <div className="status-box unavailable">
-          <strong>Experiment events unavailable</strong>
+          <strong>Experiments unavailable</strong>
           <button type="button" onClick={() => setReloadToken((current) => current + 1)}>
-            Retry events
+            Retry
           </button>
         </div>
       ) : null}
 
       <label className="experiments-picker">
         Experiment
-        <span>Detected from the configured experiment property.</span>
-        <select
-          aria-label="Experiment"
-          disabled={experimentNames.length === 0}
-          value={selectedExperiment}
-          onChange={(event) => setSelectedExperiment(event.target.value)}
-        >
-          {experimentNames.length === 0 ? <option value="">No experiments found</option> : null}
-          {experimentNames.map((experiment) => (
-            <option key={experiment} value={experiment}>
-              {experiment}
+        <span>Saved experiments for this environment.</span>
+        <select aria-label="Experiment" disabled={experiments.length === 0} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+          {experiments.length === 0 ? <option value="">No experiments yet</option> : null}
+          {experiments.map((experiment) => (
+            <option key={experiment.id} value={experiment.id}>
+              {experiment.name}
             </option>
           ))}
         </select>
@@ -260,33 +201,32 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
       <section className="experiments-readout" aria-label="A/B test readout">
         <div className="panel-header">
           <h2>A/B test readout</h2>
-          <span>{rows.length} variants from {experimentEvents.length} events</span>
+          <span>{results ? `${results.totals.exposures} exposures` : "No result loaded"}</span>
         </div>
-        {rows.length > 0 ? (
+        {results ? (
           <div className="experiments-summary" aria-label="Experiment summary">
             <div>
               <span>Exposures</span>
-              <strong>{totalExposures}</strong>
+              <strong>{results.totals.exposures}</strong>
             </div>
             <div>
               <span>Conversions</span>
-              <strong>{totalConversions}</strong>
+              <strong>{results.totals.conversions}</strong>
             </div>
             <div>
-              <span>Top variant</span>
-              <strong>{bestVariant ? `Variant ${bestVariant.variant}` : "none"}</strong>
+              <span>Variants</span>
+              <strong>{results.totals.variants}</strong>
             </div>
           </div>
         ) : null}
-        {(state === "empty" || (state !== "loading" && state !== "unavailable" && rows.length === 0)) ? (
-          <p className="muted-text">No matching experiment variants in the current event sample.</p>
-        ) : null}
-        {rows.length > 0 ? (
+        {state === "empty" ? <p className="muted-text">No experiments yet. Create one above, then use the SDK assignment helper in your app.</p> : null}
+        {results && results.variants.length > 0 ? (
           <div className="experiments-table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Variant</th>
+                  <th>Weight</th>
                   <th>Exposures</th>
                   <th>Conversions</th>
                   <th>Conversion rate</th>
@@ -295,21 +235,17 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, index) => {
-                  const interpretation = interpretVariant(row, index);
-                  return (
-                    <tr key={row.variant}>
-                      <th scope="row">Variant {row.variant}</th>
-                      <td>{row.exposures} exposures</td>
-                      <td>{row.conversions} conversions</td>
-                      <td>{formatPercent(row.conversionRate)}</td>
-                      <td>{formatLift(row.liftPoints)}</td>
-                      <td>
-                        <span className={`experiments-interpretation ${interpretation.tone}`}>{interpretation.label}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {results.variants.map((row, index) => (
+                  <tr key={row.key}>
+                    <th scope="row">Variant {row.key}</th>
+                    <td>{row.weight}%</td>
+                    <td>{row.exposures}</td>
+                    <td>{row.conversions}</td>
+                    <td>{formatPercent(row.conversionRate)}</td>
+                    <td>{formatLift(row.liftPoints)}</td>
+                    <td>{interpretation(row, index)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

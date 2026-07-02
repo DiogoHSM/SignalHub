@@ -6,6 +6,7 @@ import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
 import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
+import type { ExperimentRecord } from "../../../packages/db/src/repositories/experiments.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -103,6 +104,40 @@ function analyticsDashboard(overrides: Partial<AnalyticsDashboardRecord> = {}): 
 function analyticsDashboardResponse(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     ...analyticsDashboard(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function experiment(overrides: Partial<ExperimentRecord> = {}): ExperimentRecord {
+  return {
+    id: "exp_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "checkout_copy",
+    name: "Checkout copy",
+    description: null,
+    status: "running",
+    actorType: "user",
+    exposureEvent: "sigmon.experiment.exposed",
+    conversionEvent: "checkout.completed",
+    variants: [
+      { key: "control", name: "Control", weight: 50 },
+      { key: "treatment", name: "Treatment", weight: 50 }
+    ],
+    primaryMetric: { eventName: "checkout.completed", windowHours: 24 },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function experimentResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...experiment(),
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: null,
@@ -835,6 +870,103 @@ describe("admin routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_analytics_dashboard_request" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages experiments for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [experiment()]);
+    const create = vi.fn(async (input) => experiment(input));
+    const update = vi.fn(async (input) => experiment({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        experiments: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/experiments?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ experiments: [experimentResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/experiments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "checkout_copy",
+        name: "Checkout copy",
+        actorType: "user",
+        exposureEvent: "sigmon.experiment.exposed",
+        conversionEvent: "checkout.completed",
+        variants: [
+          { key: "control", name: "Control", weight: 50 },
+          { key: "treatment", name: "Treatment", weight: 50 }
+        ],
+        primaryMetric: { eventName: "checkout.completed", windowHours: 24 }
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ key: "checkout_copy", variants: expect.any(Array) }));
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/experiments/exp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "exp_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/experiments/exp_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "exp_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects experiments with fewer than two variants", async () => {
+    const create = vi.fn(async () => experiment());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        experiments: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/experiments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "bad",
+        name: "Bad",
+        variants: [{ key: "only", name: "Only", weight: 100 }]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_experiment_request" });
     expect(create).not.toHaveBeenCalled();
   });
 

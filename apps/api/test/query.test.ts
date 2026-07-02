@@ -1798,6 +1798,38 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("forwards experiment result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getExperimentResults: async (filters) => {
+          receivedFilters.push(filters);
+          return { totals: { exposures: 0, conversions: 0, variants: 0 }, variants: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/experiments/exp_1/results?project_id=prj_1&environment_id=env_1&window=7d"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { totals: { exposures: 0, conversions: 0, variants: 0 }, variants: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        experimentId: "exp_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "7d",
+        limit: 50
+      }
+    ]);
+  });
+
   it("forwards event pathfinder query filters", async () => {
     const receivedFilters: unknown[] = [];
 

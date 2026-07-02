@@ -66,6 +66,27 @@ export interface AnalyticsDashboardsTable {
   archived_at: NullableTimestamp;
 }
 
+export type ExperimentStatus = "draft" | "running" | "paused" | "completed" | "archived";
+export type ExperimentActorType = "user" | "tenant" | "session";
+
+export interface ExperimentsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<ExperimentStatus, ExperimentStatus | undefined, ExperimentStatus>;
+  actor_type: ColumnType<ExperimentActorType, ExperimentActorType | undefined, ExperimentActorType>;
+  exposure_event: string;
+  conversion_event: string;
+  variants: JsonColumn;
+  primary_metric: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -662,6 +683,7 @@ export interface Database {
   project_browser_origins: ProjectBrowserOriginsTable;
   analytics_segments: AnalyticsSegmentsTable;
   analytics_dashboards: AnalyticsDashboardsTable;
+  experiments: ExperimentsTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;

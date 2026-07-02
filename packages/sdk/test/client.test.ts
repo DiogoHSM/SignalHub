@@ -68,6 +68,57 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("assignExperiment returns a deterministic variant and records exposure", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        tenantId: "tenant_1",
+        userId: "user_1"
+      }
+    });
+
+    const first = client.assignExperiment({
+      experimentKey: "checkout_copy",
+      subjectId: "user_1",
+      variants: [
+        { key: "control", weight: 50 },
+        { key: "treatment", weight: 50 }
+      ],
+      properties: { surface: "pricing" }
+    });
+    const second = client.assignExperiment({
+      experimentKey: "checkout_copy",
+      subjectId: "user_1",
+      variants: [
+        { key: "control", weight: 50 },
+        { key: "treatment", weight: 50 }
+      ],
+      trackExposure: false
+    });
+
+    expect(second.variant).toBe(first.variant);
+    expect(first).toMatchObject({ experimentKey: "checkout_copy", subjectId: "user_1" });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/events", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      name: "sigmon.experiment.exposed",
+      properties: {
+        experiment_key: "checkout_copy",
+        variant: first.variant,
+        subject_id: "user_1",
+        surface: "pricing"
+      },
+      tenant_id: "tenant_1",
+      user_id: "user_1",
+      metadata: {}
+    });
+  });
+
   it("webVital enqueues a browser performance metric", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
     const client = createSignalMonitorClient({

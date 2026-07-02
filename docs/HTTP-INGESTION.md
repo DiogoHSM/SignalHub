@@ -142,6 +142,30 @@ Example query:
 GET /query/events/funnel?project_id=prj_123&environment_id=env_123&window=7d&steps=signup.started,project.created,key.created
 ```
 
+### Experiments
+
+Operators can create A/B experiments in the console and read variant conversion with `GET /query/experiments/:id/results`. The SDK helper records exposure as the normal event `sigmon.experiment.exposed` with `experiment_key`, `variant`, and `subject_id` properties. Conversion is derived from the experiment's configured conversion event, grouped by stable actor context.
+
+Example exposure event body:
+
+```json
+{
+  "name": "sigmon.experiment.exposed",
+  "user_id": "user_123",
+  "properties": {
+    "experiment_key": "checkout_copy",
+    "variant": "treatment",
+    "subject_id": "user_123"
+  }
+}
+```
+
+Example result query:
+
+```http
+GET /query/experiments/exp_123/results?project_id=prj_123&environment_id=env_123&window=30d
+```
+
 ### Retention curves
 
 Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Retention uses the first `entry_event` per actor as the cohort start, then counts actors who later emit `return_event` across daily, weekly, or monthly intervals.

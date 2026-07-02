@@ -60,6 +60,7 @@ Operational tables:
 - `monitor_checks`
 - `analytics_segments`
 - `analytics_dashboards`
+- `experiments`
 - `source_map_artifacts`
 - `source_map_upload_tokens`
 - `error_stack_resolutions`
@@ -259,6 +260,8 @@ Saved analytics segments live in `analytics_segments` and are scoped to one proj
 Events can store optional `replay_id` values. The Events detail drawer uses `GET /query/replays/:replayId` to load the privacy-safe replay and overlay linked product events in the same timeline, letting operators move from a product event to surrounding browser context without relying on screenshots or DOM capture. The Events investigation workspace also uses `GET /query/replays` to show replay samples for the active saved segment and current event filters, including user, tenant, route, timestamp, and linked event/error context.
 
 Saved analytics dashboards live in `analytics_dashboards` and are scoped to one project/environment. Dashboard definitions store bounded JSON filters and whitelisted widget definitions, not arbitrary SQL. Admin routes list, create, edit, and archive active dashboards with project/environment-scoped mutations. `GET /query/reports/dashboards/:id` renders a saved dashboard by combining its saved window/filter defaults with `GET /query/overview` aggregates and returns metric, trend, and top-list widget data for the console.
+
+Experiments live in `experiments` and are scoped to one project/environment. The first implementation supports A/B-style experiments with a stable key, actor type, exposure event, conversion event, weighted variants, and a bounded primary metric. The SDK helper deterministically assigns a subject to a variant and records an exposure event. `GET /query/experiments/:id/results` calculates variant exposure, conversion, conversion rate, and lift from normal event telemetry containing `experiment_key` and `variant` properties.
 
 High-volume investigation lists use opaque cursor pagination scoped to the exact project, environment, and active filters. This includes events, errors, LLM calls, traces, trace spans, error groups, source-map artifacts, and monitor check history. Monitor check cursors are additionally bound to the selected monitor id. Query migrations keep composite indexes aligned with the primary drilldown patterns for scope/time, trace id, tenant id, user id, source-map release, alert events, and error group ordering so operator views can page without broad table scans.
 

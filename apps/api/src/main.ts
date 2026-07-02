@@ -37,6 +37,13 @@ import {
   updateAnalyticsDashboard
 } from "@sigmon/db/repositories/analytics-dashboards.js";
 import {
+  archiveExperiment,
+  createExperiment,
+  getExperimentResults,
+  listExperiments,
+  updateExperiment
+} from "@sigmon/db/repositories/experiments.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -615,6 +622,12 @@ const app = await buildApp({
       create: (input) => createAnalyticsDashboard(db, input),
       update: (input) => updateAnalyticsDashboard(db, input),
       archive: (input) => archiveAnalyticsDashboard(db, input)
+    },
+    experiments: {
+      list: (filters) => listExperiments(db, filters),
+      create: (input) => createExperiment(db, input),
+      update: (input) => updateExperiment(db, input),
+      archive: (input) => archiveExperiment(db, input)
     }
   },
   ingestion: {
@@ -652,6 +665,7 @@ const app = await buildApp({
     getEventPropertyCatalog: (filters) => getEventPropertyCatalog(db, filters),
     getEventClickMap: (filters) => getEventClickMap(db, filters),
     getEventFunnel: (filters) => getEventFunnel(db, filters),
+    getExperimentResults: (filters) => getExperimentResults(db, filters),
     getEventPaths: (filters) => getEventPaths(db, filters),
     getEventRetention: (filters) => getEventRetention(db, filters),
     getApmEndpoints: (filters) => getApmEndpoints(db, filters),
