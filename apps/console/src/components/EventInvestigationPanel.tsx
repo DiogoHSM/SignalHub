@@ -5,6 +5,7 @@ import type {
   AnalyticsSegment,
   AnalyticsSegmentActorType,
   AnalyticsSegmentPreview,
+  EventClickMapResponse,
   EventFunnelResponse,
   EventPathActorType,
   EventPathsResponse,
@@ -29,6 +30,7 @@ type CatalogState = "loading" | "ready" | "empty" | "unavailable";
 type FunnelState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type PathState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type RetentionState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
+type ClickMapState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type SegmentState = "loading" | "ready" | "unavailable";
 
 const defaultFilters: EventFilterValues = {
@@ -235,6 +237,103 @@ function parseFunnelSteps(value: string): string[] {
     .map((step) => step.trim())
     .filter(Boolean)
     .slice(0, 12);
+}
+
+function EventClickMapPanel({
+  clickMap,
+  route,
+  selector,
+  state,
+  onRouteChange,
+  onRun,
+  onSelectorChange
+}: {
+  clickMap: EventClickMapResponse | null;
+  route: string;
+  selector: string;
+  state: ClickMapState;
+  onRouteChange: (value: string) => void;
+  onRun: () => void;
+  onSelectorChange: (value: string) => void;
+}) {
+  const gridSize = clickMap?.filters.gridSize ?? 20;
+  const maxClicks = Math.max(1, ...((clickMap?.points ?? []).map((point) => point.clicks)));
+
+  return (
+    <section aria-label="Click map" className="event-click-map">
+      <div className="event-click-map__header">
+        <div>
+          <h3>Click map</h3>
+          <p>Opt-in browser clicks by route. Sigmon stores normalized coordinates and safe selectors, not text, values, DOM, or screenshots.</p>
+        </div>
+        {clickMap ? (
+          <div className="event-click-map__score">
+            <span>Clicks</span>
+            <strong>{clickMap.totals.clicks}</strong>
+            <small>{clickMap.totals.selectors} selectors</small>
+          </div>
+        ) : null}
+      </div>
+      <div className="event-click-map__builder">
+        <label>
+          Route
+          <input value={route} onChange={(event) => onRouteChange(event.target.value)} placeholder="/checkout" />
+        </label>
+        <label>
+          Selector
+          <input value={selector} onChange={(event) => onSelectorChange(event.target.value)} placeholder="Optional selector" />
+        </label>
+        <button disabled={state === "loading"} onClick={onRun} type="button">
+          {state === "loading" ? "Loading" : "Load click map"}
+        </button>
+      </div>
+      {state === "invalid" ? <p className="event-click-map__notice">Add a route to load the click map.</p> : null}
+      {state === "unavailable" ? <p className="event-click-map__notice">Click map unavailable.</p> : null}
+      {state === "ready" && clickMap ? (
+        <div className="event-click-map__content">
+          <svg className="event-click-map__grid" role="img" aria-label={`Click density for ${clickMap.filters.route}`} viewBox="0 0 100 100">
+            <rect className="event-click-map__frame" x="0" y="0" width="100" height="100" rx="2" />
+            {clickMap.points.map((point) => {
+              const size = 100 / gridSize;
+              const opacity = Math.max(0.18, point.clicks / maxClicks);
+              return (
+                <rect
+                  className="event-click-map__cell"
+                  key={`${point.xBucket}:${point.yBucket}`}
+                  x={point.xBucket * size}
+                  y={point.yBucket * size}
+                  width={size}
+                  height={size}
+                  style={{ "--click-strength": String(opacity) } as CSSProperties}
+                />
+              );
+            })}
+          </svg>
+          <div className="event-click-map__lists">
+            <div>
+              <h4>Top selectors</h4>
+              {clickMap.selectors.length === 0 ? <p>No selectors in this route.</p> : null}
+              {clickMap.selectors.slice(0, 8).map((item) => (
+                <button key={item.selector} onClick={() => onSelectorChange(item.selector)} type="button">
+                  <span>{item.selector}</span>
+                  <strong>{item.clicks}</strong>
+                </button>
+              ))}
+            </div>
+            <div>
+              <h4>Routes</h4>
+              {clickMap.routes.slice(0, 8).map((item) => (
+                <button key={item.route} onClick={() => onRouteChange(item.route)} type="button">
+                  <span>{item.route}</span>
+                  <strong>{item.clicks}</strong>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function EventFunnelPanel({
@@ -731,6 +830,10 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [state, setState] = useState<LoadState>("loading");
   const [propertyCatalog, setPropertyCatalog] = useState<EventPropertyCatalogResponse | null>(null);
   const [propertyCatalogState, setPropertyCatalogState] = useState<CatalogState>("loading");
+  const [clickMapRoute, setClickMapRoute] = useState("/");
+  const [clickMapSelector, setClickMapSelector] = useState("");
+  const [clickMap, setClickMap] = useState<EventClickMapResponse | null>(null);
+  const [clickMapState, setClickMapState] = useState<ClickMapState>("idle");
   const [pathStartEvent, setPathStartEvent] = useState("signup.started");
   const [pathEndEvent, setPathEndEvent] = useState("");
   const [pathActorType, setPathActorType] = useState<EventPathActorType>("auto");
@@ -826,6 +929,46 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
 
   function retry() {
     setReloadToken((current) => current + 1);
+  }
+
+  function runClickMap() {
+    const route = clickMapRoute.trim();
+    const selector = clickMapSelector.trim();
+    if (!route) {
+      setClickMap(null);
+      setClickMapState("invalid");
+      return;
+    }
+    if (!client.getEventClickMap) {
+      setClickMap(null);
+      setClickMapState("unavailable");
+      return;
+    }
+
+    setClickMapState("loading");
+    void client
+      .getEventClickMap({
+        projectId,
+        environmentId,
+        window: "7d",
+        route,
+        ...(selector ? { selector } : {}),
+        tenantId: appliedFilters.tenantId.trim() || undefined,
+        userId: appliedFilters.userId.trim() || undefined,
+        sessionId: appliedFilters.sessionId.trim() || undefined,
+        gridSize: 20,
+        limit: 80
+      })
+      .then(
+        ({ data }) => {
+          setClickMap(data);
+          setClickMapState("ready");
+        },
+        () => {
+          setClickMap(null);
+          setClickMapState("unavailable");
+        }
+      );
   }
 
   function runPaths() {
@@ -992,6 +1135,15 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
               }}
               projectId={projectId}
               reloadToken={reloadToken}
+            />
+            <EventClickMapPanel
+              clickMap={clickMap}
+              onRouteChange={setClickMapRoute}
+              onRun={runClickMap}
+              onSelectorChange={setClickMapSelector}
+              route={clickMapRoute}
+              selector={clickMapSelector}
+              state={clickMapState}
             />
             <EventPathfinderPanel
               actorType={pathActorType}

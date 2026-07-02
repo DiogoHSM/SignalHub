@@ -33,6 +33,7 @@ function createWriter(): TelemetryWriter {
     insertTrace: vi.fn(async () => undefined),
     insertSpan: vi.fn(async () => undefined),
     insertWebVital: vi.fn(async () => undefined),
+    insertClickEvent: vi.fn(async () => undefined),
     insertProfile: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
   };
@@ -401,6 +402,56 @@ describe("processTelemetryJob", () => {
         sampleCount: 2,
         topFunctions: [expect.objectContaining({ functionName: "tick", selfTimeMs: 14, sampleCount: 2 })],
         summary: { token: "[REDACTED]" }
+      })
+    );
+  });
+
+  it("persists privacy-safe click map jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "click",
+      id: "clk_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        session_id: "sess_1",
+        source: "web",
+        metadata: { cookie: "session=secret" },
+        route: "/checkout",
+        selector: "[data-sigmon-id=\"pay\"]",
+        element_tag: "button",
+        element_role: "button",
+        x: 0.25,
+        y: 0.75,
+        viewport_width: 1440,
+        viewport_height: 900,
+        scroll_x: 0,
+        scroll_y: 320,
+        masked: true
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertClickEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "clk_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        sessionId: "sess_1",
+        route: "/checkout",
+        selector: "[data-sigmon-id=\"pay\"]",
+        elementTag: "button",
+        elementRole: "button",
+        x: 0.25,
+        y: 0.75,
+        viewportWidth: 1440,
+        viewportHeight: 900,
+        scrollX: 0,
+        scrollY: 320,
+        masked: true,
+        metadata: { cookie: "[REDACTED]" }
       })
     );
   });

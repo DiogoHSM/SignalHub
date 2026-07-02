@@ -78,6 +78,20 @@ export interface InsertWebVitalInput extends TelemetryBaseInput {
   navigationType?: string;
 }
 
+export interface InsertClickEventInput extends TelemetryBaseInput {
+  route: string;
+  selector: string;
+  elementTag?: string;
+  elementRole?: string;
+  x: number;
+  y: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  scrollX?: number;
+  scrollY?: number;
+  masked?: boolean;
+}
+
 export interface InsertProfileFunctionInput {
   functionName: string;
   url?: string;
@@ -364,6 +378,39 @@ export async function insertWebVital(db: Db, input: InsertWebVitalInput): Promis
         rating: input.rating,
         route: nullable(input.route),
         navigation_type: nullable(input.navigationType)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertClickEvent(db: Db, input: InsertClickEventInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("click_events").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const result = await trx
+      .insertInto("click_events")
+      .values({
+        ...baseColumns(input),
+        route: input.route,
+        selector: input.selector,
+        element_tag: nullable(input.elementTag),
+        element_role: nullable(input.elementRole),
+        x: String(input.x),
+        y: String(input.y),
+        viewport_width: input.viewportWidth,
+        viewport_height: input.viewportHeight,
+        scroll_x: nullable(input.scrollX),
+        scroll_y: nullable(input.scrollY),
+        masked: input.masked ?? true
       })
       .onConflict((oc) => oc.column("id").doNothing())
       .returning("id")

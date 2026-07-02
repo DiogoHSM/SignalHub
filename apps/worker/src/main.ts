@@ -9,6 +9,7 @@ import { recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups
 import { backfillErrorGroups } from "@sigmon/db/repositories/error-groups.js";
 import {
   insertBreadcrumb,
+  insertClickEvent,
   insertError,
   insertEvent,
   insertLlmCall,
@@ -88,6 +89,7 @@ const writer: TelemetryWriter = {
   insertTrace: (input) => insertTrace(db, input),
   insertSpan: (input) => insertSpan(db, input),
   insertWebVital: (input) => insertWebVital(db, input),
+  insertClickEvent: (input) => insertClickEvent(db, input),
   insertProfile: (input) => insertProfile(db, input),
   insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 };

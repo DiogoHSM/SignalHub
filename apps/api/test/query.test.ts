@@ -1576,6 +1576,45 @@ describe("query routes", () => {
     expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 25 }]);
   });
 
+  it("forwards event click map query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventClickMap: async (filters) => {
+          receivedFilters.push(filters);
+          return { totals: { clicks: 0, routes: 0, selectors: 0 }, points: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/events/click-map?project_id=prj_1&environment_id=env_1&window=7d&route=%2Fcheckout" +
+        "&selector=%5Bdata-sigmon-id%3D%22submit%22%5D&tenant_id=tenant_1&user_id=user_1&session_id=sess_1&grid_size=30&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { totals: { clicks: 0, routes: 0, selectors: 0 }, points: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "7d",
+        limit: 25,
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        gridSize: 30
+      }
+    ]);
+  });
+
   it("forwards conversion funnel query filters", async () => {
     const receivedFilters: unknown[] = [];
 

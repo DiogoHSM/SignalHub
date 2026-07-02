@@ -8,6 +8,7 @@ export type {
   BreadcrumbInput,
   BreadcrumbLevel,
   BreadcrumbType,
+  ClickInput,
   EndTraceInput,
   ErrorInput,
   ErrorSeverity,
@@ -50,6 +51,7 @@ export type { TraceContext } from "./trace-context.js";
 
 export {
   createBreadcrumbSignal,
+  createClickSignal,
   createErrorSignal,
   createEventSignal,
   createIdentifyTenantSignal,
@@ -67,3 +69,10 @@ export {
   createBrowserBreadcrumbs,
   sanitizeBreadcrumbUrl
 } from "./browser-breadcrumbs.js";
+export type {
+  BrowserClickCaptureOptions,
+  StopBrowserClickCapture
+} from "./browser-clicks.js";
+export {
+  installBrowserClickCapture
+} from "./browser-clicks.js";

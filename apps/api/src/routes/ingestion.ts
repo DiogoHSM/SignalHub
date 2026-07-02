@@ -2,6 +2,7 @@ import type { TelemetryJobKind, TelemetryJobPayload } from "@sigmon/queues";
 import { createId } from "@sigmon/telemetry/ids";
 import {
   breadcrumbPayloadSchema,
+  clickEventPayloadSchema,
   errorPayloadSchema,
   eventPayloadSchema,
   llmCallPayloadSchema,
@@ -33,6 +34,7 @@ const ingestionRoutes: IngestionRouteConfig[] = [
   { path: "/v1/traces", kind: "trace", idPrefix: "trc", schema: tracePayloadSchema },
   { path: "/v1/spans", kind: "span", idPrefix: "spn", schema: spanPayloadSchema },
   { path: "/v1/web-vitals", kind: "web_vital", idPrefix: "wvt", schema: webVitalPayloadSchema },
+  { path: "/v1/clicks", kind: "click", idPrefix: "clk", schema: clickEventPayloadSchema },
   { path: "/v1/profiles", kind: "profile", idPrefix: "prf", schema: profilePayloadSchema },
   { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ];

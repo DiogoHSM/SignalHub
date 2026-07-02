@@ -93,6 +93,8 @@ Archived projects and environments are inactive scopes. Ingestion API key verifi
 
 Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
 
+Opt-in browser click maps are stored in the `click_events` telemetry table. `POST /v1/clicks` accepts normalized viewport coordinates, viewport dimensions, route, safe selector, and optional element tag/role metadata. The browser SDK helper avoids text, values, DOM snapshots, screenshots, and form fields by design. `GET /query/events/click-map` aggregates click density by route, safe selector, and bounded grid bucket for Events investigation. `click_events` expires with the events retention window.
+
 Web Vitals are stored in the `web_vitals` telemetry table. Browser SDK helpers send LCP, INP, CLS, FCP, FID, and TTFB samples through `POST /v1/web-vitals` with route, navigation type, rating, release, and the shared telemetry envelope. `GET /query/apm/web-vitals` aggregates p75 values by metric and route, rating counts, latest/previous release p75 values, and regression percentage for the Traces/APM workspace.
 
 Runtime profiles are stored in the `profiles` telemetry table. Node SDK helpers send bounded opt-in CPU and memory snapshots through `POST /v1/profiles`; custom runtimes can use the same REST contract directly. `GET /query/apm/profiles` aggregates CPU profile count, memory profile count, average duration, latest memory usage, recent profiles, and hot functions for the Traces/APM workspace. Profiles are designed for targeted investigations rather than always-on raw profiler dumps.
@@ -144,6 +146,7 @@ Ingestion:
 - `POST /v1/events`
 - `POST /v1/errors`
 - `POST /v1/breadcrumbs`
+- `POST /v1/clicks`
 - `POST /v1/identify/user`
 - `POST /v1/identify/tenant`
 - `POST /v1/llm`
@@ -202,7 +205,7 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `click_events`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. `click_events` uses the events retention window and is counted with deleted events. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 

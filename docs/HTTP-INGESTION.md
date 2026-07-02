@@ -8,7 +8,7 @@ Use this guide for non-TypeScript clients, smoke tests, and code agents that nee
 
 | Credential | Used by | Keep secret? | Notes |
 | --- | --- | --- | --- |
-| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
+| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
 | Heartbeat secret | `/v1/heartbeats/{id}` | Yes | Generated per heartbeat monitor. Use from cron, workers, and schedulers. |
 | Source-map upload token | `/v1/source-maps` | Yes | CI-only token created from the Artifacts console. |
 | Session cookie | `/admin/*`, `/query/*`, `/system/*` | Browser session only | Used by logged-in human operators and the console. |
@@ -44,6 +44,7 @@ Content-Type: application/json
 | Events | `POST /v1/events` | Ingestion API key |
 | Errors | `POST /v1/errors` | Ingestion API key |
 | Breadcrumbs | `POST /v1/breadcrumbs` | Ingestion API key |
+| Browser click maps | `POST /v1/clicks` | Ingestion API key |
 | LLM calls | `POST /v1/llm` | Ingestion API key |
 | Web Vitals | `POST /v1/web-vitals` | Ingestion API key |
 | Runtime profiles | `POST /v1/profiles` | Ingestion API key |
@@ -171,6 +172,48 @@ GET /query/events/paths?project_id=prj_123&environment_id=env_123&window=7d&star
 ### Custom dashboards and reports
 
 Operators can save custom dashboards in the console and render report data with `GET /query/reports/dashboards/{id}`. Dashboards do not require a separate ingestion payload: metric, trend, and top-list widgets are derived from the same event and error telemetry described above. Keep event names, actor IDs, and properties stable so saved reports stay useful across releases.
+
+### Browser click maps
+
+Click maps are opt-in browser telemetry for aggregated UI density, not session replay. Send normalized
+viewport coordinates and stable safe selectors to `POST /v1/clicks`; do not send text content, input
+values, DOM snapshots, screenshots, or full CSS paths. Prefer the `@sigmon/sdk/browser`
+`installBrowserClickCapture` helper and deliberate `data-sigmon-id` attributes.
+
+Required fields:
+
+- `route`: browser path or route.
+- `selector`: stable safe selector, ideally based on `data-sigmon-id`.
+- `x` and `y`: normalized viewport coordinates from `0` to `1`.
+- `viewport_width` and `viewport_height`: positive viewport dimensions.
+
+Optional fields:
+
+- Shared fields.
+- `element_tag`, `element_role`, `scroll_x`, `scroll_y`, and `masked`.
+
+Example:
+
+```bash
+curl -i https://sigmon.example.com/v1/clicks \
+  -H "Authorization: Bearer sh_browser_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "route": "/checkout",
+    "selector": "[data-sigmon-id=\"checkout-submit\"]",
+    "element_tag": "button",
+    "element_role": "button",
+    "x": 0.72,
+    "y": 0.61,
+    "viewport_width": 1440,
+    "viewport_height": 900,
+    "scroll_x": 0,
+    "scroll_y": 320,
+    "masked": true,
+    "source": "web",
+    "release": "2026.05.02"
+  }'
+```
 
 ## Errors
 

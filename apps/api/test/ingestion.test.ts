@@ -362,6 +362,19 @@ describe("ingestion routes", () => {
 
   it.each([
     ["/v1/errors", "error", /^err_/, { message: "Unhandled exception" }],
+    [
+      "/v1/clicks",
+      "click",
+      /^clk_/,
+      {
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        x: 0.5,
+        y: 0.4,
+        viewport_width: 1280,
+        viewport_height: 720
+      }
+    ],
     ["/v1/llm", "llm", /^llm_/, { provider: "openai", model: "gpt-5" }],
     [
       "/v1/traces",

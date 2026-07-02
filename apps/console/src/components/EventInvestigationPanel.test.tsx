@@ -2,7 +2,14 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { EventFunnelResponse, EventPathsResponse, EventPropertyCatalogResponse, EventRecord, EventRetentionResponse } from "../api/types";
+import type {
+  EventClickMapResponse,
+  EventFunnelResponse,
+  EventPathsResponse,
+  EventPropertyCatalogResponse,
+  EventRecord,
+  EventRetentionResponse
+} from "../api/types";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
 function event(overrides: Partial<EventRecord>): EventRecord {
@@ -52,6 +59,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getEventAggregates: vi.fn(),
     getEventPropertyCatalog: vi.fn().mockResolvedValue({
       data: emptyPropertyCatalog()
+    }),
+    getEventClickMap: vi.fn().mockResolvedValue({
+      data: emptyClickMap()
     }),
     getEventFunnel: vi.fn().mockResolvedValue({
       data: emptyFunnel()
@@ -152,6 +162,20 @@ function emptyRetention(): EventRetentionResponse {
     intervals: 6,
     totals: { cohorts: 0, entrants: 0 },
     cohorts: []
+  };
+}
+
+function emptyClickMap(): EventClickMapResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    filters: { route: "/", selector: null, tenantId: null, userId: null, sessionId: null, gridSize: 20 },
+    totals: { clicks: 0, routes: 0, selectors: 0 },
+    routes: [],
+    selectors: [],
+    points: []
   };
 }
 
@@ -280,6 +304,52 @@ describe("EventInvestigationPanel", () => {
       environmentId: "env_1",
       window: "7d",
       limit: 50
+    });
+  });
+
+  it("loads click map density and selector drilldowns", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "checkout.started" })] }),
+      getEventClickMap: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyClickMap(),
+          filters: { route: "/checkout", selector: null, tenantId: null, userId: null, sessionId: null, gridSize: 20 },
+          totals: { clicks: 3, routes: 1, selectors: 1 },
+          routes: [{ route: "/checkout", clicks: 3, selectors: 1, lastSeenAt: "2026-05-05T12:00:00.000Z" }],
+          selectors: [
+            {
+              selector: '[data-sigmon-id="submit"]',
+              clicks: 3,
+              route: "/checkout",
+              elementTag: "button",
+              elementRole: "button",
+              lastSeenAt: "2026-05-05T12:00:00.000Z"
+            }
+          ],
+          points: [{ xBucket: 10, yBucket: 8, clicks: 3, selectors: 1, lastSeenAt: "2026-05-05T12:00:00.000Z" }]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("Route"));
+    await userEvent.type(screen.getByLabelText("Route"), "/checkout");
+    await userEvent.click(screen.getByRole("button", { name: "Load click map" }));
+
+    expect(await screen.findByRole("region", { name: "Click map" })).toHaveTextContent("Clicks3");
+    expect(screen.getByRole("img", { name: "Click density for /checkout" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Click map" })).toHaveTextContent('[data-sigmon-id="submit"]');
+    expect(api.getEventClickMap).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      route: "/checkout",
+      tenantId: undefined,
+      userId: undefined,
+      sessionId: undefined,
+      gridSize: 20,
+      limit: 80
     });
   });
 

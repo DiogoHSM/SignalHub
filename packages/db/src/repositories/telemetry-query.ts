@@ -101,6 +101,63 @@ export interface EventPropertyCatalogResponse {
   similarNameGroups: EventPropertySimilarNameGroup[];
 }
 
+export interface EventClickMapFilters extends ApmFilters {
+  route: string;
+  selector?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  gridSize?: number;
+}
+
+export interface EventClickMapPoint {
+  xBucket: number;
+  yBucket: number;
+  clicks: number;
+  percent: number;
+}
+
+export interface EventClickMapRoute {
+  route: string;
+  clicks: number;
+}
+
+export interface EventClickMapSelector {
+  selector: string;
+  elementTag: string | null;
+  elementRole: string | null;
+  clicks: number;
+}
+
+export interface EventClickMapResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    route: string;
+    selector: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    gridSize: number;
+  };
+  totals: {
+    clicks: number;
+    routes: number;
+    selectors: number;
+  };
+  routes: EventClickMapRoute[];
+  selectors: EventClickMapSelector[];
+  points: EventClickMapPoint[];
+}
+
 export interface EventFunnelFilters extends ApmFilters {
   steps: string[];
 }
@@ -1546,6 +1603,131 @@ export async function getEventRetention(db: Db, filters: EventRetentionFilters):
       entrants: cohortRows.reduce((sum, cohort) => sum + cohort.entrants, 0)
     },
     cohorts: cohortRows
+  };
+}
+
+export async function getEventClickMap(db: Db, filters: EventClickMapFilters): Promise<EventClickMapResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+  const gridSize = Math.min(100, Math.max(10, Math.trunc(filters.gridSize ?? 20)));
+  const route = filters.route.trim();
+  const selector = filters.selector?.trim() || undefined;
+
+  let baseWhere = sql`
+    project_id = ${filters.projectId}
+    and environment_id = ${filters.environmentId}
+    and timestamp >= ${from}
+    and timestamp < ${to}
+  `;
+  baseWhere = sql`${baseWhere} and route = ${route}`;
+  if (selector) baseWhere = sql`${baseWhere} and selector = ${selector}`;
+  if (filters.tenantId) baseWhere = sql`${baseWhere} and tenant_id = ${filters.tenantId}`;
+  if (filters.userId) baseWhere = sql`${baseWhere} and user_id = ${filters.userId}`;
+  if (filters.sessionId) baseWhere = sql`${baseWhere} and session_id = ${filters.sessionId}`;
+
+  const totals = await sql<{
+    clicks: unknown;
+    routes: unknown;
+    selectors: unknown;
+  }>`
+    select
+      count(*) as clicks,
+      count(distinct route) as routes,
+      count(distinct selector) as selectors
+    from click_events
+    where ${baseWhere}
+  `.execute(db);
+
+  const totalClicks = toNumber(totals.rows[0]?.clicks);
+
+  const pointsResult = await sql<{
+    x_bucket: unknown;
+    y_bucket: unknown;
+    clicks: unknown;
+  }>`
+    select
+      least(${gridSize - 1}, greatest(0, floor(x * ${gridSize})::int)) as x_bucket,
+      least(${gridSize - 1}, greatest(0, floor(y * ${gridSize})::int)) as y_bucket,
+      count(*) as clicks
+    from click_events
+    where ${baseWhere}
+    group by x_bucket, y_bucket
+    order by clicks desc, y_bucket asc, x_bucket asc
+    limit ${limit}
+  `.execute(db);
+
+  const routesResult = await sql<{
+    route: string;
+    clicks: unknown;
+  }>`
+    select route, count(*) as clicks
+    from click_events
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+    group by route
+    order by clicks desc, route asc
+    limit ${limit}
+  `.execute(db);
+
+  const selectorsResult = await sql<{
+    selector: string;
+    element_tag: string | null;
+    element_role: string | null;
+    clicks: unknown;
+  }>`
+    select selector, min(element_tag) as element_tag, min(element_role) as element_role, count(*) as clicks
+    from click_events
+    where ${baseWhere}
+    group by selector
+    order by clicks desc, selector asc
+    limit ${limit}
+  `.execute(db);
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    filters: {
+      route,
+      selector: selector ?? null,
+      tenantId: filters.tenantId ?? null,
+      userId: filters.userId ?? null,
+      sessionId: filters.sessionId ?? null,
+      gridSize
+    },
+    totals: {
+      clicks: totalClicks,
+      routes: toNumber(totals.rows[0]?.routes),
+      selectors: toNumber(totals.rows[0]?.selectors)
+    },
+    routes: routesResult.rows.map((row) => ({
+      route: row.route,
+      clicks: toNumber(row.clicks)
+    })),
+    selectors: selectorsResult.rows.map((row) => ({
+      selector: row.selector,
+      elementTag: row.element_tag,
+      elementRole: row.element_role,
+      clicks: toNumber(row.clicks)
+    })),
+    points: pointsResult.rows.map((row) => {
+      const clicks = toNumber(row.clicks);
+      return {
+        xBucket: toNumber(row.x_bucket),
+        yBucket: toNumber(row.y_bucket),
+        clicks,
+        percent: percentage(clicks, totalClicks)
+      };
+    })
   };
 }
 

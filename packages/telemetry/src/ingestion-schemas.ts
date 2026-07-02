@@ -94,6 +94,20 @@ export const webVitalPayloadSchema = sharedEnvelopeSchema.extend({
   navigation_type: shortTextSchema.optional()
 });
 
+export const clickEventPayloadSchema = sharedEnvelopeSchema.extend({
+  route: shortTextSchema,
+  selector: shortTextSchema,
+  element_tag: shortTextSchema.optional(),
+  element_role: shortTextSchema.optional(),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  viewport_width: z.number().int().positive().max(20_000),
+  viewport_height: z.number().int().positive().max(20_000),
+  scroll_x: z.number().int().nonnegative().max(1_000_000).optional(),
+  scroll_y: z.number().int().nonnegative().max(1_000_000).optional(),
+  masked: z.boolean().default(true)
+});
+
 const profileFunctionSchema = z.object({
   function_name: shortTextSchema,
   url: z.string().max(MEDIUM_TEXT_MAX).optional(),
@@ -185,6 +199,7 @@ export type LlmCallPayload = z.infer<typeof llmCallPayloadSchema>;
 export type TracePayload = z.infer<typeof tracePayloadSchema>;
 export type SpanPayload = z.infer<typeof spanPayloadSchema>;
 export type WebVitalPayload = z.infer<typeof webVitalPayloadSchema>;
+export type ClickEventPayload = z.infer<typeof clickEventPayloadSchema>;
 export type ProfilePayload = z.infer<typeof profilePayloadSchema>;
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 export type UserIdentifyPayload = z.infer<typeof userIdentifyPayloadSchema>;

@@ -1,6 +1,7 @@
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
   breadcrumbPayloadSchema,
+  clickEventPayloadSchema,
   eventPayloadSchema,
   errorPayloadSchema,
   llmCallPayloadSchema,
@@ -13,6 +14,7 @@ import { sanitizePreviewText, sanitizeValue } from "@sigmon/telemetry/sanitizati
 import type { InsertDeadLetterJobInput } from "@sigmon/db/repositories/dead-letter.js";
 import type {
   InsertBreadcrumbInput,
+  InsertClickEventInput,
   InsertErrorInput,
   InsertEventInput,
   InsertLlmCallInput,
@@ -29,6 +31,7 @@ export type TelemetryWriter = {
   insertTrace(input: InsertTraceInput): Promise<void>;
   insertSpan(input: InsertSpanInput): Promise<void>;
   insertWebVital(input: InsertWebVitalInput): Promise<void>;
+  insertClickEvent(input: InsertClickEventInput): Promise<void>;
   insertProfile(input: InsertProfileInput): Promise<void>;
   insertBreadcrumb?(input: InsertBreadcrumbInput): Promise<void>;
 };
@@ -210,6 +213,25 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         rating: payload.rating,
         route: payload.route,
         navigationType: payload.navigation_type
+      });
+      return;
+    }
+
+    case "click": {
+      const payload = clickEventPayloadSchema.parse(job.payload);
+      await writer.insertClickEvent({
+        ...baseInput(job, payload, receivedAt),
+        route: payload.route,
+        selector: payload.selector,
+        elementTag: payload.element_tag,
+        elementRole: payload.element_role,
+        x: payload.x,
+        y: payload.y,
+        viewportWidth: payload.viewport_width,
+        viewportHeight: payload.viewport_height,
+        scrollX: payload.scroll_x,
+        scrollY: payload.scroll_y,
+        masked: payload.masked
       });
       return;
     }

@@ -438,6 +438,27 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes event click map query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { points: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventClickMap?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      route: "/checkout",
+      selector: '[data-sigmon-id="submit"]',
+      tenantId: "tenant_1",
+      gridSize: 20,
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/click-map?project_id=prj_1&environment_id=env_1&window=7d&route=%2Fcheckout&selector=%5Bdata-sigmon-id%3D%22submit%22%5D&tenant_id=tenant_1&grid_size=20&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes event funnel query params", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { steps: [] } }));
     vi.stubGlobal("fetch", fetchMock);

@@ -73,6 +73,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Event rows should prioritize event name, immutable id, timestamp, source, user, tenant, trace/session context, and compact property chips for quick scanning.
 - Investigation detail drawers, event rows, filters, and aggregate strips should share the dark console surface language so raw telemetry inspection feels like one professional workspace.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.
+- Events investigation includes a click map panel for opt-in browser click density. Operators enter a route, optionally filter by safe selector, and inspect an aggregated heat grid plus top selectors/routes. The panel must explain that Sigmon stores normalized coordinates and safe selectors only, not text, values, DOM snapshots, or screenshots.
 - Missing project/environment state should point operators back to Setup.
 - Keep Events and Errors as peer tabs inside `Investigate`.
 - Errors default to grouped triage when opened from the top-level Investigate tab, making the error workspace an incident-response entry point before raw log inspection.

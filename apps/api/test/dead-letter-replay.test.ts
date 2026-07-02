@@ -68,6 +68,50 @@ describe("replayDeadLetterTelemetryJob", () => {
     expect(calls).toEqual(["enqueue", "delete"]);
   });
 
+  it("validates click map telemetry dead-letter jobs", async () => {
+    const getDeadLetterJob = vi.fn(async () =>
+      deadLetterJob({
+        jobName: "click",
+        payload: {
+          kind: "click",
+          id: "clk_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          payload: {
+            route: "/checkout",
+            selector: '[data-sigmon-id="submit"]',
+            x: 0.5,
+            y: 0.4,
+            viewport_width: 1280,
+            viewport_height: 720
+          }
+        }
+      })
+    );
+    const enqueueReplay = vi.fn(async () => undefined);
+
+    await expect(
+      replayDeadLetterTelemetryJob(
+        {
+          getDeadLetterJob,
+          enqueueReplay,
+          deleteDeadLetterJob: async () => true,
+          createReplayAttemptId: () => "rpl_1"
+        },
+        "dlj_1"
+      )
+    ).resolves.toBe("replayed");
+
+    expect(enqueueReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "click",
+        id: "clk_1",
+        payload: expect.objectContaining({ route: "/checkout", masked: true })
+      }),
+      "dlj_1|rpl_1"
+    );
+  });
+
   it("uses a new replay attempt id each time the same dead-letter row is retried", async () => {
     let attempt = 0;
     const getDeadLetterJob = vi.fn(async () => deadLetterJob());

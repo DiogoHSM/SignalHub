@@ -1,5 +1,6 @@
 import {
   createBreadcrumbSignal,
+  createClickSignal,
   createErrorSignal,
   createEventSignal,
   createIdentifyTenantSignal,
@@ -17,6 +18,7 @@ import { createTraceContext, traceContextHeaders } from "./trace-context.js";
 import type {
   ActiveTrace,
   BreadcrumbInput,
+  ClickInput,
   EndTraceInput,
   ErrorInput,
   FlushOptions,
@@ -307,6 +309,10 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
 
     webVital(input: WebVitalInput, context?: SignalContext): void {
       enqueue(createWebVitalSignal(input, context, defaultContext));
+    },
+
+    click(input: ClickInput, context?: SignalContext): void {
+      enqueue(createClickSignal(input, context, defaultContext));
     },
 
     profile(input: RuntimeProfileInput, context?: SignalContext): void {

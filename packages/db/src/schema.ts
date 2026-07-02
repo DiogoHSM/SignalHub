@@ -302,6 +302,32 @@ export interface WebVitalsTable {
   navigation_type: string | null;
 }
 
+export interface ClickEventsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  route: string;
+  selector: string;
+  element_tag: string | null;
+  element_role: string | null;
+  x: RequiredNumericString;
+  y: RequiredNumericString;
+  viewport_width: number;
+  viewport_height: number;
+  scroll_x: number | null;
+  scroll_y: number | null;
+  masked: DefaultedBoolean;
+}
+
 export interface ProfilesTable {
   id: string;
   project_id: string;
@@ -622,6 +648,7 @@ export interface Database {
   traces: TracesTable;
   spans: SpansTable;
   web_vitals: WebVitalsTable;
+  click_events: ClickEventsTable;
   profiles: ProfilesTable;
   dead_letter_jobs: DeadLetterJobsTable;
   dead_letter_job_actions: DeadLetterJobActionsTable;

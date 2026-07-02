@@ -87,6 +87,7 @@ import {
 } from "../src/repositories/users.js";
 import {
   insertBreadcrumb,
+  insertClickEvent,
   insertError,
   insertEvent,
   insertLlmCall,
@@ -99,6 +100,7 @@ import {
   buildBucketAxis,
   getErrorAggregates,
   getEventAggregates,
+  getEventClickMap,
   getEventFunnel,
   getEventPaths,
   getEventPropertyCatalog,
@@ -1615,6 +1617,73 @@ describe("repositories", () => {
         level: "info",
         data: { from: "/cart", to: "/checkout" }
       });
+    });
+  });
+
+  it("persists and aggregates browser click map samples", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Click Map Writes" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "clk_repository",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        traceId: "trc_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:01.000Z"),
+        source: "browser",
+        release: "1.2.3",
+        metadata: { safe: true },
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        elementTag: "button",
+        elementRole: "button",
+        x: 0.62,
+        y: 0.48,
+        viewportWidth: 1440,
+        viewportHeight: 900,
+        scrollX: 0,
+        scrollY: 320,
+        masked: true
+      };
+
+      await insertClickEvent(db, input);
+      await insertClickEvent(db, input);
+      await insertClickEvent(db, { ...input, id: "clk_repository_other", x: 0.64, y: 0.48 });
+
+      const rows = await db
+        .selectFrom("click_events")
+        .select(["id", "route", "selector", "x", "y", "viewport_width", "masked"])
+        .where("project_id", "=", project.id)
+        .execute();
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        viewport_width: 1440,
+        masked: true
+      });
+
+      const clickMap = await getEventClickMap(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        route: "/checkout",
+        window: "7d",
+        now: new Date("2026-05-12T12:00:00.000Z"),
+        gridSize: 20,
+        limit: 10
+      });
+
+      expect(clickMap.totals.clicks).toBe(2);
+      expect(clickMap.selectors[0]).toMatchObject({ selector: '[data-sigmon-id="submit"]', clicks: 2 });
+      expect(clickMap.points).toEqual(
+        expect.arrayContaining([expect.objectContaining({ xBucket: 12, yBucket: expect.any(Number), clicks: 2 })])
+      );
     });
   });
 
@@ -5554,6 +5623,60 @@ describe("repositories", () => {
       await expect(
         db.selectFrom("breadcrumbs").select("id").where("id", "=", "brd_new").executeTakeFirst()
       ).resolves.toBeTruthy();
+    });
+  });
+
+  it("deletes expired click map samples with event retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Click Retention Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        x: 0.5,
+        y: 0.5,
+        viewportWidth: 1280,
+        viewportHeight: 720
+      };
+
+      await insertClickEvent(db, {
+        ...base,
+        id: "clk_old",
+        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-01-01T00:00:00.000Z")
+      });
+      await insertClickEvent(db, {
+        ...base,
+        id: "clk_new",
+        timestamp: new Date("2026-05-10T00:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T00:00:00.000Z")
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        now: new Date("2026-05-11T00:00:00.000Z"),
+        batchSize: 100,
+        eventsDays: 30,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        profilesDays: 30,
+        breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      });
+
+      expect(deleted.events).toBe(1);
+      await expect(db.selectFrom("click_events").select("id").where("id", "=", "clk_old").executeTakeFirst())
+        .resolves.toBeUndefined();
+      await expect(db.selectFrom("click_events").select("id").where("id", "=", "clk_new").executeTakeFirst())
+        .resolves.toBeTruthy();
     });
   });
 

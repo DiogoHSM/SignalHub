@@ -110,6 +110,10 @@ Custom dashboards and saved reports are also derived from normal event and error
 need a dashboard-specific SDK call; keep event naming, actor IDs, and product properties consistent so
 operators can compose stable metric, trend, and top-list widgets in the Sigmon console.
 
+Click maps are separate from click breadcrumbs. Breadcrumbs tell the story around an error or session;
+click maps aggregate opt-in browser coordinates by route and safe selector. Add stable
+`data-sigmon-id` attributes to meaningful controls before enabling click capture.
+
 Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
 
 ```ts
@@ -215,6 +219,7 @@ import { useEffect } from "react";
 import {
   createSignalMonitorClient,
   installBrowserErrorCapture,
+  installBrowserClickCapture,
   installBrowserWebVitals
 } from "@sigmon/sdk/browser";
 
@@ -235,10 +240,51 @@ export function SignalMonitorBrowserCapture() {
       metadata: { service: "web" },
       flush: true
     });
+    const stopClicks = installBrowserClickCapture(sigmonBrowser, {
+      enabled: true,
+      route: () => window.location.pathname,
+      flush: true
+    });
     return () => {
+      stopClicks();
       stopVitals();
       stopErrors();
     };
+  }, []);
+
+  return null;
+}
+```
+
+Install browser click map capture only after reviewing privacy expectations for the monitored app.
+The helper sends normalized viewport coordinates to `/v1/clicks`, uses `data-sigmon-id` when present,
+falls back to minimal tag/role selectors, ignores form fields and `contenteditable` regions, respects
+`data-sigmon-ignore`, and never sends text content, input values, DOM snapshots, or screenshots.
+
+```tsx
+"use client";
+
+import { useEffect } from "react";
+import { createSignalMonitorClient, installBrowserClickCapture } from "@sigmon/sdk/browser";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY ?? "",
+  defaultContext: {
+    source: "web",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+export function SignalMonitorClickMaps() {
+  useEffect(() => {
+    return installBrowserClickCapture(sigmonBrowser, {
+      enabled: true,
+      route: () => window.location.pathname,
+      selectorAttribute: "data-sigmon-id",
+      ignoreSelectors: ["[data-sigmon-ignore]"],
+      flush: true
+    });
   }, []);
 
   return null;

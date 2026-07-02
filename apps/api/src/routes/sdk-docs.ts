@@ -500,6 +500,7 @@ import { useEffect } from "react";
 import {
   createSignalMonitorClient,
   installBrowserErrorCapture,
+  installBrowserClickCapture,
   installBrowserWebVitals
 } from "@sigmon/sdk/browser";
 
@@ -524,7 +525,13 @@ export function SignalMonitorBrowserCapture() {
       metadata: { service: "web" },
       flush: true
     });
+    const stopClicks = installBrowserClickCapture(sigmonBrowser, {
+      enabled: true,
+      route: () => window.location.pathname,
+      flush: true
+    });
     return () => {
+      stopClicks();
       stopVitals();
       stopErrors();
     };
@@ -537,6 +544,20 @@ export function SignalMonitorBrowserCapture() {
               <code>installBrowserWebVitals</code> captures LCP, INP, CLS, FCP, FID, and TTFB as
               route-level samples. The APM Traces view shows p75 by route and release regression.
             </p>
+            <h3>Browser click maps</h3>
+            <p>
+              <code>installBrowserClickCapture</code> is opt-in and sends normalized viewport
+              coordinates to <code>/v1/clicks</code>. It prefers stable <code>data-sigmon-id</code>
+              selectors, ignores form fields and <code>data-sigmon-ignore</code> regions, and never
+              sends text, input values, DOM snapshots, or screenshots.
+            </p>
+            <pre><code>const stopClicks = installBrowserClickCapture(sigmonBrowser, {
+  enabled: true,
+  route: () => window.location.pathname,
+  selectorAttribute: "data-sigmon-id",
+  ignoreSelectors: ["[data-sigmon-ignore]"],
+  flush: true
+});</code></pre>
             <h3>Node runtime profiles</h3>
             <p>
               CPU and memory profiling is opt-in and bounded. Use it around worker jobs, cron tasks,

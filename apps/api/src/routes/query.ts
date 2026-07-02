@@ -65,6 +65,15 @@ export type ApmFilters = {
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
 
+export type EventClickMapFilters = ApmFilters & {
+  route: string;
+  selector?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  gridSize?: number;
+};
+
 export type EntityWindow = "24h" | "7d" | "30d";
 
 export type EntitySignalType = "event" | "error" | "trace" | "llm";
@@ -182,6 +191,7 @@ export type QueryDependencies = {
   getOverview?: (filters: OverviewFilters) => Promise<unknown>;
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
+  getEventClickMap?: (filters: EventClickMapFilters) => Promise<unknown>;
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
   getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
   getEventPaths?: (
@@ -764,6 +774,37 @@ function parseApmFilters(query: unknown): ApmFilters | undefined {
     window: rawWindow,
     limit: parseLimit(raw)
   };
+}
+
+function parseEventClickMapFilters(query: unknown): EventClickMapFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const base = parseApmFilters(query);
+  const route = optionalNonEmpty(raw, "route");
+  if (!base || !route) {
+    return undefined;
+  }
+
+  const gridRaw = optionalNonEmpty(raw, "grid_size");
+  const gridSize = gridRaw === undefined ? undefined : Number(gridRaw);
+  if (gridSize !== undefined && (!Number.isFinite(gridSize) || gridSize < 10 || gridSize > 100)) {
+    return undefined;
+  }
+
+  const filters: EventClickMapFilters = {
+    ...base,
+    route
+  };
+  const selector = optionalNonEmpty(raw, "selector");
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const userId = optionalNonEmpty(raw, "user_id");
+  const sessionId = optionalNonEmpty(raw, "session_id");
+  if (selector) filters.selector = selector;
+  if (tenantId) filters.tenantId = tenantId;
+  if (userId) filters.userId = userId;
+  if (sessionId) filters.sessionId = sessionId;
+  if (gridSize !== undefined) filters.gridSize = Math.trunc(gridSize);
+
+  return filters;
 }
 
 function parseEventPathFilters(
@@ -1486,6 +1527,28 @@ async function handleEventPropertyCatalogRoute(request: FastifyRequest, reply: F
   }
 }
 
+async function handleEventClickMapRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventClickMap) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventClickMapFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventClickMap(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -2171,6 +2234,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/apm/web-vitals", (request, reply) => handleWebVitalsRoute(request, reply, options));
   app.get("/query/apm/profiles", (request, reply) => handleRuntimeProfilesRoute(request, reply, options));
   app.get("/query/events/properties", (request, reply) => handleEventPropertyCatalogRoute(request, reply, options));
+  app.get("/query/events/click-map", (request, reply) => handleEventClickMapRoute(request, reply, options));
   app.get("/query/events/paths", (request, reply) => handleEventPathsRoute(request, reply, options));
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));

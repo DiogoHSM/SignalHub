@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createBreadcrumbSignal,
+  createClickSignal,
   createErrorSignal,
   createEventSignal,
   createIdentifyTenantSignal,
@@ -82,6 +83,45 @@ describe("payload mapping", () => {
         user_id: "user_1",
         session_id: "session_1",
         trace_id: "trace_1",
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps click samples to /v1/clicks without unsafe DOM data", () => {
+    expect(
+      createClickSignal(
+        {
+          route: "/checkout?token=secret",
+          selector: '[data-sigmon-id="submit"]',
+          elementTag: "button",
+          elementRole: "button",
+          x: 0.72,
+          y: 0.61,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          scrollX: 0,
+          scrollY: 320
+        },
+        { source: "browser", release: "1.2.3" }
+      )
+    ).toEqual({
+      kind: "click",
+      endpointPath: "/v1/clicks",
+      payload: {
+        route: "/checkout?token=secret",
+        selector: '[data-sigmon-id="submit"]',
+        element_tag: "button",
+        element_role: "button",
+        x: 0.72,
+        y: 0.61,
+        viewport_width: 1440,
+        viewport_height: 900,
+        scroll_x: 0,
+        scroll_y: 320,
+        masked: true,
+        source: "browser",
+        release: "1.2.3",
         metadata: {}
       }
     });

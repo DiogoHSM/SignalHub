@@ -114,6 +114,20 @@ export type WebVitalInput = EventInput & {
   metadata?: SignalMetadata;
 };
 
+export type ClickInput = EventInput & {
+  route: string;
+  selector: string;
+  elementTag?: string;
+  elementRole?: string;
+  x: number;
+  y: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  scrollX?: number;
+  scrollY?: number;
+  masked?: boolean;
+};
+
 export type RuntimeProfileFunction = {
   functionName: string;
   url?: string;
@@ -197,6 +211,7 @@ export type SignalMonitorClient = {
   startTrace: (name: string, input?: StartTraceInput & SignalContext) => ActiveTrace;
   span: (input: SpanInput, context?: SignalContext) => void;
   webVital: (input: WebVitalInput, context?: SignalContext) => void;
+  click: (input: ClickInput, context?: SignalContext) => void;
   profile: (input: RuntimeProfileInput, context?: SignalContext) => void;
   identify: (context: SignalContext) => void;
   identifyUser: (userId: string, traits?: SignalMetadata, context?: IdentifyUserInput) => void;
@@ -212,6 +227,7 @@ export type SignalKind =
   | "trace"
   | "span"
   | "web_vital"
+  | "click"
   | "profile"
   | "breadcrumb"
   | "identify_user"

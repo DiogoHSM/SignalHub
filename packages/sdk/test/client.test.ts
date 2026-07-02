@@ -96,6 +96,44 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("click enqueues a privacy-safe click map sample", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.click({
+      route: "/checkout",
+      selector: '[data-sigmon-id="submit"]',
+      x: 0.5,
+      y: 0.4,
+      viewportWidth: 1280,
+      viewportHeight: 720
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/clicks", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      route: "/checkout",
+      selector: '[data-sigmon-id="submit"]',
+      x: 0.5,
+      y: 0.4,
+      viewport_width: 1280,
+      viewport_height: 720,
+      masked: true,
+      session_id: "sess_1",
+      source: "browser",
+      metadata: {}
+    });
+  });
+
   it("retains retryable failures by default and discards them when requested", async () => {
     const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));

@@ -2,6 +2,7 @@ import type { DeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
   breadcrumbPayloadSchema,
+  clickEventPayloadSchema,
   eventPayloadSchema,
   errorPayloadSchema,
   llmCallPayloadSchema,
@@ -11,7 +12,7 @@ import {
 import { z } from "zod";
 
 const deadLetterTelemetryPayloadSchema = z.object({
-  kind: z.enum(["event", "error", "llm", "trace", "span", "breadcrumb"]),
+  kind: z.enum(["event", "error", "llm", "trace", "span", "breadcrumb", "click"]),
   id: z.string().min(1),
   projectId: z.string().min(1),
   environmentId: z.string().min(1),
@@ -73,6 +74,8 @@ function parseTelemetryPayloadByKind(kind: TelemetryJobPayload["kind"], payload:
       return parsePayload(spanPayloadSchema, payload);
     case "breadcrumb":
       return parsePayload(breadcrumbPayloadSchema, payload);
+    case "click":
+      return parsePayload(clickEventPayloadSchema, payload);
   }
 }
 

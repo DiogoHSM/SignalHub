@@ -31,6 +31,8 @@ import type {
   IncidentMttrQuery,
   IncidentMttrResult,
   ErrorRecord,
+  EventClickMapQuery,
+  EventClickMapResponse,
   EventFunnelQuery,
   EventFunnelResponse,
   EventPathsQuery,
@@ -295,6 +297,7 @@ export type ApiClient = {
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
+  getEventClickMap?: (query: EventClickMapQuery) => Promise<AggregateResponse<EventClickMapResponse>>;
   getEventFunnel?: (query: EventFunnelQuery) => Promise<AggregateResponse<EventFunnelResponse>>;
   getEventPaths?: (query: EventPathsQuery) => Promise<AggregateResponse<EventPathsResponse>>;
   getEventRetention?: (query: EventRetentionQuery) => Promise<AggregateResponse<EventRetentionResponse>>;
@@ -604,6 +607,22 @@ function eventPropertyCatalogPath(query: ApmQuery): string {
   if (query.limit !== undefined) params.set("limit", String(query.limit));
 
   return `/query/events/properties?${params.toString()}`;
+}
+
+function eventClickMapPath(query: EventClickMapQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  params.set("route", query.route);
+  if (query.selector) params.set("selector", query.selector);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.sessionId) params.set("session_id", query.sessionId);
+  if (query.gridSize !== undefined) params.set("grid_size", String(query.gridSize));
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/events/click-map?${params.toString()}`;
 }
 
 function eventFunnelPath(query: EventFunnelQuery): string {
@@ -1034,6 +1053,8 @@ export function createApiClient(
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getEventPropertyCatalog: (query) =>
       request<AggregateResponse<EventPropertyCatalogResponse>>(path(apiBasePath, eventPropertyCatalogPath(query))),
+    getEventClickMap: (query) =>
+      request<AggregateResponse<EventClickMapResponse>>(path(apiBasePath, eventClickMapPath(query))),
     getEventFunnel: (query) => request<AggregateResponse<EventFunnelResponse>>(path(apiBasePath, eventFunnelPath(query))),
     getEventPaths: (query) => request<AggregateResponse<EventPathsResponse>>(path(apiBasePath, eventPathsPath(query))),
     getEventRetention: (query) => request<AggregateResponse<EventRetentionResponse>>(path(apiBasePath, eventRetentionPath(query))),

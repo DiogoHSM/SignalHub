@@ -1,5 +1,6 @@
 import type {
   BreadcrumbInput,
+  ClickInput,
   ErrorInput,
   EventInput,
   IdentifyTenantInput,
@@ -267,6 +268,34 @@ export function createWebVitalSignal(
   return {
     kind: "web_vital",
     endpointPath: "/v1/web-vitals",
+    payload
+  };
+}
+
+export function createClickSignal(
+  input: ClickInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    route: input.route,
+    selector: input.selector,
+    x: input.x,
+    y: input.y,
+    viewport_width: input.viewportWidth,
+    viewport_height: input.viewportHeight,
+    masked: input.masked ?? true
+  };
+
+  assignDefined(payload, "element_tag", input.elementTag);
+  assignDefined(payload, "element_role", input.elementRole);
+  assignDefined(payload, "scroll_x", input.scrollX);
+  assignDefined(payload, "scroll_y", input.scrollY);
+
+  return {
+    kind: "click",
+    endpointPath: "/v1/clicks",
     payload
   };
 }

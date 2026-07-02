@@ -210,6 +210,51 @@ export type EventPropertyCatalogResponse = {
   similarNameGroups: EventPropertySimilarNameGroup[];
 };
 
+export type EventClickMapQuery = ApmQuery & {
+  route: string;
+  selector?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  gridSize?: number;
+};
+
+export type EventClickMapPoint = {
+  xBucket: number;
+  yBucket: number;
+  clicks: number;
+  percent: number;
+};
+
+export type EventClickMapResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    route: string;
+    selector: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    gridSize: number;
+  };
+  totals: {
+    clicks: number;
+    routes: number;
+    selectors: number;
+  };
+  routes: Array<{ route: string; clicks: number }>;
+  selectors: Array<{ selector: string; elementTag: string | null; elementRole: string | null; clicks: number }>;
+  points: EventClickMapPoint[];
+};
+
 export type EventFunnelQuery = ApmQuery & {
   steps: string[];
 };

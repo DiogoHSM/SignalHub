@@ -5,6 +5,7 @@ import type { SignalMonitorClient } from "../src/types.js";
 function makeClient(): SignalMonitorClient {
   return {
     track: vi.fn(),
+    click: vi.fn(),
     captureError: vi.fn(),
     breadcrumb: vi.fn(),
     llm: vi.fn(),

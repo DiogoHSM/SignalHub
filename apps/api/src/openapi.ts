@@ -94,7 +94,7 @@ const identifyOperation = (
   }
 });
 
-const apiDescription = `Self-hosted telemetry API for product events, errors, breadcrumbs, LLM calls, traces, spans, Web Vitals, source maps, and operator workflows.
+const apiDescription = `Self-hosted telemetry API for product events, errors, breadcrumbs, browser click maps, LLM calls, traces, spans, Web Vitals, source maps, and operator workflows.
 
 ## Integration guide
 
@@ -109,7 +109,7 @@ Raw HTTP remains the stable contract for other languages, automation, and direct
 3. Use server-only variables such as \`SIGMON_ENDPOINT\` and \`SIGMON_API_KEY\` for API routes, workers, server actions, and scheduled jobs.
 4. Use browser variables such as \`NEXT_PUBLIC_SIGMON_ENDPOINT\` and \`NEXT_PUBLIC_SIGMON_BROWSER_KEY\` only with a browser-scoped ingestion key.
 5. Send \`identifyUser\` / \`POST /v1/identify/user\` after login or session load, and \`identifyTenant\` / \`POST /v1/identify/tenant\` after tenant/workspace selection.
-6. Send events, errors, breadcrumbs, traces, spans, Web Vitals, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
+6. Send events, errors, breadcrumbs, click maps, traces, spans, Web Vitals, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
 7. Upload source maps from CI for minified browser bundles so production stacks can be resolved.
 
 ## Key model
@@ -279,6 +279,37 @@ export const openApiDocument = {
           trace_id: { type: "string" },
           source: { type: "string" },
           release: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      ClickEventPayload: {
+        type: "object",
+        required: ["route", "selector", "x", "y", "viewport_width", "viewport_height"],
+        description:
+          "Opt-in browser click map sample. Stores normalized viewport coordinates and privacy-safe selectors only; do not send text content, form values, DOM snapshots, or screenshots.",
+        properties: {
+          route: { type: "string", description: "Browser route or path where the click occurred.", examples: ["/checkout"] },
+          selector: {
+            type: "string",
+            description: "Stable safe selector. Prefer a deliberate data-sigmon-id value instead of generated DOM paths.",
+            examples: ['[data-sigmon-id="checkout-submit"]']
+          },
+          element_tag: { type: "string", description: "Optional lower-case element tag, for example button or a." },
+          element_role: { type: "string", description: "Optional ARIA role when available." },
+          x: { type: "number", minimum: 0, maximum: 1, description: "Normalized viewport x coordinate from 0 to 1." },
+          y: { type: "number", minimum: 0, maximum: 1, description: "Normalized viewport y coordinate from 0 to 1." },
+          viewport_width: { type: "integer", minimum: 1 },
+          viewport_height: { type: "integer", minimum: 1 },
+          scroll_x: { type: "integer" },
+          scroll_y: { type: "integer" },
+          masked: { type: "boolean", default: true, description: "True when the SDK captured the click through the privacy-safe browser helper." },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["web"] },
+          release: { type: "string", description: "Application version or deploy id." },
           metadata: { type: "object", additionalProperties: true },
           timestamp: { type: "string", format: "date-time" }
         }
@@ -678,6 +709,28 @@ export const openApiDocument = {
         category: "checkout",
         message: "Selected shipping method"
       })
+    },
+    "/v1/clicks": {
+      post: ingestionOperation(
+        "Ingest a browser click map sample",
+        "Track opt-in click density by route using normalized coordinates and privacy-safe selectors. Prefer the browser SDK helper so text, values, DOM, and screenshots are never collected.",
+        "ClickEventPayload",
+        {
+          route: "/checkout",
+          selector: '[data-sigmon-id="checkout-submit"]',
+          element_tag: "button",
+          element_role: "button",
+          x: 0.72,
+          y: 0.61,
+          viewport_width: 1440,
+          viewport_height: 900,
+          scroll_x: 0,
+          scroll_y: 320,
+          masked: true,
+          source: "web",
+          release: "2026.05.24"
+        }
+      )
     },
     "/v1/llm": {
       post: ingestionOperation("Ingest an LLM call", "Track AI provider calls, latency, status, tokens, and cost.", "LlmPayload", {
@@ -1110,6 +1163,12 @@ export const openApiDocument = {
       get: sessionRoute(
         "Query event retention curves",
         "Analyze retention cohorts for a project environment. Query with project_id, environment_id, window=24h|7d|30d, entry_event, return_event, optional period=daily|weekly|monthly, and optional intervals=2..12."
+      )
+    },
+    "/query/events/click-map": {
+      get: sessionRoute(
+        "Query event click maps",
+        "Aggregate opt-in browser click samples by route, safe selector, and grid bucket. Query with project_id, environment_id, route, window=24h|7d|30d, optional selector, tenant_id, user_id, session_id, grid_size=10..100, and limit."
       )
     },
     "/query/errors": {

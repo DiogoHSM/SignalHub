@@ -1737,6 +1737,193 @@ select {
   white-space: nowrap;
 }
 
+.event-click-map {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 14px;
+}
+
+.event-click-map__header,
+.event-click-map__builder,
+.event-click-map__content {
+  display: grid;
+  gap: 12px;
+}
+
+.event-click-map__header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.event-click-map__header h3,
+.event-click-map__header p {
+  margin: 0;
+}
+
+.event-click-map__header h3 {
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.event-click-map__header p,
+.event-click-map__notice {
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.event-click-map__score {
+  min-width: 120px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 8px 10px;
+  text-align: right;
+}
+
+.event-click-map__score span,
+.event-click-map__score small {
+  display: block;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.event-click-map__score strong {
+  display: block;
+  color: var(--fg);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.event-click-map__builder {
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  align-items: end;
+}
+
+.event-click-map__builder label {
+  display: grid;
+  gap: 5px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.event-click-map__builder input {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--fg);
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.event-click-map__builder button,
+.event-click-map__lists button {
+  border: 1px solid rgba(92, 255, 138, 0.34);
+  border-radius: 8px;
+  background: rgba(92, 255, 138, 0.08);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+  padding: 9px 12px;
+}
+
+.event-click-map__builder button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.event-click-map__content {
+  grid-template-columns: minmax(260px, 0.8fr) minmax(260px, 1fr);
+  align-items: start;
+}
+
+.event-click-map__grid {
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.event-click-map__frame {
+  fill: rgba(15, 23, 42, 0.42);
+  stroke: rgba(148, 163, 184, 0.16);
+}
+
+.event-click-map__cell {
+  fill: var(--accent);
+  opacity: calc(0.14 + (var(--click-strength) * 0.76));
+}
+
+.event-click-map__lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.event-click-map__lists > div {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  padding: 10px;
+}
+
+.event-click-map__lists h4,
+.event-click-map__lists p {
+  margin: 0;
+}
+
+.event-click-map__lists h4 {
+  color: var(--fg);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.event-click-map__lists p {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.event-click-map__lists button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border-color: var(--border-subtle);
+  background: var(--bg-surface-2);
+  text-align: left;
+}
+
+.event-click-map__lists button:hover {
+  border-color: rgba(92, 255, 138, 0.5);
+}
+
+.event-click-map__lists button span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-click-map__lists button strong {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .event-pathfinder {
   display: grid;
   gap: 12px;

@@ -48,6 +48,7 @@ describe("API docs", () => {
         "/v1/events",
         "/v1/errors",
         "/v1/breadcrumbs",
+        "/v1/clicks",
         "/v1/llm",
         "/v1/traces",
         "/v1/spans",
@@ -64,6 +65,7 @@ describe("API docs", () => {
         "/admin/dead-letter-jobs/{id}/actions",
         "/admin/dead-letter-jobs/{id}/replay",
         "/query/events",
+        "/query/events/click-map",
         "/system/health"
       ])
     );
@@ -74,6 +76,7 @@ describe("API docs", () => {
       sessionCookie: { type: "apiKey", in: "cookie", name: "__Host-sigmon_session" }
     });
     expect(spec.paths["/v1/events"].post.security).toEqual([{ ingestionApiKey: [] }]);
+    expect(spec.paths["/v1/clicks"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(spec.paths["/v1/identify/user"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(spec.paths["/v1/identify/tenant"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(Object.keys(spec.paths["/v1/identify/user"].post.responses)).toEqual(["202", "400", "401", "503"]);
@@ -123,6 +126,8 @@ describe("API docs", () => {
     ]);
     expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");
     expect(spec.components.schemas.BreadcrumbPayload.required).toEqual(["type", "message"]);
+    expect(spec.components.schemas.ClickEventPayload.required).toEqual(["route", "selector", "x", "y", "viewport_width", "viewport_height"]);
+    expect(spec.components.schemas.ClickEventPayload.description).toContain("privacy-safe");
     expect(spec.components.schemas.BreadcrumbPayload.properties.type.enum).toEqual([
       "navigation",
       "click",

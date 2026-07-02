@@ -10,6 +10,7 @@ const retentionAdvisoryLockId = 927380402914;
 const defaultMaxBatchesPerTable = 25;
 const retentionTables = [
   "events",
+  "click_events",
   "errors",
   "traces",
   "spans",
@@ -213,7 +214,9 @@ export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExe
   const maxBatches = options.maxBatchesPerTable ?? defaultMaxBatchesPerTable;
 
   return {
-    events: await deleteExpiredBatchesFromTable(db, "events", cutoff(options.eventsDays), options.batchSize, maxBatches),
+    events:
+      (await deleteExpiredBatchesFromTable(db, "events", cutoff(options.eventsDays), options.batchSize, maxBatches)) +
+      (await deleteExpiredBatchesFromTable(db, "click_events", cutoff(options.eventsDays), options.batchSize, maxBatches)),
     errors: await deleteExpiredBatchesFromTable(db, "errors", cutoff(options.errorsDays), options.batchSize, maxBatches),
     traces: await deleteExpiredBatchesFromTable(db, "traces", cutoff(options.tracesDays), options.batchSize, maxBatches),
     spans: await deleteExpiredBatchesFromTable(db, "spans", cutoff(options.spansDays), options.batchSize, maxBatches),
