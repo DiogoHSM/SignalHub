@@ -693,7 +693,8 @@ sigmonBrowser.track("checkout.pay_clicked", {
             <h2>Identify and traits</h2>
             <p>
               Telemetry with matching <code>userId</code> or <code>tenantId</code> updates last seen data.
-              Use identify calls when stable traits become known.
+              Use identify calls when stable traits become known. Traits shallow-merge into the existing
+              profile, so later calls can update one key without resending every trait.
             </p>
             <pre><code>sigmon.identifyUser("user_456", {
   name: "Ana Souza",

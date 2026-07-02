@@ -11,7 +11,9 @@ function user(overrides: Partial<UserSummary> = {}): UserSummary {
     label: "user_1",
     isAnonymous: false,
     impactScore: 10,
+    firstSeenAt: "2026-05-05T09:00:00.000Z",
     lastSeenAt: "2026-05-05T10:00:00.000Z",
+    profileUpdatedAt: "2026-05-05T09:45:00.000Z",
     events: 5,
     errors: 1,
     openErrors: 1,
@@ -214,7 +216,11 @@ describe("UsersInvestigationPanel", () => {
   });
 
   it("selecting user loads summary recent sessions and timeline", async () => {
-    const ana = user({ label: "Ana Souza", keyTraits: { role: "admin" } } as Partial<UserSummary>);
+    const ana = user({
+      label: "Ana Souza",
+      traits: { name: "Ana Souza", role: "admin", plan: "enterprise", nested: { level: 2 } },
+      keyTraits: { role: "admin" }
+    } as Partial<UserSummary>);
     const getUserDetail = vi.fn().mockResolvedValue({ data: detail({ user: ana }) });
     const api = client({
       listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [ana] } }),
@@ -232,6 +238,12 @@ describe("UsersInvestigationPanel", () => {
     expect(detailPanel).not.toBeNull();
     expect(within(detailPanel as HTMLElement).getByText("user_1")).toBeInTheDocument();
     expect(screen.getAllByText("role: admin")).toHaveLength(2);
+    expect(within(detailPanel as HTMLElement).getByText("Identity profile")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText("Traits updated")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText("plan")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText("enterprise")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText("nested")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText('{"level":2}')).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Session" })).toBeInTheDocument();
     expect(screen.getByText("session_1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Checkout started/ })).toBeInTheDocument();
@@ -241,6 +253,21 @@ describe("UsersInvestigationPanel", () => {
       window: "7d",
       limit: 50
     });
+  });
+
+  it("explains when a user has no identify traits yet", async () => {
+    const plain = user({ label: "user_plain", traits: {}, keyTraits: {} });
+    const api = client({
+      listUsersActivity: vi.fn().mockResolvedValue({ data: { users: [plain] } }),
+      getUserDetail: vi.fn().mockResolvedValue({ data: detail({ user: plain }) })
+    });
+
+    render(<UsersInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /user_plain/ }));
+
+    expect(await screen.findByText("No identify traits yet.")).toBeInTheDocument();
+    expect(screen.getByText(/Send identifyUser/)).toBeInTheDocument();
   });
 
   it("shows a user operational profile and timeline signal mix", async () => {

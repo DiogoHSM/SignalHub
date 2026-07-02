@@ -59,7 +59,8 @@ export type DataGovernancePropertyRuleTarget =
   | "span.output"
   | "span.error"
   | "breadcrumb.data"
-  | "replay.event.data";
+  | "replay.event.data"
+  | "identity.traits";
 
 export type DataGovernancePropertyRule = {
   target: DataGovernancePropertyRuleTarget;
@@ -1476,7 +1477,9 @@ export type TenantSummary = {
   keyTraits: Record<string, string>;
   isUnassigned: boolean;
   impactScore: number;
+  firstSeenAt?: string | null;
   lastSeenAt: string | null;
+  profileUpdatedAt?: string | null;
   events: number;
   errors: number;
   openErrors: number;
@@ -1598,7 +1601,9 @@ export type UserSummary = {
   keyTraits: Record<string, string>;
   isAnonymous: boolean;
   impactScore: number;
+  firstSeenAt?: string | null;
   lastSeenAt: string | null;
+  profileUpdatedAt?: string | null;
   events: number;
   errors: number;
   openErrors: number;

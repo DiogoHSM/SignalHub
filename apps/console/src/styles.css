@@ -4303,6 +4303,94 @@ select {
   padding: 3px 7px;
 }
 
+.identity-profile-panel {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid #d7dde7;
+  border-radius: 8px;
+  background: #fff;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem;
+}
+
+.identity-profile-panel__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.identity-profile-panel__header h3,
+.identity-profile-panel__header p {
+  margin: 0;
+}
+
+.identity-profile-panel__header h3 {
+  font-size: 15px;
+}
+
+.identity-profile-panel__header p {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.identity-profile-panel__meta,
+.identity-traits-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.identity-profile-panel__meta {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.identity-profile-panel__meta > div,
+.identity-traits-list > div {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #f8fafc;
+  min-width: 0;
+  padding: 0.6rem 0.7rem;
+}
+
+.identity-traits-list {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.identity-profile-panel dt,
+.identity-profile-panel dd {
+  margin: 0;
+}
+
+.identity-profile-panel dt {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.identity-profile-panel dd {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.identity-profile-empty {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 7px;
+  color: #475569;
+  padding: 0.75rem;
+}
+
+.identity-profile-empty strong {
+  color: #111827;
+}
+
 .entity-summary-grid > div {
   border: 1px solid #d7dde7;
   border-radius: 8px;
@@ -4481,6 +4569,35 @@ select {
   border-color: var(--border-subtle);
   background: var(--bg-surface-2);
   color: var(--fg-secondary);
+}
+
+.identity-profile-panel {
+  border-color: var(--border-subtle);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 58%),
+    var(--bg-surface-2);
+}
+
+.identity-profile-panel__header h3,
+.identity-profile-panel dd,
+.identity-profile-empty strong {
+  color: var(--fg);
+}
+
+.identity-profile-panel__header p,
+.identity-profile-panel dt,
+.identity-profile-empty {
+  color: var(--fg-muted);
+}
+
+.identity-profile-panel__meta > div,
+.identity-traits-list > div {
+  border-color: var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.identity-profile-empty {
+  border-color: var(--border);
 }
 
 .entity-summary-grid span {

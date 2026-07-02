@@ -254,7 +254,11 @@ describe("EntitiesInvestigationPanel", () => {
   });
 
   it("selecting tenant loads summary top users and timeline", async () => {
-    const microErp = tenant({ label: "MicroERP", keyTraits: { plan: "pro" } } as Partial<TenantSummary>);
+    const microErp = tenant({
+      label: "MicroERP",
+      traits: { name: "MicroERP", plan: "pro", limits: { users: 15 } },
+      keyTraits: { plan: "pro" }
+    } as Partial<TenantSummary>);
     const getEntityTenantDetail = vi.fn().mockResolvedValue({ data: detail({ tenant: microErp }) });
     const api = client({
       listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [microErp] } }),
@@ -272,6 +276,10 @@ describe("EntitiesInvestigationPanel", () => {
     expect(detailPanel).not.toBeNull();
     expect(within(detailPanel as HTMLElement).getByText("tenant_a")).toBeInTheDocument();
     expect(screen.getAllByText("plan: pro")).toHaveLength(2);
+    expect(within(detailPanel as HTMLElement).getByText("Identity profile")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText("Profile first seen")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText("limits")).toBeInTheDocument();
+    expect(within(detailPanel as HTMLElement).getByText('{"users":15}')).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "User" })).toBeInTheDocument();
     expect(screen.getByText("user_1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Checkout started/ })).toBeInTheDocument();
@@ -281,6 +289,21 @@ describe("EntitiesInvestigationPanel", () => {
       window: "7d",
       limit: 50
     });
+  });
+
+  it("explains when a tenant has no identify traits yet", async () => {
+    const plain = tenant({ label: "tenant_plain", traits: {}, keyTraits: {} });
+    const api = client({
+      listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [plain] } }),
+      getEntityTenantDetail: vi.fn().mockResolvedValue({ data: detail({ tenant: plain }) })
+    });
+
+    render(<EntitiesInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /tenant_plain/ }));
+
+    expect(await screen.findByText("No identify traits yet.")).toBeInTheDocument();
+    expect(screen.getByText(/Send identifyTenant/)).toBeInTheDocument();
   });
 
   it("shows a tenant operational profile and timeline signal mix", async () => {

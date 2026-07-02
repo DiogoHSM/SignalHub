@@ -377,7 +377,8 @@ export const openApiDocument = {
               "span.output",
               "span.error",
               "breadcrumb.data",
-              "replay.event.data"
+              "replay.event.data",
+              "identity.traits"
             ]
           },
           path: { type: "string", examples: ["user.email", "headers.authorization"] },
@@ -686,7 +687,7 @@ export const openApiDocument = {
         type: "object",
         required: ["user_id", "traits"],
         description:
-          "Upserts a project/environment-scoped user profile. Telemetry with matching user_id updates last_seen_at, but only identify calls update stored traits.",
+          "Upserts a project/environment-scoped user profile. Identify traits shallow-merge into existing stored traits. Telemetry with matching user_id updates last_seen_at, but only identify calls update stored traits.",
         properties: {
           user_id: { type: "string", description: "Stable authenticated user id from the monitored product." },
           tenant_id: { type: "string", description: "Optional current tenant/workspace/account id for this user." },
@@ -704,7 +705,7 @@ export const openApiDocument = {
         type: "object",
         required: ["tenant_id", "traits"],
         description:
-          "Upserts a project/environment-scoped tenant profile used by Entities investigation views and tenant-level filters.",
+          "Upserts a project/environment-scoped tenant profile used by Entities investigation views and tenant-level filters. Identify traits shallow-merge into existing stored traits.",
         properties: {
           tenant_id: { type: "string", description: "Stable tenant/workspace/account id from the monitored product." },
           traits: {
@@ -1037,14 +1038,14 @@ export const openApiDocument = {
       })
     },
     "/v1/identify/user": {
-      post: identifyOperation("Identify a user", "Upsert user profile traits scoped to the ingestion API key. Call this after login/session load or whenever durable user traits change.", "UserIdentifyPayload", {
+      post: identifyOperation("Identify a user", "Upsert user profile traits scoped to the ingestion API key. Traits shallow-merge into the existing profile. Call this after login/session load or whenever durable user traits change.", "UserIdentifyPayload", {
         user_id: "user_456",
         tenant_id: "tenant_123",
         traits: { name: "Ana Souza", email: "ana@example.com", role: "admin", plan: "pro" }
       })
     },
     "/v1/identify/tenant": {
-      post: identifyOperation("Identify a tenant", "Upsert tenant profile traits scoped to the ingestion API key. Call this after tenant/workspace selection or whenever durable tenant traits change.", "TenantIdentifyPayload", {
+      post: identifyOperation("Identify a tenant", "Upsert tenant profile traits scoped to the ingestion API key. Traits shallow-merge into the existing profile. Call this after tenant/workspace selection or whenever durable tenant traits change.", "TenantIdentifyPayload", {
         tenant_id: "tenant_123",
         traits: { name: "MicroERP", plan: "pro", operation_mode: "production" }
       })

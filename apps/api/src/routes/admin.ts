@@ -699,7 +699,8 @@ const dataGovernancePropertyRuleSchema = z.object({
     "span.output",
     "span.error",
     "breadcrumb.data",
-    "replay.event.data"
+    "replay.event.data",
+    "identity.traits"
   ]),
   path: z.string().trim().min(1).max(256),
   action: z.enum(["mask", "block"])

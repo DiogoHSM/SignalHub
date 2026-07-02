@@ -616,7 +616,7 @@ curl -i https://sigmon.example.com/v1/spans \
 
 ## Identify
 
-Identify calls upsert durable project/environment-scoped profile traits. Normal telemetry with matching `user_id` or `tenant_id` updates last-seen timestamps, but only identify calls update stored traits.
+Identify calls upsert durable project/environment-scoped profile traits. New `traits` shallow-merge into the existing stored traits for that project/environment, so a later identify call can update one key without resending the whole profile. Normal telemetry with matching `user_id` or `tenant_id` updates last-seen timestamps, but only identify calls update stored traits.
 
 ```bash
 curl -i https://sigmon.example.com/v1/identify/user \

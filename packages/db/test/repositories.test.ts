@@ -909,7 +909,7 @@ describe("repositories", () => {
         .where("environment_id", "=", "env_identity")
         .where("user_id", "=", "usr_ana")
         .executeTakeFirstOrThrow();
-      expect(outOfOrderUser.traits).toEqual({ name: "Ana Historical", token: "[REDACTED]" });
+      expect(outOfOrderUser.traits).toEqual({ name: "Ana Historical", role: "admin", token: "[REDACTED]" });
       expect(outOfOrderUser.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
       expect(outOfOrderUser.last_seen_at).toEqual(new Date("2026-05-25T10:10:00.000Z"));
       expect(outOfOrderUser.updated_at).toEqual(new Date("2026-05-25T09:55:00.000Z"));
@@ -961,7 +961,7 @@ describe("repositories", () => {
         .where("environment_id", "=", "env_identity")
         .where("tenant_id", "=", "tenant_acme")
         .executeTakeFirstOrThrow();
-      expect(outOfOrderTenant.traits).toEqual({ plan: "legacy" });
+      expect(outOfOrderTenant.traits).toEqual({ plan: "legacy", region: "br" });
       expect(outOfOrderTenant.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
       expect(outOfOrderTenant.last_seen_at).toEqual(new Date("2026-05-25T10:11:00.000Z"));
       expect(outOfOrderTenant.updated_at).toEqual(new Date("2026-05-25T09:56:00.000Z"));
@@ -8280,6 +8280,13 @@ describe("repositories", () => {
         traits: { display_name: "Display ERP", operation_mode: 2, status: true },
         timestamp: new Date("2026-05-05T11:00:00.000Z")
       });
+      await identifyTenantProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_identified_only",
+        traits: { name: "Identified Only", plan: "starter" },
+        timestamp: new Date("2026-05-05T11:10:00.000Z")
+      });
       await insertEvent(db, {
         id: "evt_tenant_profile",
         projectId: project.id,
@@ -8408,6 +8415,41 @@ describe("repositories", () => {
         now
       });
       expect(byStatus.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_display"]);
+
+      const bySessionWithProfile = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "session_1",
+        limit: 50,
+        now
+      });
+      expect(bySessionWithProfile.tenants).toHaveLength(1);
+      expect(bySessionWithProfile.tenants[0]).toMatchObject({
+        tenantId: "tenant_1",
+        label: "MicroERP",
+        traits: { name: "MicroERP", plan: "pro" },
+        keyTraits: { plan: "pro" }
+      });
+
+      const identifiedOnly = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "Identified Only",
+        limit: 50,
+        now
+      });
+      expect(identifiedOnly.tenants).toHaveLength(1);
+      expect(identifiedOnly.tenants[0]).toMatchObject({
+        tenantId: "tenant_identified_only",
+        label: "Identified Only",
+        events: 0,
+        errors: 0,
+        activeUsers: 0,
+        traits: { name: "Identified Only", plan: "starter" }
+      });
+      expect(identifiedOnly.tenants[0]?.lastSeenAt).toBe("2026-05-05T11:10:00.000Z");
 
       const allTenants = await listEntityTenants(db, {
         projectId: project.id,
@@ -8639,6 +8681,14 @@ describe("repositories", () => {
         traits: { display_name: "Ana Display", operation_mode: 7, status: "suspended" },
         timestamp: new Date("2026-05-05T11:00:00.000Z")
       });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_identified_only",
+        tenantId: "tenant_1",
+        traits: { name: "Only Identified", role: "viewer" },
+        timestamp: new Date("2026-05-05T11:10:00.000Z")
+      });
       await insertEvent(db, {
         id: "evt_user_profile",
         projectId: project.id,
@@ -8767,6 +8817,41 @@ describe("repositories", () => {
         now
       });
       expect(byStatus.users.map((user) => user.userId)).toEqual(["user_display"]);
+
+      const bySessionWithProfile = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "session_1",
+        limit: 50,
+        now
+      });
+      expect(bySessionWithProfile.users).toHaveLength(1);
+      expect(bySessionWithProfile.users[0]).toMatchObject({
+        userId: "user_1",
+        label: "Ana Souza",
+        traits: { name: "Ana Souza", plan: "enterprise", role: "admin" },
+        keyTraits: { plan: "enterprise", role: "admin" }
+      });
+
+      const identifiedOnly = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "Only Identified",
+        limit: 50,
+        now
+      });
+      expect(identifiedOnly.users).toHaveLength(1);
+      expect(identifiedOnly.users[0]).toMatchObject({
+        userId: "user_identified_only",
+        label: "Only Identified",
+        events: 0,
+        errors: 0,
+        activeSessions: 0,
+        traits: { name: "Only Identified", role: "viewer" }
+      });
+      expect(identifiedOnly.users[0]?.lastSeenAt).toBe("2026-05-05T11:10:00.000Z");
 
       const allUsers = await listUsersActivity(db, {
         projectId: project.id,

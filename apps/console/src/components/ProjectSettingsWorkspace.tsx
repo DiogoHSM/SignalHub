@@ -235,7 +235,8 @@ const propertyRuleTargets: DataGovernancePropertyRuleTarget[] = [
   "span.output",
   "span.error",
   "breadcrumb.data",
-  "replay.event.data"
+  "replay.event.data",
+  "identity.traits"
 ];
 
 function DataGovernancePanel({

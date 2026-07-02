@@ -43,7 +43,9 @@ export type UserSummary = {
   keyTraits: Record<string, string>;
   isAnonymous: boolean;
   impactScore: number;
+  firstSeenAt: string | null;
   lastSeenAt: string | null;
+  profileUpdatedAt: string | null;
   events: number;
   errors: number;
   openErrors: number;
@@ -244,6 +246,8 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
     active_tenants: unknown;
     active_sessions: unknown;
     profile_traits: unknown;
+    profile_first_seen_at: Date | string | null;
+    profile_updated_at: Date | string | null;
   }>`
     with profile_matches as (
       select user_id
@@ -356,16 +360,51 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
         count(distinct session_id) filter (where session_id is not null) as active_sessions
       from all_rows
       group by user_id
+    ),
+    profile_candidates as (
+      select user_id
+      from user_profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and traits <> '{}'::jsonb
+        and (${filters.tenantId ?? null}::text is null or tenant_id = ${filters.tenantId ?? ""})
+        and (
+          ${pattern ?? null}::text is null
+          or user_id ilike ${pattern ?? ""}
+          or traits ->> 'name' ilike ${pattern ?? ""}
+          or traits ->> 'display_name' ilike ${pattern ?? ""}
+          or traits ->> 'email' ilike ${pattern ?? ""}
+          or traits ->> 'plan' ilike ${pattern ?? ""}
+          or traits ->> 'role' ilike ${pattern ?? ""}
+          or traits ->> 'operation_mode' ilike ${pattern ?? ""}
+          or traits ->> 'status' ilike ${pattern ?? ""}
+        )
+    ),
+    profile_data as (
+      select user_id, traits, first_seen_at, last_seen_at, updated_at
+      from user_profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
     )
-    select aggregated.user_id, aggregated.last_seen_at, aggregated.events, aggregated.errors,
-      aggregated.open_errors, aggregated.severe_errors, aggregated.traces, aggregated.failed_traces,
-      aggregated.llm_calls, aggregated.failed_llm_calls, aggregated.llm_cost_usd, aggregated.active_tenants,
-      aggregated.active_sessions, coalesce(user_profiles.traits, '{}'::jsonb) as profile_traits
+    select coalesce(aggregated.user_id, profile_candidates.user_id) as user_id,
+      coalesce(aggregated.last_seen_at, profile_data.last_seen_at) as last_seen_at,
+      coalesce(aggregated.events, 0) as events, coalesce(aggregated.errors, 0) as errors,
+      coalesce(aggregated.open_errors, 0) as open_errors, coalesce(aggregated.severe_errors, 0) as severe_errors,
+      coalesce(aggregated.traces, 0) as traces, coalesce(aggregated.failed_traces, 0) as failed_traces,
+      coalesce(aggregated.llm_calls, 0) as llm_calls, coalesce(aggregated.failed_llm_calls, 0) as failed_llm_calls,
+      coalesce(aggregated.llm_cost_usd, '0') as llm_cost_usd, coalesce(aggregated.active_tenants, 0) as active_tenants,
+      coalesce(aggregated.active_sessions, 0) as active_sessions,
+      coalesce(profile_data.traits, '{}'::jsonb) as profile_traits,
+      profile_data.first_seen_at as profile_first_seen_at,
+      profile_data.updated_at as profile_updated_at
     from aggregated
-    left join user_profiles
-      on user_profiles.project_id = ${filters.projectId}
-      and user_profiles.environment_id = ${filters.environmentId}
-      and user_profiles.user_id = aggregated.user_id
+    full outer join profile_candidates
+      on profile_candidates.user_id = aggregated.user_id
+    left join profile_data
+      on profile_data.user_id = coalesce(aggregated.user_id, profile_candidates.user_id)
+    where coalesce(aggregated.user_id, profile_candidates.user_id) is not null
+       or aggregated.user_id is null
+       and profile_candidates.user_id is null
   `.execute(db);
 
   const users = rows.rows.map((row): UserSummary => {
@@ -390,7 +429,9 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
         failedLlmCalls,
         llmCostUsd: Number(llmCostUsd)
       }),
+      firstSeenAt: row.profile_first_seen_at ? toIso(row.profile_first_seen_at) : null,
       lastSeenAt: row.last_seen_at ? toIso(row.last_seen_at) : null,
+      profileUpdatedAt: row.profile_updated_at ? toIso(row.profile_updated_at) : null,
       events: toNumber(row.events),
       errors,
       openErrors,
@@ -464,6 +505,8 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
     active_sessions: unknown;
     total_signals: unknown;
     profile_traits: unknown;
+    profile_first_seen_at: Date | string | null;
+    profile_updated_at: Date | string | null;
   }>`
     with scoped_events as (
       select tenant_id, session_id, timestamp, 1::bigint as events, 0::bigint as errors,
@@ -542,6 +585,20 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
           and environment_id = ${filters.environmentId}
           and user_id = ${userId}
       ), '{}'::jsonb) as profile_traits
+      , (
+        select first_seen_at
+        from user_profiles
+        where project_id = ${filters.projectId}
+          and environment_id = ${filters.environmentId}
+          and user_id = ${userId}
+      ) as profile_first_seen_at
+      , (
+        select updated_at
+        from user_profiles
+        where project_id = ${filters.projectId}
+          and environment_id = ${filters.environmentId}
+          and user_id = ${userId}
+      ) as profile_updated_at
     from all_rows
   `.execute(db);
   const row = rows.rows[0];
@@ -569,8 +626,10 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
             failedTraces,
             failedLlmCalls,
             llmCostUsd: Number(llmCostUsd)
-          }),
-    lastSeenAt: row?.last_seen_at ? toIso(row.last_seen_at) : null,
+      }),
+    firstSeenAt: row?.profile_first_seen_at ? toIso(row.profile_first_seen_at) : null,
+    lastSeenAt: row?.last_seen_at ? toIso(row.last_seen_at) : row?.profile_first_seen_at ? toIso(row.profile_first_seen_at) : null,
+    profileUpdatedAt: row?.profile_updated_at ? toIso(row.profile_updated_at) : null,
     events: toNumber(row?.events),
     errors,
     openErrors,

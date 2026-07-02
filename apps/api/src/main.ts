@@ -62,6 +62,7 @@ import {
   updateBetaProgram
 } from "@sigmon/db/repositories/beta-programs.js";
 import {
+  applyDataGovernanceRules,
   getDataGovernancePolicy,
   upsertDataGovernancePolicy
 } from "@sigmon/db/repositories/data-governance.js";
@@ -682,8 +683,20 @@ const app = await buildApp({
   },
   identify: {
     verifyApiKey: verifyIngestionApiKey,
-    identifyUser: (input) => identifyUserProfile(db, input),
-    identifyTenant: (input) => identifyTenantProfile(db, input)
+    identifyUser: async (input) => {
+      const policy = await getDataGovernancePolicy(db, input);
+      await identifyUserProfile(db, {
+        ...input,
+        traits: applyDataGovernanceRules(input.traits, policy, "identity.traits")
+      });
+    },
+    identifyTenant: async (input) => {
+      const policy = await getDataGovernancePolicy(db, input);
+      await identifyTenantProfile(db, {
+        ...input,
+        traits: applyDataGovernanceRules(input.traits, policy, "identity.traits")
+      });
+    }
   },
   query: {
     listEvents: (filters) => listEvents(db, filters),

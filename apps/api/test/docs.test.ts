@@ -148,6 +148,10 @@ describe("API docs", () => {
     expect(spec.components.schemas.DeadLetterJob.properties.environmentId.type).toEqual(["string", "null"]);
     expect(spec.components.schemas.DeadLetterJobAction.properties.action.enum).toEqual(["deleted", "replayed", "expired"]);
     expect(spec.components.schemas.UserIdentifyPayload.description).toContain("last_seen_at");
+    expect(spec.components.schemas.UserIdentifyPayload.description).toContain("shallow-merge");
+    expect(spec.components.schemas.TenantIdentifyPayload.description).toContain("shallow-merge");
+    expect(spec.paths["/v1/identify/user"].post.description).toContain("shallow-merge");
+    expect(spec.paths["/v1/identify/tenant"].post.description).toContain("shallow-merge");
     expect(spec.components.schemas.TenantIdentifyPayload.properties.traits.examples[0]).toMatchObject({
       name: "MicroERP",
       operation_mode: "production"
@@ -199,6 +203,7 @@ describe("API docs", () => {
     expect(response.body).toContain("NEXT_PUBLIC_SIGMON_BROWSER_KEY");
     expect(response.body).toContain("withSignalMonitorRoute");
     expect(response.body).toContain("identifyTenant");
+    expect(response.body).toContain("shallow-merge");
     expect(response.body).toContain("Experiments and A/B tests");
     expect(response.body).toContain("checkout.exposed");
     expect(response.body).toContain("source-maps:upload");

@@ -25,7 +25,8 @@ export type DataGovernancePropertyRuleTarget =
   | "span.output"
   | "span.error"
   | "breadcrumb.data"
-  | "replay.event.data";
+  | "replay.event.data"
+  | "identity.traits";
 
 export type DataGovernanceRetentionPolicy = Partial<Record<DataGovernanceRetentionCategory, number>>;
 
@@ -62,7 +63,8 @@ const targetSet = new Set<DataGovernancePropertyRuleTarget>([
   "span.output",
   "span.error",
   "breadcrumb.data",
-  "replay.event.data"
+  "replay.event.data",
+  "identity.traits"
 ]);
 const actionSet = new Set<DataGovernancePropertyRuleAction>(["mask", "block"]);
 const unsafePathParts = new Set(["__proto__", "prototype", "constructor"]);
