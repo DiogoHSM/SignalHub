@@ -456,6 +456,26 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes event retention query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { cohorts: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventRetention?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      entryEvent: "signup.started",
+      returnEvent: "app.opened",
+      period: "daily",
+      intervals: 7
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/retention?project_id=prj_1&environment_id=env_1&window=30d&entry_event=signup.started&return_event=app.opened&period=daily&intervals=7",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

@@ -88,6 +88,7 @@ import {
   getEventAggregates,
   getEventFunnel,
   getEventPropertyCatalog,
+  getEventRetention,
   getLlmAggregates,
   getLlmByPrompt,
   getLlmByTenant,
@@ -8885,6 +8886,62 @@ describe("repositories", () => {
       expect(funnel.totals).toMatchObject({ entrants: 4, completed: 1, conversionPercent: 25 });
       expect(funnel.sampleActors.map((actor) => actor.actorId)).toEqual(["user_1", "user_2", "user_3", "user_4"]);
       expect(funnel.sampleActors[0]).toMatchObject({ reachedStepIndex: 2, reachedStepName: "key.created" });
+    });
+  });
+
+  it("calculates temporal retention cohorts by actor", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Retention API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_ret_u1_entry", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u1_d0", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-04T13:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u1_d1", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-05T13:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u2_entry", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T14:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u2_d2", userId: "user_2", name: "app.opened", timestamp: new Date("2026-05-06T14:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u3_entry", userId: "user_3", name: "signup.started", timestamp: new Date("2026-05-05T09:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u3_before", userId: "user_3", name: "app.opened", timestamp: new Date("2026-05-05T08:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u3_d1", userId: "user_3", name: "app.opened", timestamp: new Date("2026-05-06T09:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-08T12:00:00.000Z"),
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3
+      });
+
+      expect(retention.totals).toEqual({ cohorts: 2, entrants: 3 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2026-05-04",
+          entrants: 2,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 1, retentionPercent: 50 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 50 },
+            { index: 2, label: "D2", retainedActors: 1, retentionPercent: 50 }
+          ]
+        }),
+        expect.objectContaining({
+          cohortLabel: "2026-05-05",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 },
+            { index: 2, label: "D2", retainedActors: 0, retentionPercent: 0 }
+          ]
+        })
+      ]);
     });
   });
 

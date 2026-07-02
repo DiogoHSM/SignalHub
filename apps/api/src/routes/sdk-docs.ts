@@ -600,6 +600,11 @@ sigmonBrowser.track("checkout.pay_clicked", {
               each funnel event so <code>GET /query/events/funnel</code> can count ordered progression
               across users, tenants, sessions, or traces.
             </p>
+            <p>
+              Retention curves use the same actor context. Choose an entry event and a return event, then
+              <code>GET /query/events/retention</code> groups first-entry actors into daily, weekly, or
+              monthly cohorts and counts later return activity.
+            </p>
             <h3>Common ingest failures</h3>
             <ul>
               <li><code>invalid_api_key</code>: send <code>Authorization: Bearer &lt;key&gt;</code> and use a browser-scoped key for browser calls.</li>

@@ -1565,6 +1565,62 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("forwards event retention query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventRetention: async (filters) => {
+          receivedFilters.push(filters);
+          return { cohorts: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/retention?project_id=prj_1&environment_id=env_1&window=30d&entry_event=signup.started&return_event=app.opened&period=daily&intervals=7&limit=20"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { cohorts: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 7
+      }
+    ]);
+  });
+
+  it.each([
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&period=yearly",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=1",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=13"
+  ])("rejects invalid event retention query %s", async (url) => {
+    const getEventRetention = vi.fn(async () => ({ cohorts: [] }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: { getEventRetention }
+    });
+
+    const response = await app.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+    expect(getEventRetention).not.toHaveBeenCalled();
+  });
+
   it("forwards service map query filters", async () => {
     const receivedFilters: unknown[] = [];
 

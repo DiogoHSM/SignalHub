@@ -1106,6 +1106,12 @@ export const openApiDocument = {
         "Analyze ordered event-step conversion for a project environment. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2+ event names, and optional limit for sample actors."
       )
     },
+    "/query/events/retention": {
+      get: sessionRoute(
+        "Query event retention curves",
+        "Analyze retention cohorts for a project environment. Query with project_id, environment_id, window=24h|7d|30d, entry_event, return_event, optional period=daily|weekly|monthly, and optional intervals=2..12."
+      )
+    },
     "/query/errors": {
       get: sessionRoute("Query errors", "Read project/environment scoped raw error telemetry.")
     },

@@ -94,6 +94,10 @@ sigmon.track("project.created", {}, { userId: "user_456", tenantId: "tenant_123"
 sigmon.track("key.created", {}, { userId: "user_456", tenantId: "tenant_123" });
 ```
 
+Retention curves use the same product events. Pick a stable entry event such as `signup.started` and a
+return event such as `app.opened`; Sigmon groups actors into daily, weekly, or monthly cohorts from the
+first entry event and counts later return activity.
+
 Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
 
 ```ts

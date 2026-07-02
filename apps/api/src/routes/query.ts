@@ -59,6 +59,8 @@ export type ApmFilters = {
   limit: number;
 };
 
+export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
+
 export type EntityWindow = "24h" | "7d" | "30d";
 
 export type EntitySignalType = "event" | "error" | "trace" | "llm";
@@ -177,6 +179,7 @@ export type QueryDependencies = {
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
+  getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
   getApmEndpoints?: (filters: ApmFilters) => Promise<unknown>;
   getServiceMap?: (filters: ApmFilters) => Promise<unknown>;
   getWebVitals?: (filters: ApmFilters) => Promise<unknown>;
@@ -737,6 +740,45 @@ function parseEventFunnelFilters(query: unknown): (ApmFilters & { steps: string[
   };
 }
 
+function parseEventRetentionFilters(
+  query: unknown
+): (ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) | undefined {
+  const filters = parseApmFilters(query);
+  if (!filters) {
+    return undefined;
+  }
+
+  const raw = (query ?? {}) as RawQuery;
+  const entryEvent = optionalNonEmpty(raw, "entry_event");
+  const returnEvent = optionalNonEmpty(raw, "return_event");
+  const rawPeriod = optionalNonEmpty(raw, "period") ?? "weekly";
+  const rawIntervals = optionalNonEmpty(raw, "intervals");
+
+  if (!entryEvent || !returnEvent) {
+    return undefined;
+  }
+  if (rawPeriod !== "daily" && rawPeriod !== "weekly" && rawPeriod !== "monthly") {
+    return undefined;
+  }
+
+  const parsedIntervals = rawIntervals ? Number(rawIntervals) : 6;
+  if (!Number.isFinite(parsedIntervals)) {
+    return undefined;
+  }
+  const intervals = Math.trunc(parsedIntervals);
+  if (intervals < 2 || intervals > 12) {
+    return undefined;
+  }
+
+  return {
+    ...filters,
+    entryEvent,
+    returnEvent,
+    period: rawPeriod,
+    intervals
+  };
+}
+
 function parseEntityWindow(raw: RawQuery): EntityWindow | undefined {
   const rawWindow = optionalNonEmpty(raw, "window") ?? "7d";
   if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
@@ -1255,6 +1297,28 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
 
   try {
     return reply.send({ data: await options.query.getEventFunnel(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventRetentionRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventRetention) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventRetentionFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventRetention(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1880,6 +1944,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/apm/profiles", (request, reply) => handleRuntimeProfilesRoute(request, reply, options));
   app.get("/query/events/properties", (request, reply) => handleEventPropertyCatalogRoute(request, reply, options));
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
+  app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));

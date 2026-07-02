@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord } from "../api/types";
+import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord, EventRetentionResponse } from "../api/types";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
 function event(overrides: Partial<EventRecord>): EventRecord {
@@ -55,6 +55,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     }),
     getEventFunnel: vi.fn().mockResolvedValue({
       data: emptyFunnel()
+    }),
+    getEventRetention: vi.fn().mockResolvedValue({
+      data: emptyRetention()
     }),
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn(),
@@ -112,6 +115,21 @@ function emptyPropertyCatalog(): EventPropertyCatalogResponse {
     totals: { events: 0, properties: 0, conflictProperties: 0, similarNameGroups: 0 },
     properties: [],
     similarNameGroups: []
+  };
+}
+
+function emptyRetention(): EventRetentionResponse {
+  return {
+    window: "30d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-05T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    entryEvent: "signup.started",
+    returnEvent: "app.opened",
+    period: "weekly",
+    intervals: 6,
+    totals: { cohorts: 0, entrants: 0 },
+    cohorts: []
   };
 }
 
@@ -284,6 +302,54 @@ describe("EventInvestigationPanel", () => {
       window: "7d",
       steps: ["signup.started", "project.created", "key.created"],
       limit: 20
+    });
+  });
+
+  it("runs retention curves for entry and return events", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "signup.started" })] }),
+      getEventRetention: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyRetention(),
+          totals: { cohorts: 1, entrants: 4 },
+          cohorts: [
+            {
+              cohortStart: "2026-05-04T00:00:00.000Z",
+              cohortLabel: "2026-05-04",
+              entrants: 4,
+              intervals: [
+                { index: 0, label: "W0", retainedActors: 3, retentionPercent: 75 },
+                { index: 1, label: "W1", retainedActors: 2, retentionPercent: 50 },
+                { index: 2, label: "W2", retainedActors: 1, retentionPercent: 25 },
+                { index: 3, label: "W3", retainedActors: 0, retentionPercent: 0 },
+                { index: 4, label: "W4", retainedActors: 0, retentionPercent: 0 },
+                { index: 5, label: "W5", retainedActors: 0, retentionPercent: 0 }
+              ]
+            }
+          ]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("Entry event"));
+    await userEvent.type(screen.getByLabelText("Entry event"), "signup.started");
+    await userEvent.clear(screen.getByLabelText("Return event"));
+    await userEvent.type(screen.getByLabelText("Return event"), "app.opened");
+    await userEvent.click(screen.getByRole("button", { name: "Run retention" }));
+
+    expect(await screen.findByRole("region", { name: "Retention curves" })).toHaveTextContent("2026-05-04");
+    expect(screen.getByRole("region", { name: "Retention curves" })).toHaveTextContent("75%");
+    expect(screen.getByRole("region", { name: "Retention curves" })).toHaveTextContent("W1");
+    expect(api.getEventRetention).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      entryEvent: "signup.started",
+      returnEvent: "app.opened",
+      period: "weekly",
+      intervals: 6
     });
   });
 

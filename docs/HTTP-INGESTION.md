@@ -138,6 +138,16 @@ Example query:
 GET /query/events/funnel?project_id=prj_123&environment_id=env_123&window=7d&steps=signup.started,project.created,key.created
 ```
 
+### Retention curves
+
+Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Retention uses the first `entry_event` per actor as the cohort start, then counts actors who later emit `return_event` across daily, weekly, or monthly intervals.
+
+Example query:
+
+```http
+GET /query/events/retention?project_id=prj_123&environment_id=env_123&window=30d&entry_event=signup.started&return_event=app.opened&period=weekly&intervals=6
+```
+
 ## Errors
 
 Required fields:

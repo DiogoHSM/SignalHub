@@ -141,6 +141,51 @@ export type EventFunnelResponse = {
   sampleActors: EventFunnelActor[];
 };
 
+export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
+
+export type EventRetentionQuery = ApmQuery & {
+  entryEvent: string;
+  returnEvent: string;
+  period?: EventRetentionPeriod;
+  intervals?: number;
+};
+
+export type EventRetentionInterval = {
+  index: number;
+  label: string;
+  retainedActors: number;
+  retentionPercent: number;
+};
+
+export type EventRetentionCohort = {
+  cohortStart: string;
+  cohortLabel: string;
+  entrants: number;
+  intervals: EventRetentionInterval[];
+};
+
+export type EventRetentionResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  entryEvent: string;
+  returnEvent: string;
+  period: EventRetentionPeriod;
+  intervals: number;
+  totals: {
+    cohorts: number;
+    entrants: number;
+  };
+  cohorts: EventRetentionCohort[];
+};
+
 export type ErrorRecord = {
   id: string;
   projectId: string;

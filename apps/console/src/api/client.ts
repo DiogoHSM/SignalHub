@@ -29,6 +29,8 @@ import type {
   EventFunnelResponse,
   EventPropertyCatalogResponse,
   EventRecord,
+  EventRetentionQuery,
+  EventRetentionResponse,
   LlmAggregates,
   LlmCallRecord,
   MonitorCheckResponse,
@@ -264,6 +266,7 @@ export type ApiClient = {
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
   getEventFunnel?: (query: EventFunnelQuery) => Promise<AggregateResponse<EventFunnelResponse>>;
+  getEventRetention?: (query: EventRetentionQuery) => Promise<AggregateResponse<EventRetentionResponse>>;
   getApmEndpoints?: (query: ApmQuery) => Promise<AggregateResponse<ApmEndpointsResponse>>;
   getServiceMap?: (query: ApmQuery) => Promise<AggregateResponse<ServiceMapResponse>>;
   getWebVitals?: (query: ApmQuery) => Promise<AggregateResponse<WebVitalsResponse>>;
@@ -581,6 +584,20 @@ function eventFunnelPath(query: EventFunnelQuery): string {
   return `/query/events/funnel?${params.toString()}`;
 }
 
+function eventRetentionPath(query: EventRetentionQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  params.set("entry_event", query.entryEvent);
+  params.set("return_event", query.returnEvent);
+  if (query.period !== undefined) params.set("period", query.period);
+  if (query.intervals !== undefined) params.set("intervals", String(query.intervals));
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/events/retention?${params.toString()}`;
+}
+
 function serviceMapPath(query: ApmQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -890,6 +907,7 @@ export function createApiClient(
     getEventPropertyCatalog: (query) =>
       request<AggregateResponse<EventPropertyCatalogResponse>>(path(apiBasePath, eventPropertyCatalogPath(query))),
     getEventFunnel: (query) => request<AggregateResponse<EventFunnelResponse>>(path(apiBasePath, eventFunnelPath(query))),
+    getEventRetention: (query) => request<AggregateResponse<EventRetentionResponse>>(path(apiBasePath, eventRetentionPath(query))),
     getApmEndpoints: (query) => request<AggregateResponse<ApmEndpointsResponse>>(path(apiBasePath, apmEndpointsPath(query))),
     getServiceMap: (query) => request<AggregateResponse<ServiceMapResponse>>(path(apiBasePath, serviceMapPath(query))),
     getWebVitals: (query) => request<AggregateResponse<WebVitalsResponse>>(path(apiBasePath, webVitalsPath(query))),

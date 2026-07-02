@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { ApiClient } from "../api/client";
-import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord, QueryFilters } from "../api/types";
+import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord, EventRetentionResponse, QueryFilters } from "../api/types";
 import { EventDetailDrawer } from "./EventDetailDrawer";
 import { EventFilters, type EventFilterValues } from "./EventFilters";
 import { EventList } from "./EventList";
@@ -15,6 +16,7 @@ type Props = {
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
 type CatalogState = "loading" | "ready" | "empty" | "unavailable";
 type FunnelState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
+type RetentionState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 
 const defaultFilters: EventFilterValues = {
   eventName: "",
@@ -290,6 +292,90 @@ function EventFunnelPanel({
   );
 }
 
+function EventRetentionPanel({
+  entryEvent,
+  onEntryEventChange,
+  onReturnEventChange,
+  onRun,
+  retention,
+  returnEvent,
+  state
+}: {
+  entryEvent: string;
+  onEntryEventChange: (value: string) => void;
+  onReturnEventChange: (value: string) => void;
+  onRun: () => void;
+  retention: EventRetentionResponse | null;
+  returnEvent: string;
+  state: RetentionState;
+}) {
+  const intervalLabels = retention?.cohorts[0]?.intervals.map((interval) => interval.label) ?? [];
+
+  return (
+    <section aria-label="Retention curves" className="event-retention">
+      <div className="event-retention__header">
+        <div>
+          <h3>Retention curves</h3>
+          <p>Measure actors who enter on one event and return on another event over time.</p>
+        </div>
+        {retention ? (
+          <div className="event-retention__score">
+            <span>Cohorts</span>
+            <strong>{retention.totals.cohorts}</strong>
+            <small>{retention.totals.entrants} entrants</small>
+          </div>
+        ) : null}
+      </div>
+      <div className="event-retention__builder">
+        <label>
+          Entry event
+          <input value={entryEvent} onChange={(event) => onEntryEventChange(event.target.value)} placeholder="signup.started" />
+        </label>
+        <label>
+          Return event
+          <input value={returnEvent} onChange={(event) => onReturnEventChange(event.target.value)} placeholder="app.opened" />
+        </label>
+        <button disabled={state === "loading"} onClick={onRun} type="button">
+          {state === "loading" ? "Running" : "Run retention"}
+        </button>
+      </div>
+      {state === "invalid" ? <p className="event-retention__notice">Add entry and return event names.</p> : null}
+      {state === "unavailable" ? <p className="event-retention__notice">Retention curves unavailable.</p> : null}
+      {state === "ready" && retention ? (
+        <div className="event-retention__matrix">
+          <div className="event-retention__row event-retention__row--header">
+            <span>Cohort</span>
+            <span>Entrants</span>
+            {intervalLabels.map((label) => (
+              <span key={label}>{label}</span>
+            ))}
+          </div>
+          {retention.cohorts.length === 0 ? (
+            <p className="event-retention__notice">No cohorts found for this window.</p>
+          ) : (
+            retention.cohorts.map((cohort) => (
+              <div className="event-retention__row" key={cohort.cohortStart}>
+                <strong>{cohort.cohortLabel}</strong>
+                <span>{cohort.entrants}</span>
+                {cohort.intervals.map((interval) => (
+                  <span
+                    className="event-retention__cell"
+                    key={`${cohort.cohortStart}:${interval.index}`}
+                    style={{ "--retention-strength": `${Math.max(0.08, interval.retentionPercent / 100)}` } as CSSProperties}
+                  >
+                    <strong>{interval.retentionPercent}%</strong>
+                    <small>{interval.retainedActors}</small>
+                  </span>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function EventInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
@@ -304,6 +390,10 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [funnelInput, setFunnelInput] = useState("signup.started\nproject.created");
   const [funnel, setFunnel] = useState<EventFunnelResponse | null>(null);
   const [funnelState, setFunnelState] = useState<FunnelState>("idle");
+  const [retentionEntryEvent, setRetentionEntryEvent] = useState("signup.started");
+  const [retentionReturnEvent, setRetentionReturnEvent] = useState("app.opened");
+  const [retention, setRetention] = useState<EventRetentionResponse | null>(null);
+  const [retentionState, setRetentionState] = useState<RetentionState>("idle");
   const query = useMemo(
     () => queryFromValues(projectId, environmentId, appliedFilters),
     [projectId, environmentId, appliedFilters]
@@ -414,6 +504,43 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
       );
   }
 
+  function runRetention() {
+    const entryEvent = retentionEntryEvent.trim();
+    const returnEvent = retentionReturnEvent.trim();
+    if (!entryEvent || !returnEvent) {
+      setRetention(null);
+      setRetentionState("invalid");
+      return;
+    }
+    if (!client.getEventRetention) {
+      setRetention(null);
+      setRetentionState("unavailable");
+      return;
+    }
+
+    setRetentionState("loading");
+    void client
+      .getEventRetention({
+        projectId,
+        environmentId,
+        window: "30d",
+        entryEvent,
+        returnEvent,
+        period: "weekly",
+        intervals: 6
+      })
+      .then(
+        ({ data }) => {
+          setRetention(data);
+          setRetentionState("ready");
+        },
+        () => {
+          setRetention(null);
+          setRetentionState("unavailable");
+        }
+      );
+  }
+
   return (
     <section className="investigation-layout">
       <div className="panel event-panel">
@@ -441,6 +568,15 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
               onRun={runFunnel}
               state={funnelState}
               value={funnelInput}
+            />
+            <EventRetentionPanel
+              entryEvent={retentionEntryEvent}
+              onEntryEventChange={setRetentionEntryEvent}
+              onReturnEventChange={setRetentionReturnEvent}
+              onRun={runRetention}
+              retention={retention}
+              returnEvent={retentionReturnEvent}
+              state={retentionState}
             />
             <EventList events={events} onSelect={setSelectedEvent} selectedEventId={selectedEvent?.id} />
           </>
