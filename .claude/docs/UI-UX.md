@@ -14,7 +14,7 @@ SignalMonitor includes an admin-only Integration Console.
 - `Traces` owns route grouping, p50/p95/p99, trace waterfall, span attributes, related errors/events, and release comparison.
 - `Errors` owns issue inbox, error groups, raw occurrences, Incident view, source-map state, triage, resolve/ignore, and reopen workflows.
 - `Experiments` is the home for event-based A/B readouts, feature flags, prompt variants, model comparison, and quality/cost/latency analysis.
-- `Configure` owns project-specific settings: environments, API keys, browser origins/CORS allowlist, SDK setup, source maps, alert rules/channels, and future project retention overrides.
+- `Configure` owns project-specific settings: environments, API keys, browser origins/CORS allowlist, SDK setup, source maps, data governance, alert rules/channels, and project retention overrides.
 - `Sigmon Admin` remains separate from project workspaces and is reserved for the SignalMonitor installation itself: system health, notifications, storage, security, deploy readiness, docs, SDK, and configuration health.
 - The approved design spec for this architecture lives at `docs/superpowers/specs/2026-06-06-product-console-architecture-design.md`.
 
@@ -46,7 +46,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
 - Browser origins are configured inside Project Settings for the selected project. Operators can add exact app origins and archive old origins; saved origins enable direct browser SDK ingestion CORS for public `/v1/*` endpoints.
-- Keep `Project Settings` as a project-scoped configuration mode for the selected project, environments, API keys, browser origins, SDK snippets, source maps, and the current console user administration surface.
+- Keep `Project Settings` as a project-scoped configuration mode for the selected project, environments, API keys, browser origins, data governance, SDK snippets, source maps, and the current console user administration surface.
 - Project Settings opens on the `Project` section, where operators can rename or archive the selected project. Archive is a destructive action with confirmation and should stay visually separated from routine setup fields.
 - Project Settings environment rows expose compact edit and archive actions. Onboarding keeps the lighter create/select flow, while recurring configuration lives in Project Settings.
 - Project Settings starts with a compact setup checklist for the selected project/environment so operators can see whether project scope, environment, endpoint, one-time API key setup, SDK installation, SDK initialization, and first telemetry ping are ready before handing integration details to another developer. Pending integration steps expose compact command/code hints inline.
@@ -192,6 +192,9 @@ SignalMonitor includes an admin-only Integration Console.
 ## Project Settings UX
 
 - API key rows expose edit actions for renaming keys without rotating secrets; one-time key secrets remain visible only immediately after creation.
+- Data Governance is a Project Settings section for the selected project/environment. It shows collected telemetry categories, per-category retention days, and sensitive property rules.
+- Data governance retention copy must explain that project/environment windows can shorten installation-level retention; installation-level retention remains the maximum retention boundary.
+- Sensitive property rules use dot paths and explicit actions: `mask` keeps the key with `[REDACTED]`; `block` removes the key before persistence. The UI should keep this distinction visible beside the rule list and add form.
 
 ## Releases UX
 

@@ -25,8 +25,14 @@ import type {
   InsertTraceInput,
   InsertWebVitalInput
 } from "@sigmon/db/repositories/telemetry-writes.js";
+import {
+  applyDataGovernanceRules,
+  emptyDataGovernancePolicy,
+  type DataGovernancePolicy
+} from "@sigmon/db/repositories/data-governance.js";
 
 export type TelemetryWriter = {
+  getDataGovernancePolicy?(input: { projectId: string; environmentId: string }): Promise<DataGovernancePolicy>;
   insertEvent(input: InsertEventInput): Promise<void>;
   insertError(input: InsertErrorInput): Promise<void>;
   insertLlmCall(input: InsertLlmCallInput): Promise<void>;
@@ -128,17 +134,29 @@ function baseInput(job: TelemetryJobPayload, payload: ParsedEnvelope, receivedAt
   };
 }
 
+async function getPolicy(job: TelemetryJobPayload, writer: TelemetryWriter): Promise<DataGovernancePolicy> {
+  if (!writer.getDataGovernancePolicy) {
+    return emptyDataGovernancePolicy({ projectId: job.projectId, environmentId: job.environmentId });
+  }
+  return writer.getDataGovernancePolicy({ projectId: job.projectId, environmentId: job.environmentId });
+}
+
+function governedMetadata(payload: ParsedEnvelope, policy: DataGovernancePolicy): Record<string, unknown> {
+  return applyDataGovernanceRules(payload.metadata, policy, "metadata");
+}
+
 export async function processTelemetryJob(job: TelemetryJobPayload, writer: TelemetryWriter): Promise<void> {
   const receivedAt = new Date();
+  const policy = await getPolicy(job, writer);
 
   switch (job.kind) {
     case "event": {
       const payload = eventPayloadSchema.parse(job.payload);
       await writer.insertEvent({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput({ ...job, payload: job.payload }, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt),
         name: payload.name,
         replayId: payload.replay_id,
-        properties: sanitizeValue(payload.properties)
+        properties: sanitizeValue(applyDataGovernanceRules(payload.properties, policy, "event.properties"))
       });
       return;
     }
@@ -146,14 +164,14 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "error": {
       const payload = errorPayloadSchema.parse(job.payload);
       await writer.insertError({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt),
         message: payload.message,
         type: payload.type,
         severity: payload.severity,
         stack: payload.stack,
         fingerprint: payload.fingerprint,
         replayId: payload.replay_id,
-        context: sanitizeValue(payload.context)
+        context: sanitizeValue(applyDataGovernanceRules(payload.context, policy, "error.context"))
       });
       return;
     }
@@ -161,7 +179,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "llm": {
       const payload = llmCallPayloadSchema.parse(job.payload);
       await writer.insertLlmCall({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt),
         provider: payload.provider,
         model: payload.model,
         promptName: payload.prompt_name,
@@ -180,7 +198,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "trace": {
       const payload = tracePayloadSchema.parse(job.payload);
       await writer.insertTrace({
-        ...baseInput(job, payload, receivedAt, payload.started_at),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt, payload.started_at),
         name: payload.name,
         status: payload.status,
         startedAt: new Date(payload.started_at),
@@ -193,7 +211,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "span": {
       const payload = spanPayloadSchema.parse(job.payload);
       await writer.insertSpan({
-        ...baseInput(job, payload, receivedAt, payload.started_at),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt, payload.started_at),
         traceId: payload.trace_id,
         parentSpanId: payload.parent_span_id,
         name: payload.name,
@@ -201,9 +219,9 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         startedAt: new Date(payload.started_at),
         endedAt: payload.ended_at ? new Date(payload.ended_at) : undefined,
         durationMs: payload.duration_ms,
-        input: sanitizeValue(payload.input),
-        output: sanitizeValue(payload.output),
-        error: sanitizeValue(payload.error),
+        input: sanitizeValue(applyDataGovernanceRules(payload.input, policy, "span.input")),
+        output: sanitizeValue(applyDataGovernanceRules(payload.output, policy, "span.output")),
+        error: sanitizeValue(applyDataGovernanceRules(payload.error, policy, "span.error")),
         costUsd: payload.cost_usd === undefined ? undefined : String(payload.cost_usd)
       });
       return;
@@ -212,7 +230,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "web_vital": {
       const payload = webVitalPayloadSchema.parse(job.payload);
       await writer.insertWebVital({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt),
         name: payload.name,
         value: payload.value,
         rating: payload.rating,
@@ -225,7 +243,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "click": {
       const payload = clickEventPayloadSchema.parse(job.payload);
       await writer.insertClickEvent({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt),
         route: payload.route,
         selector: payload.selector,
         elementTag: payload.element_tag,
@@ -244,7 +262,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "replay": {
       const payload = sessionReplayPayloadSchema.parse(job.payload);
       await writer.insertSessionReplay({
-        ...baseInput(job, payload, receivedAt, payload.started_at),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt, payload.started_at),
         replayId: payload.replay_id,
         route: payload.route,
         errorId: payload.error_id,
@@ -260,7 +278,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
           message: sanitizePreviewText(event.message),
           x: event.x,
           y: event.y,
-          data: sanitizeValue(event.data)
+          data: sanitizeValue(applyDataGovernanceRules(event.data, policy, "replay.event.data"))
         }))
       });
       return;
@@ -269,7 +287,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
     case "profile": {
       const payload = profilePayloadSchema.parse(job.payload);
       await writer.insertProfile({
-        ...baseInput(job, payload, receivedAt, payload.started_at),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt, payload.started_at),
         name: payload.name,
         kind: payload.kind,
         runtime: payload.runtime,
@@ -309,12 +327,12 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
 
       const payload = breadcrumbPayloadSchema.parse(job.payload);
       await writer.insertBreadcrumb({
-        ...baseInput(job, payload, receivedAt),
+        ...baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt),
         type: payload.type,
         category: payload.category,
         message: sanitizePreviewText(payload.message) ?? "breadcrumb",
         level: payload.level,
-        data: sanitizeValue(payload.data)
+        data: sanitizeValue(applyDataGovernanceRules(payload.data, policy, "breadcrumb.data"))
       });
       return;
     }

@@ -69,6 +69,12 @@ import type {
   CreateBetaProgramInput,
   UpdateBetaProgramInput
 } from "@sigmon/db/repositories/beta-programs.js";
+import type {
+  DataGovernancePolicy,
+  DataGovernancePropertyRule,
+  DataGovernanceRetentionPolicy,
+  UpsertDataGovernancePolicyInput
+} from "@sigmon/db/repositories/data-governance.js";
 
 export interface AdminProject {
   id: string;
@@ -151,6 +157,7 @@ export type AdminResourceDependencies = {
   experiments?: ExperimentAdministrationDependencies;
   featureFlags?: FeatureFlagAdministrationDependencies;
   betaPrograms?: BetaProgramAdministrationDependencies;
+  dataGovernance?: DataGovernanceAdministrationDependencies;
 };
 
 export type AnalyticsSegmentAdministrationDependencies = {
@@ -221,6 +228,11 @@ export type BetaProgramAdministrationDependencies = {
   addParticipant: (input: AddBetaProgramParticipantInput) => Promise<BetaProgramParticipantRecord>;
   removeParticipant: (input: { programId: string; projectId: string; environmentId: string; participantId: string }) => Promise<void>;
   getAdoption: (input: { programId: string; projectId: string; environmentId: string; window?: "24h" | "7d" | "30d" }) => Promise<BetaProgramAdoption>;
+};
+
+export type DataGovernanceAdministrationDependencies = {
+  get: (input: { projectId: string; environmentId: string }) => Promise<DataGovernancePolicy>;
+  upsert: (input: UpsertDataGovernancePolicyInput) => Promise<DataGovernancePolicy>;
 };
 
 export type AlertAdministrationDependencies = {
@@ -655,6 +667,54 @@ const updateSourceMapUploadTokenSchema = z
     name: z.string().trim().min(1).max(256).optional()
   })
   .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
+const dataGovernanceScopeQuerySchema = analyticsSegmentScopeQuerySchema;
+const dataGovernanceRetentionCategorySchema = z.enum([
+  "events",
+  "errors",
+  "traces",
+  "spans",
+  "llmCalls",
+  "profiles",
+  "breadcrumbs",
+  "webVitals",
+  "clicks",
+  "replays"
+]);
+const dataGovernanceRetentionPolicySchema = z
+  .record(z.string(), z.number().int().min(1).max(3650))
+  .transform((input) =>
+    Object.fromEntries(
+      Object.entries(input).filter(([category]) =>
+        dataGovernanceRetentionCategorySchema.safeParse(category).success
+      )
+    )
+  );
+const dataGovernancePropertyRuleSchema = z.object({
+  target: z.enum([
+    "metadata",
+    "event.properties",
+    "error.context",
+    "span.input",
+    "span.output",
+    "span.error",
+    "breadcrumb.data",
+    "replay.event.data"
+  ]),
+  path: z.string().trim().min(1).max(256),
+  action: z.enum(["mask", "block"])
+});
+const dataGovernancePolicySchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  retentionPolicy: dataGovernanceRetentionPolicySchema.default({}),
+  propertyRules: z.array(dataGovernancePropertyRuleSchema).max(100).default([])
+});
+
+type DataGovernancePolicyBody = z.infer<typeof dataGovernancePolicySchema> & {
+  retentionPolicy: DataGovernanceRetentionPolicy;
+  propertyRules: DataGovernancePropertyRule[];
+};
 
 type CreateUserInput = z.infer<typeof createUserSchema>;
 type UpdateUserInput = z.infer<typeof updateUserSchema>;
@@ -2247,6 +2307,56 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.send({ adoption });
     } catch {
       return reply.status(503).send({ error: "beta_programs_unavailable" });
+    }
+  });
+
+  app.get("/admin/data-governance", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.dataGovernance) {
+      return reply.status(501).send({ error: "data_governance_repository_unavailable" });
+    }
+
+    const query = dataGovernanceScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_data_governance_request" });
+    }
+
+    try {
+      const policy = await options.adminResources.dataGovernance.get({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ policy });
+    } catch {
+      return reply.status(503).send({ error: "data_governance_unavailable" });
+    }
+  });
+
+  app.put("/admin/data-governance", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.dataGovernance) {
+      return reply.status(501).send({ error: "data_governance_repository_unavailable" });
+    }
+
+    const parsed = dataGovernancePolicySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_data_governance_request" });
+    }
+
+    try {
+      const input = parsed.data as DataGovernancePolicyBody;
+      const policy = await options.adminResources.dataGovernance.upsert({
+        projectId: input.projectId,
+        environmentId: input.environmentId,
+        retentionPolicy: input.retentionPolicy,
+        propertyRules: input.propertyRules,
+        updatedByUserId: admin.id
+      });
+      return reply.send({ policy });
+    } catch {
+      return reply.status(503).send({ error: "data_governance_unavailable" });
     }
   });
 

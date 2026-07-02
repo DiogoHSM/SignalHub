@@ -20,6 +20,8 @@ Ingestion:
 
 Telemetry queue jobs use deterministic IDs derived from the payload IDs. The worker writes telemetry through idempotent repository paths so duplicate queue delivery or retry attempts do not create duplicate telemetry rows.
 
+Project data governance policies are loaded by the worker per project/environment before persistence. Policy rules can mask or block configured JSON paths in shared metadata, event properties, error context, span input/output/error, breadcrumb data, replay event data, and identity traits; built-in secret redaction still runs after policy application.
+
 Identify:
 
 1. SDKs or raw clients call `POST /v1/identify/user` or `POST /v1/identify/tenant`.
@@ -61,6 +63,7 @@ Operational tables:
 - `analytics_segments`
 - `analytics_dashboards`
 - `experiments`
+- `data_governance_policies`
 - `source_map_artifacts`
 - `source_map_upload_tokens`
 - `error_stack_resolutions`
@@ -141,6 +144,7 @@ Admin:
 - `/admin/analytics-segments/:id/preview`
 - `/admin/analytics-dashboards`
 - `/admin/analytics-dashboards/:id`
+- `/admin/data-governance`
 - `/admin/source-maps`
 - `/admin/source-map-upload-tokens`
 
@@ -211,7 +215,7 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `click_events`, `session_replays`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. `click_events` and `session_replays` use the events retention window and are counted with deleted events. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `click_events`, `session_replays`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Project data governance policies can define shorter per-project/environment retention windows by category; these scoped windows run after the installation-level retention pass. `click_events` and `session_replays` use the events retention window by default and are counted with deleted events. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 

@@ -30,6 +30,7 @@ import type {
   CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
   DashboardReportResponse,
+  DataGovernancePolicy,
   Environment,
   Experiment,
   ExperimentResultsQuery,
@@ -401,6 +402,13 @@ export type ApiClient = {
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
   fetchFleet: () => Promise<FleetResponse>;
+  getDataGovernancePolicy?: (query: { projectId: string; environmentId: string }) => Promise<{ policy: DataGovernancePolicy }>;
+  updateDataGovernancePolicy?: (input: {
+    projectId: string;
+    environmentId: string;
+    retentionPolicy: DataGovernancePolicy["retentionPolicy"];
+    propertyRules: DataGovernancePolicy["propertyRules"];
+  }) => Promise<{ policy: DataGovernancePolicy }>;
 } & AlertApiClient &
   ErrorGroupApiClient &
   SessionTimelineApiClient &
@@ -409,7 +417,7 @@ export type ApiClient = {
   Partial<AlertSuggestionApiClient>;
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
 };
 
@@ -1357,6 +1365,15 @@ export function createApiClient(
     updateUser: (id, input) =>
       request<{ user: User }>(path(apiBasePath, `/admin/users/${encodePathSegment(id)}`), { method: "PATCH", body: input }),
     archiveUser: (id) => request<void>(path(apiBasePath, `/admin/users/${encodePathSegment(id)}`), { method: "DELETE" }),
+    getDataGovernancePolicy: (query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      return request<{ policy: DataGovernancePolicy }>(path(apiBasePath, `/admin/data-governance?${search.toString()}`));
+    },
+    updateDataGovernancePolicy: (input) =>
+      request<{ policy: DataGovernancePolicy }>(path(apiBasePath, "/admin/data-governance"), {
+        method: "PUT",
+        body: input
+      }),
     listNotificationChannels: () =>
       request<{ channels: NotificationChannelResponse[] }>(path(apiBasePath, "/admin/notification-channels")),
     createNotificationChannel: (input) =>

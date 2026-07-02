@@ -62,6 +62,10 @@ import {
   updateBetaProgram
 } from "@sigmon/db/repositories/beta-programs.js";
 import {
+  getDataGovernancePolicy,
+  upsertDataGovernancePolicy
+} from "@sigmon/db/repositories/data-governance.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -664,6 +668,10 @@ const app = await buildApp({
       addParticipant: (input) => addBetaProgramParticipant(db, input),
       removeParticipant: (input) => removeBetaProgramParticipant(db, input),
       getAdoption: (input) => getBetaProgramAdoption(db, input)
+    },
+    dataGovernance: {
+      get: (input) => getDataGovernancePolicy(db, input),
+      upsert: (input) => upsertDataGovernancePolicy(db, input)
     }
   },
   ingestion: {

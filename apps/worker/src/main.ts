@@ -19,6 +19,7 @@ import {
   insertTrace,
   insertWebVital
 } from "@sigmon/db/repositories/telemetry-writes.js";
+import { getDataGovernancePolicy } from "@sigmon/db/repositories/data-governance.js";
 import { deleteExpiredDeadLetterJobs, insertDeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
 import {
   deleteExpiredTelemetry,
@@ -84,6 +85,7 @@ const connection = runsQueue
   : null;
 
 const writer: TelemetryWriter = {
+  getDataGovernancePolicy: (input) => getDataGovernancePolicy(db, input),
   insertEvent: (input) => insertEvent(db, input),
   insertError: (input) => insertError(db, input),
   insertLlmCall: (input) => insertLlmCall(db, input),

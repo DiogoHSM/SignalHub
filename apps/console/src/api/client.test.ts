@@ -880,6 +880,29 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages data governance policies", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { policy: { projectId: "prj_1", environmentId: "env_1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getDataGovernancePolicy?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/data-governance?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { policy: { projectId: "prj_1", environmentId: "env_1" } }));
+    await createApiClient("/api").updateDataGovernancePolicy?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      retentionPolicy: { events: 60, errors: 180 },
+      propertyRules: [{ target: "event.properties", path: "email", action: "mask" }]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/data-governance",
+      expect.objectContaining({ method: "PUT" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

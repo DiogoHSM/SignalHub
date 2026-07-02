@@ -39,6 +39,44 @@ export type BrowserOrigin = {
   archivedAt: string | null;
 };
 
+export type DataGovernanceRetentionCategory =
+  | "events"
+  | "errors"
+  | "traces"
+  | "spans"
+  | "llmCalls"
+  | "profiles"
+  | "breadcrumbs"
+  | "webVitals"
+  | "clicks"
+  | "replays";
+
+export type DataGovernancePropertyRuleTarget =
+  | "metadata"
+  | "event.properties"
+  | "error.context"
+  | "span.input"
+  | "span.output"
+  | "span.error"
+  | "breadcrumb.data"
+  | "replay.event.data";
+
+export type DataGovernancePropertyRule = {
+  target: DataGovernancePropertyRuleTarget;
+  path: string;
+  action: "mask" | "block";
+};
+
+export type DataGovernancePolicy = {
+  projectId: string;
+  environmentId: string;
+  retentionPolicy: Partial<Record<DataGovernanceRetentionCategory, number>>;
+  propertyRules: DataGovernancePropertyRule[];
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AnalyticsSegmentActorType = "user" | "tenant";
 
 export type AnalyticsSegmentDefinition = {

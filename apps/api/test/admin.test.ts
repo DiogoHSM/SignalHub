@@ -17,6 +17,7 @@ import type {
   BetaProgramParticipantRecord,
   BetaProgramRecord
 } from "../../../packages/db/src/repositories/beta-programs.js";
+import type { DataGovernancePolicy } from "../../../packages/db/src/repositories/data-governance.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -275,6 +276,28 @@ function betaProgramAdoption(overrides: Partial<BetaProgramAdoption> = {}): Beta
     events: 4,
     adoptionRate: 50,
     samples: [{ actorId: "user_1", events: 4, lastSeenAt: "2026-01-01T00:00:00.000Z" }],
+    ...overrides
+  };
+}
+
+function dataGovernancePolicy(overrides: Partial<DataGovernancePolicy> = {}): DataGovernancePolicy {
+  return {
+    projectId: "prj_1",
+    environmentId: "env_1",
+    retentionPolicy: { events: 45, errors: 180 },
+    propertyRules: [{ target: "event.properties", path: "email", action: "mask" }],
+    updatedByUserId: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function dataGovernancePolicyResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...dataGovernancePolicy(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };
 }
@@ -1302,6 +1325,58 @@ describe("admin routes", () => {
     });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archive).toHaveBeenCalledWith({ id: "beta_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("manages data governance policies for admins", async () => {
+    const get = vi.fn(async () => dataGovernancePolicy());
+    const upsert = vi.fn(async (input) =>
+      dataGovernancePolicy({
+        retentionPolicy: input.retentionPolicy,
+        propertyRules: input.propertyRules,
+        updatedByUserId: input.updatedByUserId ?? null
+      })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        dataGovernance: { get, upsert }
+      }
+    });
+
+    const getResponse = await app.inject({
+      method: "GET",
+      url: "/admin/data-governance?project_id=prj_1&environment_id=env_1"
+    });
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({ policy: dataGovernancePolicyResponse() });
+    expect(get).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const putResponse = await app.inject({
+      method: "PUT",
+      url: "/admin/data-governance",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        retentionPolicy: { events: 60, errors: 365 },
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "metadata", path: "headers.authorization", action: "block" }
+        ]
+      }
+    });
+    expect(putResponse.statusCode).toBe(200);
+    expect(upsert).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      retentionPolicy: { events: 60, errors: 365 },
+      propertyRules: [
+        { target: "event.properties", path: "email", action: "mask" },
+        { target: "metadata", path: "headers.authorization", action: "block" }
+      ],
+      updatedByUserId: "usr_1"
+    });
   });
 
   it("rejects invalid browser origins", async () => {

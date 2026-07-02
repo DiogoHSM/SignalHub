@@ -444,6 +444,8 @@ await sigmon.flush();</code></pre>
             <div class="callout">
               Do not send secrets, cookies, authorization headers, full request bodies, or raw payment data
               in properties, context, breadcrumbs, span input, span output, or error metadata.
+              Project Data Governance rules can also mask or block configured JSON paths before telemetry
+              is persisted.
             </div>
           </section>
 
@@ -740,7 +742,7 @@ await sigmon.flush();</code></pre>
                   </tr>
                   <tr>
                     <td>Exposure event</td>
-                    <td><code>sigmon.experiment.exposed</code></td>
+                    <td><code>sigmon.experiment.exposed</code> or <code>checkout.exposed</code></td>
                     <td>Marks when a user or tenant saw the variant.</td>
                   </tr>
                   <tr>

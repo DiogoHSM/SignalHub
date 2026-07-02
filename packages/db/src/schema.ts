@@ -153,6 +153,16 @@ export interface BetaProgramParticipantsTable {
   removed_at: NullableTimestamp;
 }
 
+export interface DataGovernancePoliciesTable {
+  project_id: string;
+  environment_id: string;
+  retention_policy: JsonColumn;
+  property_rules: JsonColumn;
+  updated_by_user_id: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -754,6 +764,7 @@ export interface Database {
   feature_flag_audit: FeatureFlagAuditTable;
   beta_programs: BetaProgramsTable;
   beta_program_participants: BetaProgramParticipantsTable;
+  data_governance_policies: DataGovernancePoliciesTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;

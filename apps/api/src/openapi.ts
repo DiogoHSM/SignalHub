@@ -363,6 +363,48 @@ export const openApiDocument = {
           }
         }
       },
+      DataGovernancePropertyRule: {
+        type: "object",
+        required: ["target", "path", "action"],
+        properties: {
+          target: {
+            type: "string",
+            enum: [
+              "metadata",
+              "event.properties",
+              "error.context",
+              "span.input",
+              "span.output",
+              "span.error",
+              "breadcrumb.data",
+              "replay.event.data"
+            ]
+          },
+          path: { type: "string", examples: ["user.email", "headers.authorization"] },
+          action: { type: "string", enum: ["mask", "block"] }
+        }
+      },
+      DataGovernancePolicy: {
+        type: "object",
+        required: ["projectId", "environmentId", "retentionPolicy", "propertyRules"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          retentionPolicy: {
+            type: "object",
+            description: "Optional per-project retention windows in days. Scoped windows can shorten installation-level retention.",
+            additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+            examples: [{ events: 90, errors: 180, traces: 30 }]
+          },
+          propertyRules: {
+            type: "array",
+            items: { $ref: "#/components/schemas/DataGovernancePropertyRule" }
+          },
+          updatedByUserId: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
       EventPayload: {
         type: "object",
         required: ["name"],
@@ -1484,6 +1526,68 @@ export const openApiDocument = {
           "200": {
             description: "Adoption summary",
             content: { "application/json": { schema: { type: "object", properties: { adoption: { $ref: "#/components/schemas/BetaProgramAdoption" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/data-governance": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "Read data governance policy",
+        description: "Read retention windows and sensitive property rules for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Data governance policy",
+            content: { "application/json": { schema: { type: "object", properties: { policy: { $ref: "#/components/schemas/DataGovernancePolicy" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      put: {
+        tags: ["Session authenticated"],
+        summary: "Update data governance policy",
+        description: "Configure project/environment retention windows and property mask/block rules.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  retentionPolicy: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+                    examples: [{ events: 90, errors: 180, traces: 30 }]
+                  },
+                  propertyRules: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/DataGovernancePropertyRule" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Data governance policy updated",
+            content: { "application/json": { schema: { type: "object", properties: { policy: { $ref: "#/components/schemas/DataGovernancePolicy" } } } } }
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },

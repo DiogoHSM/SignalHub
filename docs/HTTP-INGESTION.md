@@ -80,6 +80,8 @@ Most signal types accept the shared envelope fields below.
 
 `metadata`, `properties`, `context`, `traits`, and breadcrumb `data` must be JSON objects. Avoid sending secrets, tokens, cookies, raw private data, full request bodies, or full response bodies.
 
+Project administrators can add Data Governance rules in Project Settings. These rules run in the worker before persistence and can mask or block configured JSON paths for shared metadata, event properties, error context, span payloads, breadcrumb data, replay event data, and identity traits. Built-in secret redaction still applies even when no project-specific rules exist.
+
 ## Limits
 
 - Timestamps must be ISO datetime strings.

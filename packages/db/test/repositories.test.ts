@@ -74,6 +74,11 @@ import {
   updateBetaProgram
 } from "../src/repositories/beta-programs.js";
 import {
+  applyDataGovernanceRules,
+  getDataGovernancePolicy,
+  upsertDataGovernancePolicy
+} from "../src/repositories/data-governance.js";
+import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
@@ -1990,6 +1995,160 @@ describe("repositories", () => {
         await db.deleteFrom("events").where("id", "=", input.id).execute();
       }
     });
+  });
+
+  it("stores environment data governance retention and property rules", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Governance" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const empty = await getDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(empty.retentionPolicy).toEqual({});
+      expect(empty.propertyRules).toEqual([]);
+
+      const policy = await upsertDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        retentionPolicy: { events: 30, errors: 180, traces: 14, webVitals: 30 },
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "metadata", path: "request.headers.authorization", action: "block" }
+        ],
+        updatedByUserId: null
+      });
+
+      expect(policy.retentionPolicy).toEqual({ events: 30, errors: 180, traces: 14, webVitals: 30 });
+      expect(policy.propertyRules).toEqual([
+        { target: "event.properties", path: "email", action: "mask" },
+        { target: "metadata", path: "request.headers.authorization", action: "block" }
+      ]);
+
+      await expect(getDataGovernancePolicy(db, { projectId: project.id, environmentId: environment.id })).resolves.toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        retentionPolicy: { events: 30, errors: 180, traces: 14, webVitals: 30 }
+      });
+
+      const otherProject = await createProject(db, { name: "Other Governance" });
+      await expect(
+        upsertDataGovernancePolicy(db, {
+          projectId: otherProject.id,
+          environmentId: environment.id,
+          retentionPolicy: { events: 7 },
+          propertyRules: []
+        })
+      ).rejects.toThrow();
+    });
+  });
+
+  it("uses project data governance windows during retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Governed Retention" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertEvent(db, {
+        id: "evt_governed_old",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-01-01T00:00:00.000Z"),
+        name: "governed.old"
+      });
+      await insertEvent(db, {
+        id: "evt_governed_fresh",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-02-20T00:00:00.000Z"),
+        receivedAt: new Date("2026-02-20T00:00:00.000Z"),
+        name: "governed.fresh"
+      });
+      await upsertDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        retentionPolicy: { events: 30 },
+        propertyRules: []
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        eventsDays: 365,
+        errorsDays: 365,
+        tracesDays: 365,
+        spansDays: 365,
+        llmCallsDays: 365,
+        profilesDays: 365,
+        breadcrumbsDays: 365,
+        deadLetterJobsDays: 365,
+        sourceMapsEnabled: false,
+        sourceMapsDays: 365,
+        sourceMapsBatchSize: 100,
+        now: new Date("2026-03-05T00:00:00.000Z"),
+        batchSize: 100
+      });
+
+      expect(deleted.events).toBe(1);
+      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_old").executeTakeFirst()).resolves.toBeUndefined();
+      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_fresh").executeTakeFirst()).resolves.toMatchObject({
+        id: "evt_governed_fresh"
+      });
+    });
+  });
+
+  it("masks and blocks configured property paths without mutating the original payload", () => {
+    const payload = {
+      email: "admin@example.com",
+      keep: "visible",
+      request: {
+        headers: {
+          authorization: "Bearer secret",
+          accept: "json"
+        }
+      }
+    };
+
+    const governed = applyDataGovernanceRules(
+      payload,
+      {
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "event.properties", path: "request.headers.authorization", action: "block" },
+          { target: "metadata", path: "keep", action: "block" }
+        ]
+      },
+      "event.properties"
+    );
+
+    expect(governed).toEqual({
+      email: "[REDACTED]",
+      keep: "visible",
+      request: { headers: { accept: "json" } }
+    });
+    expect(payload.request.headers.authorization).toBe("Bearer secret");
+  });
+
+  it("ignores unsafe data governance property paths", () => {
+    const payload = { safe: "visible" };
+    const originalToString = Object.prototype.toString;
+
+    const governed = applyDataGovernanceRules(
+      payload,
+      {
+        propertyRules: [
+          { target: "event.properties", path: "__proto__.toString", action: "block" },
+          { target: "event.properties", path: "constructor.prototype.polluted", action: "mask" },
+          { target: "event.properties", path: "safe", action: "mask" }
+        ]
+      },
+      "event.properties"
+    );
+
+    expect(governed).toEqual({ safe: "[REDACTED]" });
+    expect(Object.prototype.toString).toBe(originalToString);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   it("paginates event lists with scoped timestamp cursors", async () => {

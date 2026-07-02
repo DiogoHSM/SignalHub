@@ -145,7 +145,16 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByText("Send first ping")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Project settings sections" })).toBeInTheDocument();
 
-    for (const label of ["Project", "Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
+    for (const label of [
+      "Project",
+      "Environments",
+      "API keys",
+      "Browser origins",
+      "Data governance",
+      "SDK snippets",
+      "Source maps",
+      "Console users"
+    ]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Console users" })).toHaveAccessibleDescription(
@@ -160,6 +169,60 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByText("Create and select deployment environments for this project.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Production" })).toBeInTheDocument();
+  });
+
+  it("configures data governance retention and sensitive property rules", async () => {
+    const api = client({
+      getDataGovernancePolicy: vi.fn().mockResolvedValue({
+        policy: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          retentionPolicy: { events: 45, errors: 180 },
+          propertyRules: [{ target: "event.properties", path: "email", action: "mask" }],
+          updatedByUserId: null,
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z"
+        }
+      }),
+      updateDataGovernancePolicy: vi.fn().mockResolvedValue({
+        policy: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          retentionPolicy: { events: 45, errors: 180 },
+          propertyRules: [
+            { target: "event.properties", path: "email", action: "mask" },
+            { target: "metadata", path: "headers.authorization", action: "block" }
+          ],
+          updatedByUserId: "usr_admin",
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z"
+        }
+      })
+    });
+
+    renderWorkspace({ client: api });
+
+    await userEvent.click(screen.getByRole("button", { name: "Data governance" }));
+
+    expect(await screen.findByRole("heading", { name: "Data governance" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Events retention days")).toHaveValue(45);
+    expect(await screen.findByText((_, element) => element?.textContent === "mask event.properties.email")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Target"), "metadata");
+    await userEvent.type(screen.getByLabelText("Property path"), "headers.authorization");
+    await userEvent.selectOptions(screen.getByLabelText("Action"), "block");
+    await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+
+    expect(api.updateDataGovernancePolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "metadata", path: "headers.authorization", action: "block" }
+        ]
+      })
+    );
   });
 
   it("updates and archives the selected project", async () => {

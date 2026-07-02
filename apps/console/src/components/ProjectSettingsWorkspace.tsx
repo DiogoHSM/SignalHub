@@ -1,6 +1,14 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { BrowserOrigin, Environment, Project } from "../api/types";
+import type {
+  BrowserOrigin,
+  DataGovernancePolicy,
+  DataGovernancePropertyRule,
+  DataGovernancePropertyRuleTarget,
+  DataGovernanceRetentionCategory,
+  Environment,
+  Project
+} from "../api/types";
 import { ApiKeyPanel } from "./ApiKeyPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { EnvironmentSelector } from "./EnvironmentSelector";
@@ -49,6 +57,11 @@ const sections = [
     id: "browser-origins",
     label: "Browser origins",
     description: "Review allowed browser origins for client-side ingestion."
+  },
+  {
+    id: "data-governance",
+    label: "Data governance",
+    description: "Control retention windows and sensitive telemetry properties."
   },
   {
     id: "sdk-snippets",
@@ -201,6 +214,232 @@ function BrowserOriginsPanel({ client, projectId }: { client: ApiClient; project
   );
 }
 
+const retentionCategories: Array<{ key: DataGovernanceRetentionCategory; label: string; description: string; fallbackDays: number }> = [
+  { key: "events", label: "Events", description: "Custom product analytics events.", fallbackDays: 90 },
+  { key: "errors", label: "Errors", description: "Error occurrences and grouped incidents.", fallbackDays: 180 },
+  { key: "traces", label: "Traces", description: "Request traces and route latency records.", fallbackDays: 90 },
+  { key: "spans", label: "Spans", description: "Trace child spans and dependency timings.", fallbackDays: 90 },
+  { key: "llmCalls", label: "LLM calls", description: "AI provider, token, latency, and cost telemetry.", fallbackDays: 180 },
+  { key: "profiles", label: "Profiles", description: "CPU and memory profiling samples.", fallbackDays: 30 },
+  { key: "breadcrumbs", label: "Breadcrumbs", description: "Context events captured before an error.", fallbackDays: 30 },
+  { key: "webVitals", label: "Web vitals", description: "Browser performance metrics.", fallbackDays: 90 },
+  { key: "clicks", label: "Click maps", description: "Masked click analytics samples.", fallbackDays: 90 },
+  { key: "replays", label: "Session replays", description: "Masked replay timelines.", fallbackDays: 90 }
+];
+
+const propertyRuleTargets: DataGovernancePropertyRuleTarget[] = [
+  "metadata",
+  "event.properties",
+  "error.context",
+  "span.input",
+  "span.output",
+  "span.error",
+  "breadcrumb.data",
+  "replay.event.data"
+];
+
+function DataGovernancePanel({
+  activeEnvironmentId,
+  client,
+  projectId
+}: {
+  activeEnvironmentId?: string;
+  client: ApiClient;
+  projectId: string;
+}) {
+  const [policy, setPolicy] = useState<DataGovernancePolicy | undefined>();
+  const [retentionDraft, setRetentionDraft] = useState<Record<DataGovernanceRetentionCategory, string>>(
+    () =>
+      Object.fromEntries(retentionCategories.map((category) => [category.key, String(category.fallbackDays)])) as Record<
+        DataGovernanceRetentionCategory,
+        string
+      >
+  );
+  const [ruleTarget, setRuleTarget] = useState<DataGovernancePropertyRuleTarget>("event.properties");
+  const [rulePath, setRulePath] = useState("");
+  const [ruleAction, setRuleAction] = useState<DataGovernancePropertyRule["action"]>("mask");
+  const [error, setError] = useState<string | undefined>();
+  const [isSaving, setIsSaving] = useState(false);
+
+  const environmentId = activeEnvironmentId;
+  const canUseApi = Boolean(environmentId && client.getDataGovernancePolicy && client.updateDataGovernancePolicy);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!environmentId || !client.getDataGovernancePolicy) return;
+
+    void client
+      .getDataGovernancePolicy({ projectId, environmentId })
+      .then(({ policy: loadedPolicy }) => {
+        if (cancelled) return;
+        setPolicy(loadedPolicy);
+        setRetentionDraft(
+          Object.fromEntries(
+            retentionCategories.map((category) => [
+              category.key,
+              String(loadedPolicy.retentionPolicy[category.key] ?? category.fallbackDays)
+            ])
+          ) as Record<DataGovernanceRetentionCategory, string>
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("Could not load data governance policy.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId]);
+
+  const propertyRules = policy?.propertyRules ?? [];
+  const retentionRows = useMemo(
+    () =>
+      retentionCategories.map((category) => ({
+        ...category,
+        value: retentionDraft[category.key] ?? String(category.fallbackDays)
+      })),
+    [retentionDraft]
+  );
+
+  async function savePolicy(nextRules = propertyRules) {
+    if (!environmentId || !client.updateDataGovernancePolicy || isSaving) return;
+
+    const retentionPolicy = Object.fromEntries(
+      retentionCategories.map((category) => [category.key, Number(retentionDraft[category.key] || category.fallbackDays)])
+    ) as DataGovernancePolicy["retentionPolicy"];
+
+    setError(undefined);
+    setIsSaving(true);
+    try {
+      const response = await client.updateDataGovernancePolicy({
+        projectId,
+        environmentId,
+        retentionPolicy,
+        propertyRules: nextRules
+      });
+      setPolicy(response.policy);
+    } catch {
+      setError("Could not save data governance policy.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function addRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedPath = rulePath.trim();
+    if (!trimmedPath) return;
+    const nextRules = [...propertyRules, { target: ruleTarget, path: trimmedPath, action: ruleAction }];
+    await savePolicy(nextRules);
+    setRulePath("");
+  }
+
+  async function removeRule(index: number) {
+    await savePolicy(propertyRules.filter((_, ruleIndex) => ruleIndex !== index));
+  }
+
+  if (!environmentId) {
+    return <EmptyState description="Select an environment before configuring data governance." title="No environment selected" />;
+  }
+
+  return (
+    <section className="panel data-governance-panel">
+      <div className="panel-header">
+        <div>
+          <h2>Data governance</h2>
+          <p>Define how long telemetry is retained and which sensitive property paths are masked or dropped at ingestion.</p>
+        </div>
+      </div>
+      {!canUseApi ? <p className="form-error">Data governance management is unavailable in this deployment.</p> : null}
+      {error ? <p className="form-error">{error}</p> : null}
+
+      <div className="settings-grid settings-grid--two">
+        <section className="subpanel">
+          <h3>Retention by category</h3>
+          <p className="muted-text">
+            Values are stored per project environment and can shorten installation-level retention when the worker runs cleanup.
+          </p>
+          <div className="governance-retention-list">
+            {retentionRows.map((category) => (
+              <label className="governance-retention-row" key={category.key}>
+                <span>
+                  <strong>{category.label}</strong>
+                  <small>{category.description}</small>
+                </span>
+                <input
+                  aria-label={`${category.label} retention days`}
+                  min={1}
+                  max={3650}
+                  onChange={(event) =>
+                    setRetentionDraft((current) => ({ ...current, [category.key]: event.target.value }))
+                  }
+                  type="number"
+                  value={category.value}
+                />
+                <span className="muted-text">days</span>
+              </label>
+            ))}
+          </div>
+          <button disabled={isSaving || !canUseApi} onClick={() => void savePolicy()} type="button">
+            Save retention policy
+          </button>
+        </section>
+
+        <section className="subpanel">
+          <h3>Sensitive property rules</h3>
+          <p className="muted-text">
+            Use dot paths such as <code>user.email</code> or <code>headers.authorization</code>. Mask keeps the key and replaces
+            the value; block removes the key.
+          </p>
+          {propertyRules.length === 0 ? (
+            <p className="muted-text">No project-specific property rules yet. Built-in secret redaction still applies.</p>
+          ) : (
+            <ul className="governance-rule-list">
+              {propertyRules.map((rule, index) => (
+                <li key={`${rule.target}:${rule.path}:${index}`}>
+                  <span>
+                    <strong>{rule.action}</strong> {rule.target}.{rule.path}
+                  </span>
+                  <button disabled={isSaving} onClick={() => void removeRule(index)} type="button">
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form className="compact-form" onSubmit={addRule}>
+            <label>
+              Target
+              <select onChange={(event) => setRuleTarget(event.target.value as DataGovernancePropertyRuleTarget)} value={ruleTarget}>
+                {propertyRuleTargets.map((target) => (
+                  <option key={target} value={target}>
+                    {target}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Property path
+              <input onChange={(event) => setRulePath(event.target.value)} placeholder="user.email" value={rulePath} />
+            </label>
+            <label>
+              Action
+              <select onChange={(event) => setRuleAction(event.target.value as DataGovernancePropertyRule["action"])} value={ruleAction}>
+                <option value="mask">Mask value</option>
+                <option value="block">Block property</option>
+              </select>
+            </label>
+            <button disabled={isSaving || !canUseApi} type="submit">
+              Add rule
+            </button>
+          </form>
+        </section>
+      </div>
+    </section>
+  );
+}
+
 export function ProjectSettingsWorkspace({
   activeEnvironment,
   activeProject,
@@ -256,6 +495,14 @@ export function ProjectSettingsWorkspace({
         );
       case "browser-origins":
         return <BrowserOriginsPanel client={client} projectId={activeProjectId} />;
+      case "data-governance":
+        return (
+          <DataGovernancePanel
+            activeEnvironmentId={activeEnvironmentId}
+            client={client}
+            projectId={activeProjectId}
+          />
+        );
       case "sdk-snippets":
         return (
           <SnippetPanel

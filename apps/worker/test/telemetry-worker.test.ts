@@ -27,6 +27,15 @@ import {
 
 function createWriter(): TelemetryWriter {
   return {
+    getDataGovernancePolicy: vi.fn(async (input) => ({
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      retentionPolicy: {},
+      propertyRules: [],
+      updatedByUserId: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0)
+    })),
     insertEvent: vi.fn(async () => undefined),
     insertError: vi.fn(async () => undefined),
     insertLlmCall: vi.fn(async () => undefined),
@@ -104,6 +113,58 @@ describe("processTelemetryJob", () => {
           plan: "pro",
           password: "[REDACTED]",
           nested: { token: "[REDACTED]" }
+        }
+      })
+    );
+  });
+
+  it("applies data governance rules before persisting event jobs", async () => {
+    const writer = createWriter();
+    vi.mocked(writer.getDataGovernancePolicy!).mockResolvedValue({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      retentionPolicy: {},
+      propertyRules: [
+        { target: "event.properties", path: "email", action: "mask" },
+        { target: "event.properties", path: "billing.card", action: "block" },
+        { target: "metadata", path: "headers.authorization", action: "block" }
+      ],
+      updatedByUserId: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0)
+    });
+    const job: TelemetryJobPayload = {
+      kind: "event",
+      id: "evt_governance",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-01-01T00:00:00.000Z",
+        metadata: {
+          headers: {
+            authorization: "Bearer secret",
+            accept: "json"
+          }
+        },
+        name: "checkout.started",
+        properties: {
+          email: "admin@example.com",
+          billing: {
+            card: "4242",
+            plan: "team"
+          }
+        }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { headers: { accept: "json" } },
+        properties: {
+          email: "[REDACTED]",
+          billing: { plan: "team" }
         }
       })
     );
