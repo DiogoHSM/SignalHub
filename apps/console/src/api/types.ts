@@ -166,6 +166,7 @@ export type EventRecord = {
   release: string | null;
   metadata: unknown;
   name: string;
+  replayId: string | null;
   properties: unknown;
 };
 
@@ -516,6 +517,13 @@ export type IncidentReplayEvent = {
   data: unknown;
 };
 
+export type IncidentReplayProductEvent = {
+  id: string;
+  name: string;
+  timestamp: string;
+  offsetMs: number;
+};
+
 export type IncidentReplay = {
   id: string;
   replayId: string;
@@ -526,6 +534,7 @@ export type IncidentReplay = {
   eventCount: number;
   masked: boolean;
   events: IncidentReplayEvent[];
+  productEvents?: IncidentReplayProductEvent[];
 };
 
 export type ErrorGroupIncident = {

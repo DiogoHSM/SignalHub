@@ -22,6 +22,7 @@ describe("ingestion schemas", () => {
       user_id: "user_1",
       session_id: "session_1",
       trace_id: "trace_1",
+      replay_id: "rpl_checkout_1",
       source: "web",
       release: "1.2.3",
       properties: { charts_count: 6 },
@@ -29,6 +30,7 @@ describe("ingestion schemas", () => {
     });
 
     expect(parsed.name).toBe("dashboard_created");
+    expect(parsed.replay_id).toBe("rpl_checkout_1");
     expect(parsed.properties.charts_count).toBe(6);
   });
 

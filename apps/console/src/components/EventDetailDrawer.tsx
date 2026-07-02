@@ -1,7 +1,10 @@
-import type { EventRecord } from "../api/types";
+import type { EventRecord, IncidentReplay } from "../api/types";
+import { IncidentReplayPanel } from "./IncidentReplayPanel";
 
 type Props = {
   event?: EventRecord;
+  replay?: IncidentReplay | null;
+  replayState?: "idle" | "loading" | "ready" | "unavailable";
 };
 
 function formatJson(value: unknown): string {
@@ -16,7 +19,7 @@ function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-export function EventDetailDrawer({ event }: Props) {
+export function EventDetailDrawer({ event, replay, replayState = "idle" }: Props) {
   if (!event) {
     return (
       <aside className="detail-drawer">
@@ -51,11 +54,28 @@ export function EventDetailDrawer({ event }: Props) {
         <dd>{detailValue(event.sessionId)}</dd>
         <dt>Trace</dt>
         <dd>{detailValue(event.traceId)}</dd>
+        <dt>Replay</dt>
+        <dd>{detailValue(event.replayId)}</dd>
         <dt>Source</dt>
         <dd>{detailValue(event.source)}</dd>
         <dt>Release</dt>
         <dd>{detailValue(event.release)}</dd>
       </dl>
+      {event.replayId ? (
+        replayState === "loading" ? (
+          <section className="incident-replay-panel" aria-label="Session replay">
+            <h3>Replay</h3>
+            <p className="muted-text">Loading replay timeline...</p>
+          </section>
+        ) : replayState === "unavailable" ? (
+          <section className="incident-replay-panel" aria-label="Session replay">
+            <h3>Replay</h3>
+            <p className="muted-text">Replay could not be loaded for this event.</p>
+          </section>
+        ) : (
+          <IncidentReplayPanel replay={replay ?? null} />
+        )
+      ) : null}
       <section className="json-section">
         <h3>Properties</h3>
         <pre>

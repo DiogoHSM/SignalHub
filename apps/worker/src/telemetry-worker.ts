@@ -137,6 +137,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
       await writer.insertEvent({
         ...baseInput(job, payload, receivedAt),
         name: payload.name,
+        replayId: payload.replay_id,
         properties: sanitizeValue(payload.properties)
       });
       return;

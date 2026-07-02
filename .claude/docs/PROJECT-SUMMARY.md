@@ -26,7 +26,7 @@ Implemented capabilities:
 - Dedicated source-map upload tokens, CI upload API, CLI uploader, and Artifacts token management.
 - Worker-owned source-map artifact retention for local files, metadata, and cached stack resolutions.
 - Lightweight breadcrumb ingestion, short retention, SDK manual breadcrumbs, optional safe browser breadcrumb helper, and error-detail session context timeline.
-- Privacy-safe browser replay ingestion, SDK opt-in replay recorder, events-retention cleanup, and Incident view replay panel linked to error occurrences by `replay_id`.
+- Privacy-safe browser replay ingestion, SDK opt-in replay recorder, events-retention cleanup, Incident view replay panels linked to error occurrences, and Events detail replay panels linked to product events by `replay_id`.
 - Read-only Overview dashboard for project/environment KPIs, trends, top lists, and recent important signals.
 - Read-only Operations cockpit for project/environment monitor health, alert state, p95 latency, error rate, ingestion freshness, and active incidents.
 - Read-only Events investigation workspace with exact event-name filtering.

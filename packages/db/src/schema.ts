@@ -133,6 +133,7 @@ export interface EventsTable {
   release: string | null;
   metadata: JsonColumn;
   name: string;
+  replay_id: string | null;
   properties: JsonColumn;
 }
 

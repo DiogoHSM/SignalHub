@@ -21,6 +21,7 @@ interface TelemetryBaseInput {
 
 export interface InsertEventInput extends TelemetryBaseInput {
   name: string;
+  replayId?: string;
   properties?: unknown;
 }
 
@@ -233,6 +234,7 @@ export async function insertEvent(db: Db, input: InsertEventInput): Promise<void
       .values({
         ...baseColumns(input),
         name: input.name,
+        replay_id: nullable(input.replayId),
         properties: input.properties ?? {}
       })
       .onConflict((oc) => oc.column("id").doNothing())

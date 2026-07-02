@@ -11,6 +11,7 @@ const event: EventRecord = {
   userId: "user_1",
   sessionId: "session_1",
   traceId: "trace_1",
+  replayId: "rpl_checkout_1",
   timestamp: "2026-05-04T12:00:00.000Z",
   receivedAt: "2026-05-04T12:00:01.000Z",
   source: "web",
@@ -33,6 +34,7 @@ describe("EventDetailDrawer", () => {
     expect(screen.getByText("env_1")).toBeInTheDocument();
     expect(screen.getByText("tenant_1")).toBeInTheDocument();
     expect(screen.getByText("trace_1")).toBeInTheDocument();
+    expect(screen.getByText("rpl_checkout_1")).toBeInTheDocument();
     expect(screen.getByText(/"cart_value": 120/)).toBeInTheDocument();
     expect(screen.getByText(/"plan": "pro"/)).toBeInTheDocument();
   });

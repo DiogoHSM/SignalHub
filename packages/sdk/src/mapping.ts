@@ -65,14 +65,17 @@ export function createEventSignal(
   context?: SignalContext & EventInput,
   defaultContext?: SignalContext
 ): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, context),
+    name,
+    properties
+  };
+  assignDefined(payload, "replay_id", context?.replayId);
+
   return {
     kind: "event",
     endpointPath: "/v1/events",
-    payload: {
-      ...mergeContext(defaultContext, context),
-      name,
-      properties
-    }
+    payload
   };
 }
 

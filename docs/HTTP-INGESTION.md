@@ -97,6 +97,7 @@ Required fields:
 Optional fields:
 
 - Shared fields.
+- `replay_id`: optional privacy-safe replay id. Use the same id on `/v1/replays` to open the replay from event detail and show this event as a timeline marker.
 - `properties`: JSON object with event-specific properties. Defaults to `{}`.
 
 ```bash
@@ -106,6 +107,7 @@ curl -i https://sigmon.example.com/v1/events \
   -d '{
     "name": "checkout_completed",
     "user_id": "user_456",
+    "replay_id": "rpl_browser_123",
     "source": "web",
     "release": "2026.05.02",
     "properties": {

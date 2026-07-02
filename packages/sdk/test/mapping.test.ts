@@ -70,6 +70,7 @@ describe("payload mapping", () => {
           userId: "user_1",
           sessionId: "session_1",
           traceId: "trace_1",
+          replayId: "rpl_checkout_1",
           timestamp: new Date("2026-05-02T12:00:00.000Z")
         }
       )
@@ -84,6 +85,7 @@ describe("payload mapping", () => {
         user_id: "user_1",
         session_id: "session_1",
         trace_id: "trace_1",
+        replay_id: "rpl_checkout_1",
         metadata: {}
       }
     });

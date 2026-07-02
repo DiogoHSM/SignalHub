@@ -430,6 +430,47 @@ describe("query routes", () => {
     ]);
   });
 
+  it("returns a session replay with linked product event markers", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSessionReplayDetail: async (filters) => ({
+          id: "rpl_job_1",
+          replayId: filters.replayId,
+          route: "/checkout",
+          startedAt: new Date("2026-05-11T12:00:00.000Z"),
+          endedAt: new Date("2026-05-11T12:00:05.000Z"),
+          durationMs: 5000,
+          eventCount: 1,
+          masked: true,
+          events: [{ offsetMs: 0, type: "navigation", route: "/checkout", data: {} }],
+          productEvents: [
+            {
+              id: "evt_1",
+              name: "checkout.clicked",
+              timestamp: new Date("2026-05-11T12:00:02.250Z"),
+              offsetMs: 2250
+            }
+          ]
+        })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/replays/rpl_checkout?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: {
+        replayId: "rpl_checkout",
+        productEvents: [{ id: "evt_1", name: "checkout.clicked", offsetMs: 2250 }]
+      }
+    });
+  });
+
   it("returns 401 when query routes are unauthenticated", async () => {
     app = await buildApp({
       readiness,

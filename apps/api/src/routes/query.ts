@@ -218,6 +218,7 @@ export type QueryDependencies = {
   listUsersActivity?: (filters: UserListFilters) => Promise<unknown>;
   getUserDetail?: (userId: string, filters: UserDetailFilters) => Promise<unknown>;
   getSessionTimeline?: (filters: SessionTimelineFilters) => Promise<unknown>;
+  getSessionReplayDetail?: (filters: { projectId: string; environmentId: string; replayId: string }) => Promise<unknown | null>;
   listErrorGroups?: (filters: ErrorGroupFilters) => Promise<QueryListResult>;
   getErrorGroup?: (id: string, filters: ErrorGroupScope) => Promise<unknown | null>;
   getErrorGroupIncident?: (
@@ -264,6 +265,7 @@ export type QueryRouteOptions = {
 
 const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
 const sessionParamsSchema = z.object({ sessionId: z.string().trim().min(1) });
+const replayParamsSchema = z.object({ replayId: z.string().trim().min(1) });
 const entityTenantParamsSchema = z.object({ tenantKey: z.string().trim().min(1) });
 const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
 const errorParamsSchema = z.object({ id: z.string().trim().min(1) });
@@ -1708,6 +1710,36 @@ async function handleSessionTimelineRoute(request: FastifyRequest, reply: Fastif
   }
 }
 
+async function handleSessionReplayRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getSessionReplayDetail) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = replayParamsSchema.safeParse(request.params);
+  const raw = (request.query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!params.success || !projectId || !environmentId) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const replay = await options.query.getSessionReplayDetail({
+      projectId,
+      environmentId,
+      replayId: params.data.replayId
+    });
+    return replay ? reply.send({ data: replay }) : reply.status(404).send({ error: "replay_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleEntityTenantListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -2240,6 +2272,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
   app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
+  app.get("/query/replays/:replayId", (request, reply) => handleSessionReplayRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));
   app.get("/query/users", (request, reply) => handleUserListRoute(request, reply, options));

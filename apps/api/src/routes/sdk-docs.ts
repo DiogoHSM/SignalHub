@@ -571,9 +571,9 @@ export function SignalMonitorBrowserCapture() {
             <h3>Browser session replay</h3>
             <p>
               <code>createBrowserReplayRecorder</code> records a masked timeline for incident
-              debugging and links it to errors with <code>replayId</code>. It stores navigation and
-              safe selectors only; it does not capture screenshots, DOM snapshots, raw text, input
-              values, passwords, cookies, or HTML.
+              debugging and links it to errors and product events with <code>replayId</code>. It
+              stores navigation and safe selectors only; it does not capture screenshots, DOM
+              snapshots, raw text, input values, passwords, cookies, or HTML.
             </p>
             <pre><code>const replay = createBrowserReplayRecorder(sigmonBrowser, {
   enabled: true,
@@ -585,6 +585,10 @@ installBrowserErrorCapture(sigmonBrowser, {
   context: {
     replayId: replay.replayId
   }
+});
+
+sigmonBrowser.track("checkout.pay_clicked", { plan: "team" }, {
+  replayId: replay.replayId
 });</code></pre>
             <h3>Node runtime profiles</h3>
             <p>

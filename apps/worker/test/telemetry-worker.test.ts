@@ -63,6 +63,7 @@ describe("processTelemetryJob", () => {
         user_id: "user_1",
         session_id: "session_1",
         trace_id: "trace_1",
+        replay_id: "rpl_checkout_1",
         source: "sdk-js",
         release: "1.2.3",
         metadata: {
@@ -89,6 +90,7 @@ describe("processTelemetryJob", () => {
         userId: "user_1",
         sessionId: "session_1",
         traceId: "trace_1",
+        replayId: "rpl_checkout_1",
         source: "sdk-js",
         release: "1.2.3",
         timestamp: new Date("2026-01-01T00:00:00.000Z"),

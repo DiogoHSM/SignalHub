@@ -160,7 +160,7 @@ Session replay is opt-in and privacy-safe. The browser helper records a masked i
 with navigation and safe click selectors; it does not capture screenshots, DOM snapshots, raw text,
 input values, passwords, cookies, or HTML.
 
-Use one `replayId` to connect the error occurrence and the replay buffer:
+Use one `replayId` to connect product events, error occurrences, and the replay buffer:
 
 ```ts
 import {
@@ -189,6 +189,8 @@ const stopErrors = installBrowserErrorCapture(sigmon, {
     replayId: replay.replayId
   }
 });
+
+sigmon.track("checkout.pay_clicked", { plan: "team" }, { replayId: replay.replayId });
 
 window.addEventListener("error", () => {
   void replay.flush();

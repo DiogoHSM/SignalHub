@@ -40,6 +40,7 @@ export const sharedEnvelopeSchema = z.object({
 
 export const eventPayloadSchema = sharedEnvelopeSchema.extend({
   name: shortTextSchema,
+  replay_id: shortTextSchema.optional(),
   properties: jsonObjectSchema
 });
 

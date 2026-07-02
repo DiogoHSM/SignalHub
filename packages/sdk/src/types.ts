@@ -42,6 +42,7 @@ export type SignalMonitorClientOptions = {
 
 export type EventInput = {
   timestamp?: Date | string;
+  replayId?: string;
 };
 
 export type IdentifyUserInput = EventInput & {

@@ -2,12 +2,13 @@ import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
-import type { ErrorsTable, EventsTable, LlmCallsTable, SpansTable, TracesTable } from "../schema.js";
+import type { ErrorsTable, EventsTable, LlmCallsTable, SessionReplaysTable, SpansTable, TracesTable } from "../schema.js";
 import { getAnalyticsSegment, getAnalyticsSegmentActorIds } from "./analytics-segments.js";
 
 type EventRow = Selectable<EventsTable>;
 type ErrorRow = Selectable<ErrorsTable>;
 type LlmCallRow = Selectable<LlmCallsTable>;
+type SessionReplayRow = Selectable<SessionReplaysTable>;
 type TraceRow = Selectable<TracesTable>;
 type SpanRow = Selectable<SpansTable>;
 
@@ -57,7 +58,39 @@ export interface EventRecord {
   release: string | null;
   metadata: unknown;
   name: string;
+  replayId: string | null;
   properties: unknown;
+}
+
+export interface SessionReplayTimelineEvent {
+  offsetMs: number;
+  type: string;
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data: unknown;
+}
+
+export interface SessionReplayProductEvent {
+  id: string;
+  name: string;
+  timestamp: Date;
+  offsetMs: number;
+}
+
+export interface SessionReplayDetail {
+  id: string;
+  replayId: string;
+  route: string | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  events: SessionReplayTimelineEvent[];
+  productEvents: SessionReplayProductEvent[];
 }
 
 export interface EventPropertyCatalogItem {
@@ -647,7 +680,39 @@ function toEvent(row: EventRow): EventRecord {
     release: row.release,
     metadata: row.metadata,
     name: row.name,
+    replayId: row.replay_id,
     properties: row.properties
+  };
+}
+
+function toReplayTimelineEvents(value: unknown): SessionReplayTimelineEvent[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      offsetMs: typeof item.offsetMs === "number" ? item.offsetMs : 0,
+      type: typeof item.type === "string" ? item.type : "custom",
+      ...(typeof item.route === "string" ? { route: item.route } : {}),
+      ...(typeof item.selector === "string" ? { selector: item.selector } : {}),
+      ...(typeof item.message === "string" ? { message: item.message } : {}),
+      ...(typeof item.x === "number" ? { x: item.x } : {}),
+      ...(typeof item.y === "number" ? { y: item.y } : {}),
+      data: item.data ?? {}
+    }));
+}
+
+function toSessionReplayDetail(row: SessionReplayRow, productEvents: SessionReplayProductEvent[]): SessionReplayDetail {
+  return {
+    id: row.id,
+    replayId: row.replay_id,
+    route: row.route,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    durationMs: row.duration_ms,
+    eventCount: row.event_count,
+    masked: row.masked,
+    events: toReplayTimelineEvents(row.events),
+    productEvents
   };
 }
 
@@ -1123,6 +1188,41 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
 
   const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
   return listResult(filters, rows, toEvent);
+}
+
+export async function getSessionReplayDetail(
+  db: Db,
+  filters: { projectId: string; environmentId: string; replayId: string }
+): Promise<SessionReplayDetail | null> {
+  const replay = await db
+    .selectFrom("session_replays")
+    .selectAll()
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "=", filters.replayId)
+    .executeTakeFirst();
+
+  if (!replay) return null;
+
+  const events = await db
+    .selectFrom("events")
+    .select(["id", "name", "timestamp"])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "=", filters.replayId)
+    .orderBy("timestamp", "asc")
+    .orderBy("id", "asc")
+    .execute();
+
+  const startedAtMs = replay.started_at.getTime();
+  const productEvents = events.map((event) => ({
+    id: event.id,
+    name: event.name,
+    timestamp: event.timestamp,
+    offsetMs: Math.max(0, event.timestamp.getTime() - startedAtMs)
+  }));
+
+  return toSessionReplayDetail(replay, productEvents);
 }
 
 function normalizePropertyName(name: string): string {

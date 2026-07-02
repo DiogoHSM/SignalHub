@@ -30,6 +30,7 @@ import type {
   ErrorGroupRecord,
   IncidentMttrQuery,
   IncidentMttrResult,
+  IncidentReplay,
   ErrorRecord,
   EventClickMapQuery,
   EventClickMapResponse,
@@ -244,6 +245,10 @@ export type SourceMapApiClient = {
 
 export type SessionTimelineApiClient = {
   getSessionTimeline: (sessionId: string, query: SessionTimelineQuery) => Promise<AggregateResponse<SessionTimelineResponse>>;
+  getSessionReplayDetail?: (
+    replayId: string,
+    query: Pick<SessionTimelineQuery, "projectId" | "environmentId">
+  ) => Promise<AggregateResponse<IncidentReplay>>;
 };
 
 export type ApiClient = {
@@ -294,6 +299,10 @@ export type ApiClient = {
   getLlmAggregates: (filters: QueryFilters) => Promise<AggregateResponse<LlmAggregates>>;
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
+  getSessionReplayDetail?: (
+    replayId: string,
+    query: Pick<SessionTimelineQuery, "projectId" | "environmentId">
+  ) => Promise<AggregateResponse<IncidentReplay>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
@@ -833,6 +842,14 @@ function sessionTimelinePath(sessionId: string, query: SessionTimelineQuery): st
   return `/query/sessions/${encodePathSegment(sessionId)}/timeline?${params.toString()}`;
 }
 
+function sessionReplayPath(replayId: string, query: Pick<SessionTimelineQuery, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/query/replays/${encodePathSegment(replayId)}?${params.toString()}`;
+}
+
 function alertRuleListPath(query: AlertRuleListQuery = {}): string {
   const params = new URLSearchParams();
   if (query.projectId) params.set("project_id", query.projectId);
@@ -1049,6 +1066,8 @@ export function createApiClient(
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
     getSessionTimeline: (sessionId, query) =>
       request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
+    getSessionReplayDetail: (replayId, query) =>
+      request<AggregateResponse<IncidentReplay>>(path(apiBasePath, sessionReplayPath(replayId, query))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getEventPropertyCatalog: (query) =>

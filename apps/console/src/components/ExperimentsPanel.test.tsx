@@ -14,6 +14,7 @@ function eventRecord(overrides: Partial<EventRecord>): EventRecord {
     userId: "user_1",
     sessionId: "session_1",
     traceId: "trace_1",
+    replayId: null,
     timestamp: "2026-05-05T12:00:00.000Z",
     receivedAt: "2026-05-05T12:00:01.000Z",
     source: "browser",

@@ -17,6 +17,10 @@ function eventTitle(event: IncidentReplay["events"][number]): string {
   return event.message ?? event.type;
 }
 
+function productEventLabel(event: NonNullable<IncidentReplay["productEvents"]>[number]): string {
+  return `Product event: ${event.name}`;
+}
+
 export function IncidentReplayPanel({ replay }: { replay: IncidentReplay | null }) {
   if (!replay) {
     return (
@@ -42,14 +46,31 @@ export function IncidentReplayPanel({ replay }: { replay: IncidentReplay | null 
         <span>{formatDuration(replay.durationMs)}</span>
       </div>
       <ol className="incident-replay-events">
-        {replay.events.length === 0 ? <li className="muted-text">Replay has no timeline events.</li> : null}
-        {replay.events.map((event, index) => (
-          <li key={`${event.offsetMs}-${event.type}-${index}`}>
-            <span className="incident-replay-offset">{formatOffset(event.offsetMs)}</span>
-            <span className="incident-replay-kind">{event.type}</span>
-            <span className="incident-replay-title">{eventTitle(event)}</span>
-          </li>
-        ))}
+        {replay.events.length === 0 && !replay.productEvents?.length ? (
+          <li className="muted-text">Replay has no timeline events.</li>
+        ) : null}
+        {[
+          ...replay.events.map((event, index) => ({
+            key: `replay-${event.offsetMs}-${event.type}-${index}`,
+            offsetMs: event.offsetMs,
+            kind: event.type,
+            title: eventTitle(event)
+          })),
+          ...(replay.productEvents ?? []).map((event) => ({
+            key: `product-${event.id}`,
+            offsetMs: event.offsetMs,
+            kind: "product",
+            title: productEventLabel(event)
+          }))
+        ]
+          .sort((left, right) => left.offsetMs - right.offsetMs || left.key.localeCompare(right.key))
+          .map((event) => (
+            <li key={event.key}>
+              <span className="incident-replay-offset">{formatOffset(event.offsetMs)}</span>
+              <span className="incident-replay-kind">{event.kind}</span>
+              <span className="incident-replay-title">{event.title}</span>
+            </li>
+          ))}
       </ol>
     </section>
   );

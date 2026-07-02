@@ -232,6 +232,11 @@ export const openApiDocument = {
           user_id: { type: "string", description: "Stable authenticated user id." },
           session_id: { type: "string", description: "Client or server session id used to connect related activity." },
           trace_id: { type: "string", description: "Trace id when this event belongs to a larger workflow." },
+          replay_id: {
+            type: "string",
+            description:
+              "Optional privacy-safe replay id. Send the same id to /v1/replays to show product event markers in the replay timeline."
+          },
           source: { type: "string", description: "Emitter or service name.", examples: ["web"] },
           release: { type: "string", description: "Application version or deploy id.", examples: ["2026.05.24"] },
           properties: { type: "object", description: "Event-specific attributes. Avoid secrets, tokens, cookies, and full request/response bodies.", additionalProperties: true },
@@ -727,6 +732,7 @@ export const openApiDocument = {
         tenant_id: "tenant_123",
         user_id: "user_456",
         session_id: "sess_789",
+        replay_id: "rpl_browser_123",
         source: "web",
         release: "2026.05.24",
         properties: { plan: "team", checkout_id: "chk_123" },
@@ -1236,6 +1242,12 @@ export const openApiDocument = {
       get: sessionRoute(
         "Query event click maps",
         "Aggregate opt-in browser click samples by route, safe selector, and grid bucket. Query with project_id, environment_id, route, window=24h|7d|30d, optional selector, tenant_id, user_id, session_id, grid_size=10..100, and limit."
+      )
+    },
+    "/query/replays/{replayId}": {
+      get: sessionRoute(
+        "Query session replay detail",
+        "Read one privacy-safe replay timeline and its linked product event markers. Query with project_id and environment_id; replayId is the path parameter from event or error detail."
       )
     },
     "/query/errors": {

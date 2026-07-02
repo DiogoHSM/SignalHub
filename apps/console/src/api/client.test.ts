@@ -242,6 +242,30 @@ describe("createApiClient", () => {
     );
   });
 
+  it("gets session replay detail with scoped product event markers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        data: {
+          replayId: "rpl_1",
+          events: [],
+          productEvents: [{ id: "evt_1", name: "checkout.clicked", offsetMs: 2500 }]
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.getSessionReplayDetail("rpl/1", {
+      projectId: "prj/1",
+      environmentId: "env 1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/replays/rpl%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("gets a session timeline with optional filters and serialized Date values", async () => {
     const fetchMock = vi
       .fn()

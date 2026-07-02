@@ -117,6 +117,7 @@ import {
   getRuntimeProfiles,
   getOverview,
   getErrorForSourceMapResolution,
+  getSessionReplayDetail,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -1760,6 +1761,69 @@ describe("repositories", () => {
       expect(incident?.replay?.events).toEqual(
         expect.arrayContaining([expect.objectContaining({ offsetMs: 2100, type: "click", selector: '[data-sigmon-id="pay"]' })])
       );
+    });
+  });
+
+  it("links product events to session replays for event investigation", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Replay Linked Events" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertSessionReplay(db, {
+        id: "rpl_job_events_1",
+        replayId: "rpl_checkout_events",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        source: "browser",
+        route: "/checkout",
+        startedAt: new Date("2026-05-11T12:00:00.000Z"),
+        endedAt: new Date("2026-05-11T12:00:05.000Z"),
+        durationMs: 5000,
+        masked: true,
+        events: [{ offsetMs: 0, type: "navigation", route: "/checkout", data: {} }]
+      });
+
+      await insertEvent(db, {
+        id: "evt_replay_click",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-11T12:00:02.250Z"),
+        receivedAt: new Date("2026-05-11T12:00:03.000Z"),
+        source: "browser",
+        name: "checkout.clicked",
+        replayId: "rpl_checkout_events",
+        properties: { button: "pay" }
+      });
+
+      const events = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
+      expect(events.data[0]).toMatchObject({ id: "evt_replay_click", replayId: "rpl_checkout_events" });
+
+      const replay = await getSessionReplayDetail(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        replayId: "rpl_checkout_events"
+      });
+
+      expect(replay).toMatchObject({
+        replayId: "rpl_checkout_events",
+        productEvents: [
+          expect.objectContaining({
+            id: "evt_replay_click",
+            name: "checkout.clicked",
+            offsetMs: 2250
+          })
+        ]
+      });
     });
   });
 

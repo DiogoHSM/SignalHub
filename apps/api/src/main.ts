@@ -124,6 +124,7 @@ import {
   getLlmByPrompt,
   getLlmCostByModel,
   getOverview,
+  getSessionReplayDetail,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -661,6 +662,7 @@ const app = await buildApp({
     listUsersActivity: (filters) => listUsersActivity(db, filters),
     getUserDetail: (userId, filters) => getUserDetail(db, userId, filters),
     getSessionTimeline: (filters) => getSessionTimeline(db, filters),
+    getSessionReplayDetail: (filters) => getSessionReplayDetail(db, filters),
     resolveErrorStack: (input) =>
       resolveErrorStackWithSourceMaps({
         ...input,

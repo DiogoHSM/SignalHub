@@ -12,6 +12,7 @@ import type {
   EventPropertyCatalogResponse,
   EventRecord,
   EventRetentionResponse,
+  IncidentReplay,
   QueryFilters
 } from "../api/types";
 import { EventDetailDrawer } from "./EventDetailDrawer";
@@ -32,6 +33,7 @@ type PathState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type RetentionState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type ClickMapState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type SegmentState = "loading" | "ready" | "unavailable";
+type ReplayState = "idle" | "loading" | "ready" | "unavailable";
 
 const defaultFilters: EventFilterValues = {
   eventName: "",
@@ -827,6 +829,8 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [reloadToken, setReloadToken] = useState(0);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventRecord | undefined>();
+  const [selectedReplay, setSelectedReplay] = useState<IncidentReplay | null>(null);
+  const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [state, setState] = useState<LoadState>("loading");
   const [propertyCatalog, setPropertyCatalog] = useState<EventPropertyCatalogResponse | null>(null);
   const [propertyCatalogState, setPropertyCatalogState] = useState<CatalogState>("loading");
@@ -875,6 +879,39 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
       cancelled = true;
     };
   }, [client, query, reloadToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSelectedReplay(null);
+
+    if (!selectedEvent?.replayId) {
+      setReplayState("idle");
+      return;
+    }
+
+    if (!client.getSessionReplayDetail) {
+      setReplayState("unavailable");
+      return;
+    }
+
+    setReplayState("loading");
+    void client.getSessionReplayDetail(selectedEvent.replayId, { projectId, environmentId }).then(
+      ({ data }) => {
+        if (cancelled) return;
+        setSelectedReplay(data);
+        setReplayState("ready");
+      },
+      () => {
+        if (cancelled) return;
+        setSelectedReplay(null);
+        setReplayState("unavailable");
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selectedEvent?.replayId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1179,7 +1216,7 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
           </>
         ) : null}
       </div>
-      <EventDetailDrawer event={selectedEvent} />
+      <EventDetailDrawer event={selectedEvent} replay={selectedReplay} replayState={replayState} />
     </section>
   );
 }
