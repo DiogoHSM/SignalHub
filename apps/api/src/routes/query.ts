@@ -14,6 +14,7 @@ export type QueryFilters = {
   sessionId?: string;
   traceId?: string;
   traceName?: string;
+  eventId?: string;
   eventName?: string;
   provider?: string;
   model?: string;
@@ -61,6 +62,7 @@ export type ApmFilters = {
 };
 
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
+export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
 
 export type EntityWindow = "24h" | "7d" | "30d";
 
@@ -181,6 +183,21 @@ export type QueryDependencies = {
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
   getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
+  getEventPaths?: (
+    filters: ApmFilters & {
+      startEvent?: string;
+      endEvent?: string;
+      tenantId?: string;
+      userId?: string;
+      sessionId?: string;
+      traceId?: string;
+      segmentId?: string;
+      actorType?: EventPathActorType;
+      from?: Date;
+      to?: Date;
+      pathLength?: number;
+    }
+  ) => Promise<unknown>;
   getApmEndpoints?: (filters: ApmFilters) => Promise<unknown>;
   getServiceMap?: (filters: ApmFilters) => Promise<unknown>;
   getWebVitals?: (filters: ApmFilters) => Promise<unknown>;
@@ -364,6 +381,7 @@ function parseFilters(
   const sessionId = optionalNonEmpty(raw, "session_id");
   const traceId = optionalNonEmpty(raw, "trace_id");
   const traceName = optionalNonEmpty(raw, "trace_name");
+  const eventId = optionalNonEmpty(raw, "event_id");
   const eventName = optionalNonEmpty(raw, "event_name");
   const segmentId = optionalNonEmpty(raw, "segment_id");
   const cursor = optionalNonEmpty(raw, "cursor");
@@ -392,6 +410,9 @@ function parseFilters(
   }
   if (options.includeEventName && eventName) {
     filters.eventName = eventName;
+  }
+  if (options.includeEventName && eventId) {
+    filters.eventId = eventId;
   }
   if (options.includeEventName && segmentId) {
     filters.segmentId = segmentId;
@@ -719,6 +740,74 @@ function parseApmFilters(query: unknown): ApmFilters | undefined {
     environmentId,
     window: rawWindow,
     limit: parseLimit(raw)
+  };
+}
+
+function parseEventPathFilters(
+  query: unknown
+): | (ApmFilters & {
+      startEvent?: string;
+      endEvent?: string;
+      tenantId?: string;
+      userId?: string;
+      sessionId?: string;
+      traceId?: string;
+      segmentId?: string;
+      actorType?: EventPathActorType;
+      from?: Date;
+      to?: Date;
+      pathLength?: number;
+    })
+  | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "7d";
+  const startEvent = optionalNonEmpty(raw, "start_event");
+  const endEvent = optionalNonEmpty(raw, "end_event");
+  const actorType = optionalNonEmpty(raw, "actor") ?? "auto";
+  const rawPathLength = optionalNonEmpty(raw, "max_depth");
+  const from = parseDate(raw, "from");
+  const to = parseDate(raw, "to");
+
+  if (!projectId || !environmentId || (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d")) {
+    return undefined;
+  }
+  if (!startEvent && !endEvent) {
+    return undefined;
+  }
+  if (actorType !== "auto" && actorType !== "user" && actorType !== "tenant" && actorType !== "session" && actorType !== "trace") {
+    return undefined;
+  }
+  if (from === null || to === null || (from && to && from >= to)) {
+    return undefined;
+  }
+
+  const parsedPathLength = rawPathLength ? Number(rawPathLength) : 5;
+  if (!Number.isFinite(parsedPathLength)) {
+    return undefined;
+  }
+  const pathLength = Math.trunc(parsedPathLength);
+  if (pathLength < 2 || pathLength > 8) {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    window: rawWindow,
+    limit: parseLimit(raw),
+    ...(startEvent ? { startEvent } : {}),
+    ...(endEvent ? { endEvent } : {}),
+    tenantId: optionalNonEmpty(raw, "tenant_id"),
+    userId: optionalNonEmpty(raw, "user_id"),
+    sessionId: optionalNonEmpty(raw, "session_id"),
+    traceId: optionalNonEmpty(raw, "trace_id"),
+    segmentId: optionalNonEmpty(raw, "segment_id"),
+    actorType,
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    pathLength
   };
 }
 
@@ -1302,6 +1391,28 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
 
   try {
     return reply.send({ data: await options.query.getEventFunnel(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventPaths) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventPathFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventPaths(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1948,6 +2059,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/apm/web-vitals", (request, reply) => handleWebVitalsRoute(request, reply, options));
   app.get("/query/apm/profiles", (request, reply) => handleRuntimeProfilesRoute(request, reply, options));
   app.get("/query/events/properties", (request, reply) => handleEventPropertyCatalogRoute(request, reply, options));
+  app.get("/query/events/paths", (request, reply) => handleEventPathsRoute(request, reply, options));
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));

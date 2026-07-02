@@ -610,6 +610,11 @@ sigmonBrowser.track("checkout.pay_clicked", {
               operators can save reusable user or tenant segments, preview matching actors, and apply a
               segment back to event investigation with <code>segment_id</code>.
             </p>
+            <p>
+              User journey paths are also derived from normal event telemetry. Send stable actor context
+              so <code>GET /query/events/paths</code> can group common event sequences and expose sample
+              event ids for drilldown.
+            </p>
             <h3>Common ingest failures</h3>
             <ul>
               <li><code>invalid_api_key</code>: send <code>Authorization: Bearer &lt;key&gt;</code> and use a browser-scoped key for browser calls.</li>

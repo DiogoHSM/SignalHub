@@ -456,6 +456,31 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes event pathfinder query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { paths: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventPaths?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      startEvent: "signup.started",
+      endEvent: "key.created",
+      tenantId: "tenant_1",
+      segmentId: "seg_1",
+      actorType: "user",
+      pathLength: 4,
+      limit: 20,
+      from: "2026-05-01T00:00:00.000Z",
+      to: "2026-05-08T00:00:00.000Z"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/paths?project_id=prj_1&environment_id=env_1&window=30d&limit=20&start_event=signup.started&end_event=key.created&tenant_id=tenant_1&segment_id=seg_1&actor=user&from=2026-05-01T00%3A00%3A00.000Z&to=2026-05-08T00%3A00%3A00.000Z&max_depth=4",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes event retention query params", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { cohorts: [] } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -489,6 +514,23 @@ describe("createApiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/query/events?project_id=prj_1&environment_id=env_1&segment_id=seg_1&limit=50",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event id filters in event queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listEvents({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      eventId: "evt_1",
+      limit: 1
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events?project_id=prj_1&environment_id=env_1&event_id=evt_1&limit=1",
       expect.objectContaining({ method: "GET" })
     );
   });

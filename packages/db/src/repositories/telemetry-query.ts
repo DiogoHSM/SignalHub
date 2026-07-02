@@ -22,6 +22,7 @@ export interface TelemetryFilters {
   sessionId?: string;
   traceId?: string;
   traceName?: string;
+  eventId?: string;
   eventName?: string;
   provider?: string;
   model?: string;
@@ -183,6 +184,67 @@ export interface EventRetentionResponse {
     entrants: number;
   };
   cohorts: EventRetentionCohort[];
+}
+
+export interface EventPathFilters extends ApmFilters {
+  startEvent?: string;
+  endEvent?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  traceId?: string;
+  segmentId?: string;
+  actorType?: "auto" | "user" | "tenant" | "session" | "trace";
+  from?: Date;
+  to?: Date;
+  pathLength?: number;
+}
+
+export interface EventPathSampleEvent {
+  id: string;
+  name: string;
+  timestamp: string;
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+}
+
+export interface EventPathRow {
+  path: string[];
+  actors: number;
+  occurrences: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sampleEvents: EventPathSampleEvent[];
+}
+
+export interface EventPathsResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    startEvent: string | null;
+    endEvent: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    traceId: string | null;
+    segmentId: string | null;
+    actorType: "auto" | "user" | "tenant" | "session" | "trace";
+    pathLength: number;
+  };
+  totals: {
+    actors: number;
+    paths: number;
+    events: number;
+  };
+  paths: EventPathRow[];
 }
 
 export interface LlmAggregates {
@@ -884,6 +946,7 @@ function telemetryCursorFilterKey(filters: TelemetryFilters): string {
     userId: filters.userId ?? null,
     sessionId: filters.sessionId ?? null,
     traceId: filters.traceId ?? null,
+    eventId: filters.eventId ?? null,
     eventName: filters.eventName ?? null,
     provider: filters.provider ?? null,
     model: filters.model ?? null,
@@ -973,6 +1036,7 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+  if (filters.eventId) query = query.where("id", "=", filters.eventId);
   const traceName = filters.traceName ?? filters.eventName;
   if (traceName) query = query.where("name", "=", traceName);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
@@ -1482,6 +1546,268 @@ export async function getEventRetention(db: Db, filters: EventRetentionFilters):
       entrants: cohortRows.reduce((sum, cohort) => sum + cohort.entrants, 0)
     },
     cohorts: cohortRows
+  };
+}
+
+function eventPathActorExpressions(actorType: EventPathFilters["actorType"] | undefined) {
+  if (actorType === "user") {
+    return {
+      actorId: sql<string>`user_id`,
+      actorType: sql<"user">`'user'`
+    };
+  }
+  if (actorType === "tenant") {
+    return {
+      actorId: sql<string>`tenant_id`,
+      actorType: sql<"tenant">`'tenant'`
+    };
+  }
+  if (actorType === "session") {
+    return {
+      actorId: sql<string>`session_id`,
+      actorType: sql<"session">`'session'`
+    };
+  }
+  if (actorType === "trace") {
+    return {
+      actorId: sql<string>`trace_id`,
+      actorType: sql<"trace">`'trace'`
+    };
+  }
+
+  return {
+    actorId: sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`,
+    actorType: sql<"user" | "tenant" | "session" | "trace">`
+      case
+        when user_id is not null then 'user'
+        when tenant_id is not null then 'tenant'
+        when session_id is not null then 'session'
+        else 'trace'
+      end
+    `
+  };
+}
+
+function compactPathEvents<T extends { name: string }>(events: T[]): T[] {
+  const compact: T[] = [];
+  for (const event of events) {
+    if (compact[compact.length - 1]?.name !== event.name) {
+      compact.push(event);
+    }
+  }
+  return compact;
+}
+
+export async function getEventPaths(db: Db, filters: EventPathFilters): Promise<EventPathsResponse> {
+  const resolvedRange = resolveOverviewRange(filters.window, filters.now);
+  const from = filters.from ?? resolvedRange.from;
+  const to = filters.to ?? resolvedRange.to;
+  const limit = resolveLimit(filters.limit);
+  const pathLength = Math.min(8, Math.max(2, Math.trunc(filters.pathLength ?? 5)));
+  const actorMode = filters.actorType ?? "auto";
+  const startEvent = filters.startEvent?.trim() || undefined;
+  const endEvent = filters.endEvent?.trim() || undefined;
+
+  if (!startEvent && !endEvent) {
+    throw new Error("event_paths_requires_start_or_end_event");
+  }
+
+  const actorExpressions = eventPathActorExpressions(actorMode);
+  let query = db
+    .selectFrom("events")
+    .select([
+      "id",
+      "name",
+      "timestamp",
+      actorExpressions.actorId.as("actor_id"),
+      actorExpressions.actorType.as("actor_type")
+    ])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("timestamp", ">=", from)
+    .where("timestamp", "<", to)
+    .where(actorExpressions.actorId, "is not", null)
+    .orderBy("actor_id", "asc")
+    .orderBy("timestamp", "asc")
+    .orderBy("id", "asc")
+    .limit(10000);
+
+  if (filters.tenantId) query = query.where("tenant_id", "=", filters.tenantId);
+  if (filters.userId) query = query.where("user_id", "=", filters.userId);
+  if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
+  if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) {
+      return {
+        window: filters.window,
+        generatedAt: toIso(filters.now ?? new Date()),
+        scope: { projectId: filters.projectId, environmentId: filters.environmentId },
+        range: { from: toIso(from), to: toIso(to) },
+        filters: {
+          startEvent: startEvent ?? null,
+          endEvent: endEvent ?? null,
+          tenantId: filters.tenantId ?? null,
+          userId: filters.userId ?? null,
+          sessionId: filters.sessionId ?? null,
+          traceId: filters.traceId ?? null,
+          segmentId: filters.segmentId,
+          actorType: actorMode,
+          pathLength
+        },
+        totals: { actors: 0, paths: 0, events: 0 },
+        paths: []
+      };
+    }
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, to);
+    if (actorIds.length === 0) {
+      return {
+        window: filters.window,
+        generatedAt: toIso(filters.now ?? new Date()),
+        scope: { projectId: filters.projectId, environmentId: filters.environmentId },
+        range: { from: toIso(from), to: toIso(to) },
+        filters: {
+          startEvent: startEvent ?? null,
+          endEvent: endEvent ?? null,
+          tenantId: filters.tenantId ?? null,
+          userId: filters.userId ?? null,
+          sessionId: filters.sessionId ?? null,
+          traceId: filters.traceId ?? null,
+          segmentId: filters.segmentId,
+          actorType: actorMode,
+          pathLength
+        },
+        totals: { actors: 0, paths: 0, events: 0 },
+        paths: []
+      };
+    }
+    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+  }
+
+  const rows = await query.execute();
+  const actors = new Map<string, typeof rows>();
+  for (const row of rows) {
+    if (!row.actor_id) continue;
+    const actorRows = actors.get(row.actor_id) ?? [];
+    actorRows.push(row);
+    actors.set(row.actor_id, actorRows);
+  }
+
+  const groups = new Map<
+    string,
+    {
+      path: string[];
+      actors: Set<string>;
+      occurrences: number;
+      firstSeenAt: Date | string;
+      lastSeenAt: Date | string;
+      sampleEvents: EventPathSampleEvent[];
+    }
+  >();
+
+  for (const [actorId, actorRows] of actors) {
+    const compactRows = compactPathEvents(actorRows);
+    let startIndex = 0;
+    let endIndex = compactRows.length - 1;
+
+    if (startEvent) {
+      startIndex = compactRows.findIndex((row) => row.name === startEvent);
+      if (startIndex < 0) continue;
+    }
+
+    if (endEvent) {
+      const relativeEndIndex = compactRows.slice(startIndex).findIndex((row) => row.name === endEvent);
+      if (relativeEndIndex < 0) continue;
+      endIndex = startIndex + relativeEndIndex;
+      if (!startEvent) {
+        startIndex = Math.max(0, endIndex - pathLength + 1);
+      }
+    } else {
+      endIndex = Math.min(compactRows.length - 1, startIndex + pathLength - 1);
+    }
+
+    const selectedRows = compactRows.slice(startIndex, endIndex + 1).slice(0, pathLength);
+    if (selectedRows.length < 2) continue;
+
+    const path = selectedRows.map((row) => row.name);
+    const key = path.join("\u001f");
+    const firstSeenAt = selectedRows[0]!.timestamp;
+    const lastSeenAt = selectedRows[selectedRows.length - 1]!.timestamp;
+    const group =
+      groups.get(key) ??
+      {
+        path,
+        actors: new Set<string>(),
+        occurrences: 0,
+        firstSeenAt,
+        lastSeenAt,
+        sampleEvents: selectedRows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          timestamp: toIso(row.timestamp),
+          actorId,
+          actorType: row.actor_type
+        }))
+      };
+
+    group.actors.add(actorId);
+    group.occurrences += 1;
+    if (dateValue(firstSeenAt) < dateValue(group.firstSeenAt)) group.firstSeenAt = firstSeenAt;
+    if (dateValue(lastSeenAt) > dateValue(group.lastSeenAt)) group.lastSeenAt = lastSeenAt;
+    groups.set(key, group);
+  }
+
+  const paths = Array.from(groups.values())
+    .sort(
+      (left, right) =>
+        right.actors.size - left.actors.size ||
+        right.occurrences - left.occurrences ||
+        toIso(right.lastSeenAt).localeCompare(toIso(left.lastSeenAt)) ||
+        left.path.join(" > ").localeCompare(right.path.join(" > "))
+    )
+    .slice(0, limit)
+    .map((path) => ({
+      path: path.path,
+      actors: path.actors.size,
+      occurrences: path.occurrences,
+      firstSeenAt: toIso(path.firstSeenAt),
+      lastSeenAt: toIso(path.lastSeenAt),
+      sampleEvents: path.sampleEvents
+    }));
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    filters: {
+      startEvent: startEvent ?? null,
+      endEvent: endEvent ?? null,
+      tenantId: filters.tenantId ?? null,
+      userId: filters.userId ?? null,
+      sessionId: filters.sessionId ?? null,
+      traceId: filters.traceId ?? null,
+      segmentId: filters.segmentId ?? null,
+      actorType: actorMode,
+      pathLength
+    },
+    totals: {
+      actors: actors.size,
+      paths: groups.size,
+      events: rows.length
+    },
+    paths
   };
 }
 

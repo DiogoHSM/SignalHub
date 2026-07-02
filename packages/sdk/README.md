@@ -102,6 +102,10 @@ Saved segments also come from normal event telemetry. Keep actor identifiers and
 consistent so operators can save reusable user or tenant cohorts such as "team plan users who created
 a project in the last 30 days" and apply them back to event investigation.
 
+User journey paths use the same events to find common sequences before or after a selected event. Send
+stable `userId`, `tenantId`, `sessionId`, or `traceId` context on each product event so Sigmon can group
+paths by the right actor and expose sample events for drilldown.
+
 Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
 
 ```ts

@@ -6,6 +6,8 @@ import type {
   AnalyticsSegmentActorType,
   AnalyticsSegmentPreview,
   EventFunnelResponse,
+  EventPathActorType,
+  EventPathsResponse,
   EventPropertyCatalogResponse,
   EventRecord,
   EventRetentionResponse,
@@ -25,6 +27,7 @@ type Props = {
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
 type CatalogState = "loading" | "ready" | "empty" | "unavailable";
 type FunnelState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
+type PathState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type RetentionState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type SegmentState = "loading" | "ready" | "unavailable";
 
@@ -294,6 +297,105 @@ function EventFunnelPanel({
               <div>
                 <strong>Drop-off {step.dropOffFromPreviousPercent}%</strong>
                 <span>from previous</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function EventPathfinderPanel({
+  actorType,
+  endEvent,
+  onActorTypeChange,
+  onDrilldownEvent,
+  onEndEventChange,
+  onPathLengthChange,
+  onRun,
+  onStartEventChange,
+  pathLength,
+  paths,
+  startEvent,
+  state
+}: {
+  actorType: EventPathActorType;
+  endEvent: string;
+  onActorTypeChange: (value: EventPathActorType) => void;
+  onDrilldownEvent: (eventId: string) => void;
+  onEndEventChange: (value: string) => void;
+  onPathLengthChange: (value: string) => void;
+  onRun: () => void;
+  pathLength: string;
+  paths: EventPathsResponse | null;
+  startEvent: string;
+  onStartEventChange: (value: string) => void;
+  state: PathState;
+}) {
+  return (
+    <section aria-label="User journey paths" className="event-pathfinder">
+      <div className="event-pathfinder__header">
+        <div>
+          <h3>User journey paths</h3>
+          <p>Find the most common event sequences for the current filters. Click a sample event to inspect it.</p>
+        </div>
+        {paths ? (
+          <div className="event-pathfinder__score">
+            <span>Paths</span>
+            <strong>{paths.totals.paths}</strong>
+            <small>{paths.totals.actors} actors</small>
+          </div>
+        ) : null}
+      </div>
+      <div className="event-pathfinder__builder">
+        <label>
+          Start event
+          <input value={startEvent} onChange={(event) => onStartEventChange(event.target.value)} placeholder="signup.started" />
+        </label>
+        <label>
+          End event
+          <input value={endEvent} onChange={(event) => onEndEventChange(event.target.value)} placeholder="checkout.completed" />
+        </label>
+        <label>
+          Actor
+          <select value={actorType} onChange={(event) => onActorTypeChange(event.target.value as EventPathActorType)}>
+            <option value="auto">Auto</option>
+            <option value="user">User</option>
+            <option value="tenant">Tenant</option>
+            <option value="session">Session</option>
+            <option value="trace">Trace</option>
+          </select>
+        </label>
+        <label>
+          Max depth
+          <input min={2} max={8} type="number" value={pathLength} onChange={(event) => onPathLengthChange(event.target.value)} />
+        </label>
+        <button disabled={state === "loading"} onClick={onRun} type="button">
+          {state === "loading" ? "Running" : "Find paths"}
+        </button>
+      </div>
+      {state === "invalid" ? <p className="event-pathfinder__notice">Add a start event or an end event.</p> : null}
+      {state === "unavailable" ? <p className="event-pathfinder__notice">Pathfinder unavailable.</p> : null}
+      {state === "ready" && paths && paths.paths.length === 0 ? (
+        <p className="event-pathfinder__notice">No paths matched the current filters.</p>
+      ) : null}
+      {state === "ready" && paths && paths.paths.length > 0 ? (
+        <div className="event-pathfinder__paths">
+          {paths.paths.map((path, index) => (
+            <div className="event-pathfinder__path" key={`${index}:${path.path.join(">")}`}>
+              <div className="event-pathfinder__path-main">
+                <strong>{path.path.join(" -> ")}</strong>
+                <span>
+                  {path.actors} actors · {path.occurrences} occurrences · Last {new Date(path.lastSeenAt).toLocaleString()}
+                </span>
+              </div>
+              <div className="event-pathfinder__samples" aria-label={`Sample events for ${path.path.join(" to ")}`}>
+                {path.sampleEvents.map((event) => (
+                  <button key={event.id} onClick={() => onDrilldownEvent(event.id)} type="button">
+                    {event.name}
+                  </button>
+                ))}
               </div>
             </div>
           ))}
@@ -629,6 +731,12 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [state, setState] = useState<LoadState>("loading");
   const [propertyCatalog, setPropertyCatalog] = useState<EventPropertyCatalogResponse | null>(null);
   const [propertyCatalogState, setPropertyCatalogState] = useState<CatalogState>("loading");
+  const [pathStartEvent, setPathStartEvent] = useState("signup.started");
+  const [pathEndEvent, setPathEndEvent] = useState("");
+  const [pathActorType, setPathActorType] = useState<EventPathActorType>("auto");
+  const [pathLength, setPathLength] = useState("5");
+  const [paths, setPaths] = useState<EventPathsResponse | null>(null);
+  const [pathState, setPathState] = useState<PathState>("idle");
   const [funnelInput, setFunnelInput] = useState("signup.started\nproject.created");
   const [funnel, setFunnel] = useState<EventFunnelResponse | null>(null);
   const [funnelState, setFunnelState] = useState<FunnelState>("idle");
@@ -718,6 +826,74 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
 
   function retry() {
     setReloadToken((current) => current + 1);
+  }
+
+  function runPaths() {
+    const startEvent = pathStartEvent.trim();
+    const endEvent = pathEndEvent.trim();
+    if (!startEvent && !endEvent) {
+      setPaths(null);
+      setPathState("invalid");
+      return;
+    }
+    if (!client.getEventPaths) {
+      setPaths(null);
+      setPathState("unavailable");
+      return;
+    }
+
+    const maxDepth = Number(pathLength);
+    setPathState("loading");
+    void client
+      .getEventPaths({
+        projectId,
+        environmentId,
+        window: "7d",
+        ...(startEvent ? { startEvent } : {}),
+        ...(endEvent ? { endEvent } : {}),
+        tenantId: appliedFilters.tenantId.trim() || undefined,
+        userId: appliedFilters.userId.trim() || undefined,
+        sessionId: appliedFilters.sessionId.trim() || undefined,
+        traceId: appliedFilters.traceId.trim() || undefined,
+        from: toIso(appliedFilters.from),
+        to: toIso(appliedFilters.to),
+        segmentId: activeSegmentId,
+        actorType: pathActorType,
+        pathLength: Number.isFinite(maxDepth) ? Math.trunc(maxDepth) : 5,
+        limit: 20
+      })
+      .then(
+        ({ data }) => {
+          setPaths(data);
+          setPathState("ready");
+        },
+        () => {
+          setPaths(null);
+          setPathState("unavailable");
+        }
+      );
+  }
+
+  function drilldownEvent(eventId: string) {
+    setSelectedEvent(undefined);
+    const drilldownQuery: QueryFilters = {
+      projectId,
+      environmentId,
+      eventId,
+      limit: 1
+    };
+    setState("loading");
+    void client.listEvents(drilldownQuery).then(
+      ({ data }) => {
+        setEvents(data);
+        setSelectedEvent(data[0]);
+        setState(data.length > 0 ? "ready" : "empty");
+      },
+      () => {
+        setEvents([]);
+        setState("unavailable");
+      }
+    );
   }
 
   function runFunnel() {
@@ -816,6 +992,20 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
               }}
               projectId={projectId}
               reloadToken={reloadToken}
+            />
+            <EventPathfinderPanel
+              actorType={pathActorType}
+              endEvent={pathEndEvent}
+              onActorTypeChange={setPathActorType}
+              onDrilldownEvent={drilldownEvent}
+              onEndEventChange={setPathEndEvent}
+              onPathLengthChange={setPathLength}
+              onRun={runPaths}
+              onStartEventChange={setPathStartEvent}
+              pathLength={pathLength}
+              paths={paths}
+              startEvent={pathStartEvent}
+              state={pathState}
             />
             <EventFunnelPanel
               funnel={funnel}

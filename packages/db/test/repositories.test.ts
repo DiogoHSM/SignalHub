@@ -94,6 +94,7 @@ import {
   getErrorAggregates,
   getEventAggregates,
   getEventFunnel,
+  getEventPaths,
   getEventPropertyCatalog,
   getEventRetention,
   getLlmAggregates,
@@ -8893,6 +8894,55 @@ describe("repositories", () => {
       expect(funnel.totals).toMatchObject({ entrants: 4, completed: 1, conversionPercent: 25 });
       expect(funnel.sampleActors.map((actor) => actor.actorId)).toEqual(["user_1", "user_2", "user_3", "user_4"]);
       expect(funnel.sampleActors[0]).toMatchObject({ reachedStepIndex: 2, reachedStepName: "key.created" });
+    });
+  });
+
+  it("calculates common event paths by actor with deterministic sample drilldowns", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Paths API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_path_u1_1", userId: "user_1", tenantId: "tenant_a", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u1_2", userId: "user_1", tenantId: "tenant_a", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u1_3", userId: "user_1", tenantId: "tenant_a", name: "key.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u1_4", userId: "user_1", tenantId: "tenant_a", name: "invoice.paid", timestamp: new Date("2026-05-04T12:03:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u2_1", userId: "user_2", tenantId: "tenant_a", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u2_2", userId: "user_2", tenantId: "tenant_a", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u2_3", userId: "user_2", tenantId: "tenant_a", name: "key.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_other", userId: "user_3", tenantId: "tenant_b", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_other_2", userId: "user_3", tenantId: "tenant_b", name: "billing.failed", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+
+      const paths = await getEventPaths(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        tenantId: "tenant_a",
+        startEvent: "signup.started",
+        endEvent: "key.created",
+        pathLength: 5
+      });
+
+      expect(paths.totals).toEqual({ actors: 2, paths: 1, events: 7 });
+      expect(paths.paths).toEqual([
+        expect.objectContaining({
+          path: ["signup.started", "project.created", "key.created"],
+          actors: 2,
+          occurrences: 2,
+          sampleEvents: [
+            expect.objectContaining({ id: "evt_path_u1_1", name: "signup.started", actorId: "user_1" }),
+            expect.objectContaining({ id: "evt_path_u1_2", name: "project.created", actorId: "user_1" }),
+            expect.objectContaining({ id: "evt_path_u1_3", name: "key.created", actorId: "user_1" })
+          ]
+        })
+      ]);
     });
   });
 

@@ -30,6 +30,8 @@ import type {
   ErrorRecord,
   EventFunnelQuery,
   EventFunnelResponse,
+  EventPathsQuery,
+  EventPathsResponse,
   EventPropertyCatalogResponse,
   EventRecord,
   EventRetentionQuery,
@@ -278,6 +280,7 @@ export type ApiClient = {
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
   getEventFunnel?: (query: EventFunnelQuery) => Promise<AggregateResponse<EventFunnelResponse>>;
+  getEventPaths?: (query: EventPathsQuery) => Promise<AggregateResponse<EventPathsResponse>>;
   getEventRetention?: (query: EventRetentionQuery) => Promise<AggregateResponse<EventRetentionResponse>>;
   getApmEndpoints?: (query: ApmQuery) => Promise<AggregateResponse<ApmEndpointsResponse>>;
   getServiceMap?: (query: ApmQuery) => Promise<AggregateResponse<ServiceMapResponse>>;
@@ -430,6 +433,7 @@ function queryPath(
     if (filters.status) params.set("status", filters.status);
   }
   if (options.includeEventName && filters.eventName) params.set("event_name", filters.eventName);
+  if (options.includeEventName && filters.eventId) params.set("event_id", filters.eventId);
   if (options.includeEventName && filters.segmentId) params.set("segment_id", filters.segmentId);
   if (options.includeErrorFilters) {
     if (filters.severity) params.set("severity", filters.severity);
@@ -595,6 +599,27 @@ function eventFunnelPath(query: EventFunnelQuery): string {
   params.set("steps", query.steps.join(","));
 
   return `/query/events/funnel?${params.toString()}`;
+}
+
+function eventPathsPath(query: EventPathsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.startEvent) params.set("start_event", query.startEvent);
+  if (query.endEvent) params.set("end_event", query.endEvent);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.sessionId) params.set("session_id", query.sessionId);
+  if (query.traceId) params.set("trace_id", query.traceId);
+  if (query.segmentId) params.set("segment_id", query.segmentId);
+  if (query.actorType) params.set("actor", query.actorType);
+  if (query.from) params.set("from", query.from instanceof Date ? query.from.toISOString() : query.from);
+  if (query.to) params.set("to", query.to instanceof Date ? query.to.toISOString() : query.to);
+  if (query.pathLength !== undefined) params.set("max_depth", String(query.pathLength));
+
+  return `/query/events/paths?${params.toString()}`;
 }
 
 function eventRetentionPath(query: EventRetentionQuery): string {
@@ -953,6 +978,7 @@ export function createApiClient(
     getEventPropertyCatalog: (query) =>
       request<AggregateResponse<EventPropertyCatalogResponse>>(path(apiBasePath, eventPropertyCatalogPath(query))),
     getEventFunnel: (query) => request<AggregateResponse<EventFunnelResponse>>(path(apiBasePath, eventFunnelPath(query))),
+    getEventPaths: (query) => request<AggregateResponse<EventPathsResponse>>(path(apiBasePath, eventPathsPath(query))),
     getEventRetention: (query) => request<AggregateResponse<EventRetentionResponse>>(path(apiBasePath, eventRetentionPath(query))),
     getApmEndpoints: (query) => request<AggregateResponse<ApmEndpointsResponse>>(path(apiBasePath, apmEndpointsPath(query))),
     getServiceMap: (query) => request<AggregateResponse<ServiceMapResponse>>(path(apiBasePath, serviceMapPath(query))),

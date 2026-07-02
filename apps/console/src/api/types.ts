@@ -230,6 +230,69 @@ export type EventRetentionResponse = {
   cohorts: EventRetentionCohort[];
 };
 
+export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
+
+export type EventPathsQuery = ApmQuery & {
+  startEvent?: string;
+  endEvent?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  traceId?: string;
+  segmentId?: string;
+  actorType?: EventPathActorType;
+  from?: Date | string;
+  to?: Date | string;
+  pathLength?: number;
+};
+
+export type EventPathSampleEvent = {
+  id: string;
+  name: string;
+  timestamp: string;
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+};
+
+export type EventPathRow = {
+  path: string[];
+  actors: number;
+  occurrences: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sampleEvents: EventPathSampleEvent[];
+};
+
+export type EventPathsResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    startEvent: string | null;
+    endEvent: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    traceId: string | null;
+    segmentId: string | null;
+    actorType: EventPathActorType;
+    pathLength: number;
+  };
+  totals: {
+    actors: number;
+    paths: number;
+    events: number;
+  };
+  paths: EventPathRow[];
+};
+
 export type ErrorRecord = {
   id: string;
   projectId: string;
@@ -1644,6 +1707,7 @@ export type QueryFilters = {
   sessionId?: string;
   traceId?: string;
   traceName?: string;
+  eventId?: string;
   eventName?: string;
   severity?: string;
   status?: string;

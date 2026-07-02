@@ -158,6 +158,16 @@ Example query:
 GET /query/events?project_id=prj_123&environment_id=env_123&segment_id=seg_123
 ```
 
+### User journey paths
+
+Operators can discover common event sequences with `GET /query/events/paths`. Path analysis is also derived from normal product events; it groups events by a stable actor (`user`, `tenant`, `session`, `trace`, or `auto`) and returns the most common compact paths plus sample event ids for drilldown.
+
+Example query:
+
+```http
+GET /query/events/paths?project_id=prj_123&environment_id=env_123&window=7d&start_event=signup.started&end_event=key.created&actor=auto&max_depth=5
+```
+
 ## Errors
 
 Required fields:

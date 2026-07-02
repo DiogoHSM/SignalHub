@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord, EventRetentionResponse } from "../api/types";
+import type { EventFunnelResponse, EventPathsResponse, EventPropertyCatalogResponse, EventRecord, EventRetentionResponse } from "../api/types";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
 function event(overrides: Partial<EventRecord>): EventRecord {
@@ -103,6 +103,28 @@ function emptyFunnel(): EventFunnelResponse {
     totals: { entrants: 0, completed: 0, conversionPercent: 0 },
     steps: [],
     sampleActors: []
+  };
+}
+
+function emptyPaths(): EventPathsResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    filters: {
+      startEvent: "signup.started",
+      endEvent: "key.created",
+      tenantId: null,
+      userId: null,
+      sessionId: null,
+      traceId: null,
+      segmentId: null,
+      actorType: "auto",
+      pathLength: 5
+    },
+    totals: { actors: 0, paths: 0, events: 0 },
+    paths: []
   };
 }
 
@@ -258,6 +280,84 @@ describe("EventInvestigationPanel", () => {
       environmentId: "env_1",
       window: "7d",
       limit: 50
+    });
+  });
+
+  it("runs user journey paths and drills into sample events", async () => {
+    const listEvents = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [event({ id: "evt_1", name: "signup.started", tenantId: "tenant_1" })] })
+      .mockResolvedValue({ data: [event({ id: "evt_path_2", name: "project.created" })] });
+    const api = client({
+      listEvents,
+      getEventPaths: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyPaths(),
+          totals: { actors: 2, paths: 1, events: 6 },
+          paths: [
+            {
+              path: ["signup.started", "project.created", "key.created"],
+              actors: 2,
+              occurrences: 2,
+              firstSeenAt: "2026-05-04T12:00:00.000Z",
+              lastSeenAt: "2026-05-04T12:02:00.000Z",
+              sampleEvents: [
+                {
+                  id: "evt_path_1",
+                  name: "signup.started",
+                  timestamp: "2026-05-04T12:00:00.000Z",
+                  actorId: "user_1",
+                  actorType: "user"
+                },
+                {
+                  id: "evt_path_2",
+                  name: "project.created",
+                  timestamp: "2026-05-04T12:01:00.000Z",
+                  actorId: "user_1",
+                  actorType: "user"
+                }
+              ]
+            }
+          ]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("End event"));
+    await userEvent.type(screen.getByLabelText("End event"), "key.created");
+    await userEvent.click(screen.getByRole("button", { name: "Find paths" }));
+
+    expect(await screen.findByRole("region", { name: "User journey paths" })).toHaveTextContent(
+      "signup.started -> project.created -> key.created"
+    );
+    expect(api.getEventPaths).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      startEvent: "signup.started",
+      endEvent: "key.created",
+      tenantId: undefined,
+      userId: undefined,
+      sessionId: undefined,
+      traceId: undefined,
+      from: undefined,
+      to: undefined,
+      segmentId: undefined,
+      actorType: "auto",
+      pathLength: 5,
+      limit: 20
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "project.created" }));
+    await waitFor(() => {
+      expect(listEvents).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        eventId: "evt_path_2",
+        limit: 1
+      });
     });
   });
 

@@ -1565,6 +1565,69 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("forwards event pathfinder query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventPaths: async (filters) => {
+          receivedFilters.push(filters);
+          return { paths: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/paths?project_id=prj_1&environment_id=env_1&window=30d&start_event=signup.started&end_event=key.created&tenant_id=tenant_1&segment_id=seg_1&actor=user&max_depth=4&limit=20&from=2026-05-01T00:00:00.000Z&to=2026-05-08T00:00:00.000Z"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { paths: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        startEvent: "signup.started",
+        endEvent: "key.created",
+        tenantId: "tenant_1",
+        userId: undefined,
+        sessionId: undefined,
+        traceId: undefined,
+        segmentId: "seg_1",
+        actorType: "user",
+        from: new Date("2026-05-01T00:00:00.000Z"),
+        to: new Date("2026-05-08T00:00:00.000Z"),
+        pathLength: 4
+      }
+    ]);
+  });
+
+  it.each([
+    "/query/events/paths?project_id=prj_1&environment_id=env_1",
+    "/query/events/paths?project_id=prj_1&environment_id=env_1&start_event=signup.started&actor=device",
+    "/query/events/paths?project_id=prj_1&environment_id=env_1&start_event=signup.started&max_depth=1",
+    "/query/events/paths?project_id=prj_1&environment_id=env_1&start_event=signup.started&from=2026-05-08T00:00:00.000Z&to=2026-05-01T00:00:00.000Z"
+  ])("rejects invalid event pathfinder query %s", async (url) => {
+    const getEventPaths = vi.fn(async () => ({ paths: [] }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: { getEventPaths }
+    });
+
+    const response = await app.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+    expect(getEventPaths).not.toHaveBeenCalled();
+  });
+
   it("forwards event retention query filters", async () => {
     const receivedFilters: unknown[] = [];
 
