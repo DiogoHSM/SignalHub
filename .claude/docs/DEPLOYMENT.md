@@ -2,6 +2,20 @@
 
 Docker Compose is the only production-supported self-hosted installation path for this release line. Kubernetes, Helm, systemd, and hosted SaaS deployment are out of scope.
 
+The public self-hosting operator guide lives in `docs/SELF-HOSTING.md`. Keep it aligned with this deployment note when install, backup, restore, upgrade, sizing, or support boundaries change.
+
+## Support Boundaries
+
+| Surface | Status |
+| --- | --- |
+| MIT license and public source | Supported |
+| Docker Compose self-host install | Supported |
+| Node.js 22 / pnpm 9.15.x runtime | Supported |
+| Postgres 16 / Redis 7 backing services | Supported |
+| Worker-owned backups, restore, retention, alerts, monitors, and warehouse exports | Supported |
+| HTTPS reverse proxy and certificates | Operator-owned |
+| Kubernetes, Helm, systemd, hosted SaaS, billing, invites, and per-project RBAC | Out of scope for this release line |
+
 ## Deployment Identity
 
 SignalMonitor's intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.

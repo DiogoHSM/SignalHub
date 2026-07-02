@@ -270,6 +270,8 @@ Docker Compose is the supported production-oriented self-hosted install path for
 
 Docker Compose starts Postgres, Redis, the API, and the telemetry worker. It loads `.env` when present and overrides `DATABASE_URL` and `REDIS_URL` for the internal Compose network.
 
+For the complete operator guide, including support matrix, backup, restore, upgrade, reverse proxy, sizing, and known limits, see [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md).
+
 ```sh
 cp .env.example .env
 # edit .env before first start
