@@ -1150,11 +1150,20 @@ describe("admin routes", () => {
           { key: "off", value: false },
           { key: "on", value: true }
         ],
-        rules: [{ id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } }]
+        rules: [
+          { id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } },
+          { id: "gradual_rollout", description: "Gradual rollout", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }
+        ]
       }
     });
     expect(createResponse.statusCode).toBe(201);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ key: "new_checkout", actorId: "usr_1" }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "new_checkout",
+        actorId: "usr_1",
+        rules: expect.arrayContaining([expect.objectContaining({ id: "gradual_rollout", rollout: { percentage: 10, stickiness: "user" } })])
+      })
+    );
 
     const updateResponse = await app.inject({
       method: "PATCH",

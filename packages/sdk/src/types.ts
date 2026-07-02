@@ -198,9 +198,18 @@ export type FeatureFlagRuleMatch = {
   traits?: Record<string, FeatureFlagValue>;
 };
 
+export type FeatureFlagRollout = {
+  percentage: number;
+  stickiness: "user" | "tenant" | "session";
+  salt?: string;
+};
+
 export type FeatureFlagRuleInput = {
+  id?: string;
+  description?: string;
   variant: string;
-  match: FeatureFlagRuleMatch;
+  match?: FeatureFlagRuleMatch;
+  rollout?: FeatureFlagRollout;
 };
 
 export type FeatureFlagEvaluationInput = {

@@ -180,6 +180,46 @@ describe("createSignalMonitorClient", () => {
       variant: "off",
       value: false,
       matched: false,
+        reason: "default"
+      });
+
+    expect(
+      client.evaluateFlag({
+        key: "New Checkout",
+        fallbackVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [{ id: "Rollout 10", variant: "on", rollout: { percentage: 10, stickiness: "user" } }],
+        subject: { userId: "user_2" },
+        trackExposure: false
+      })
+    ).toEqual({
+      key: "New Checkout",
+      variant: "on",
+      value: true,
+      matched: true,
+      reason: "rule_match"
+    });
+
+    expect(
+      client.evaluateFlag({
+        key: "new_checkout",
+        fallbackVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [{ id: "rollout_10", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }],
+        subject: { userId: "user_1" },
+        trackExposure: false
+      })
+    ).toEqual({
+      key: "new_checkout",
+      variant: "off",
+      value: false,
+      matched: false,
       reason: "default"
     });
   });

@@ -191,6 +191,8 @@ describe("ExperimentsPanel", () => {
     await user.type(within(flagsRegion).getByLabelText("Flag key"), "pricing_cards");
     await user.clear(within(flagsRegion).getByLabelText("Flag name"));
     await user.type(within(flagsRegion).getByLabelText("Flag name"), "Pricing cards");
+    await user.clear(within(flagsRegion).getByLabelText("Rollout percentage"));
+    await user.type(within(flagsRegion).getByLabelText("Rollout percentage"), "10");
     await user.click(within(flagsRegion).getByRole("button", { name: "Create flag" }));
 
     expect(createFeatureFlag).toHaveBeenCalledWith(
@@ -203,7 +205,8 @@ describe("ExperimentsPanel", () => {
         variants: [
           { key: "off", value: false },
           { key: "on", value: true }
-        ]
+        ],
+        rules: [expect.objectContaining({ id: "gradual_rollout", variant: "on", rollout: { percentage: 10, stickiness: "user" } })]
       })
     );
   });

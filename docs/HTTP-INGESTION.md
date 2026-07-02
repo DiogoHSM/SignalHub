@@ -191,6 +191,23 @@ Example exposure event body:
 Keep flag keys stable and always provide a default/off variant in application code so a missing or
 paused flag fails closed.
 
+Feature flag rules can also include deterministic gradual rollout:
+
+```json
+{
+  "id": "gradual_rollout",
+  "variant": "on",
+  "match": {},
+  "rollout": {
+    "percentage": 10,
+    "stickiness": "user"
+  }
+}
+```
+
+`stickiness` can be `user`, `tenant`, or `session`. Sigmon hashes the selected actor id with the flag
+and rule id so the same actor keeps a stable result across API preview and SDK evaluation.
+
 ### Beta programs
 
 Operators can create beta programs in the console or admin API, link a program to a feature flag

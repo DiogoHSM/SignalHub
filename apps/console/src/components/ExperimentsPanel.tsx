@@ -20,7 +20,8 @@ const defaultDraft = {
 const defaultFlagDraft = {
   key: "new_checkout",
   name: "New checkout",
-  enabledUserId: ""
+  enabledUserId: "",
+  rolloutPercentage: "0"
 };
 
 const defaultBetaDraft = {
@@ -57,6 +58,11 @@ function interpretation(row: ExperimentResultsResponse["variants"][number], inde
   if (row.exposures < 30) return "Needs sample";
   if (row.liftPoints === null || Math.abs(row.liftPoints) < 0.5) return "Flat";
   return row.liftPoints > 0 ? "Directional lead" : "Directional lag";
+}
+
+function formatFlagRollout(flag: FeatureFlag): string {
+  const rollout = flag.rules.find((rule) => rule.rollout)?.rollout;
+  return rollout ? `${rollout.percentage}% ${rollout.stickiness}` : "none";
 }
 
 export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
@@ -263,9 +269,20 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
       return;
     }
     setFlagError("");
-    const rules = flagDraft.enabledUserId.trim()
-      ? [{ id: "target_user", description: "Target user", variant: "on", match: { userId: flagDraft.enabledUserId.trim() } }]
-      : [];
+    const rules = [];
+    if (flagDraft.enabledUserId.trim()) {
+      rules.push({ id: "target_user", description: "Target user", variant: "on", match: { userId: flagDraft.enabledUserId.trim() } });
+    }
+    const rolloutPercentage = Math.min(100, Math.max(0, Number(flagDraft.rolloutPercentage)));
+    if (Number.isFinite(rolloutPercentage) && rolloutPercentage > 0) {
+      rules.push({
+        id: "gradual_rollout",
+        description: `${rolloutPercentage}% user rollout`,
+        variant: "on",
+        match: {},
+        rollout: { percentage: rolloutPercentage, stickiness: "user" as const }
+      });
+    }
     const response = await client.createFeatureFlag({
       projectId,
       environmentId,
@@ -486,6 +503,19 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
               onChange={(event) => setFlagDraft((current) => ({ ...current, enabledUserId: event.target.value }))}
             />
           </label>
+          <label>
+            Rollout percentage
+            <span>Gradually enables the on variant for this percent of users.</span>
+            <input
+              aria-label="Rollout percentage"
+              inputMode="decimal"
+              min="0"
+              max="100"
+              type="number"
+              value={flagDraft.rolloutPercentage}
+              onChange={(event) => setFlagDraft((current) => ({ ...current, rolloutPercentage: event.target.value }))}
+            />
+          </label>
           <button type="button" onClick={() => void createFlag()}>
             Create flag
           </button>
@@ -512,6 +542,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                   <th>Default</th>
                   <th>Variants</th>
                   <th>Rules</th>
+                  <th>Rollout</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -526,6 +557,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                     <td>{flag.defaultVariant}</td>
                     <td>{flag.variants.map((variant) => variant.key).join(", ")}</td>
                     <td>{flag.rules.length}</td>
+                    <td>{formatFlagRollout(flag)}</td>
                     <td>
                       <div className="experiments-row-actions">
                         <button type="button" onClick={() => void pauseFlag(flag)}>

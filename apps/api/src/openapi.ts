@@ -232,7 +232,7 @@ export const openApiDocument = {
       },
       FeatureFlagRule: {
         type: "object",
-        required: ["variant", "match"],
+        required: ["variant"],
         properties: {
           id: { type: "string" },
           description: { type: "string" },
@@ -244,6 +244,16 @@ export const openApiDocument = {
               tenantId: { type: "string" },
               sessionId: { type: "string" },
               traits: { type: "object", additionalProperties: true }
+            }
+          },
+          rollout: {
+            type: "object",
+            description: "Optional deterministic percentage rollout applied after match conditions pass.",
+            required: ["percentage", "stickiness"],
+            properties: {
+              percentage: { type: "number", minimum: 0, maximum: 100, examples: [10] },
+              stickiness: { type: "string", enum: ["user", "tenant", "session"], examples: ["user"] },
+              salt: { type: "string" }
             }
           }
         }
@@ -283,15 +293,14 @@ export const openApiDocument = {
       },
       FeatureFlagEvaluation: {
         type: "object",
-        required: ["flagKey", "variant", "value", "reason", "matched"],
+        required: ["key", "variant", "value", "reason", "matched"],
         properties: {
-          flagKey: { type: "string", examples: ["new_checkout"] },
+          key: { type: "string", examples: ["new_checkout"] },
           variant: { type: "string", examples: ["on"] },
           value: { oneOf: [{ type: "boolean" }, { type: "string" }, { type: "number" }, { type: "null" }] },
-          reason: { type: "string", enum: ["matched_rule", "default", "inactive", "not_found", "invalid_definition"] },
+          reason: { type: "string", enum: ["rule_match", "default", "missing", "inactive"] },
           matched: { type: "boolean" },
-          ruleId: { type: ["string", "null"] },
-          ruleDescription: { type: ["string", "null"] }
+          ruleId: { type: "string" }
         }
       },
       BetaProgram: {

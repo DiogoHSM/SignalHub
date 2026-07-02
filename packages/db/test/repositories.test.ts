@@ -9792,7 +9792,8 @@ describe("repositories", () => {
         ],
         rules: [
           { id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } },
-          { id: "beta_tenant", description: "Beta tenants", variant: "on", match: { traits: { plan: "beta" } } }
+          { id: "beta_tenant", description: "Beta tenants", variant: "on", match: { traits: { plan: "beta" } } },
+          { id: "rollout_10", description: "Gradual rollout", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }
         ],
         actorId: "admin_1"
       });
@@ -9824,10 +9825,20 @@ describe("repositories", () => {
           projectId: project.id,
           environmentId: environment.id,
           key: "new_checkout",
-          subject: { userId: "user_2", traits: { plan: "free" } },
+          subject: { userId: "user_4", traits: { plan: "free" } },
           fallbackVariant: "off"
         })
       ).resolves.toEqual(expect.objectContaining({ matched: false, variant: "off", value: false, reason: "default" }));
+
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_2", traits: { plan: "free" } },
+          fallbackVariant: "off"
+        })
+      ).resolves.toEqual(expect.objectContaining({ matched: true, variant: "on", value: true, reason: "rule_match", ruleId: "rollout_10" }));
 
       await updateFeatureFlag(db, {
         id: flag.id,

@@ -786,11 +786,17 @@ const featureFlagRuleMatchSchema = z.object({
   sessionId: z.string().trim().min(1).max(256).optional(),
   traits: z.record(z.string().trim().min(1).max(80), featureFlagValueSchema).optional()
 });
+const featureFlagRolloutSchema = z.object({
+  percentage: z.coerce.number().min(0).max(100),
+  stickiness: z.enum(["user", "tenant", "session"]).default("user"),
+  salt: z.string().trim().min(1).max(120).optional()
+});
 const featureFlagRuleSchema = z.object({
   id: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().max(160).optional(),
   variant: z.string().trim().min(1).max(80),
-  match: featureFlagRuleMatchSchema
+  match: featureFlagRuleMatchSchema.default({}),
+  rollout: featureFlagRolloutSchema.optional()
 });
 const featureFlagScopeQuerySchema = analyticsSegmentScopeQuerySchema;
 const featureFlagSchema = z.object({

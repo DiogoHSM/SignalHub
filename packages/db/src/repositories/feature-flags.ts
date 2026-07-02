@@ -23,11 +23,20 @@ export interface FeatureFlagRuleMatch {
   traits?: Record<string, FeatureFlagValue>;
 }
 
+export type FeatureFlagRolloutStickiness = "user" | "tenant" | "session";
+
+export interface FeatureFlagRollout {
+  percentage: number;
+  stickiness: FeatureFlagRolloutStickiness;
+  salt?: string;
+}
+
 export interface FeatureFlagRule {
   id?: string;
   description?: string;
   variant: string;
   match: FeatureFlagRuleMatch;
+  rollout?: FeatureFlagRollout;
 }
 
 export interface FeatureFlagRecord {
@@ -129,13 +138,17 @@ function normalizeRules(rules: FeatureFlagRule[] | undefined, variants: FeatureF
   const allowedVariants = new Set(variants.map((variant) => variant.key));
   return (rules ?? [])
     .slice(0, 50)
-    .map((rule, index) => ({
-      id: rule.id ? normalizeKey(rule.id, `rule_${index + 1}`) : undefined,
-      description: rule.description ? normalizeText(rule.description, "", 160) : undefined,
-      variant: normalizeKey(rule.variant),
-      match: normalizeMatch(rule.match)
-    }))
-    .filter((rule) => allowedVariants.has(rule.variant) && hasMatch(rule.match));
+    .map((rule, index) => {
+      const rollout = normalizeRollout(rule.rollout);
+      return {
+        id: rule.id ? normalizeKey(rule.id, `rule_${index + 1}`) : undefined,
+        description: rule.description ? normalizeText(rule.description, "", 160) : undefined,
+        variant: normalizeKey(rule.variant),
+        match: normalizeMatch(rule.match),
+        ...(rollout ? { rollout } : {})
+      };
+    })
+    .filter((rule) => allowedVariants.has(rule.variant) && (hasMatch(rule.match) || Boolean(rule.rollout)));
 }
 
 function normalizeMatch(match: FeatureFlagRuleMatch | undefined): FeatureFlagRuleMatch {
@@ -156,6 +169,17 @@ function normalizeMatch(match: FeatureFlagRuleMatch | undefined): FeatureFlagRul
 
 function hasMatch(match: FeatureFlagRuleMatch): boolean {
   return Boolean(match.userId || match.tenantId || match.sessionId || (match.traits && Object.keys(match.traits).length > 0));
+}
+
+function normalizeRollout(rollout: FeatureFlagRollout | undefined): FeatureFlagRollout | undefined {
+  if (!rollout || typeof rollout !== "object") return undefined;
+  const percentage = Math.min(100, Math.max(0, Number(rollout.percentage)));
+  if (!Number.isFinite(percentage) || percentage <= 0) return undefined;
+  return {
+    percentage: Math.round(percentage * 100) / 100,
+    stickiness: rollout.stickiness === "tenant" || rollout.stickiness === "session" ? rollout.stickiness : "user",
+    ...(rollout.salt?.trim() ? { salt: normalizeText(rollout.salt, "rollout", 120) } : {})
+  };
 }
 
 function parseVariants(value: unknown): FeatureFlagVariant[] {
@@ -202,7 +226,7 @@ function variantValue(flag: FeatureFlagRecord, variantKey: string): FeatureFlagV
   return flag.variants.find((variant) => variant.key === variantKey)?.value ?? null;
 }
 
-function ruleMatches(rule: FeatureFlagRule, subject: FeatureFlagEvaluationSubject): boolean {
+function ruleMatches(flagKey: string, rule: FeatureFlagRule, subject: FeatureFlagEvaluationSubject): boolean {
   if (rule.match.userId && rule.match.userId !== subject.userId) return false;
   if (rule.match.tenantId && rule.match.tenantId !== subject.tenantId) return false;
   if (rule.match.sessionId && rule.match.sessionId !== subject.sessionId) return false;
@@ -211,7 +235,29 @@ function ruleMatches(rule: FeatureFlagRule, subject: FeatureFlagEvaluationSubjec
       if (subject.traits?.[key] !== value) return false;
     }
   }
+  if (rule.rollout) {
+    return rolloutMatches(flagKey, rule, subject);
+  }
   return true;
+}
+
+function rolloutMatches(flagKey: string, rule: FeatureFlagRule, subject: FeatureFlagEvaluationSubject): boolean {
+  if (!rule.rollout) return true;
+  const stickyValue =
+    rule.rollout.stickiness === "tenant" ? subject.tenantId : rule.rollout.stickiness === "session" ? subject.sessionId : subject.userId;
+  if (!stickyValue) return false;
+  const salt = rule.rollout.salt ?? `${flagKey}:${rule.id ?? rule.variant}`;
+  const bucket = stableHash(`${salt}:${rule.rollout.stickiness}:${stickyValue}`) % 10000;
+  return bucket < Math.round(rule.rollout.percentage * 100);
+}
+
+function stableHash(input: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function evaluateLoadedFlag(
@@ -227,7 +273,7 @@ function evaluateLoadedFlag(
   }
 
   const subject = input.subject ?? {};
-  const matchedRule = flag.rules.find((rule) => ruleMatches(rule, subject));
+  const matchedRule = flag.rules.find((rule) => ruleMatches(flag.key, rule, subject));
   if (matchedRule) {
     return {
       key: flag.key,

@@ -475,7 +475,7 @@ function evaluateLocalFlag(input: FeatureFlagEvaluationInput): FeatureFlagEvalua
     .map((variant) => ({ key: variant.key.trim(), value: normalizeFlagValue(variant.value) }));
   const fallbackVariant = input.fallbackVariant.trim();
   const defaultVariant = variants.find((variant) => variant.key === fallbackVariant) ?? variants[0] ?? { key: fallbackVariant || "off", value: false };
-  const matchedRule = (input.rules ?? []).find((rule) => flagRuleMatches(rule, input.subject ?? {}));
+  const matchedRule = (input.rules ?? []).find((rule) => flagRuleMatches(input.key, rule, input.subject ?? {}));
   if (matchedRule) {
     const variant = variants.find((candidate) => candidate.key === matchedRule.variant.trim());
     if (variant) {
@@ -497,8 +497,8 @@ function evaluateLocalFlag(input: FeatureFlagEvaluationInput): FeatureFlagEvalua
   };
 }
 
-function flagRuleMatches(rule: FeatureFlagRuleInput, subject: NonNullable<FeatureFlagEvaluationInput["subject"]>): boolean {
-  const match = rule.match;
+function flagRuleMatches(flagKey: string, rule: FeatureFlagRuleInput, subject: NonNullable<FeatureFlagEvaluationInput["subject"]>): boolean {
+  const match = rule.match ?? {};
   if (match.userId && match.userId !== subject.userId) return false;
   if (match.tenantId && match.tenantId !== subject.tenantId) return false;
   if (match.sessionId && match.sessionId !== subject.sessionId) return false;
@@ -507,7 +507,22 @@ function flagRuleMatches(rule: FeatureFlagRuleInput, subject: NonNullable<Featur
       if (subject.traits?.[key] !== value) return false;
     }
   }
+  if (rule.rollout) {
+    const percentage = Math.min(100, Math.max(0, Number(rule.rollout.percentage)));
+    if (!Number.isFinite(percentage) || percentage <= 0) return false;
+    const stickyValue =
+      rule.rollout.stickiness === "tenant" ? subject.tenantId : rule.rollout.stickiness === "session" ? subject.sessionId : subject.userId;
+    if (!stickyValue) return false;
+    const salt = rule.rollout.salt?.trim() || `${normalizeFlagKey(flagKey)}:${normalizeFlagKey(rule.id || rule.variant)}`;
+    const bucket = stableHash(`${salt}:${rule.rollout.stickiness}:${stickyValue}`) % 10000;
+    return bucket < Math.round(percentage * 100);
+  }
+  if (!match.userId && !match.tenantId && !match.sessionId && (!match.traits || Object.keys(match.traits).length === 0)) return false;
   return true;
+}
+
+function normalizeFlagKey(value: string): string {
+  return value.trim().replace(/\s+/g, "_").toLowerCase();
 }
 
 function normalizeFlagValue(value: FeatureFlagValue): FeatureFlagValue {

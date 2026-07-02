@@ -157,6 +157,22 @@ if (flag.value === true) {
 
 The helper records `sigmon.feature_flag.evaluated` unless `trackExposure: false` is set.
 
+For gradual rollouts, add a deterministic percentage rule. The same rule shape works in server and
+browser code, and the SDK uses the same stable hash as the Sigmon API preview:
+
+```ts
+const flag = sigmon.evaluateFlag({
+  key: "new_checkout",
+  fallbackVariant: "off",
+  variants: [
+    { key: "off", value: false },
+    { key: "on", value: true }
+  ],
+  rules: [{ id: "gradual_rollout", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }],
+  subject: { userId: "user_456" }
+});
+```
+
 Beta programs are managed in the Sigmon console or admin API and can be linked to a feature flag.
 When you add or remove beta participants, Sigmon updates scoped targeting rules on that linked flag.
 Application code still reads the rollout through `evaluateFlag`, so early access fails closed with the
@@ -560,6 +576,10 @@ Feature flags live beside experiments in the console. Each flag has a stable key
 safe default variant, bounded variants, and ordered targeting rules. Use the SDK evaluator with the
 same definition shape in server or browser code, and keep `trackExposure` enabled when you want Sigmon
 to count usage of a flag.
+
+Gradual rollout rules are percentage-based feature-flag rules. Pick a stickiness unit (`user`,
+`tenant`, or `session`) and a percentage from 0 to 100; Sigmon buckets matching subjects
+deterministically so the same actor keeps the same result across requests and runtimes.
 
 Experiment readouts are directional operational views, not a statistical-significance engine. Use them to spot obvious changes in conversion, quality, latency, or cost before drilling into events, users, tenants, traces, errors, or LLM calls.
 

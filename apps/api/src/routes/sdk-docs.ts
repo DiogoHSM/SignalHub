@@ -800,6 +800,17 @@ await sigmon.flush();</code></pre>
 if (flag.value === true) {
   renderNewCheckout();
 }</code></pre>
+            <p>
+              Gradual rollout is an optional rule block. Use <code>stickiness</code> set to
+              <code> user</code>, <code> tenant</code>, or <code> session</code>; Sigmon hashes the
+              selected actor id with the flag/rule id so the same actor keeps a stable result.
+            </p>
+            <pre><code>rules: [{
+  id: "gradual_rollout",
+  variant: "on",
+  match: {},
+  rollout: { percentage: 10, stickiness: "user" }
+}]</code></pre>
             <div class="callout">
               Beta programs are managed in the console or admin API. Link a program to a feature
               flag variant, add user or tenant participants, and Sigmon syncs those participants into
