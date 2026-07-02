@@ -126,6 +126,7 @@ import {
   getOverview,
   getSessionReplayDetail,
   getTraceAggregates,
+  listSessionReplays,
   listErrors,
   listEvents,
   listLlmCalls,
@@ -663,6 +664,7 @@ const app = await buildApp({
     getUserDetail: (userId, filters) => getUserDetail(db, userId, filters),
     getSessionTimeline: (filters) => getSessionTimeline(db, filters),
     getSessionReplayDetail: (filters) => getSessionReplayDetail(db, filters),
+    listSessionReplays: (filters) => listSessionReplays(db, filters),
     resolveErrorStack: (input) =>
       resolveErrorStackWithSourceMaps({
         ...input,

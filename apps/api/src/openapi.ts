@@ -1244,6 +1244,12 @@ export const openApiDocument = {
         "Aggregate opt-in browser click samples by route, safe selector, and grid bucket. Query with project_id, environment_id, route, window=24h|7d|30d, optional selector, tenant_id, user_id, session_id, grid_size=10..100, and limit."
       )
     },
+    "/query/replays": {
+      get: sessionRoute(
+        "Query session replay samples",
+        "List privacy-safe replay samples for a project environment. Supports saved segment filtering with segment_id plus tenant_id, user_id, event_name, and limit. Results include user, tenant, route, timestamp, and linked event/error context for cohort replay investigation."
+      )
+    },
     "/query/replays/{replayId}": {
       get: sessionRoute(
         "Query session replay detail",

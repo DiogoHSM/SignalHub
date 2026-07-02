@@ -537,6 +537,24 @@ export type IncidentReplay = {
   productEvents?: IncidentReplayProductEvent[];
 };
 
+export type SessionReplaySample = {
+  id: string;
+  replayId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  route: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  linkedEventId: string | null;
+  linkedEventName: string | null;
+  linkedErrorId: string | null;
+  linkedErrorMessage: string | null;
+};
+
 export type ErrorGroupIncident = {
   group: ErrorGroupRecord;
   primaryOccurrence: ErrorRecord;
@@ -1865,3 +1883,8 @@ export type QueryFilters = {
   limit?: number;
   cursor?: string;
 };
+
+export type SessionReplaySampleQuery = Pick<
+  QueryFilters,
+  "projectId" | "environmentId" | "tenantId" | "userId" | "eventName" | "segmentId" | "limit"
+>;

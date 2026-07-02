@@ -58,6 +58,8 @@ import type {
   RuntimeProfilesResponse,
   SessionTimelineQuery,
   SessionTimelineResponse,
+  SessionReplaySample,
+  SessionReplaySampleQuery,
   SilenceIncidentInput,
   ServiceMapResponse,
   SourceMapArtifact,
@@ -249,6 +251,7 @@ export type SessionTimelineApiClient = {
     replayId: string,
     query: Pick<SessionTimelineQuery, "projectId" | "environmentId">
   ) => Promise<AggregateResponse<IncidentReplay>>;
+  listSessionReplays?: (query: SessionReplaySampleQuery) => Promise<QueryListResponse<SessionReplaySample>>;
 };
 
 export type ApiClient = {
@@ -303,6 +306,7 @@ export type ApiClient = {
     replayId: string,
     query: Pick<SessionTimelineQuery, "projectId" | "environmentId">
   ) => Promise<AggregateResponse<IncidentReplay>>;
+  listSessionReplays?: (query: SessionReplaySampleQuery) => Promise<QueryListResponse<SessionReplaySample>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
@@ -1068,6 +1072,8 @@ export function createApiClient(
       request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
     getSessionReplayDetail: (replayId, query) =>
       request<AggregateResponse<IncidentReplay>>(path(apiBasePath, sessionReplayPath(replayId, query))),
+    listSessionReplays: (query) =>
+      request<QueryListResponse<SessionReplaySample>>(path(apiBasePath, queryPath("/query/replays", query, { includeEventName: true }))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getEventPropertyCatalog: (query) =>

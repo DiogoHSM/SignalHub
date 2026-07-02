@@ -219,6 +219,7 @@ export type QueryDependencies = {
   getUserDetail?: (userId: string, filters: UserDetailFilters) => Promise<unknown>;
   getSessionTimeline?: (filters: SessionTimelineFilters) => Promise<unknown>;
   getSessionReplayDetail?: (filters: { projectId: string; environmentId: string; replayId: string }) => Promise<unknown | null>;
+  listSessionReplays?: (filters: QueryFilters) => Promise<QueryListResult>;
   listErrorGroups?: (filters: ErrorGroupFilters) => Promise<QueryListResult>;
   getErrorGroup?: (id: string, filters: ErrorGroupScope) => Promise<unknown | null>;
   getErrorGroupIncident?: (
@@ -1740,6 +1741,28 @@ async function handleSessionReplayRoute(request: FastifyRequest, reply: FastifyR
   }
 }
 
+async function handleSessionReplayListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listSessionReplays) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseFilters(request.query, { includeEventName: true });
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send(await options.query.listSessionReplays(filters));
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleEntityTenantListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -2272,6 +2295,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
   app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
+  app.get("/query/replays", (request, reply) => handleSessionReplayListRoute(request, reply, options));
   app.get("/query/replays/:replayId", (request, reply) => handleSessionReplayRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));

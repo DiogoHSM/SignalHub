@@ -254,14 +254,37 @@ describe("createApiClient", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const client = createApiClient("/api");
+    expect(client.getSessionReplayDetail).toBeDefined();
 
-    await client.getSessionReplayDetail("rpl/1", {
+    await client.getSessionReplayDetail!("rpl/1", {
       projectId: "prj/1",
       environmentId: "env 1"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/query/replays/rpl%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("lists session replay samples with segment and event filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient("/api");
+    expect(client.listSessionReplays).toBeDefined();
+
+    await client.listSessionReplays!({
+      projectId: "prj/1",
+      environmentId: "env 1",
+      segmentId: "seg_1",
+      eventName: "checkout.started",
+      tenantId: "tenant_1",
+      limit: 10
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/replays?project_id=prj%2F1&environment_id=env+1&tenant_id=tenant_1&event_name=checkout.started&segment_id=seg_1&limit=10",
       expect.objectContaining({ method: "GET" })
     );
   });

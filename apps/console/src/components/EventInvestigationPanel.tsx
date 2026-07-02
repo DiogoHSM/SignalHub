@@ -13,7 +13,8 @@ import type {
   EventRecord,
   EventRetentionResponse,
   IncidentReplay,
-  QueryFilters
+  QueryFilters,
+  SessionReplaySample
 } from "../api/types";
 import { EventDetailDrawer } from "./EventDetailDrawer";
 import { EventFilters, type EventFilterValues } from "./EventFilters";
@@ -83,6 +84,17 @@ function queryFromValues(projectId: string, environmentId: string, values: Event
   if (segmentId) query.segmentId = segmentId;
 
   return query;
+}
+
+function formatOptionalDate(value: string | null): string {
+  if (!value) return "unknown";
+  return new Date(value).toLocaleString();
+}
+
+function formatMs(value: number | null): string {
+  if (value === null) return "unknown duration";
+  if (value < 1000) return `${value} ms`;
+  return `${(value / 1000).toFixed(1)} s`;
 }
 
 function filtersWithDefaults(initialFilters?: Partial<EventFilterValues>): EventFilterValues {
@@ -821,6 +833,51 @@ function SegmentManager({
   );
 }
 
+function ReplaySamplesPanel({
+  samples,
+  state,
+  activeSegmentId
+}: {
+  samples: SessionReplaySample[];
+  state: LoadState;
+  activeSegmentId?: string;
+}) {
+  return (
+    <section aria-label="Replay samples" className="event-replay-samples">
+      <div className="event-replay-samples__header">
+        <div>
+          <h3>Replay samples</h3>
+          <p>{activeSegmentId ? "Samples filtered by the active saved segment and current event filters." : "Recent replay samples for the current filters."}</p>
+        </div>
+        <span>{samples.length}</span>
+      </div>
+      {state === "loading" ? <p className="muted-text">Loading replay samples</p> : null}
+      {state === "unavailable" ? <p className="muted-text">Replay samples unavailable.</p> : null}
+      {state === "empty" ? <p className="muted-text">No replay samples for these filters.</p> : null}
+      {state === "ready" ? (
+        <div className="event-replay-samples__list">
+          {samples.map((sample) => (
+            <article className="event-replay-samples__item" key={sample.id}>
+              <div>
+                <strong>{sample.replayId}</strong>
+                <small>
+                  {sample.route ?? "unknown route"} · {formatMs(sample.durationMs)} · {formatOptionalDate(sample.startedAt)}
+                </small>
+              </div>
+              <div className="event-replay-samples__meta">
+                <span>User {sample.userId ?? "anonymous"}</span>
+                <span>Tenant {sample.tenantId ?? "none"}</span>
+                <span>{sample.linkedEventName ? `Event ${sample.linkedEventName}` : "No linked event"}</span>
+                <span>{sample.linkedErrorMessage ? `Error ${sample.linkedErrorMessage}` : "No linked error"}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function EventInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
@@ -831,6 +888,8 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [selectedEvent, setSelectedEvent] = useState<EventRecord | undefined>();
   const [selectedReplay, setSelectedReplay] = useState<IncidentReplay | null>(null);
   const [replayState, setReplayState] = useState<ReplayState>("idle");
+  const [replaySamples, setReplaySamples] = useState<SessionReplaySample[]>([]);
+  const [replaySamplesState, setReplaySamplesState] = useState<LoadState>("loading");
   const [state, setState] = useState<LoadState>("loading");
   const [propertyCatalog, setPropertyCatalog] = useState<EventPropertyCatalogResponse | null>(null);
   const [propertyCatalogState, setPropertyCatalogState] = useState<CatalogState>("loading");
@@ -879,6 +938,46 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
       cancelled = true;
     };
   }, [client, query, reloadToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!client.listSessionReplays) {
+      setReplaySamples([]);
+      setReplaySamplesState("unavailable");
+      return;
+    }
+
+    const sampleQuery: Parameters<NonNullable<ApiClient["listSessionReplays"]>>[0] = {
+      projectId,
+      environmentId,
+      limit: 10
+    };
+    const tenantId = appliedFilters.tenantId.trim();
+    const userId = appliedFilters.userId.trim();
+    const eventName = appliedFilters.eventName.trim();
+    if (tenantId) sampleQuery.tenantId = tenantId;
+    if (userId) sampleQuery.userId = userId;
+    if (eventName) sampleQuery.eventName = eventName;
+    if (activeSegmentId) sampleQuery.segmentId = activeSegmentId;
+
+    setReplaySamplesState("loading");
+    void client.listSessionReplays(sampleQuery).then(
+      ({ data }) => {
+        if (cancelled) return;
+        setReplaySamples(data);
+        setReplaySamplesState(data.length > 0 ? "ready" : "empty");
+      },
+      () => {
+        if (cancelled) return;
+        setReplaySamples([]);
+        setReplaySamplesState("unavailable");
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, projectId, environmentId, appliedFilters, activeSegmentId, reloadToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1173,6 +1272,7 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
               projectId={projectId}
               reloadToken={reloadToken}
             />
+            <ReplaySamplesPanel activeSegmentId={activeSegmentId} samples={replaySamples} state={replaySamplesState} />
             <EventClickMapPanel
               clickMap={clickMap}
               onRouteChange={setClickMapRoute}

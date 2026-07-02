@@ -95,7 +95,7 @@ Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same p
 
 Opt-in browser click maps are stored in the `click_events` telemetry table. `POST /v1/clicks` accepts normalized viewport coordinates, viewport dimensions, route, safe selector, and optional element tag/role metadata. The browser SDK helper avoids text, values, DOM snapshots, screenshots, and form fields by design. `GET /query/events/click-map` aggregates click density by route, safe selector, and bounded grid bucket for Events investigation. `click_events` expires with the events retention window.
 
-Privacy-safe browser replays are stored in the `session_replays` telemetry table. `POST /v1/replays` accepts a masked interaction timeline keyed by `replay_id`; errors and product events can include the same `replay_id`. Incident detail returns linked replay context for errors, and `GET /query/replays/:replayId` returns the replay plus linked product-event markers for event investigation. Replay payloads store route, safe selectors, normalized click coordinates, sanitized messages, and bounded event data only. They do not store screenshots, DOM snapshots, raw text, input values, passwords, cookies, or HTML. `session_replays` expires with the events retention window and is counted with deleted events.
+Privacy-safe browser replays are stored in the `session_replays` telemetry table. `POST /v1/replays` accepts a masked interaction timeline keyed by `replay_id`; errors and product events can include the same `replay_id`. Incident detail returns linked replay context for errors, `GET /query/replays/:replayId` returns the replay plus linked product-event markers for event investigation, and `GET /query/replays` lists replay samples filtered by saved segment, tenant, user, and event name. Replay payloads store route, safe selectors, normalized click coordinates, sanitized messages, and bounded event data only. They do not store screenshots, DOM snapshots, raw text, input values, passwords, cookies, or HTML. `session_replays` expires with the events retention window and is counted with deleted events.
 
 Web Vitals are stored in the `web_vitals` telemetry table. Browser SDK helpers send LCP, INP, CLS, FCP, FID, and TTFB samples through `POST /v1/web-vitals` with route, navigation type, rating, release, and the shared telemetry envelope. `GET /query/apm/web-vitals` aggregates p75 values by metric and route, rating counts, latest/previous release p75 values, and regression percentage for the Traces/APM workspace.
 
@@ -162,6 +162,7 @@ Ingestion:
 Query:
 
 - `GET /query/events`
+- `GET /query/replays`
 - `GET /query/replays/:replayId`
 - `GET /query/errors`
 - `GET /query/error-groups`
@@ -255,7 +256,7 @@ Saved analytics segments live in `analytics_segments` and are scoped to one proj
 
 `GET /query/events/paths` analyzes common user journey paths from existing event telemetry. Operators provide a start event or end event, optional actor type (`auto`, `user`, `tenant`, `session`, or `trace`), max path depth, and the same project/environment/time/entity filters used elsewhere. The query compacts repeated adjacent event names per actor, aggregates the most common paths, supports saved segment filtering, and returns sample event ids for direct event drilldown in the console.
 
-Events can store optional `replay_id` values. The Events detail drawer uses `GET /query/replays/:replayId` to load the privacy-safe replay and overlay linked product events in the same timeline, letting operators move from a product event to surrounding browser context without relying on screenshots or DOM capture.
+Events can store optional `replay_id` values. The Events detail drawer uses `GET /query/replays/:replayId` to load the privacy-safe replay and overlay linked product events in the same timeline, letting operators move from a product event to surrounding browser context without relying on screenshots or DOM capture. The Events investigation workspace also uses `GET /query/replays` to show replay samples for the active saved segment and current event filters, including user, tenant, route, timestamp, and linked event/error context.
 
 Saved analytics dashboards live in `analytics_dashboards` and are scoped to one project/environment. Dashboard definitions store bounded JSON filters and whitelisted widget definitions, not arbitrary SQL. Admin routes list, create, edit, and archive active dashboards with project/environment-scoped mutations. `GET /query/reports/dashboards/:id` renders a saved dashboard by combining its saved window/filter defaults with `GET /query/overview` aggregates and returns metric, trend, and top-list widget data for the console.
 

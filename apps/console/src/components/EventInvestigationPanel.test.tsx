@@ -8,7 +8,8 @@ import type {
   EventPathsResponse,
   EventPropertyCatalogResponse,
   EventRecord,
-  EventRetentionResponse
+  EventRetentionResponse,
+  SessionReplaySample
 } from "../api/types";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
@@ -101,6 +102,28 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     addTriageNote: vi.fn(),
     silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
+    listSessionReplays: vi.fn().mockResolvedValue({ data: [] }),
+    ...overrides
+  };
+}
+
+function replaySample(overrides: Partial<SessionReplaySample> = {}): SessionReplaySample {
+  return {
+    id: "rpl_job_1",
+    replayId: "rpl_checkout",
+    tenantId: "tenant_1",
+    userId: "user_1",
+    sessionId: "sess_1",
+    route: "/checkout",
+    startedAt: "2026-05-11T12:00:00.000Z",
+    endedAt: null,
+    durationMs: 5000,
+    eventCount: 2,
+    masked: true,
+    linkedEventId: "evt_1",
+    linkedEventName: "checkout.started",
+    linkedErrorId: null,
+    linkedErrorMessage: null,
     ...overrides
   };
 }
@@ -535,6 +558,55 @@ describe("EventInvestigationPanel", () => {
       limit: 50,
       segmentId: "seg_1"
     });
+  });
+
+  it("shows replay samples scoped by the active saved segment", async () => {
+    const savedSegments = [
+      {
+        id: "seg_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Team creators",
+        description: null,
+        actorType: "user" as const,
+        definition: { window: "30d" as const, eventName: "project.created" },
+        createdAt: "2026-05-04T12:00:00.000Z",
+        updatedAt: "2026-05-04T12:00:00.000Z",
+        archivedAt: null
+      }
+    ];
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "project.created" })] }),
+      listAnalyticsSegments: vi.fn().mockResolvedValue({ segments: savedSegments }),
+      listSessionReplays: vi.fn().mockResolvedValue({
+        data: [
+          replaySample({
+            replayId: "rpl_team",
+            tenantId: "tenant_team",
+            userId: "user_team",
+            linkedEventName: "checkout.started",
+            linkedErrorMessage: "Checkout crashed"
+          })
+        ]
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Use as filter" }));
+
+    expect(await screen.findByRole("region", { name: "Replay samples" })).toHaveTextContent("rpl_team");
+    expect(screen.getByRole("region", { name: "Replay samples" })).toHaveTextContent("tenant_team");
+    expect(screen.getByRole("region", { name: "Replay samples" })).toHaveTextContent("checkout.started");
+    expect(screen.getByRole("region", { name: "Replay samples" })).toHaveTextContent("Checkout crashed");
+    await waitFor(() =>
+      expect(api.listSessionReplays).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        segmentId: "seg_1",
+        limit: 10
+      })
+    );
   });
 
   it("runs retention curves for entry and return events", async () => {

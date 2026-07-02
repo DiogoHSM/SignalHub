@@ -93,6 +93,35 @@ export interface SessionReplayDetail {
   productEvents: SessionReplayProductEvent[];
 }
 
+export interface SessionReplayListFilters {
+  projectId: string;
+  environmentId: string;
+  tenantId?: string;
+  userId?: string;
+  eventName?: string;
+  segmentId?: string;
+  to?: Date;
+  limit?: number;
+}
+
+export interface SessionReplaySummary {
+  id: string;
+  replayId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  route: string | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  linkedEventId: string | null;
+  linkedEventName: string | null;
+  linkedErrorId: string | null;
+  linkedErrorMessage: string | null;
+}
+
 export interface EventPropertyCatalogItem {
   eventName: string;
   propertyName: string;
@@ -716,6 +745,30 @@ function toSessionReplayDetail(row: SessionReplayRow, productEvents: SessionRepl
   };
 }
 
+function toSessionReplaySummary(
+  row: SessionReplayRow,
+  event: Pick<EventRow, "id" | "name"> | undefined,
+  error: Pick<ErrorRow, "id" | "message"> | undefined
+): SessionReplaySummary {
+  return {
+    id: row.id,
+    replayId: row.replay_id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    sessionId: row.session_id,
+    route: row.route,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    durationMs: row.duration_ms,
+    eventCount: row.event_count,
+    masked: row.masked,
+    linkedEventId: event?.id ?? null,
+    linkedEventName: event?.name ?? null,
+    linkedErrorId: error?.id ?? null,
+    linkedErrorMessage: error?.message ?? null
+  };
+}
+
 export interface ErrorRecord {
   id: string;
   projectId: string;
@@ -1223,6 +1276,86 @@ export async function getSessionReplayDetail(
   }));
 
   return toSessionReplayDetail(replay, productEvents);
+}
+
+export async function listSessionReplays(
+  db: Db,
+  filters: SessionReplayListFilters
+): Promise<TelemetryListResult<SessionReplaySummary>> {
+  const limit = resolveLimit(filters.limit);
+  let query = db
+    .selectFrom("session_replays")
+    .selectAll()
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId);
+
+  if (filters.tenantId) query = query.where("tenant_id", "=", filters.tenantId);
+  if (filters.userId) query = query.where("user_id", "=", filters.userId);
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) return { data: [] };
+
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
+    if (actorIds.length === 0) return { data: [] };
+
+    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+  }
+  if (filters.eventName) {
+    query = query.where(({ exists, selectFrom }) =>
+      exists(
+        selectFrom("events")
+          .select(sql`1`.as("one"))
+          .whereRef("events.project_id", "=", "session_replays.project_id")
+          .whereRef("events.environment_id", "=", "session_replays.environment_id")
+          .whereRef("events.replay_id", "=", "session_replays.replay_id")
+          .where("events.name", "=", filters.eventName!)
+      )
+    );
+  }
+
+  const rows = await query.orderBy("started_at", "desc").orderBy("id", "desc").limit(limit).execute();
+  const replayIds = rows.map((row) => row.replay_id);
+  if (replayIds.length === 0) return { data: [] };
+
+  const events = await db
+    .selectFrom("events")
+    .select(["id", "name", "replay_id"])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "in", replayIds)
+    .orderBy("timestamp", "desc")
+    .orderBy("id", "desc")
+    .execute();
+  const errors = await db
+    .selectFrom("errors")
+    .select(["id", "message", "replay_id"])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "in", replayIds)
+    .orderBy("timestamp", "desc")
+    .orderBy("id", "desc")
+    .execute();
+
+  const eventByReplay = new Map<string, Pick<EventRow, "id" | "name">>();
+  const errorByReplay = new Map<string, Pick<ErrorRow, "id" | "message">>();
+  for (const event of events) {
+    if (event.replay_id && !eventByReplay.has(event.replay_id)) {
+      eventByReplay.set(event.replay_id, event);
+    }
+  }
+  for (const error of errors) {
+    if (error.replay_id && !errorByReplay.has(error.replay_id)) {
+      errorByReplay.set(error.replay_id, error);
+    }
+  }
+
+  return {
+    data: rows.map((row) => toSessionReplaySummary(row, eventByReplay.get(row.replay_id), errorByReplay.get(row.replay_id)))
+  };
 }
 
 function normalizePropertyName(name: string): string {

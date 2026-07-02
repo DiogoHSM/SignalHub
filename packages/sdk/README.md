@@ -200,6 +200,9 @@ window.addEventListener("error", () => {
 Add `data-sigmon-id` attributes to meaningful buttons and links so the replay timeline uses stable,
 intentional selectors.
 
+The console can filter replay samples by saved segment through `GET /query/replays`. Stable `userId`,
+`tenantId`, event names, and shared `replayId` values make those cohort replay samples actionable.
+
 ## Next.js App Router
 
 ```ts

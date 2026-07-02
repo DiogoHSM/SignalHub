@@ -118,6 +118,7 @@ import {
   getOverview,
   getErrorForSourceMapResolution,
   getSessionReplayDetail,
+  listSessionReplays,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -1824,6 +1825,118 @@ describe("repositories", () => {
           })
         ]
       });
+    });
+  });
+
+  it("lists session replay samples filtered by saved analytics segment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Replay Segments" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        source: "browser"
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_segment_match",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        name: "project.created",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        properties: { plan: "team" }
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_segment_miss",
+        tenantId: "tenant_free",
+        userId: "user_free",
+        name: "project.created",
+        timestamp: new Date("2026-05-11T12:01:00.000Z"),
+        properties: { plan: "free" }
+      });
+
+      await insertSessionReplay(db, {
+        ...base,
+        id: "rpl_team_job",
+        replayId: "rpl_team",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        sessionId: "sess_team",
+        route: "/checkout",
+        timestamp: new Date("2026-05-11T12:02:00.000Z"),
+        startedAt: new Date("2026-05-11T12:02:00.000Z"),
+        durationMs: 7000,
+        masked: true,
+        events: [{ offsetMs: 0, type: "navigation", route: "/checkout", data: {} }]
+      });
+      await insertSessionReplay(db, {
+        ...base,
+        id: "rpl_free_job",
+        replayId: "rpl_free",
+        tenantId: "tenant_free",
+        userId: "user_free",
+        sessionId: "sess_free",
+        route: "/billing",
+        timestamp: new Date("2026-05-11T12:03:00.000Z"),
+        startedAt: new Date("2026-05-11T12:03:00.000Z"),
+        events: []
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_replay_context",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        sessionId: "sess_team",
+        name: "checkout.started",
+        replayId: "rpl_team",
+        timestamp: new Date("2026-05-11T12:02:03.000Z"),
+        properties: {}
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_replay_context",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        sessionId: "sess_team",
+        message: "Checkout crashed",
+        severity: "error",
+        replayId: "rpl_team",
+        timestamp: new Date("2026-05-11T12:02:04.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Team creators",
+        actorType: "user",
+        definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+      });
+
+      const replays = await listSessionReplays(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        segmentId: segment.id,
+        to: new Date("2026-05-12T12:00:00.000Z"),
+        limit: 10
+      });
+
+      expect(replays.data).toEqual([
+        expect.objectContaining({
+          replayId: "rpl_team",
+          tenantId: "tenant_team",
+          userId: "user_team",
+          route: "/checkout",
+          linkedEventId: "evt_replay_context",
+          linkedEventName: "checkout.started",
+          linkedErrorId: "err_replay_context",
+          linkedErrorMessage: "Checkout crashed"
+        })
+      ]);
     });
   });
 

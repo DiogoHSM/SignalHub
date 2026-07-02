@@ -66,6 +66,7 @@ describe("API docs", () => {
         "/admin/dead-letter-jobs/{id}/replay",
         "/query/events",
         "/query/events/click-map",
+        "/query/replays",
         "/system/health"
       ])
     );

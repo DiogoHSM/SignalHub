@@ -471,6 +471,60 @@ describe("query routes", () => {
     });
   });
 
+  it("lists session replay samples filtered by saved segment and event context", async () => {
+    const receivedFilters: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listSessionReplays: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            data: [
+              {
+                id: "rpl_job_1",
+                replayId: "rpl_checkout",
+                tenantId: "tenant_1",
+                userId: "user_1",
+                sessionId: "sess_1",
+                route: "/checkout",
+                startedAt: new Date("2026-05-11T12:00:00.000Z"),
+                endedAt: null,
+                durationMs: 5000,
+                eventCount: 2,
+                masked: true,
+                linkedEventId: "evt_1",
+                linkedEventName: "checkout.started",
+                linkedErrorId: null,
+                linkedErrorMessage: null
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/replays?project_id=prj_1&environment_id=env_1&segment_id=seg_1&event_name=checkout.started&tenant_id=tenant_1&limit=5"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: [{ replayId: "rpl_checkout", linkedEventName: "checkout.started", tenantId: "tenant_1" }]
+    });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        tenantId: "tenant_1",
+        eventName: "checkout.started",
+        segmentId: "seg_1",
+        limit: 5
+      }
+    ]);
+  });
+
   it("returns 401 when query routes are unauthenticated", async () => {
     app = await buildApp({
       readiness,

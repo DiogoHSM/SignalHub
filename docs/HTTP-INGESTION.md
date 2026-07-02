@@ -162,6 +162,14 @@ Example query:
 GET /query/events?project_id=prj_123&environment_id=env_123&segment_id=seg_123
 ```
 
+Saved segments can also scope replay investigation. `GET /query/replays` returns privacy-safe replay samples for the same project/environment, with optional `segment_id`, `tenant_id`, `user_id`, `event_name`, and `limit`. Each row includes minimal context for triage: replay id, user, tenant, route, timestamp, duration, linked product event, and linked error when available.
+
+Example query:
+
+```http
+GET /query/replays?project_id=prj_123&environment_id=env_123&segment_id=seg_123&event_name=checkout.started&limit=10
+```
+
 ### User journey paths
 
 Operators can discover common event sequences with `GET /query/events/paths`. Path analysis is also derived from normal product events; it groups events by a stable actor (`user`, `tenant`, `session`, `trace`, or `auto`) and returns the most common compact paths plus sample event ids for drilldown.
