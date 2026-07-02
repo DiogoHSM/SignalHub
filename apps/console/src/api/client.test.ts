@@ -438,6 +438,24 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes event funnel query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { steps: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventFunnel?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      steps: ["signup.started", "project.created"],
+      limit: 20
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&limit=20&steps=signup.started%2Cproject.created",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

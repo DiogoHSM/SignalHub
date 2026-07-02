@@ -85,6 +85,15 @@ Sigmon accepts flexible event properties, then surfaces a property catalog in th
 - Avoid secrets, tokens, cookies, raw PII, full request bodies, and full response bodies.
 - Use `metadata` for runtime/emitter context and `properties` for product-event facts.
 
+Funnels are derived from normal event telemetry. To make conversion analysis useful, send stable actor
+context on each funnel event:
+
+```ts
+sigmon.track("signup.started", {}, { userId: "user_456", tenantId: "tenant_123" });
+sigmon.track("project.created", {}, { userId: "user_456", tenantId: "tenant_123" });
+sigmon.track("key.created", {}, { userId: "user_456", tenantId: "tenant_123" });
+```
+
 Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
 
 ```ts

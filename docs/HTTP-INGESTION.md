@@ -128,6 +128,16 @@ Use stable property names and stable value types so dashboards, filters, and fut
 - Never send secrets, tokens, cookies, full request bodies, full response bodies, or raw PII in properties.
 - Use `metadata` for emitter or runtime context and `properties` for facts about the product event itself.
 
+### Conversion funnels
+
+Operators can analyze ordered event funnels with `GET /query/events/funnel`. Funnel analysis is based on stable actor IDs, so send at least one of `user_id`, `tenant_id`, `session_id`, or `trace_id` on product events that should participate in conversion analysis.
+
+Example query:
+
+```http
+GET /query/events/funnel?project_id=prj_123&environment_id=env_123&window=7d&steps=signup.started,project.created,key.created
+```
+
 ## Errors
 
 Required fields:

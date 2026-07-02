@@ -1737,6 +1737,129 @@ select {
   white-space: nowrap;
 }
 
+.event-funnel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 14px;
+}
+
+.event-funnel__header,
+.event-funnel__builder,
+.event-funnel__step {
+  display: grid;
+  gap: 12px;
+}
+
+.event-funnel__header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.event-funnel__header h3,
+.event-funnel__header p {
+  margin: 0;
+}
+
+.event-funnel__header h3 {
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.event-funnel__header p,
+.event-funnel__notice {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.event-funnel__score {
+  min-width: 140px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 9px 10px;
+  text-align: right;
+}
+
+.event-funnel__score span,
+.event-funnel__score small,
+.event-funnel__step span {
+  display: block;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.event-funnel__score strong {
+  display: block;
+  color: var(--fg);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.event-funnel__builder {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.event-funnel__builder label {
+  display: grid;
+  gap: 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.event-funnel__builder textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--fg);
+  font: inherit;
+  min-height: 76px;
+  padding: 9px 10px;
+}
+
+.event-funnel__builder button {
+  min-height: 40px;
+  border: 1px solid rgba(134, 239, 172, 0.45);
+  border-radius: 8px;
+  background: rgba(22, 101, 52, 0.18);
+  color: var(--fg);
+  font-weight: 900;
+  padding: 0 18px;
+}
+
+.event-funnel__steps {
+  display: grid;
+  gap: 8px;
+}
+
+.event-funnel__step {
+  grid-template-columns: minmax(180px, 1.3fr) repeat(3, minmax(100px, 0.7fr));
+  align-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 10px 12px;
+}
+
+.event-funnel__step strong {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.event-funnel__notice {
+  margin: 0;
+}
+
 .event-row {
   display: grid;
   grid-template-columns: minmax(180px, 1.2fr) minmax(150px, 0.9fr) minmax(90px, 0.6fr) repeat(3, minmax(100px, 0.65fr)) minmax(180px, 1fr);

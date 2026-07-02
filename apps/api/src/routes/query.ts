@@ -176,6 +176,7 @@ export type QueryDependencies = {
   getOverview?: (filters: OverviewFilters) => Promise<unknown>;
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
+  getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
   getApmEndpoints?: (filters: ApmFilters) => Promise<unknown>;
   getServiceMap?: (filters: ApmFilters) => Promise<unknown>;
   getWebVitals?: (filters: ApmFilters) => Promise<unknown>;
@@ -713,6 +714,29 @@ function parseApmFilters(query: unknown): ApmFilters | undefined {
   };
 }
 
+function parseEventFunnelFilters(query: unknown): (ApmFilters & { steps: string[] }) | undefined {
+  const filters = parseApmFilters(query);
+  if (!filters) {
+    return undefined;
+  }
+
+  const raw = (query ?? {}) as RawQuery;
+  const steps = (optionalNonEmpty(raw, "steps") ?? "")
+    .split(",")
+    .map((step) => step.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+  if (steps.length < 2) {
+    return undefined;
+  }
+
+  return {
+    ...filters,
+    steps
+  };
+}
+
 function parseEntityWindow(raw: RawQuery): EntityWindow | undefined {
   const rawWindow = optionalNonEmpty(raw, "window") ?? "7d";
   if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
@@ -1209,6 +1233,28 @@ async function handleEventPropertyCatalogRoute(request: FastifyRequest, reply: F
 
   try {
     return reply.send({ data: await options.query.getEventPropertyCatalog(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventFunnel) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventFunnelFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventFunnel(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1833,6 +1879,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/apm/web-vitals", (request, reply) => handleWebVitalsRoute(request, reply, options));
   app.get("/query/apm/profiles", (request, reply) => handleRuntimeProfilesRoute(request, reply, options));
   app.get("/query/events/properties", (request, reply) => handleEventPropertyCatalogRoute(request, reply, options));
+  app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));

@@ -86,6 +86,7 @@ import {
   buildBucketAxis,
   getErrorAggregates,
   getEventAggregates,
+  getEventFunnel,
   getEventPropertyCatalog,
   getLlmAggregates,
   getLlmByPrompt,
@@ -8844,6 +8845,46 @@ describe("repositories", () => {
           eventNames: ["checkout.started", "invoice.paid"]
         }
       ]);
+    });
+  });
+
+  it("calculates conversion funnels by actor and ordered event sequence", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_funnel_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u1_3", userId: "user_1", name: "key.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u2_1", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u2_2", userId: "user_2", name: "project.created", timestamp: new Date("2026-05-04T12:03:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u3_1", userId: "user_3", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_before", userId: "user_4", name: "project.created", timestamp: new Date("2026-05-04T11:58:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u4_1", userId: "user_4", name: "signup.started", timestamp: new Date("2026-05-04T12:04:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created", "key.created"]
+      });
+
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 4, conversionPercent: 100, dropOffFromPreviousPercent: 0 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 2, conversionPercent: 50, dropOffFromPreviousPercent: 50 }),
+        expect.objectContaining({ index: 2, name: "key.created", actors: 1, conversionPercent: 25, dropOffFromPreviousPercent: 50 })
+      ]);
+      expect(funnel.totals).toMatchObject({ entrants: 4, completed: 1, conversionPercent: 25 });
+      expect(funnel.sampleActors.map((actor) => actor.actorId)).toEqual(["user_1", "user_2", "user_3", "user_4"]);
+      expect(funnel.sampleActors[0]).toMatchObject({ reachedStepIndex: 2, reachedStepName: "key.created" });
     });
   });
 

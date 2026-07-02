@@ -65,6 +65,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.
 - Events should include an analytics header for the current result set: total events, unique event names, observed tenants, known users, and top event names before the raw rows, so the tab works as an initial product analytics explorer rather than only a log table.
 - Events should surface property governance before raw rows: observed custom property count, type conflicts, similar names, coverage, and safe samples. This keeps product analytics trustworthy without forcing strict schemas during ingestion.
+- Events should let operators run an ad hoc conversion funnel from ordered event names in the active project/environment. Show total conversion, completed/entrant counts, per-step actors, conversion, and drop-off before returning to raw rows.
 - Event rows should prioritize event name, immutable id, timestamp, source, user, tenant, trace/session context, and compact property chips for quick scanning.
 - Investigation detail drawers, event rows, filters, and aggregate strips should share the dark console surface language so raw telemetry inspection feels like one professional workspace.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.

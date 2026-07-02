@@ -1515,6 +1515,56 @@ describe("query routes", () => {
     expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 25 }]);
   });
 
+  it("forwards conversion funnel query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async (filters) => {
+          receivedFilters.push(filters);
+          return { steps: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&steps=signup.started,project.created&limit=20"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { steps: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        steps: ["signup.started", "project.created"]
+      }
+    ]);
+  });
+
+  it("rejects conversion funnels with fewer than two steps", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => ({ steps: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&steps=signup.started"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
   it("forwards service map query filters", async () => {
     const receivedFilters: unknown[] = [];
 

@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { EventPropertyCatalogResponse, EventRecord } from "../api/types";
+import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord } from "../api/types";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
 function event(overrides: Partial<EventRecord>): EventRecord {
@@ -53,6 +53,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     getEventPropertyCatalog: vi.fn().mockResolvedValue({
       data: emptyPropertyCatalog()
     }),
+    getEventFunnel: vi.fn().mockResolvedValue({
+      data: emptyFunnel()
+    }),
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn(),
     getSystemHealth: vi.fn(),
@@ -85,6 +88,18 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
     ...overrides
+  };
+}
+
+function emptyFunnel(): EventFunnelResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    totals: { entrants: 0, completed: 0, conversionPercent: 0 },
+    steps: [],
+    sampleActors: []
   };
 }
 
@@ -225,6 +240,50 @@ describe("EventInvestigationPanel", () => {
       environmentId: "env_1",
       window: "7d",
       limit: 50
+    });
+  });
+
+  it("runs a conversion funnel from two or more event steps", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "signup.started" })] }),
+      getEventFunnel: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyFunnel(),
+          totals: { entrants: 4, completed: 1, conversionPercent: 25 },
+          steps: [
+            { index: 0, name: "signup.started", actors: 4, conversionPercent: 100, dropOffFromPreviousPercent: 0 },
+            { index: 1, name: "project.created", actors: 2, conversionPercent: 50, dropOffFromPreviousPercent: 50 },
+            { index: 2, name: "key.created", actors: 1, conversionPercent: 25, dropOffFromPreviousPercent: 50 }
+          ],
+          sampleActors: [
+            {
+              actorId: "user_1",
+              actorType: "user",
+              reachedStepIndex: 2,
+              reachedStepName: "key.created",
+              lastSeenAt: "2026-05-04T12:02:00.000Z"
+            }
+          ]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("Funnel steps"));
+    await userEvent.type(screen.getByLabelText("Funnel steps"), "signup.started\nproject.created\nkey.created");
+    await userEvent.click(screen.getByRole("button", { name: "Run funnel" }));
+
+    expect(await screen.findByRole("region", { name: "Conversion funnel" })).toHaveTextContent("25%");
+    expect(screen.getByRole("region", { name: "Conversion funnel" })).toHaveTextContent("signup.started");
+    expect(screen.getByRole("region", { name: "Conversion funnel" })).toHaveTextContent("project.created");
+    expect(screen.getByRole("region", { name: "Conversion funnel" })).toHaveTextContent("Drop-off 50%");
+    expect(api.getEventFunnel).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      steps: ["signup.started", "project.created", "key.created"],
+      limit: 20
     });
   });
 

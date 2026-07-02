@@ -25,6 +25,8 @@ import type {
   IncidentMttrQuery,
   IncidentMttrResult,
   ErrorRecord,
+  EventFunnelQuery,
+  EventFunnelResponse,
   EventPropertyCatalogResponse,
   EventRecord,
   LlmAggregates,
@@ -261,6 +263,7 @@ export type ApiClient = {
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
+  getEventFunnel?: (query: EventFunnelQuery) => Promise<AggregateResponse<EventFunnelResponse>>;
   getApmEndpoints?: (query: ApmQuery) => Promise<AggregateResponse<ApmEndpointsResponse>>;
   getServiceMap?: (query: ApmQuery) => Promise<AggregateResponse<ServiceMapResponse>>;
   getWebVitals?: (query: ApmQuery) => Promise<AggregateResponse<WebVitalsResponse>>;
@@ -565,6 +568,17 @@ function eventPropertyCatalogPath(query: ApmQuery): string {
   if (query.limit !== undefined) params.set("limit", String(query.limit));
 
   return `/query/events/properties?${params.toString()}`;
+}
+
+function eventFunnelPath(query: EventFunnelQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  params.set("steps", query.steps.join(","));
+
+  return `/query/events/funnel?${params.toString()}`;
 }
 
 function serviceMapPath(query: ApmQuery): string {
@@ -875,6 +889,7 @@ export function createApiClient(
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getEventPropertyCatalog: (query) =>
       request<AggregateResponse<EventPropertyCatalogResponse>>(path(apiBasePath, eventPropertyCatalogPath(query))),
+    getEventFunnel: (query) => request<AggregateResponse<EventFunnelResponse>>(path(apiBasePath, eventFunnelPath(query))),
     getApmEndpoints: (query) => request<AggregateResponse<ApmEndpointsResponse>>(path(apiBasePath, apmEndpointsPath(query))),
     getServiceMap: (query) => request<AggregateResponse<ServiceMapResponse>>(path(apiBasePath, serviceMapPath(query))),
     getWebVitals: (query) => request<AggregateResponse<WebVitalsResponse>>(path(apiBasePath, webVitalsPath(query))),

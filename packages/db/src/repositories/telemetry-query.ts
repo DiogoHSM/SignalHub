@@ -98,6 +98,46 @@ export interface EventPropertyCatalogResponse {
   similarNameGroups: EventPropertySimilarNameGroup[];
 }
 
+export interface EventFunnelFilters extends ApmFilters {
+  steps: string[];
+}
+
+export interface EventFunnelStep {
+  index: number;
+  name: string;
+  actors: number;
+  conversionPercent: number;
+  dropOffFromPreviousPercent: number;
+}
+
+export interface EventFunnelActor {
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+  reachedStepIndex: number;
+  reachedStepName: string;
+  lastSeenAt: string;
+}
+
+export interface EventFunnelResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
+  sampleActors: EventFunnelActor[];
+}
+
 export interface LlmAggregates {
   totalCalls: number;
   totalInputTokens: number;
@@ -1088,6 +1128,126 @@ export async function getEventPropertyCatalog(db: Db, filters: ApmFilters): Prom
     },
     properties: rows,
     similarNameGroups
+  };
+}
+
+function percentage(part: number, whole: number): number {
+  if (whole <= 0) {
+    return 0;
+  }
+  return Math.round((part / whole) * 100);
+}
+
+export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+  const steps = filters.steps.map((step) => step.trim()).filter(Boolean);
+
+  if (steps.length < 2) {
+    throw new Error("event_funnel_requires_two_steps");
+  }
+
+  const rows = await db
+    .selectFrom("events")
+    .select([
+      "name",
+      "timestamp",
+      sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`.as("actor_id"),
+      sql<"user" | "tenant" | "session" | "trace">`
+        case
+          when user_id is not null then 'user'
+          when tenant_id is not null then 'tenant'
+          when session_id is not null then 'session'
+          else 'trace'
+        end
+      `.as("actor_type")
+    ])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("timestamp", ">=", from)
+    .where("timestamp", "<", to)
+    .where("name", "in", steps)
+    .where(sql<boolean>`coalesce(user_id, tenant_id, session_id, trace_id) is not null`)
+    .orderBy("actor_id", "asc")
+    .orderBy("timestamp", "asc")
+    .execute();
+
+  const actors = new Map<
+    string,
+    {
+      actorId: string;
+      actorType: "user" | "tenant" | "session" | "trace";
+      nextStepIndex: number;
+      reachedStepIndex: number;
+      reachedStepName: string;
+      lastSeenAt: Date | string;
+    }
+  >();
+
+  for (const row of rows) {
+    const actorId = row.actor_id;
+    if (!actorId) continue;
+    const actor = actors.get(actorId) ?? {
+      actorId,
+      actorType: row.actor_type,
+      nextStepIndex: 0,
+      reachedStepIndex: -1,
+      reachedStepName: "",
+      lastSeenAt: row.timestamp
+    };
+
+    if (row.name === steps[actor.nextStepIndex]) {
+      actor.reachedStepIndex = actor.nextStepIndex;
+      actor.reachedStepName = row.name;
+      actor.nextStepIndex += 1;
+      actor.lastSeenAt = row.timestamp;
+    }
+
+    actors.set(actorId, actor);
+  }
+
+  const reachedActors = Array.from(actors.values()).filter((actor) => actor.reachedStepIndex >= 0);
+  const entrantCount = reachedActors.length;
+  const funnelSteps = steps.map((name, index) => {
+    const actorsAtStep = reachedActors.filter((actor) => actor.reachedStepIndex >= index).length;
+    const previousActors = index === 0 ? actorsAtStep : reachedActors.filter((actor) => actor.reachedStepIndex >= index - 1).length;
+    return {
+      index,
+      name,
+      actors: actorsAtStep,
+      conversionPercent: percentage(actorsAtStep, entrantCount),
+      dropOffFromPreviousPercent: index === 0 ? 0 : percentage(previousActors - actorsAtStep, previousActors)
+    };
+  });
+  const completed = funnelSteps[funnelSteps.length - 1]?.actors ?? 0;
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    totals: {
+      entrants: entrantCount,
+      completed,
+      conversionPercent: percentage(completed, entrantCount)
+    },
+    steps: funnelSteps,
+    sampleActors: reachedActors
+      .sort((left, right) => left.actorId.localeCompare(right.actorId))
+      .slice(0, limit)
+      .map((actor) => ({
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reachedStepIndex: actor.reachedStepIndex,
+        reachedStepName: actor.reachedStepName,
+        lastSeenAt: toIso(actor.lastSeenAt)
+      }))
   };
 }
 

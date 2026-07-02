@@ -101,6 +101,46 @@ export type EventPropertyCatalogResponse = {
   similarNameGroups: EventPropertySimilarNameGroup[];
 };
 
+export type EventFunnelQuery = ApmQuery & {
+  steps: string[];
+};
+
+export type EventFunnelStep = {
+  index: number;
+  name: string;
+  actors: number;
+  conversionPercent: number;
+  dropOffFromPreviousPercent: number;
+};
+
+export type EventFunnelActor = {
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+  reachedStepIndex: number;
+  reachedStepName: string;
+  lastSeenAt: string;
+};
+
+export type EventFunnelResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
+  sampleActors: EventFunnelActor[];
+};
+
 export type ErrorRecord = {
   id: string;
   projectId: string;

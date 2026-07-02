@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { EventPropertyCatalogResponse, EventRecord, QueryFilters } from "../api/types";
+import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord, QueryFilters } from "../api/types";
 import { EventDetailDrawer } from "./EventDetailDrawer";
 import { EventFilters, type EventFilterValues } from "./EventFilters";
 import { EventList } from "./EventList";
@@ -14,6 +14,7 @@ type Props = {
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
 type CatalogState = "loading" | "ready" | "empty" | "unavailable";
+type FunnelState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 
 const defaultFilters: EventFilterValues = {
   eventName: "",
@@ -212,6 +213,83 @@ function EventPropertyGovernance({
   );
 }
 
+function parseFunnelSteps(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((step) => step.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function EventFunnelPanel({
+  value,
+  onChange,
+  onRun,
+  state,
+  funnel
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onRun: () => void;
+  state: FunnelState;
+  funnel: EventFunnelResponse | null;
+}) {
+  return (
+    <section aria-label="Conversion funnel" className="event-funnel">
+      <div className="event-funnel__header">
+        <div>
+          <h3>Conversion funnel</h3>
+          <p>Enter 2+ event names in order. Sigmon counts actors that reached each step in the selected environment.</p>
+        </div>
+        {funnel ? (
+          <div className="event-funnel__score">
+            <span>Conversion</span>
+            <strong>{funnel.totals.conversionPercent}%</strong>
+            <small>
+              {funnel.totals.completed}/{funnel.totals.entrants} completed
+            </small>
+          </div>
+        ) : null}
+      </div>
+      <div className="event-funnel__builder">
+        <label>
+          Funnel steps
+          <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={3} />
+        </label>
+        <button disabled={state === "loading"} onClick={onRun} type="button">
+          {state === "loading" ? "Running" : "Run funnel"}
+        </button>
+      </div>
+      {state === "invalid" ? <p className="event-funnel__notice">Add at least two event steps.</p> : null}
+      {state === "unavailable" ? <p className="event-funnel__notice">Conversion funnel unavailable.</p> : null}
+      {state === "ready" && funnel ? (
+        <div className="event-funnel__steps">
+          {funnel.steps.map((step) => (
+            <div className="event-funnel__step" key={`${step.index}:${step.name}`}>
+              <div>
+                <span>Step {step.index + 1}</span>
+                <strong>{step.name}</strong>
+              </div>
+              <div>
+                <strong>{step.actors}</strong>
+                <span>actors</span>
+              </div>
+              <div>
+                <strong>{step.conversionPercent}%</strong>
+                <span>conversion</span>
+              </div>
+              <div>
+                <strong>Drop-off {step.dropOffFromPreviousPercent}%</strong>
+                <span>from previous</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function EventInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
@@ -223,6 +301,9 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [state, setState] = useState<LoadState>("loading");
   const [propertyCatalog, setPropertyCatalog] = useState<EventPropertyCatalogResponse | null>(null);
   const [propertyCatalogState, setPropertyCatalogState] = useState<CatalogState>("loading");
+  const [funnelInput, setFunnelInput] = useState("signup.started\nproject.created");
+  const [funnel, setFunnel] = useState<EventFunnelResponse | null>(null);
+  const [funnelState, setFunnelState] = useState<FunnelState>("idle");
   const query = useMemo(
     () => queryFromValues(projectId, environmentId, appliedFilters),
     [projectId, environmentId, appliedFilters]
@@ -305,6 +386,34 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
     setReloadToken((current) => current + 1);
   }
 
+  function runFunnel() {
+    const steps = parseFunnelSteps(funnelInput);
+    if (steps.length < 2) {
+      setFunnel(null);
+      setFunnelState("invalid");
+      return;
+    }
+    if (!client.getEventFunnel) {
+      setFunnel(null);
+      setFunnelState("unavailable");
+      return;
+    }
+
+    setFunnelState("loading");
+    void client
+      .getEventFunnel({ projectId, environmentId, window: "7d", steps, limit: 20 })
+      .then(
+        ({ data }) => {
+          setFunnel(data);
+          setFunnelState("ready");
+        },
+        () => {
+          setFunnel(null);
+          setFunnelState("unavailable");
+        }
+      );
+  }
+
   return (
     <section className="investigation-layout">
       <div className="panel event-panel">
@@ -326,6 +435,13 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
           <>
             <EventAnalyticsSummary events={events} />
             <EventPropertyGovernance catalog={propertyCatalog} state={propertyCatalogState} />
+            <EventFunnelPanel
+              funnel={funnel}
+              onChange={setFunnelInput}
+              onRun={runFunnel}
+              state={funnelState}
+              value={funnelInput}
+            />
             <EventList events={events} onSelect={setSelectedEvent} selectedEventId={selectedEvent?.id} />
           </>
         ) : null}

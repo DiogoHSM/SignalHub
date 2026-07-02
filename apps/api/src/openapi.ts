@@ -1100,6 +1100,12 @@ export const openApiDocument = {
         "Read observed custom event properties for a project environment, including frequency, event coverage, inferred JSON types, safe sample values, type conflicts, and similar property-name groups. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
+    "/query/events/funnel": {
+      get: sessionRoute(
+        "Query event conversion funnel",
+        "Analyze ordered event-step conversion for a project environment. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2+ event names, and optional limit for sample actors."
+      )
+    },
     "/query/errors": {
       get: sessionRoute("Query errors", "Read project/environment scoped raw error telemetry.")
     },
