@@ -86,6 +86,7 @@ import {
   buildBucketAxis,
   getErrorAggregates,
   getEventAggregates,
+  getEventPropertyCatalog,
   getLlmAggregates,
   getLlmByPrompt,
   getLlmByTenant,
@@ -8776,6 +8777,73 @@ describe("repositories", () => {
       await expect(
         listEvents(db, { projectId: project.id, environmentId: environment.id, eventName: "checkout.started" })
       ).resolves.toMatchObject({ data: [expect.objectContaining({ id: "evt_named_1", name: "checkout.started" })] });
+    });
+  });
+
+  it("builds an event property governance catalog with type and naming conflicts", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Properties API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const timestamp = new Date("2026-05-04T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-04T12:00:01.000Z");
+      const base = { projectId: project.id, environmentId: environment.id, timestamp, receivedAt };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_property_catalog_1",
+        name: "checkout.started",
+        properties: { plan: "team", amount: 1200 }
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_property_catalog_2",
+        name: "checkout.started",
+        properties: { Plan: "team", amount: "1200" }
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_property_catalog_3",
+        name: "invoice.paid",
+        properties: { plan: "enterprise", channel: "pix" }
+      });
+
+      const catalog = await getEventPropertyCatalog(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        limit: 20
+      });
+
+      expect(catalog.totals).toMatchObject({ events: 3, properties: 5, conflictProperties: 1, similarNameGroups: 1 });
+      expect(catalog.properties).toContainEqual(
+        expect.objectContaining({
+          eventName: "checkout.started",
+          propertyName: "amount",
+          totalOccurrences: 2,
+          eventCount: 2,
+          coveragePercent: 100,
+          hasTypeConflict: true,
+          typeCounts: { number: 1, string: 1 },
+          sampleValues: expect.arrayContaining(["1200"])
+        })
+      );
+      expect(catalog.properties).toContainEqual(
+        expect.objectContaining({
+          eventName: "checkout.started",
+          propertyName: "plan",
+          similarPropertyNames: ["Plan"]
+        })
+      );
+      expect(catalog.similarNameGroups).toEqual([
+        {
+          normalizedName: "plan",
+          propertyNames: ["Plan", "plan"],
+          eventNames: ["checkout.started", "invoice.paid"]
+        }
+      ]);
     });
   });
 

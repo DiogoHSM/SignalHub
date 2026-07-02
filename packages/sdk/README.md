@@ -74,6 +74,17 @@ sigmon.captureError(new Error("Payment provider timeout"), {
 await sigmon.flush();
 ```
 
+### Event property hygiene
+
+Sigmon accepts flexible event properties, then surfaces a property catalog in the console and through
+`GET /query/events/properties`. Keep properties easy to query:
+
+- Use stable `snake_case` names.
+- Keep one JSON type per property name, for example `amount_cents` is always a number.
+- Put `tenantId`, `userId`, `sessionId`, and `traceId` in Sigmon context instead of duplicating them in properties.
+- Avoid secrets, tokens, cookies, raw PII, full request bodies, and full response bodies.
+- Use `metadata` for runtime/emitter context and `properties` for product-event facts.
+
 Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
 
 ```ts

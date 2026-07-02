@@ -1617,6 +1617,126 @@ select {
   text-transform: none;
 }
 
+.event-property-governance {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 14px;
+}
+
+.event-property-governance__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.event-property-governance__header h3,
+.event-property-governance__header p {
+  margin: 0;
+}
+
+.event-property-governance__header h3 {
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.event-property-governance__header p {
+  margin-top: 3px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.event-property-governance__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(100px, 1fr));
+  gap: 8px;
+  min-width: min(420px, 100%);
+}
+
+.event-property-governance__stats span {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 8px 10px;
+  text-transform: uppercase;
+}
+
+.event-property-governance__stats strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--fg);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.event-property-governance__rows {
+  display: grid;
+  gap: 8px;
+}
+
+.event-property-governance__row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(160px, 0.9fr) minmax(140px, 0.8fr) minmax(220px, 1.2fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 10px 12px;
+}
+
+.event-property-governance__row > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.event-property-governance__row strong,
+.event-property-governance__row span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-property-governance__row small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-property-governance__row em {
+  width: fit-content;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 999px;
+  background: rgba(127, 29, 29, 0.2);
+  color: #fecaca;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  padding: 2px 7px;
+}
+
+.event-property-governance__row code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .event-row {
   display: grid;
   grid-template-columns: minmax(180px, 1.2fr) minmax(150px, 0.9fr) minmax(90px, 0.6fr) repeat(3, minmax(100px, 0.65fr)) minmax(180px, 1fr);

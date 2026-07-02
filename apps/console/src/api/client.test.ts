@@ -421,6 +421,23 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes event property catalog query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { properties: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventPropertyCatalog?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/properties?project_id=prj_1&environment_id=env_1&window=7d&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

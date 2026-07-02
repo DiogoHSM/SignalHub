@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { EventRecord, QueryFilters } from "../api/types";
+import type { EventPropertyCatalogResponse, EventRecord, QueryFilters } from "../api/types";
 import { EventDetailDrawer } from "./EventDetailDrawer";
 import { EventFilters, type EventFilterValues } from "./EventFilters";
 import { EventList } from "./EventList";
@@ -13,6 +13,7 @@ type Props = {
 };
 
 type LoadState = "loading" | "ready" | "empty" | "unavailable";
+type CatalogState = "loading" | "ready" | "empty" | "unavailable";
 
 const defaultFilters: EventFilterValues = {
   eventName: "",
@@ -131,6 +132,86 @@ function EventAnalyticsSummary({ events }: { events: EventRecord[] }) {
   );
 }
 
+function formatTypeCounts(typeCounts: Record<string, number>): string {
+  return Object.entries(typeCounts)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([type, count]) => `${type} ${count}`)
+    .join(" / ");
+}
+
+function EventPropertyGovernance({
+  catalog,
+  state
+}: {
+  catalog: EventPropertyCatalogResponse | null;
+  state: CatalogState;
+}) {
+  if (state === "loading") {
+    return <p className="muted-text">Loading event property governance</p>;
+  }
+  if (state === "unavailable") {
+    return <p className="muted-text">Event property governance unavailable</p>;
+  }
+  if (state === "empty" || !catalog) {
+    return (
+      <section aria-label="Event property governance" className="event-property-governance">
+        <div className="event-property-governance__header">
+          <div>
+            <h3>Property governance</h3>
+            <p>No event properties observed in this window.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-label="Event property governance" className="event-property-governance">
+      <div className="event-property-governance__header">
+        <div>
+          <h3>Property governance</h3>
+          <p>Observed custom event properties over the last {catalog.window}.</p>
+        </div>
+        <div className="event-property-governance__stats">
+          <span>
+            Properties<strong>{catalog.totals.properties}</strong>
+          </span>
+          <span>
+            Type conflicts<strong>{catalog.totals.conflictProperties}</strong>
+          </span>
+          <span>
+            Similar names<strong>{catalog.totals.similarNameGroups}</strong>
+          </span>
+        </div>
+      </div>
+      <div className="event-property-governance__rows">
+        {catalog.properties.slice(0, 8).map((property) => (
+          <div className="event-property-governance__row" key={`${property.eventName}:${property.propertyName}`}>
+            <div>
+              <strong>{property.propertyName}</strong>
+              <small>{property.eventName}</small>
+            </div>
+            <div>
+              <span>{formatTypeCounts(property.typeCounts) || property.dominantType}</span>
+              {property.hasTypeConflict ? <em>Type conflict</em> : null}
+            </div>
+            <div>
+              <span>{property.coveragePercent}% coverage</span>
+              <small>
+                {property.totalOccurrences}/{property.eventCount} events
+              </small>
+            </div>
+            <div>
+              {property.sampleValues.length > 0 ? <code>{property.sampleValues.join(", ")}</code> : <span>No samples</span>}
+              {property.similarPropertyNames.length > 0 ? <small>Similar: {property.similarPropertyNames.join(", ")}</small> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function EventInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
@@ -140,6 +221,8 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventRecord | undefined>();
   const [state, setState] = useState<LoadState>("loading");
+  const [propertyCatalog, setPropertyCatalog] = useState<EventPropertyCatalogResponse | null>(null);
+  const [propertyCatalogState, setPropertyCatalogState] = useState<CatalogState>("loading");
   const query = useMemo(
     () => queryFromValues(projectId, environmentId, appliedFilters),
     [projectId, environmentId, appliedFilters]
@@ -167,6 +250,35 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
       cancelled = true;
     };
   }, [client, query, reloadToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!client.getEventPropertyCatalog) {
+      setPropertyCatalog(null);
+      setPropertyCatalogState("unavailable");
+      return;
+    }
+
+    setPropertyCatalogState("loading");
+    void client
+      .getEventPropertyCatalog({ projectId, environmentId, window: "7d", limit: 50 })
+      .then(
+        ({ data }) => {
+          if (cancelled) return;
+          setPropertyCatalog(data);
+          setPropertyCatalogState(data.properties.length > 0 ? "ready" : "empty");
+        },
+        () => {
+          if (cancelled) return;
+          setPropertyCatalog(null);
+          setPropertyCatalogState("unavailable");
+        }
+      );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, projectId, environmentId, reloadToken]);
 
   useEffect(() => {
     if (!hasSyncedInitialFilters.current) {
@@ -213,6 +325,7 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
         {state === "ready" ? (
           <>
             <EventAnalyticsSummary events={events} />
+            <EventPropertyGovernance catalog={propertyCatalog} state={propertyCatalogState} />
             <EventList events={events} onSelect={setSelectedEvent} selectedEventId={selectedEvent?.id} />
           </>
         ) : null}

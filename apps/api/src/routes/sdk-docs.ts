@@ -588,6 +588,13 @@ await captureNodeMemoryProfile(sigmon, {
 sigmonBrowser.track("checkout.pay_clicked", {
   plan: "team"
 });</code></pre>
+            <h3>Event property hygiene</h3>
+            <p>
+              Sigmon accepts flexible event properties, then surfaces a property catalog in the console
+              and through <code>GET /query/events/properties</code>. Use stable <code>snake_case</code>
+              property names, keep one JSON type per property name, and put user, tenant, session, and
+              trace IDs in Sigmon context instead of duplicating them in properties.
+            </p>
             <h3>Common ingest failures</h3>
             <ul>
               <li><code>invalid_api_key</code>: send <code>Authorization: Bearer &lt;key&gt;</code> and use a browser-scoped key for browser calls.</li>

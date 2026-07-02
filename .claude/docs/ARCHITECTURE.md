@@ -230,6 +230,8 @@ The console includes a read-only `Investigate` mode for Events. It uses the exis
 
 The Events query supports exact `event_name` filtering in addition to project, environment, tenant, user, session, trace, date range, and limit filters. The first investigation slice does not mutate telemetry data and does not add new storage tables.
 
+`GET /query/events/properties` builds a read-only property governance catalog from event JSON properties for a selected project/environment window. It reports property frequency, event coverage, inferred JSON type counts, safe sample values, type conflicts, and similar property-name groups without enforcing schemas at ingest time.
+
 High-volume investigation lists use opaque cursor pagination scoped to the exact project, environment, and active filters. This includes events, errors, LLM calls, traces, trace spans, error groups, source-map artifacts, and monitor check history. Monitor check cursors are additionally bound to the selected monitor id. Query migrations keep composite indexes aligned with the primary drilldown patterns for scope/time, trace id, tenant id, user id, source-map release, alert events, and error group ordering so operator views can page without broad table scans.
 
 The console includes an Errors investigation workflow with grouped triage and raw occurrence drilldown. Grouped errors use `GET /query/error-groups`, `GET /query/error-groups/:id`, and `PATCH /query/error-groups/:id` for exact project/environment-scoped status and priority workflows. Raw occurrences remain available through the peer Raw occurrences tab and `GET /query/errors`, including exact `error_group_id` filtering.

@@ -60,6 +60,47 @@ export type EventRecord = {
   properties: unknown;
 };
 
+export type EventPropertyCatalogItem = {
+  eventName: string;
+  propertyName: string;
+  totalOccurrences: number;
+  eventCount: number;
+  coveragePercent: number;
+  dominantType: string;
+  typeCounts: Record<string, number>;
+  hasTypeConflict: boolean;
+  sampleValues: string[];
+  similarPropertyNames: string[];
+  lastSeenAt: string | null;
+};
+
+export type EventPropertySimilarNameGroup = {
+  normalizedName: string;
+  propertyNames: string[];
+  eventNames: string[];
+};
+
+export type EventPropertyCatalogResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    events: number;
+    properties: number;
+    conflictProperties: number;
+    similarNameGroups: number;
+  };
+  properties: EventPropertyCatalogItem[];
+  similarNameGroups: EventPropertySimilarNameGroup[];
+};
+
 export type ErrorRecord = {
   id: string;
   projectId: string;

@@ -1094,6 +1094,12 @@ export const openApiDocument = {
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")
     },
+    "/query/events/properties": {
+      get: sessionRoute(
+        "Query event property catalog",
+        "Read observed custom event properties for a project environment, including frequency, event coverage, inferred JSON types, safe sample values, type conflicts, and similar property-name groups. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
     "/query/errors": {
       get: sessionRoute("Query errors", "Read project/environment scoped raw error telemetry.")
     },

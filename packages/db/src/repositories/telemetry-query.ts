@@ -57,6 +57,47 @@ export interface EventRecord {
   properties: unknown;
 }
 
+export interface EventPropertyCatalogItem {
+  eventName: string;
+  propertyName: string;
+  totalOccurrences: number;
+  eventCount: number;
+  coveragePercent: number;
+  dominantType: string;
+  typeCounts: Record<string, number>;
+  hasTypeConflict: boolean;
+  sampleValues: string[];
+  similarPropertyNames: string[];
+  lastSeenAt: string | null;
+}
+
+export interface EventPropertySimilarNameGroup {
+  normalizedName: string;
+  propertyNames: string[];
+  eventNames: string[];
+}
+
+export interface EventPropertyCatalogResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    events: number;
+    properties: number;
+    conflictProperties: number;
+    similarNameGroups: number;
+  };
+  properties: EventPropertyCatalogItem[];
+  similarNameGroups: EventPropertySimilarNameGroup[];
+}
+
 export interface LlmAggregates {
   totalCalls: number;
   totalInputTokens: number;
@@ -857,6 +898,197 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
 
   const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
   return listResult(filters, rows, toEvent);
+}
+
+function normalizePropertyName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function toTypeCounts(value: unknown): Record<string, number> {
+  if (!value) {
+    return {};
+  }
+  const parsed = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(parsed).map(([key, count]) => [key, toNumber(count)])
+  );
+}
+
+function dominantType(typeCounts: Record<string, number>): string {
+  const [first] = Object.entries(typeCounts).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  return first?.[0] ?? "unknown";
+}
+
+export async function getEventPropertyCatalog(db: Db, filters: ApmFilters): Promise<EventPropertyCatalogResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const propertiesResult = await sql<{
+    event_name: string;
+    property_name: string;
+    total_occurrences: unknown;
+    event_count: unknown;
+    type_counts: unknown;
+    sample_values: string[] | null;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped_events as (
+      select id, name, timestamp, properties
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    event_totals as (
+      select name as event_name, count(*) as event_count
+      from scoped_events
+      group by name
+    ),
+    exploded as (
+      select
+        e.id,
+        e.name as event_name,
+        e.timestamp,
+        property.key as property_name,
+        coalesce(jsonb_typeof(property.value), 'unknown') as value_type,
+        left(
+          case
+            when jsonb_typeof(property.value) = 'string' then property.value #>> '{}'
+            else property.value::text
+          end,
+          160
+        ) as sample_value
+      from scoped_events e
+      cross join lateral jsonb_each(
+        case
+          when jsonb_typeof(e.properties) = 'object' then e.properties
+          else '{}'::jsonb
+        end
+      ) as property(key, value)
+    ),
+    property_counts as (
+      select
+        event_name,
+        property_name,
+        count(*) as total_occurrences,
+        max(timestamp) as last_seen_at
+      from exploded
+      group by event_name, property_name
+    ),
+    type_counts as (
+      select
+        event_name,
+        property_name,
+        jsonb_object_agg(value_type, total order by value_type) as type_counts
+      from (
+        select event_name, property_name, value_type, count(*) as total
+        from exploded
+        group by event_name, property_name, value_type
+      ) grouped_types
+      group by event_name, property_name
+    ),
+    samples as (
+      select
+        event_name,
+        property_name,
+        array_agg(sample_value order by sample_value) as sample_values
+      from (
+        select distinct event_name, property_name, sample_value
+        from exploded
+        where sample_value is not null and sample_value <> ''
+      ) distinct_samples
+      group by event_name, property_name
+    )
+    select
+      pc.event_name,
+      pc.property_name,
+      pc.total_occurrences,
+      et.event_count,
+      tc.type_counts,
+      coalesce(samples.sample_values, '{}') as sample_values,
+      pc.last_seen_at
+    from property_counts pc
+    join event_totals et on et.event_name = pc.event_name
+    join type_counts tc on tc.event_name = pc.event_name and tc.property_name = pc.property_name
+    left join samples on samples.event_name = pc.event_name and samples.property_name = pc.property_name
+    order by pc.total_occurrences desc, pc.event_name asc, pc.property_name asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{ events: unknown }>`
+    select count(*) as events
+    from events
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+  `.execute(db);
+
+  const rows = propertiesResult.rows.map((row) => {
+    const typeCounts = toTypeCounts(row.type_counts);
+    const eventCount = toNumber(row.event_count);
+    const totalOccurrences = toNumber(row.total_occurrences);
+    return {
+      eventName: row.event_name,
+      propertyName: row.property_name,
+      totalOccurrences,
+      eventCount,
+      coveragePercent: eventCount === 0 ? 0 : Math.round((totalOccurrences / eventCount) * 100),
+      dominantType: dominantType(typeCounts),
+      typeCounts,
+      hasTypeConflict: Object.keys(typeCounts).length > 1,
+      sampleValues: (row.sample_values ?? []).slice(0, 5),
+      similarPropertyNames: [],
+      lastSeenAt: row.last_seen_at ? toIso(row.last_seen_at) : null
+    };
+  });
+
+  const similarGroups = new Map<string, EventPropertyCatalogItem[]>();
+  for (const row of rows) {
+    const normalizedName = normalizePropertyName(row.propertyName);
+    if (!normalizedName) continue;
+    const current = similarGroups.get(normalizedName) ?? [];
+    current.push(row);
+    similarGroups.set(normalizedName, current);
+  }
+
+  const similarNameGroups = Array.from(similarGroups, ([normalizedName, groupRows]) => {
+    const propertyNames = Array.from(new Set(groupRows.map((row) => row.propertyName))).sort();
+    if (propertyNames.length < 2) {
+      return null;
+    }
+    const eventNames = Array.from(new Set(groupRows.map((row) => row.eventName))).sort((left, right) => left.localeCompare(right));
+    for (const row of groupRows) {
+      row.similarPropertyNames = propertyNames.filter((name) => name !== row.propertyName);
+    }
+    return { normalizedName, propertyNames, eventNames };
+  }).filter((group): group is EventPropertySimilarNameGroup => Boolean(group));
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    totals: {
+      events: toNumber(totalsResult.rows[0]?.events),
+      properties: rows.length,
+      conflictProperties: rows.filter((row) => row.hasTypeConflict).length,
+      similarNameGroups: similarNameGroups.length
+    },
+    properties: rows,
+    similarNameGroups
+  };
 }
 
 export async function listErrors(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<ErrorRecord>> {

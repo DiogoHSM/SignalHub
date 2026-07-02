@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { EventRecord } from "../api/types";
+import type { EventPropertyCatalogResponse, EventRecord } from "../api/types";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
 function event(overrides: Partial<EventRecord>): EventRecord {
@@ -50,6 +50,9 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     listLlmCalls: vi.fn().mockResolvedValue({ data: [] }),
     getLlmAggregates: vi.fn().mockResolvedValue({ data: { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: "0" } }),
     getEventAggregates: vi.fn(),
+    getEventPropertyCatalog: vi.fn().mockResolvedValue({
+      data: emptyPropertyCatalog()
+    }),
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn(),
     getSystemHealth: vi.fn(),
@@ -82,6 +85,18 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
     ...overrides
+  };
+}
+
+function emptyPropertyCatalog(): EventPropertyCatalogResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    totals: { events: 0, properties: 0, conflictProperties: 0, similarNameGroups: 0 },
+    properties: [],
+    similarNameGroups: []
   };
 }
 
@@ -156,6 +171,61 @@ describe("EventInvestigationPanel", () => {
     expect(checkoutRows[0]).toHaveTextContent("plan: team");
     expect(screen.getByRole("button", { name: /invoice.paid/ })).toHaveTextContent("anonymous");
     expect(screen.getByRole("button", { name: /invoice.paid/ })).toHaveTextContent("channel: pix");
+  });
+
+  it("shows event property governance with type conflicts and similar property names", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "checkout.started" })] }),
+      getEventPropertyCatalog: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyPropertyCatalog(),
+          totals: { events: 3, properties: 2, conflictProperties: 1, similarNameGroups: 1 },
+          properties: [
+            {
+              eventName: "checkout.started",
+              propertyName: "amount",
+              totalOccurrences: 2,
+              eventCount: 2,
+              coveragePercent: 100,
+              dominantType: "number",
+              typeCounts: { number: 1, string: 1 },
+              hasTypeConflict: true,
+              sampleValues: ["1200"],
+              similarPropertyNames: [],
+              lastSeenAt: "2026-05-04T12:00:00.000Z"
+            },
+            {
+              eventName: "checkout.started",
+              propertyName: "plan",
+              totalOccurrences: 1,
+              eventCount: 2,
+              coveragePercent: 50,
+              dominantType: "string",
+              typeCounts: { string: 1 },
+              hasTypeConflict: false,
+              sampleValues: ["team"],
+              similarPropertyNames: ["Plan"],
+              lastSeenAt: "2026-05-04T12:00:00.000Z"
+            }
+          ],
+          similarNameGroups: [{ normalizedName: "plan", propertyNames: ["Plan", "plan"], eventNames: ["checkout.started"] }]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(await screen.findByRole("region", { name: "Event property governance" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("Type conflicts1");
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("amount");
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("number 1 / string 1");
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("Similar: Plan");
+    expect(api.getEventPropertyCatalog).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 50
+    });
   });
 
   it("applies initial filters and updates them when they change", async () => {

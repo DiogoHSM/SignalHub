@@ -116,6 +116,18 @@ curl -i https://sigmon.example.com/v1/events \
   }'
 ```
 
+### Event property hygiene
+
+Sigmon stores event properties as JSON and exposes an operator-facing property catalog at `GET /query/events/properties`.
+Use stable property names and stable value types so dashboards, filters, and future funnels stay trustworthy:
+
+- Prefer `snake_case` names such as `plan`, `cart_value_usd`, and `operation_mode`.
+- Keep one meaning per property name. Do not reuse `status` for unrelated lifecycle states across unrelated event families.
+- Keep one JSON type per property. Avoid sending `amount` as a number in one code path and a string in another.
+- Keep cardinality bounded. IDs belong in `user_id`, `tenant_id`, `session_id`, `trace_id`, or carefully named properties.
+- Never send secrets, tokens, cookies, full request bodies, full response bodies, or raw PII in properties.
+- Use `metadata` for emitter or runtime context and `properties` for facts about the product event itself.
+
 ## Errors
 
 Required fields:
