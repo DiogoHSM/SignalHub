@@ -134,6 +134,53 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("replay enqueues a masked session timeline", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.replay({
+      replayId: "rpl_1",
+      startedAt: "2026-05-02T12:00:00.000Z",
+      route: "/checkout",
+      errorId: "err_1",
+      events: [{ offsetMs: 100, type: "navigation", route: "/checkout" }]
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/replays", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      replay_id: "rpl_1",
+      started_at: "2026-05-02T12:00:00.000Z",
+      route: "/checkout",
+      error_id: "err_1",
+      events: [
+        {
+          offset_ms: 100,
+          type: "navigation",
+          route: "/checkout",
+          selector: undefined,
+          message: undefined,
+          x: undefined,
+          y: undefined,
+          data: {}
+        }
+      ],
+      masked: true,
+      session_id: "sess_1",
+      source: "browser",
+      metadata: {}
+    });
+  });
+
   it("retains retryable failures by default and discards them when requested", async () => {
     const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));

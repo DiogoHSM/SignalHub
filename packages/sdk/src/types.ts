@@ -54,6 +54,7 @@ export type ErrorInput = SignalContext &
   EventInput & {
   severity?: ErrorSeverity;
   fingerprint?: string;
+  replayId?: string;
   context?: SignalMetadata;
 };
 
@@ -162,6 +163,30 @@ export type RuntimeProfileInput = EventInput & {
   metadata?: SignalMetadata;
 };
 
+export type ReplayEventType = "navigation" | "click" | "input" | "console" | "network" | "error" | "custom";
+
+export type SessionReplayEventInput = {
+  offsetMs: number;
+  type: ReplayEventType;
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data?: SignalMetadata;
+};
+
+export type SessionReplayInput = EventInput & {
+  replayId: string;
+  startedAt?: Date | string;
+  endedAt?: Date | string;
+  durationMs?: number;
+  route?: string;
+  errorId?: string;
+  masked?: boolean;
+  events?: SessionReplayEventInput[];
+};
+
 export type StartTraceInput = Omit<TraceInput, "name" | "startedAt"> & {
   startedAt?: Date | string;
 };
@@ -212,6 +237,7 @@ export type SignalMonitorClient = {
   span: (input: SpanInput, context?: SignalContext) => void;
   webVital: (input: WebVitalInput, context?: SignalContext) => void;
   click: (input: ClickInput, context?: SignalContext) => void;
+  replay: (input: SessionReplayInput, context?: SignalContext) => void;
   profile: (input: RuntimeProfileInput, context?: SignalContext) => void;
   identify: (context: SignalContext) => void;
   identifyUser: (userId: string, traits?: SignalMetadata, context?: IdentifyUserInput) => void;
@@ -228,6 +254,7 @@ export type SignalKind =
   | "span"
   | "web_vital"
   | "click"
+  | "replay"
   | "profile"
   | "breadcrumb"
   | "identify_user"

@@ -10,6 +10,7 @@ export type TelemetryJobKind =
   | "breadcrumb"
   | "web_vital"
   | "click"
+  | "replay"
   | "profile";
 
 export type TelemetryJobPayload = {

@@ -670,6 +670,7 @@ export interface ErrorRecord {
   stack: string | null;
   status: string;
   fingerprint: string | null;
+  replayId: string | null;
   errorGroupId: string | null;
   groupingFingerprint: string | null;
   context: unknown;
@@ -703,6 +704,7 @@ function toError(row: ErrorRow): ErrorRecord {
     stack: row.stack,
     status: row.status,
     fingerprint: row.fingerprint,
+    replayId: row.replay_id,
     errorGroupId: row.error_group_id,
     groupingFingerprint: row.grouping_fingerprint,
     context: row.context

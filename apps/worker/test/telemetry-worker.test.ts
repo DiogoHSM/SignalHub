@@ -34,6 +34,7 @@ function createWriter(): TelemetryWriter {
     insertSpan: vi.fn(async () => undefined),
     insertWebVital: vi.fn(async () => undefined),
     insertClickEvent: vi.fn(async () => undefined),
+    insertSessionReplay: vi.fn(async () => undefined),
     insertProfile: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
   };
@@ -121,6 +122,7 @@ describe("processTelemetryJob", () => {
         severity: "critical",
         stack: "stack trace",
         fingerprint: "checkout-type-error",
+        replay_id: "rpl_1",
         context: {
           request: {
             headers: {
@@ -146,6 +148,7 @@ describe("processTelemetryJob", () => {
         severity: "critical",
         stack: "stack trace",
         fingerprint: "checkout-type-error",
+        replayId: "rpl_1",
         metadata: { cookie: "[REDACTED]" },
         context: {
           request: {
@@ -452,6 +455,57 @@ describe("processTelemetryJob", () => {
         scrollY: 320,
         masked: true,
         metadata: { cookie: "[REDACTED]" }
+      })
+    );
+  });
+
+  it("persists masked session replay jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "replay",
+      id: "rpl_job_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        session_id: "sess_1",
+        source: "web",
+        metadata: { authorization: "Bearer secret" },
+        replay_id: "rpl_1",
+        route: "/checkout",
+        error_id: "err_1",
+        started_at: "2026-05-11T11:59:58.000Z",
+        ended_at: "2026-05-11T12:00:03.000Z",
+        duration_ms: 5000,
+        masked: true,
+        events: [
+          {
+            offset_ms: 200,
+            type: "click",
+            selector: '[data-sigmon-id="pay"]',
+            data: { token: "secret" }
+          }
+        ]
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertSessionReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rpl_job_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        sessionId: "sess_1",
+        replayId: "rpl_1",
+        route: "/checkout",
+        errorId: "err_1",
+        startedAt: new Date("2026-05-11T11:59:58.000Z"),
+        endedAt: new Date("2026-05-11T12:00:03.000Z"),
+        durationMs: 5000,
+        masked: true,
+        metadata: { authorization: "[REDACTED]" },
+        events: [expect.objectContaining({ offsetMs: 200, type: "click", data: { token: "[REDACTED]" } })]
       })
     );
   });

@@ -7,6 +7,7 @@ import {
   eventPayloadSchema,
   llmCallPayloadSchema,
   profilePayloadSchema,
+  sessionReplayPayloadSchema,
   spanPayloadSchema,
   tracePayloadSchema,
   webVitalPayloadSchema
@@ -35,6 +36,7 @@ const ingestionRoutes: IngestionRouteConfig[] = [
   { path: "/v1/spans", kind: "span", idPrefix: "spn", schema: spanPayloadSchema },
   { path: "/v1/web-vitals", kind: "web_vital", idPrefix: "wvt", schema: webVitalPayloadSchema },
   { path: "/v1/clicks", kind: "click", idPrefix: "clk", schema: clickEventPayloadSchema },
+  { path: "/v1/replays", kind: "replay", idPrefix: "rpl", schema: sessionReplayPayloadSchema },
   { path: "/v1/profiles", kind: "profile", idPrefix: "prf", schema: profilePayloadSchema },
   { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ];

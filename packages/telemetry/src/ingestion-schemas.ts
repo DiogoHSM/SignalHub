@@ -4,6 +4,8 @@ const SHORT_TEXT_MAX = 256;
 const MEDIUM_TEXT_MAX = 2_000;
 const LONG_TEXT_MAX = 20_000;
 const PROFILE_TOP_FUNCTIONS_MAX = 100;
+const REPLAY_EVENTS_MAX = 300;
+const REPLAY_FORBIDDEN_EVENT_KEYS = new Set(["value", "text", "innerText", "innerHTML", "html", "password"]);
 
 const shortTextSchema = z.string().min(1).max(SHORT_TEXT_MAX);
 const mediumTextSchema = z.string().min(1).max(MEDIUM_TEXT_MAX);
@@ -47,6 +49,7 @@ export const errorPayloadSchema = sharedEnvelopeSchema.extend({
   severity: z.enum(["debug", "info", "warning", "error", "critical", "fatal"]).default("error"),
   stack: z.string().max(LONG_TEXT_MAX).optional(),
   fingerprint: mediumTextSchema.optional(),
+  replay_id: shortTextSchema.optional(),
   context: jsonObjectSchema
 });
 
@@ -106,6 +109,53 @@ export const clickEventPayloadSchema = sharedEnvelopeSchema.extend({
   scroll_x: z.number().int().nonnegative().max(1_000_000).optional(),
   scroll_y: z.number().int().nonnegative().max(1_000_000).optional(),
   masked: z.boolean().default(true)
+});
+
+const replayEventDataSchema = jsonObjectSchema.superRefine((value, context) => {
+  for (const key of Object.keys(value)) {
+    if (REPLAY_FORBIDDEN_EVENT_KEYS.has(key)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: "Replay events must not include raw text, HTML, input values, or passwords"
+      });
+    }
+  }
+});
+
+const replayEventSchema = z
+  .object({
+    offset_ms: z.number().int().nonnegative().max(24 * 60 * 60 * 1000),
+    type: z.enum(["navigation", "click", "input", "console", "network", "error", "custom"]),
+    route: shortTextSchema.optional(),
+    selector: shortTextSchema.optional(),
+    message: optionalMediumTextSchema,
+    x: z.number().min(0).max(1).optional(),
+    y: z.number().min(0).max(1).optional(),
+    data: replayEventDataSchema
+  })
+  .passthrough()
+  .superRefine((value, context) => {
+    for (const key of Object.keys(value)) {
+      if (REPLAY_FORBIDDEN_EVENT_KEYS.has(key)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: "Replay events must not include raw text, HTML, input values, or passwords"
+        });
+      }
+    }
+  });
+
+export const sessionReplayPayloadSchema = sharedEnvelopeSchema.extend({
+  replay_id: shortTextSchema,
+  started_at: timestampSchema,
+  ended_at: timestampSchema.optional(),
+  duration_ms: z.number().int().nonnegative().optional(),
+  route: shortTextSchema.optional(),
+  error_id: shortTextSchema.optional(),
+  masked: z.boolean().default(true),
+  events: z.array(replayEventSchema).max(REPLAY_EVENTS_MAX).default([])
 });
 
 const profileFunctionSchema = z.object({
@@ -200,6 +250,7 @@ export type TracePayload = z.infer<typeof tracePayloadSchema>;
 export type SpanPayload = z.infer<typeof spanPayloadSchema>;
 export type WebVitalPayload = z.infer<typeof webVitalPayloadSchema>;
 export type ClickEventPayload = z.infer<typeof clickEventPayloadSchema>;
+export type SessionReplayPayload = z.infer<typeof sessionReplayPayloadSchema>;
 export type ProfilePayload = z.infer<typeof profilePayloadSchema>;
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 export type UserIdentifyPayload = z.infer<typeof userIdentifyPayloadSchema>;

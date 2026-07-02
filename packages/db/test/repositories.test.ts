@@ -92,6 +92,7 @@ import {
   insertEvent,
   insertLlmCall,
   insertProfile,
+  insertSessionReplay,
   insertSpan,
   insertTrace,
   insertWebVital
@@ -1683,6 +1684,81 @@ describe("repositories", () => {
       expect(clickMap.selectors[0]).toMatchObject({ selector: '[data-sigmon-id="submit"]', clicks: 2 });
       expect(clickMap.points).toEqual(
         expect.arrayContaining([expect.objectContaining({ xBucket: 12, yBucket: expect.any(Number), clicks: 2 })])
+      );
+    });
+  });
+
+  it("persists privacy-safe session replays and returns them on linked incidents", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Replay Linked Incident" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertSessionReplay(db, {
+        id: "rpl_job_1",
+        replayId: "rpl_checkout_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        source: "browser",
+        release: "1.2.3",
+        route: "/checkout",
+        errorId: "err_replay_incident",
+        startedAt: new Date("2026-05-11T11:59:58.000Z"),
+        endedAt: new Date("2026-05-11T12:00:03.000Z"),
+        durationMs: 5000,
+        masked: true,
+        events: [
+          { offsetMs: 0, type: "navigation", route: "/checkout", data: {} },
+          { offsetMs: 2100, type: "click", selector: '[data-sigmon-id="pay"]', x: 0.5, y: 0.2, data: { masked: true } }
+        ]
+      });
+      await insertSessionReplay(db, {
+        id: "rpl_job_1",
+        replayId: "rpl_checkout_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        route: "/checkout",
+        startedAt: new Date("2026-05-11T11:59:58.000Z"),
+        events: []
+      });
+
+      const group = await seedGroupedError(db, {
+        id: "err_replay_incident",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Replay linked failure",
+        severity: "error",
+        timestamp: new Date("2026-05-11T12:00:02.000Z")
+      });
+      await sql`update errors set replay_id = 'rpl_checkout_1' where id = 'err_replay_incident'`.execute(db);
+
+      const rows = await db.selectFrom("session_replays").select(["id", "replay_id", "event_count"]).execute();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ replay_id: "rpl_checkout_1", event_count: 2 });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        errorId: "err_replay_incident"
+      });
+
+      expect(incident?.replay).toMatchObject({
+        replayId: "rpl_checkout_1",
+        route: "/checkout",
+        masked: true,
+        eventCount: 2
+      });
+      expect(incident?.replay?.events).toEqual(
+        expect.arrayContaining([expect.objectContaining({ offsetMs: 2100, type: "click", selector: '[data-sigmon-id="pay"]' })])
       );
     });
   });
@@ -5505,6 +5581,28 @@ describe("repositories", () => {
         rating: "good",
         route: "/fresh"
       });
+      await insertSessionReplay(db, {
+        id: "rpl_old_retention",
+        replayId: "replay_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        startedAt: oldTimestamp,
+        route: "/old",
+        events: [{ offsetMs: 0, type: "navigation", route: "/old", data: {} }]
+      });
+      await insertSessionReplay(db, {
+        id: "rpl_fresh_retention",
+        replayId: "replay_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        startedAt: freshTimestamp,
+        route: "/fresh",
+        events: [{ offsetMs: 0, type: "navigation", route: "/fresh", data: {} }]
+      });
 
       const deleted = await deleteExpiredTelemetry(db, {
         now: new Date("2026-05-06T12:00:00.000Z"),
@@ -5523,7 +5621,7 @@ describe("repositories", () => {
       });
 
       expect(deleted).toEqual({
-        events: 2,
+        events: 3,
         errors: 1,
         traces: 1,
         spans: 1,
@@ -5556,6 +5654,10 @@ describe("repositories", () => {
         .resolves.toBeUndefined();
       await expect(db.selectFrom("web_vitals").select("id").where("id", "=", "wvt_fresh_retention").executeTakeFirst())
         .resolves.toMatchObject({ id: "wvt_fresh_retention" });
+      await expect(db.selectFrom("session_replays").select("id").where("id", "=", "rpl_old_retention").executeTakeFirst())
+        .resolves.toBeUndefined();
+      await expect(db.selectFrom("session_replays").select("id").where("id", "=", "rpl_fresh_retention").executeTakeFirst())
+        .resolves.toMatchObject({ id: "rpl_fresh_retention" });
     });
   });
 

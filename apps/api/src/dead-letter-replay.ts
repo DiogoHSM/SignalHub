@@ -6,13 +6,14 @@ import {
   eventPayloadSchema,
   errorPayloadSchema,
   llmCallPayloadSchema,
+  sessionReplayPayloadSchema,
   spanPayloadSchema,
   tracePayloadSchema
 } from "@sigmon/telemetry/ingestion-schemas";
 import { z } from "zod";
 
 const deadLetterTelemetryPayloadSchema = z.object({
-  kind: z.enum(["event", "error", "llm", "trace", "span", "breadcrumb", "click"]),
+  kind: z.enum(["event", "error", "llm", "trace", "span", "breadcrumb", "click", "replay"]),
   id: z.string().min(1),
   projectId: z.string().min(1),
   environmentId: z.string().min(1),
@@ -76,6 +77,8 @@ function parseTelemetryPayloadByKind(kind: TelemetryJobPayload["kind"], payload:
       return parsePayload(breadcrumbPayloadSchema, payload);
     case "click":
       return parsePayload(clickEventPayloadSchema, payload);
+    case "replay":
+      return parsePayload(sessionReplayPayloadSchema, payload);
   }
 }
 

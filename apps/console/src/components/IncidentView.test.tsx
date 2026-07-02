@@ -67,6 +67,7 @@ function incidentFixture(overrides: IncidentFixtureOverrides = {}): ErrorGroupIn
     priority: null,
     suggestedPriority: "urgent",
     sourceMapResolution: { status: "cached", frameCount: 2 },
+    replay: null,
     stronglyRelated: {
       items: [
         {

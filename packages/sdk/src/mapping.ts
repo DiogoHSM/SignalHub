@@ -10,6 +10,7 @@ import type {
   RuntimeProfileInput,
   SignalContext,
   SignalMetadata,
+  SessionReplayInput,
   SpanInput,
   TraceInput,
   WebVitalInput
@@ -91,6 +92,7 @@ export function createErrorSignal(
   assignDefined(payload, "type", extracted.type);
   assignDefined(payload, "stack", extracted.stack);
   assignDefined(payload, "fingerprint", input?.fingerprint);
+  assignDefined(payload, "replay_id", input?.replayId);
 
   return {
     kind: "error",
@@ -296,6 +298,42 @@ export function createClickSignal(
   return {
     kind: "click",
     endpointPath: "/v1/clicks",
+    payload
+  };
+}
+
+export function createSessionReplaySignal(
+  input: SessionReplayInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const startedAt = input.startedAt ?? new Date();
+  const endedAt = input.endedAt;
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    replay_id: input.replayId,
+    started_at: serializeDate(startedAt),
+    events: (input.events ?? []).map((event) => ({
+      offset_ms: event.offsetMs,
+      type: event.type,
+      route: event.route,
+      selector: event.selector,
+      message: event.message,
+      x: event.x,
+      y: event.y,
+      data: event.data ?? {}
+    })),
+    masked: input.masked ?? true
+  };
+
+  assignDefined(payload, "ended_at", serializeDate(endedAt));
+  assignDefined(payload, "duration_ms", input.durationMs ?? computeDurationMs(startedAt, endedAt));
+  assignDefined(payload, "route", input.route);
+  assignDefined(payload, "error_id", input.errorId);
+
+  return {
+    kind: "replay",
+    endpointPath: "/v1/replays",
     payload
   };
 }

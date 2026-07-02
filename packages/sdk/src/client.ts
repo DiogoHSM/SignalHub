@@ -7,6 +7,7 @@ import {
   createIdentifyUserSignal,
   createLlmSignal,
   createRuntimeProfileSignal,
+  createSessionReplaySignal,
   createSpanSignal,
   createTraceSignal,
   createWebVitalSignal
@@ -28,6 +29,7 @@ import type {
   LlmInput,
   QueuedSignal,
   RuntimeProfileInput,
+  SessionReplayInput,
   SignalContext,
   SignalMonitorClient,
   SignalMonitorClientOptions,
@@ -313,6 +315,10 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
 
     click(input: ClickInput, context?: SignalContext): void {
       enqueue(createClickSignal(input, context, defaultContext));
+    },
+
+    replay(input: SessionReplayInput, context?: SignalContext): void {
+      enqueue(createSessionReplaySignal(input, context, defaultContext));
     },
 
     profile(input: RuntimeProfileInput, context?: SignalContext): void {

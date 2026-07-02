@@ -231,6 +231,52 @@ describe("ingestion routes", () => {
     });
   });
 
+  it("accepts a valid session replay payload and enqueues it", async () => {
+    const enqueued: EnqueuedJob[] = [];
+
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.example.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: {
+        authorization: "Bearer sh_valid",
+        origin: "https://app.example.com"
+      },
+      payload: {
+        replay_id: "rpl_1",
+        started_at: "2026-05-11T12:00:00.000Z",
+        route: "/checkout",
+        error_id: "err_1",
+        events: [{ offset_ms: 100, type: "click", selector: '[data-sigmon-id="pay"]' }]
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.example.com");
+    const body = response.json();
+    expect(body.id).toMatch(/^rpl_/);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({
+      kind: "replay",
+      id: body.id,
+      payload: {
+        replay_id: "rpl_1",
+        route: "/checkout",
+        masked: true
+      }
+    });
+  });
+
   it("returns 503 when enqueue fails", async () => {
     app = await buildApp({
       readiness,

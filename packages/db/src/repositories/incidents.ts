@@ -28,6 +28,29 @@ export type IncidentContextSection = {
   truncated: boolean;
 };
 
+export type IncidentReplayEvent = {
+  offsetMs: number;
+  type: string;
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data: unknown;
+};
+
+export type IncidentReplay = {
+  id: string;
+  replayId: string;
+  route: string | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  events: IncidentReplayEvent[];
+};
+
 export type ErrorGroupIncident = {
   group: ErrorGroupRecord;
   primaryOccurrence: ErrorRecord;
@@ -36,6 +59,7 @@ export type ErrorGroupIncident = {
   sourceMapResolution: { status: "cached"; frameCount: number } | { status: "none" };
   stronglyRelated: IncidentContextSection;
   nearbyContext: IncidentContextSection;
+  replay: IncidentReplay | null;
   related: {
     traceId: string | null;
     sessionId: string | null;
@@ -132,11 +156,38 @@ async function getPrimaryOccurrence(
         stack: row.stack,
         status: row.status,
         fingerprint: row.fingerprint,
+        replayId: row.replay_id,
         errorGroupId: row.error_group_id,
         groupingFingerprint: row.grouping_fingerprint,
         context: row.context
       }
     : null;
+}
+
+async function getIncidentReplay(db: Db, primaryOccurrence: ErrorRecord): Promise<IncidentReplay | null> {
+  if (!primaryOccurrence.replayId) return null;
+
+  const row = await db
+    .selectFrom("session_replays")
+    .select(["id", "replay_id", "route", "started_at", "ended_at", "duration_ms", "event_count", "masked", "events"])
+    .where("project_id", "=", primaryOccurrence.projectId)
+    .where("environment_id", "=", primaryOccurrence.environmentId)
+    .where("replay_id", "=", primaryOccurrence.replayId)
+    .executeTakeFirst();
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    replayId: row.replay_id,
+    route: row.route,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    durationMs: row.duration_ms,
+    eventCount: row.event_count,
+    masked: row.masked,
+    events: Array.isArray(row.events) ? (row.events as IncidentReplayEvent[]) : []
+  };
 }
 
 function toTimelineItem(row: IncidentTimelineRow, confidence: IncidentTimelineConfidence): IncidentTimelineItem {
@@ -471,6 +522,7 @@ export async function getErrorGroupIncident(
     }),
     stronglyRelated,
     nearbyContext,
+    replay: await getIncidentReplay(db, primaryOccurrence),
     related: {
       traceId: primaryOccurrence.traceId,
       sessionId: primaryOccurrence.sessionId,

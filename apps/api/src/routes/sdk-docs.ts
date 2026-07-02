@@ -501,7 +501,8 @@ import {
   createSignalMonitorClient,
   installBrowserErrorCapture,
   installBrowserClickCapture,
-  installBrowserWebVitals
+  installBrowserWebVitals,
+  createBrowserReplayRecorder
 } from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
@@ -515,10 +516,17 @@ const sigmonBrowser = createSignalMonitorClient({
 
 export function SignalMonitorBrowserCapture() {
   useEffect(() => {
+    const replay = createBrowserReplayRecorder(sigmonBrowser, {
+      enabled: true,
+      route: () => window.location.pathname
+    });
     const stopErrors = installBrowserErrorCapture(sigmonBrowser, {
       captureErrors: true,
       captureUnhandledRejections: true,
-      flush: true
+      flush: true,
+      context: {
+        replayId: replay.replayId
+      }
     });
     const stopVitals = installBrowserWebVitals(sigmonBrowser, {
       route: () => window.location.pathname,
@@ -531,6 +539,8 @@ export function SignalMonitorBrowserCapture() {
       flush: true
     });
     return () => {
+      void replay.flush();
+      replay.stop();
       stopClicks();
       stopVitals();
       stopErrors();
@@ -557,6 +567,24 @@ export function SignalMonitorBrowserCapture() {
   selectorAttribute: "data-sigmon-id",
   ignoreSelectors: ["[data-sigmon-ignore]"],
   flush: true
+});</code></pre>
+            <h3>Browser session replay</h3>
+            <p>
+              <code>createBrowserReplayRecorder</code> records a masked timeline for incident
+              debugging and links it to errors with <code>replayId</code>. It stores navigation and
+              safe selectors only; it does not capture screenshots, DOM snapshots, raw text, input
+              values, passwords, cookies, or HTML.
+            </p>
+            <pre><code>const replay = createBrowserReplayRecorder(sigmonBrowser, {
+  enabled: true,
+  route: () => window.location.pathname
+});
+
+installBrowserErrorCapture(sigmonBrowser, {
+  flush: true,
+  context: {
+    replayId: replay.replayId
+  }
 });</code></pre>
             <h3>Node runtime profiles</h3>
             <p>

@@ -363,6 +363,7 @@ function incidentFixture(input: { groupId: string }) {
     priority: null,
     suggestedPriority: "urgent",
     sourceMapResolution: { status: "none" },
+    replay: null,
     stronglyRelated: { items: [], truncated: false },
     nearbyContext: { items: [], truncated: false },
     related: {

@@ -26,6 +26,7 @@ Implemented capabilities:
 - Dedicated source-map upload tokens, CI upload API, CLI uploader, and Artifacts token management.
 - Worker-owned source-map artifact retention for local files, metadata, and cached stack resolutions.
 - Lightweight breadcrumb ingestion, short retention, SDK manual breadcrumbs, optional safe browser breadcrumb helper, and error-detail session context timeline.
+- Privacy-safe browser replay ingestion, SDK opt-in replay recorder, events-retention cleanup, and Incident view replay panel linked to error occurrences by `replay_id`.
 - Read-only Overview dashboard for project/environment KPIs, trends, top lists, and recent important signals.
 - Read-only Operations cockpit for project/environment monitor health, alert state, p95 latency, error rate, ingestion freshness, and active incidents.
 - Read-only Events investigation workspace with exact event-name filtering.
@@ -64,7 +65,7 @@ Implemented capabilities:
 - Batch ingestion.
 - ClickHouse and object storage adapters beyond optional backup upload.
 - Object storage and source-code viewing for source-map artifacts.
-- Full visual session replay and a dedicated Sessions investigation workspace.
+- Full visual/video session replay, DOM mutation replay, and a dedicated Sessions investigation workspace.
 - Stored log telemetry.
 - Retention for operational metadata, projects, environments, users, API keys, or dead-letter action history.
 - Native Telegram, Discord, WhatsApp, calendar-based on-call rotation, and multi-step escalation policies.

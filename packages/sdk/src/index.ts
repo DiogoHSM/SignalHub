@@ -22,6 +22,7 @@ export type {
   ProfileKind,
   RuntimeProfileFunction,
   RuntimeProfileInput,
+  ReplayEventType,
   SignalContext,
   SignalMonitorClient,
   SignalMonitorClientOptions,
@@ -29,6 +30,8 @@ export type {
   SignalMonitorErrorCode,
   SignalMetadata,
   SignalStatus,
+  SessionReplayEventInput,
+  SessionReplayInput,
   SpanInput,
   StartTraceInput,
   TraceInput,
@@ -58,6 +61,7 @@ export {
   createIdentifyUserSignal,
   createLlmSignal,
   createRuntimeProfileSignal,
+  createSessionReplaySignal,
   createSpanSignal,
   createTraceSignal,
   createWebVitalSignal,
@@ -76,3 +80,10 @@ export type {
 export {
   installBrowserClickCapture
 } from "./browser-clicks.js";
+export type {
+  BrowserReplayRecorder,
+  BrowserReplayRecorderOptions
+} from "./browser-replay.js";
+export {
+  createBrowserReplayRecorder
+} from "./browser-replay.js";

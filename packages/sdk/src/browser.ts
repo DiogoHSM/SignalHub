@@ -7,10 +7,12 @@ export type {
 export type { BrowserErrorCaptureOptions } from "./browser-errors.js";
 export type { BrowserWebVitalsOptions, StopBrowserWebVitals } from "./browser-web-vitals.js";
 export type { BrowserClickCaptureOptions, StopBrowserClickCapture } from "./browser-clicks.js";
+export type { BrowserReplayRecorder, BrowserReplayRecorderOptions } from "./browser-replay.js";
 
 export { createBrowserBreadcrumbs, sanitizeBreadcrumbUrl } from "./browser-breadcrumbs.js";
 export { installBrowserClickCapture } from "./browser-clicks.js";
 export { installBrowserErrorCapture } from "./browser-errors.js";
+export { createBrowserReplayRecorder } from "./browser-replay.js";
 export { installBrowserWebVitals } from "./browser-web-vitals.js";
 export { createSignalMonitorClient } from "./client.js";
 export { createTraceContext, parseTraceparent, traceContextHeaders } from "./trace-context.js";

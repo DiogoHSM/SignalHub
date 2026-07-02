@@ -84,6 +84,7 @@ function makeIncident(overrides: Partial<ErrorGroupIncident> = {}): ErrorGroupIn
     priority: "urgent",
     suggestedPriority: "high",
     sourceMapResolution: { status: "cached", frameCount: 5 },
+    replay: null,
     stronglyRelated: {
       items: [
         {

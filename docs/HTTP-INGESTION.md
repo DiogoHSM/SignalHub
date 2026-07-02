@@ -8,7 +8,7 @@ Use this guide for non-TypeScript clients, smoke tests, and code agents that nee
 
 | Credential | Used by | Keep secret? | Notes |
 | --- | --- | --- | --- |
-| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
+| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
 | Heartbeat secret | `/v1/heartbeats/{id}` | Yes | Generated per heartbeat monitor. Use from cron, workers, and schedulers. |
 | Source-map upload token | `/v1/source-maps` | Yes | CI-only token created from the Artifacts console. |
 | Session cookie | `/admin/*`, `/query/*`, `/system/*` | Browser session only | Used by logged-in human operators and the console. |
@@ -45,6 +45,7 @@ Content-Type: application/json
 | Errors | `POST /v1/errors` | Ingestion API key |
 | Breadcrumbs | `POST /v1/breadcrumbs` | Ingestion API key |
 | Browser click maps | `POST /v1/clicks` | Ingestion API key |
+| Privacy-safe session replays | `POST /v1/replays` | Ingestion API key |
 | LLM calls | `POST /v1/llm` | Ingestion API key |
 | Web Vitals | `POST /v1/web-vitals` | Ingestion API key |
 | Runtime profiles | `POST /v1/profiles` | Ingestion API key |
@@ -215,6 +216,59 @@ curl -i https://sigmon.example.com/v1/clicks \
   }'
 ```
 
+### Privacy-safe session replays
+
+Session replays are opt-in masked timelines for incident debugging, not video replay. They store
+navigation and safe interaction events that can be linked to an error by sending the same `replay_id`
+on `POST /v1/errors` and `POST /v1/replays`.
+
+Do not send screenshots, DOM snapshots, raw text content, form values, passwords, cookies, HTML, request
+bodies, or response bodies. Prefer the `@sigmon/sdk/browser` `createBrowserReplayRecorder` helper; it
+records navigation and safe click selectors, skips form controls by default, and keeps the payload masked.
+
+Required fields:
+
+- `replay_id`: stable replay id.
+- `started_at`: ISO datetime for the beginning of the buffer.
+
+Optional fields:
+
+- Shared fields.
+- `ended_at`, `duration_ms`, `route`, `error_id`, `masked`, and `events`.
+
+Each event accepts `offset_ms`, `type`, optional `route`, optional safe `selector`, optional sanitized
+`message`, optional normalized `x`/`y`, and optional sanitized `data`.
+
+Example:
+
+```bash
+curl -i https://sigmon.example.com/v1/replays \
+  -H "Authorization: Bearer sh_browser_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "replay_id": "rpl_browser_123",
+    "started_at": "2026-06-01T12:00:00.000Z",
+    "ended_at": "2026-06-01T12:00:02.000Z",
+    "duration_ms": 2000,
+    "route": "/checkout",
+    "masked": true,
+    "session_id": "session_789",
+    "source": "web",
+    "release": "2026.05.02",
+    "events": [
+      { "offset_ms": 0, "type": "navigation", "route": "/checkout", "data": {} },
+      {
+        "offset_ms": 750,
+        "type": "click",
+        "selector": "[data-sigmon-id=\"checkout-submit\"]",
+        "x": 0.72,
+        "y": 0.61,
+        "data": {}
+      }
+    ]
+  }'
+```
+
 ## Errors
 
 Required fields:
@@ -228,6 +282,7 @@ Optional fields:
 - `severity`: one of `debug`, `info`, `warning`, `error`, `critical`, or `fatal`. Defaults to `error`.
 - `stack`: stack trace string.
 - `fingerprint`: grouping fingerprint.
+- `replay_id`: optional replay id that links this occurrence to a masked session replay.
 - `context`: JSON object with additional error context. Defaults to `{}`.
 
 ```bash

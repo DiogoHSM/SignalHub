@@ -12,7 +12,7 @@ SignalMonitor is a self-hosted operational core with five runtime components:
 
 Ingestion:
 
-1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/llm`, `/v1/web-vitals`, `/v1/traces`, or `/v1/spans`.
+1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, or `/v1/spans`.
 2. API extracts the bearer API key and verifies the stored hash with `API_KEY_PEPPER`.
 3. API validates the JSON payload with Zod.
 4. API generates a signal id, attaches project and environment scope from the API key, enqueues the job, and returns `202 Accepted`.
@@ -95,6 +95,8 @@ Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same p
 
 Opt-in browser click maps are stored in the `click_events` telemetry table. `POST /v1/clicks` accepts normalized viewport coordinates, viewport dimensions, route, safe selector, and optional element tag/role metadata. The browser SDK helper avoids text, values, DOM snapshots, screenshots, and form fields by design. `GET /query/events/click-map` aggregates click density by route, safe selector, and bounded grid bucket for Events investigation. `click_events` expires with the events retention window.
 
+Privacy-safe browser replays are stored in the `session_replays` telemetry table. `POST /v1/replays` accepts a masked interaction timeline keyed by `replay_id`; errors can include the same `replay_id`, and the Incident view returns the linked replay beside triage and timeline context. Replay payloads store route, safe selectors, normalized click coordinates, sanitized messages, and bounded event data only. They do not store screenshots, DOM snapshots, raw text, input values, passwords, cookies, or HTML. `session_replays` expires with the events retention window and is counted with deleted events.
+
 Web Vitals are stored in the `web_vitals` telemetry table. Browser SDK helpers send LCP, INP, CLS, FCP, FID, and TTFB samples through `POST /v1/web-vitals` with route, navigation type, rating, release, and the shared telemetry envelope. `GET /query/apm/web-vitals` aggregates p75 values by metric and route, rating counts, latest/previous release p75 values, and regression percentage for the Traces/APM workspace.
 
 Runtime profiles are stored in the `profiles` telemetry table. Node SDK helpers send bounded opt-in CPU and memory snapshots through `POST /v1/profiles`; custom runtimes can use the same REST contract directly. `GET /query/apm/profiles` aggregates CPU profile count, memory profile count, average duration, latest memory usage, recent profiles, and hot functions for the Traces/APM workspace. Profiles are designed for targeted investigations rather than always-on raw profiler dumps.
@@ -147,6 +149,7 @@ Ingestion:
 - `POST /v1/errors`
 - `POST /v1/breadcrumbs`
 - `POST /v1/clicks`
+- `POST /v1/replays`
 - `POST /v1/identify/user`
 - `POST /v1/identify/tenant`
 - `POST /v1/llm`
@@ -205,7 +208,7 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `click_events`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. `click_events` uses the events retention window and is counted with deleted events. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `click_events`, `session_replays`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. `click_events` and `session_replays` use the events retention window and are counted with deleted events. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 

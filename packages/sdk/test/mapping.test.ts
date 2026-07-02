@@ -8,6 +8,7 @@ import {
   createIdentifyUserSignal,
   createLlmSignal,
   createRuntimeProfileSignal,
+  createSessionReplaySignal,
   createSpanSignal,
   createTraceSignal,
   createWebVitalSignal,
@@ -122,6 +123,59 @@ describe("payload mapping", () => {
         masked: true,
         source: "browser",
         release: "1.2.3",
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps session replays to /v1/replays with masked timeline events", () => {
+    expect(
+      createSessionReplaySignal(
+        {
+          replayId: "rpl_1",
+          startedAt: new Date("2026-05-02T12:00:00.000Z"),
+          endedAt: new Date("2026-05-02T12:00:03.000Z"),
+          route: "/checkout",
+          errorId: "err_1",
+          events: [
+            {
+              offsetMs: 200,
+              type: "click",
+              route: "/checkout",
+              selector: '[data-sigmon-id="pay"]',
+              x: 0.5,
+              y: 0.25,
+              data: { masked: true }
+            }
+          ]
+        },
+        { sessionId: "sess_1", source: "browser" }
+      )
+    ).toEqual({
+      kind: "replay",
+      endpointPath: "/v1/replays",
+      payload: {
+        replay_id: "rpl_1",
+        started_at: "2026-05-02T12:00:00.000Z",
+        ended_at: "2026-05-02T12:00:03.000Z",
+        duration_ms: 3000,
+        route: "/checkout",
+        error_id: "err_1",
+        events: [
+          {
+            offset_ms: 200,
+            type: "click",
+            route: "/checkout",
+            selector: '[data-sigmon-id="pay"]',
+            message: undefined,
+            x: 0.5,
+            y: 0.25,
+            data: { masked: true }
+          }
+        ],
+        masked: true,
+        session_id: "sess_1",
+        source: "browser",
         metadata: {}
       }
     });
@@ -275,6 +329,7 @@ describe("payload mapping", () => {
       createErrorSignal(error, {
         severity: "critical",
         fingerprint: "db-connection",
+        replayId: "rpl_1",
         context: { pool: "primary" },
         tenantId: "tenant_1",
         metadata: { component: "db" }
@@ -288,6 +343,7 @@ describe("payload mapping", () => {
         stack: "TypeError: Database connection failed\n    at test",
         severity: "critical",
         fingerprint: "db-connection",
+        replay_id: "rpl_1",
         context: { pool: "primary" },
         tenant_id: "tenant_1",
         metadata: { component: "db" }

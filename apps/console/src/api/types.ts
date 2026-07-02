@@ -505,6 +505,29 @@ export type IncidentTimelineItem = {
   data: unknown;
 };
 
+export type IncidentReplayEvent = {
+  offsetMs: number;
+  type: string;
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data: unknown;
+};
+
+export type IncidentReplay = {
+  id: string;
+  replayId: string;
+  route: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  events: IncidentReplayEvent[];
+};
+
 export type ErrorGroupIncident = {
   group: ErrorGroupRecord;
   primaryOccurrence: ErrorRecord;
@@ -513,6 +536,7 @@ export type ErrorGroupIncident = {
   sourceMapResolution: { status: "cached"; frameCount: number } | { status: "none" };
   stronglyRelated: { items: IncidentTimelineItem[]; truncated: boolean };
   nearbyContext: { items: IncidentTimelineItem[]; truncated: boolean };
+  replay: IncidentReplay | null;
   related: {
     traceId: string | null;
     sessionId: string | null;

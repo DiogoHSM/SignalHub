@@ -6,6 +6,7 @@ import {
   errorPayloadSchema,
   llmCallPayloadSchema,
   profilePayloadSchema,
+  sessionReplayPayloadSchema,
   spanPayloadSchema,
   tracePayloadSchema,
   webVitalPayloadSchema
@@ -19,6 +20,7 @@ import type {
   InsertEventInput,
   InsertLlmCallInput,
   InsertProfileInput,
+  InsertSessionReplayInput,
   InsertSpanInput,
   InsertTraceInput,
   InsertWebVitalInput
@@ -32,6 +34,7 @@ export type TelemetryWriter = {
   insertSpan(input: InsertSpanInput): Promise<void>;
   insertWebVital(input: InsertWebVitalInput): Promise<void>;
   insertClickEvent(input: InsertClickEventInput): Promise<void>;
+  insertSessionReplay(input: InsertSessionReplayInput): Promise<void>;
   insertProfile(input: InsertProfileInput): Promise<void>;
   insertBreadcrumb?(input: InsertBreadcrumbInput): Promise<void>;
 };
@@ -148,6 +151,7 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         severity: payload.severity,
         stack: payload.stack,
         fingerprint: payload.fingerprint,
+        replayId: payload.replay_id,
         context: sanitizeValue(payload.context)
       });
       return;
@@ -232,6 +236,31 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         scrollX: payload.scroll_x,
         scrollY: payload.scroll_y,
         masked: payload.masked
+      });
+      return;
+    }
+
+    case "replay": {
+      const payload = sessionReplayPayloadSchema.parse(job.payload);
+      await writer.insertSessionReplay({
+        ...baseInput(job, payload, receivedAt, payload.started_at),
+        replayId: payload.replay_id,
+        route: payload.route,
+        errorId: payload.error_id,
+        startedAt: new Date(payload.started_at),
+        endedAt: payload.ended_at ? new Date(payload.ended_at) : undefined,
+        durationMs: payload.duration_ms,
+        masked: payload.masked,
+        events: payload.events.map((event) => ({
+          offsetMs: event.offset_ms,
+          type: event.type,
+          route: event.route,
+          selector: event.selector,
+          message: sanitizePreviewText(event.message),
+          x: event.x,
+          y: event.y,
+          data: sanitizeValue(event.data)
+        }))
       });
       return;
     }

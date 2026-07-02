@@ -31,6 +31,7 @@ export interface InsertErrorInput extends TelemetryBaseInput {
   stack?: string;
   status?: string;
   fingerprint?: string;
+  replayId?: string;
   context?: unknown;
 }
 
@@ -90,6 +91,28 @@ export interface InsertClickEventInput extends TelemetryBaseInput {
   scrollX?: number;
   scrollY?: number;
   masked?: boolean;
+}
+
+export interface InsertSessionReplayEventInput {
+  offsetMs: number;
+  type: "navigation" | "click" | "input" | "console" | "network" | "error" | "custom";
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data?: unknown;
+}
+
+export interface InsertSessionReplayInput extends TelemetryBaseInput {
+  replayId: string;
+  route?: string;
+  errorId?: string;
+  startedAt: Date;
+  endedAt?: Date;
+  durationMs?: number;
+  masked?: boolean;
+  events?: InsertSessionReplayEventInput[];
 }
 
 export interface InsertProfileFunctionInput {
@@ -254,6 +277,7 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
         stack: nullable(input.stack),
         status: input.status ?? "open",
         fingerprint: nullable(input.fingerprint),
+        replay_id: nullable(input.replayId),
         context: input.context ?? {},
         error_group_id: grouping.groupId,
         grouping_fingerprint: grouping.fingerprint
@@ -413,6 +437,80 @@ export async function insertClickEvent(db: Db, input: InsertClickEventInput): Pr
         masked: input.masked ?? true
       })
       .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertSessionReplay(db: Db, input: InsertSessionReplayInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("session_replays").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const events = input.events ?? [];
+    const result = await trx
+      .insertInto("session_replays")
+      .values({
+        ...baseColumns(input),
+        replay_id: input.replayId,
+        route: nullable(input.route),
+        error_id: nullable(input.errorId),
+        started_at: input.startedAt,
+        ended_at: nullable(input.endedAt),
+        duration_ms: nullable(input.durationMs),
+        event_count: events.length,
+        masked: input.masked ?? true,
+        events: jsonb(
+          events.map((event) => ({
+            offsetMs: event.offsetMs,
+            type: event.type,
+            route: event.route,
+            selector: event.selector,
+            message: event.message,
+            x: event.x,
+            y: event.y,
+            data: event.data ?? {}
+          }))
+        )
+      })
+      .onConflict((oc) =>
+        oc.columns(["project_id", "environment_id", "replay_id"]).doUpdateSet({
+          tenant_id: nullable(input.tenantId),
+          user_id: nullable(input.userId),
+          session_id: nullable(input.sessionId),
+          trace_id: nullable(input.traceId),
+          timestamp: input.timestamp,
+          received_at: input.receivedAt,
+          source: nullable(input.source),
+          release: nullable(input.release),
+          metadata: jsonb(input.metadata ?? {}),
+          route: nullable(input.route),
+          error_id: nullable(input.errorId),
+          started_at: input.startedAt,
+          ended_at: nullable(input.endedAt),
+          duration_ms: nullable(input.durationMs),
+          event_count: events.length,
+          masked: input.masked ?? true,
+          events: jsonb(
+            events.map((event) => ({
+              offsetMs: event.offsetMs,
+              type: event.type,
+              route: event.route,
+              selector: event.selector,
+              message: event.message,
+              x: event.x,
+              y: event.y,
+              data: event.data ?? {}
+            }))
+          )
+        })
+      )
       .returning("id")
       .execute();
 

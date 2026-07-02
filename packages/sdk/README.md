@@ -154,6 +154,50 @@ sigmon.track("checkout.pay_clicked", {
 });
 ```
 
+### Browser session replay
+
+Session replay is opt-in and privacy-safe. The browser helper records a masked interaction timeline
+with navigation and safe click selectors; it does not capture screenshots, DOM snapshots, raw text,
+input values, passwords, cookies, or HTML.
+
+Use one `replayId` to connect the error occurrence and the replay buffer:
+
+```ts
+import {
+  createBrowserReplayRecorder,
+  createSignalMonitorClient,
+  installBrowserErrorCapture
+} from "@sigmon/sdk/browser";
+
+const sigmon = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY ?? "",
+  defaultContext: {
+    source: "web",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+const replay = createBrowserReplayRecorder(sigmon, {
+  enabled: true,
+  route: () => window.location.pathname
+});
+
+const stopErrors = installBrowserErrorCapture(sigmon, {
+  flush: true,
+  context: {
+    replayId: replay.replayId
+  }
+});
+
+window.addEventListener("error", () => {
+  void replay.flush();
+});
+```
+
+Add `data-sigmon-id` attributes to meaningful buttons and links so the replay timeline uses stable,
+intentional selectors.
+
 ## Next.js App Router
 
 ```ts

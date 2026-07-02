@@ -206,9 +206,35 @@ export interface ErrorsTable {
   stack: string | null;
   status: ColumnType<string, string | undefined, string>;
   fingerprint: string | null;
+  replay_id: string | null;
   context: JsonColumn;
   error_group_id: string | null;
   grouping_fingerprint: string | null;
+}
+
+export interface SessionReplaysTable {
+  id: string;
+  replay_id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  route: string | null;
+  error_id: string | null;
+  started_at: Timestamp;
+  ended_at: NullableTimestamp;
+  duration_ms: number | null;
+  event_count: DefaultedInteger;
+  masked: DefaultedBoolean;
+  events: JsonColumn;
+  created_at: Timestamp;
 }
 
 export interface LlmCallsTable {
@@ -644,6 +670,7 @@ export interface Database {
   breadcrumbs: BreadcrumbsTable;
   error_groups: ErrorGroupsTable;
   errors: ErrorsTable;
+  session_replays: SessionReplaysTable;
   llm_calls: LlmCallsTable;
   traces: TracesTable;
   spans: SpansTable;
