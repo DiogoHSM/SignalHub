@@ -116,6 +116,7 @@ import {
   getWebVitals,
   getRuntimeProfiles,
   getOverview,
+  listReleases,
   getErrorForSourceMapResolution,
   getSessionReplayDetail,
   listSessionReplays,
@@ -9173,6 +9174,91 @@ describe("repositories", () => {
           llmCalls: 1
         }
       );
+    });
+  });
+
+  it("summarizes releases across telemetry and filters overview to an exact release", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Release Entity" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:00:01.000Z"),
+        tenantId: "tenant_release",
+        userId: "user_release",
+        sessionId: "session_release",
+        traceId: "trace_release"
+      };
+
+      await insertEvent(db, { ...base, id: "evt_release_1", name: "checkout.started", release: "web@1.0.0" });
+      await insertError(db, {
+        ...base,
+        id: "err_release_1",
+        message: "Release one error",
+        severity: "error",
+        status: "open",
+        release: "web@1.0.0"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_release_1",
+        name: "GET /checkout",
+        status: "error",
+        startedAt: base.timestamp,
+        durationMs: 450,
+        release: "web@1.0.0"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_release_2",
+        name: "checkout.started",
+        timestamp: new Date("2026-05-05T11:30:00.000Z"),
+        release: "web@2.0.0"
+      });
+
+      const releases = await listReleases(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(releases.releases).toEqual([
+        expect.objectContaining({
+          release: "web@2.0.0",
+          events: 1,
+          errors: 0,
+          traces: 0,
+          firstSeenAt: "2026-05-05T11:30:00.000Z",
+          lastSeenAt: "2026-05-05T11:30:00.000Z"
+        }),
+        expect.objectContaining({
+          release: "web@1.0.0",
+          events: 1,
+          errors: 1,
+          traces: 1,
+          failedTraces: 1,
+          firstSeenAt: "2026-05-05T11:00:00.000Z",
+          lastSeenAt: "2026-05-05T11:00:00.000Z"
+        })
+      ]);
+
+      const filteredOverview = await getOverview(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        release: "web@1.0.0",
+        now
+      });
+
+      expect(filteredOverview.kpis).toMatchObject({ events: 1, errors: 1, traces: 1, failedTraces: 1 });
+      expect(filteredOverview.top.events).toEqual([{ name: "checkout.started", total: 1 }]);
+      expect(filteredOverview.releases.selected).toBe("web@1.0.0");
     });
   });
 

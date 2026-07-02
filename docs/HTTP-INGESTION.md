@@ -184,6 +184,17 @@ GET /query/events/paths?project_id=prj_123&environment_id=env_123&window=7d&star
 
 Operators can save custom dashboards in the console and render report data with `GET /query/reports/dashboards/{id}`. Dashboards do not require a separate ingestion payload: metric, trend, and top-list widgets are derived from the same event and error telemetry described above. Keep event names, actor IDs, and properties stable so saved reports stay useful across releases.
 
+### Release queries
+
+Send a stable `release` value with events, errors, traces, and LLM calls to make deploy investigation useful. Operators can list recently observed releases with `GET /query/releases` and filter Overview with the same exact release value.
+
+Example queries:
+
+```http
+GET /query/releases?project_id=prj_123&environment_id=env_123&window=7d&limit=10
+GET /query/overview?project_id=prj_123&environment_id=env_123&window=7d&release=web%401.2.3
+```
+
 ### Browser click maps
 
 Click maps are opt-in browser telemetry for aggregated UI density, not session replay. Send normalized

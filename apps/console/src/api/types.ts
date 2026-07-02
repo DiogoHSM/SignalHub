@@ -813,6 +813,7 @@ export type OverviewQuery = {
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
+  release?: string;
 };
 
 export type OverviewRecentError = {
@@ -901,6 +902,42 @@ export type OverviewResponse = {
     failedTraces: OverviewRecentTrace[];
     failedLlmCalls: OverviewRecentLlmCall[];
   };
+  releases?: {
+    selected: string | null;
+    recent: ReleaseSummary[];
+  };
+};
+
+export type ReleaseSummary = {
+  release: string;
+  events: number;
+  errors: number;
+  traces: number;
+  failedTraces: number;
+  llmCalls: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+export type ReleaseListQuery = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  limit?: number;
+};
+
+export type ReleaseListResponse = {
+  window: OverviewWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  releases: ReleaseSummary[];
 };
 
 export type OperationsWindow = "24h" | "7d" | "30d";

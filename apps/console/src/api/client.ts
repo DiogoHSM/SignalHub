@@ -55,6 +55,8 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  ReleaseListQuery,
+  ReleaseListResponse,
   RuntimeProfilesResponse,
   SessionTimelineQuery,
   SessionTimelineResponse,
@@ -308,6 +310,7 @@ export type ApiClient = {
   ) => Promise<AggregateResponse<IncidentReplay>>;
   listSessionReplays?: (query: SessionReplaySampleQuery) => Promise<QueryListResponse<SessionReplaySample>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
+  listReleases?: (query: ReleaseListQuery) => Promise<AggregateResponse<ReleaseListResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
   getEventClickMap?: (query: EventClickMapQuery) => Promise<AggregateResponse<EventClickMapResponse>>;
@@ -589,8 +592,19 @@ function overviewPath(query: OverviewQuery): string {
   params.set("project_id", query.projectId);
   params.set("environment_id", query.environmentId);
   params.set("window", query.window);
+  if (query.release) params.set("release", query.release);
 
   return `/query/overview?${params.toString()}`;
+}
+
+function releaseListPath(query: ReleaseListQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/releases?${params.toString()}`;
 }
 
 function operationsPath(query: OperationsQuery): string {
@@ -1075,6 +1089,7 @@ export function createApiClient(
     listSessionReplays: (query) =>
       request<QueryListResponse<SessionReplaySample>>(path(apiBasePath, queryPath("/query/replays", query, { includeEventName: true }))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
+    listReleases: (query) => request<AggregateResponse<ReleaseListResponse>>(path(apiBasePath, releaseListPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getEventPropertyCatalog: (query) =>
       request<AggregateResponse<EventPropertyCatalogResponse>>(path(apiBasePath, eventPropertyCatalogPath(query))),

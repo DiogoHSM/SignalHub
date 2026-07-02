@@ -3,7 +3,7 @@ import type { NavSection } from "../nav";
 import type { ScreenCtx } from "./registry";
 import { useOverview } from "./useOverview";
 import type { ActivityItemVM, KpisVM, LlmByModelVM, TenantVM } from "./useOverview";
-import type { OverviewWindow } from "../../api/types";
+import type { OverviewWindow, ReleaseSummary } from "../../api/types";
 import {
   Card,
   EmptyHint,
@@ -396,6 +396,72 @@ function LlmByModelPanel({ models, window: timeWindow }: { models: LlmByModelVM[
 }
 
 // ---------------------------------------------------------------------------
+// Releases panel
+// ---------------------------------------------------------------------------
+
+function ReleasesPanel({
+  releases,
+  selectedRelease,
+  onSelectRelease,
+}: {
+  releases: ReleaseSummary[];
+  selectedRelease: string | null;
+  onSelectRelease: (release: string | null) => void;
+}) {
+  return (
+    <Card
+      title="Releases"
+      actions={
+        selectedRelease ? (
+          <button className="sh-btn compact" onClick={() => onSelectRelease(null)}>
+            Clear filter
+          </button>
+        ) : (
+          <span className="sh-tag">latest deploys</span>
+        )
+      }
+      flush
+    >
+      {releases.length === 0 ? (
+        <EmptyHint icon="flag" title="No releases yet" sub="Send a release value from the SDK to compare deploys." />
+      ) : (
+        releases.map((release) => {
+          const selected = release.release === selectedRelease;
+          return (
+            <button
+              key={release.release}
+              className="sh-row sh-row--btn"
+              aria-label={`${release.release} release`}
+              style={{
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                width: "100%",
+                textAlign: "left",
+                background: selected ? "var(--accent-bg-subtle)" : "transparent",
+                border: "none",
+                borderBottom: "1px solid var(--border-subtle)",
+              }}
+              onClick={() => onSelectRelease(release.release)}
+            >
+              <div style={{ minWidth: 0 }}>
+                <strong className="sh-mono" style={{ fontSize: 12 }}>
+                  {release.release}
+                </strong>
+                <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+                  {release.events} events · {release.errors} errors · {release.traces} traces
+                </div>
+              </div>
+              <span className={release.failedTraces > 0 || release.errors > 0 ? "sh-tag warn" : "sh-tag ok"}>
+                {release.failedTraces} failed
+              </span>
+            </button>
+          );
+        })
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Recent activity panel
 // ---------------------------------------------------------------------------
 
@@ -531,7 +597,7 @@ export function OverviewScreen({
     );
   }
 
-  const { banner, kpis, topTenants, llmByModel, activity } = data;
+  const { banner, kpis, topTenants, llmByModel, releases, selectedRelease, selectRelease, activity } = data;
 
   return (
     <>
@@ -583,7 +649,7 @@ export function OverviewScreen({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.2fr 1fr 1fr",
+          gridTemplateColumns: "1.2fr 1fr 1fr 1.1fr",
           gap: 16,
           flex: 1,
           minHeight: 0,
@@ -591,6 +657,7 @@ export function OverviewScreen({
       >
         <TopTenantsPanel tenants={topTenants} navigate={navigate} />
         <LlmByModelPanel models={llmByModel} window={window} />
+        <ReleasesPanel releases={releases} selectedRelease={selectedRelease} onSelectRelease={selectRelease} />
         <RecentActivityPanel items={activity} navigate={navigate} />
       </div>
     </>

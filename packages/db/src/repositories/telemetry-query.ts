@@ -603,6 +603,7 @@ export interface OverviewFilters {
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
+  release?: string;
   now?: Date;
 }
 
@@ -692,7 +693,44 @@ export type OverviewResponse = {
     failedTraces: OverviewRecentTrace[];
     failedLlmCalls: OverviewRecentLlmCall[];
   };
+  releases: {
+    selected: string | null;
+    recent: ReleaseSummary[];
+  };
 };
+
+export interface ReleaseSummary {
+  release: string;
+  events: number;
+  errors: number;
+  traces: number;
+  failedTraces: number;
+  llmCalls: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface ReleaseListFilters {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  limit?: number;
+  now?: Date;
+}
+
+export interface ReleaseListResponse {
+  window: OverviewWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  releases: ReleaseSummary[];
+}
 
 function toEvent(row: EventRow): EventRecord {
   return {
@@ -1072,6 +1110,14 @@ function resolveOverviewRange(window: OverviewWindow, now = new Date()) {
   }
   from.setDate(from.getDate() - 30);
   return { from, to, bucket: "day" as const };
+}
+
+function clampSmallLimit(limit: number | undefined, fallback: number, max: number): number {
+  if (limit === undefined || !Number.isFinite(limit)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(Math.floor(limit), 1), max);
 }
 
 function bucketStep(bucket: OverviewTrendBucket): number {
@@ -3286,10 +3332,104 @@ export async function getTraceAggregates(db: Db, filters: TelemetryFilters): Pro
   };
 }
 
+export async function listReleases(db: Db, filters: ReleaseListFilters): Promise<ReleaseListResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = clampSmallLimit(filters.limit, 5, 50);
+
+  const rows = await sql<{
+    release: string;
+    events: unknown;
+    errors: unknown;
+    traces: unknown;
+    failed_traces: unknown;
+    llm_calls: unknown;
+    first_seen_at: Date | string;
+    last_seen_at: Date | string;
+  }>`
+    with release_signals as (
+      select release, timestamp, 'event'::text as kind, null::text as status
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and release is not null
+      union all
+      select release, timestamp, 'error'::text as kind, status
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and release is not null
+      union all
+      select release, timestamp, 'trace'::text as kind, status
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and release is not null
+      union all
+      select release, timestamp, 'llm'::text as kind, status
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and release is not null
+    )
+    select
+      release,
+      count(*) filter (where kind = 'event') as events,
+      count(*) filter (where kind = 'error') as errors,
+      count(*) filter (where kind = 'trace') as traces,
+      count(*) filter (where kind = 'trace' and status <> 'success') as failed_traces,
+      count(*) filter (where kind = 'llm') as llm_calls,
+      min(timestamp) as first_seen_at,
+      max(timestamp) as last_seen_at
+    from release_signals
+    group by release
+    order by last_seen_at desc, release asc
+    limit ${limit}
+  `.execute(db);
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    releases: rows.rows.map((row) => ({
+      release: row.release,
+      events: toNumber(row.events),
+      errors: toNumber(row.errors),
+      traces: toNumber(row.traces),
+      failedTraces: toNumber(row.failed_traces),
+      llmCalls: toNumber(row.llm_calls),
+      firstSeenAt: toIso(row.first_seen_at),
+      lastSeenAt: toIso(row.last_seen_at)
+    }))
+  };
+}
+
 export async function getOverview(db: Db, filters: OverviewFilters): Promise<OverviewResponse> {
   const { from, to, bucket } = resolveOverviewRange(filters.window, filters.now);
   const bucketExpr = bucketExpression(bucket);
   const bucketStarts = makeBucketStarts(from, to, bucket);
+  const releaseFilter = filters.release ?? null;
+  const recentReleasesPromise = listReleases(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    window: filters.window,
+    limit: 5,
+    now: filters.now
+  });
 
   const kpiRowsPromise = sql<{
     events: unknown;
@@ -3314,6 +3454,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
     ),
     scoped_errors as (
       select user_id, tenant_id, status
@@ -3322,6 +3463,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
     ),
     scoped_traces as (
       select user_id, tenant_id, status, duration_ms
@@ -3330,6 +3472,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
     ),
     scoped_llm_calls as (
       select user_id, tenant_id, status, input_tokens, output_tokens, cost_usd
@@ -3338,6 +3481,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
     ),
     identities as (
       select user_id, tenant_id from scoped_events
@@ -3375,6 +3519,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       group by bucket_start
       union all
       select ${bucketExpr} as bucket_start, 0::bigint as events, count(*) as traces, 0::bigint as llm_calls
@@ -3383,6 +3528,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       group by bucket_start
       union all
       select ${bucketExpr} as bucket_start, 0::bigint as events, 0::bigint as traces, count(*) as llm_calls
@@ -3391,6 +3537,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       group by bucket_start
     )
     select bucket_start, sum(events) as events, sum(traces) as traces, sum(llm_calls) as llm_calls
@@ -3414,6 +3561,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by bucket_start
   `.execute(db);
 
@@ -3431,6 +3579,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by bucket_start
   `.execute(db);
 
@@ -3448,6 +3597,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by bucket_start
   `.execute(db);
 
@@ -3458,6 +3608,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by name
     order by total desc, name asc
     limit 5
@@ -3470,24 +3621,28 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       union all
       select tenant_id from errors
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       union all
       select tenant_id from traces
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       union all
       select tenant_id from llm_calls
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
     )
     select tenant_id, count(*) as total
     from usage_rows
@@ -3504,6 +3659,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and tenant_id is not null
     group by tenant_id
     order by total desc, tenant_id asc
@@ -3517,6 +3673,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and tenant_id is not null
     group by tenant_id
     order by total desc, tenant_id asc
@@ -3530,6 +3687,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and tenant_id is not null
     group by tenant_id
     order by sum(cost_usd) desc, tenant_id asc
@@ -3543,6 +3701,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by provider
     order by total desc, sum(cost_usd) desc, provider asc
     limit 5
@@ -3555,6 +3714,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by model
     order by total desc, sum(cost_usd) desc, model asc
     limit 5
@@ -3567,6 +3727,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by coalesce(prompt_name, 'Unspecified')
     order by total desc, prompt_name asc
     limit 5
@@ -3579,6 +3740,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by severity
     order by total desc, severity asc
     limit 5
@@ -3591,6 +3753,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by status
     order by total desc, status asc
     limit 5
@@ -3613,6 +3776,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     order by timestamp desc, id asc
     limit 5
   `.execute(db);
@@ -3632,6 +3796,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and status <> 'success'
     order by timestamp desc, id asc
     limit 5
@@ -3655,6 +3820,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and status <> 'success'
     order by timestamp desc, id asc
     limit 5
@@ -3678,7 +3844,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     errorStatusRows,
     recentErrorRows,
     recentFailedTraceRows,
-    recentFailedLlmCallRows
+    recentFailedLlmCallRows,
+    recentReleases
   ] = await Promise.all([
     kpiRowsPromise,
     usageTrendRowsPromise,
@@ -3697,7 +3864,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     errorStatusRowsPromise,
     recentErrorRowsPromise,
     recentFailedTraceRowsPromise,
-    recentFailedLlmCallRowsPromise
+    recentFailedLlmCallRowsPromise,
+    recentReleasesPromise
   ]);
   const kpiRow = kpiRows.rows[0];
 
@@ -3832,6 +4000,10 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         userId: row.user_id,
         traceId: row.trace_id
       }))
+    },
+    releases: {
+      selected: releaseFilter,
+      recent: recentReleases.releases
     }
   };
 }

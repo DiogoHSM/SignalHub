@@ -284,6 +284,8 @@ The console includes a read-only `Overview` mode for the selected project and en
 
 Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. Independent KPI, trend, top-list, and recent-signal queries are dispatched together rather than awaited in serial, and bigint/numeric aggregate values pass through finite safe-number helpers before becoming JavaScript numbers. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
 
+Release tracking is a derived Overview dimension in this slice. `GET /query/releases` lists recently observed release values for the active project/environment/window by aggregating existing events, errors, traces, and LLM calls. `GET /query/overview` accepts an optional exact `release` filter so operators can compare deploy-scoped KPIs and trends without adding a release table yet. Incidents and source-map workflows continue to use the same release value for stack resolution and related-context grouping.
+
 ## Operations Console
 
 The console includes a read-only `Operations` mode for the selected project and environment. It uses `GET /query/operations` to load monitored health, alert state, error rate, p95 trace latency, ingestion freshness, active incidents, recent monitor and alert activity, top latency names, and setup gaps for `24h`, `7d`, or `30d` windows.

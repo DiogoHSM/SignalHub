@@ -1491,6 +1491,44 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards release filters to overview and exposes release summaries", async () => {
+    const overviewFilters: unknown[] = [];
+    const releaseFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getOverview: async (filters) => {
+          overviewFilters.push(filters);
+          return { ok: true };
+        },
+        listReleases: async (filters) => {
+          releaseFilters.push(filters);
+          return { releases: [{ release: "web@1.2.3" }] };
+        }
+      }
+    });
+
+    const overviewResponse = await app.inject({
+      method: "GET",
+      url: "/query/overview?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3"
+    });
+    const releaseResponse = await app.inject({
+      method: "GET",
+      url: "/query/releases?project_id=prj_1&environment_id=env_1&window=7d&limit=10"
+    });
+
+    expect(overviewResponse.statusCode).toBe(200);
+    expect(releaseResponse.statusCode).toBe(200);
+    expect(overviewFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "7d", release: "web@1.2.3" }
+    ]);
+    expect(releaseFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 10 }
+    ]);
+  });
+
   it("renders saved dashboard reports from overview data", async () => {
     const dashboardCalls: unknown[] = [];
     const overviewCalls: unknown[] = [];

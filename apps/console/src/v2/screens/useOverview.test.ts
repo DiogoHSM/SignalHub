@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AggregateResponse, OperationsResponse, OverviewResponse, TenantListResponse } from "../../api/types";
+import type { AggregateResponse, OperationsResponse, OverviewResponse, ReleaseListResponse, TenantListResponse } from "../../api/types";
 import { useOverview } from "./useOverview";
 
 // ---------------------------------------------------------------------------
@@ -116,6 +116,21 @@ const OVERVIEW: OverviewResponse = {
         tenantId: null,
         userId: null,
         traceId: null
+      }
+    ]
+  },
+  releases: {
+    selected: null,
+    recent: [
+      {
+        release: "web@1.2.3",
+        events: 240,
+        errors: 3,
+        traces: 80,
+        failedTraces: 2,
+        llmCalls: 12,
+        firstSeenAt: "2026-06-21T23:00:00Z",
+        lastSeenAt: "2026-06-22T00:05:00Z"
       }
     ]
   }
@@ -259,6 +274,25 @@ const TENANTS: TenantListResponse = {
   ]
 };
 
+const RELEASES: ReleaseListResponse = {
+  window: "24h",
+  generatedAt: "2026-06-22T00:00:00Z",
+  scope: { projectId: "prj_1", environmentId: "env_1" },
+  range: { from: "2026-06-21T00:00:00Z", to: "2026-06-22T00:00:00Z" },
+  releases: [
+    {
+      release: "web@1.2.3",
+      events: 240,
+      errors: 3,
+      traces: 80,
+      failedTraces: 2,
+      llmCalls: 12,
+      firstSeenAt: "2026-06-21T23:00:00Z",
+      lastSeenAt: "2026-06-22T00:05:00Z"
+    }
+  ]
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -266,12 +300,14 @@ const TENANTS: TenantListResponse = {
 function makeClient(
   overviewData: OverviewResponse = OVERVIEW,
   operationsData: OperationsResponse = OPERATIONS,
-  tenantsData: TenantListResponse = TENANTS
+  tenantsData: TenantListResponse = TENANTS,
+  releaseData: ReleaseListResponse = RELEASES
 ) {
   return {
     getOverview: vi.fn().mockResolvedValue({ data: overviewData } as AggregateResponse<OverviewResponse>),
     getOperations: vi.fn().mockResolvedValue({ data: operationsData } as AggregateResponse<OperationsResponse>),
-    listEntityTenants: vi.fn().mockResolvedValue({ data: tenantsData } as AggregateResponse<TenantListResponse>)
+    listEntityTenants: vi.fn().mockResolvedValue({ data: tenantsData } as AggregateResponse<TenantListResponse>),
+    listReleases: vi.fn().mockResolvedValue({ data: releaseData } as AggregateResponse<ReleaseListResponse>)
   };
 }
 
@@ -501,7 +537,7 @@ describe("useOverview", () => {
     expect(llmByModel[1].costUsd).toBe("1.00");
   });
 
-  it("fires all three client calls concurrently on mount", async () => {
+  it("fires all four client calls concurrently on mount", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
 
@@ -510,6 +546,7 @@ describe("useOverview", () => {
     expect(client.getOverview).toHaveBeenCalledTimes(1);
     expect(client.getOperations).toHaveBeenCalledTimes(1);
     expect(client.listEntityTenants).toHaveBeenCalledTimes(1);
+    expect(client.listReleases).toHaveBeenCalledTimes(1);
   });
 
   it("passes correct query params to each client call", async () => {
@@ -536,6 +573,40 @@ describe("useOverview", () => {
         limit: 5
       })
     );
+    expect(client.listReleases).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "24h",
+      limit: 5
+    });
+  });
+
+  it("filters overview by a selected release and exposes release rows", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.releases[0]).toMatchObject({
+      release: "web@1.2.3",
+      events: 240,
+      errors: 3,
+      failedTraces: 2
+    });
+
+    act(() => {
+      result.current.selectRelease("web@1.2.3");
+    });
+
+    await waitFor(() =>
+      expect(client.getOverview).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "24h",
+        release: "web@1.2.3"
+      })
+    );
+    expect(result.current.selectedRelease).toBe("web@1.2.3");
   });
 
   it("sets status to error when any call fails", async () => {

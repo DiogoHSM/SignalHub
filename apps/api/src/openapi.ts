@@ -1220,6 +1220,18 @@ export const openApiDocument = {
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")
     },
+    "/query/overview": {
+      get: sessionRoute(
+        "Query project overview",
+        "Read operational overview rollups for one project environment. Query with project_id, environment_id, window=24h|7d|30d, and optional release for exact deploy-version filtering."
+      )
+    },
+    "/query/releases": {
+      get: sessionRoute(
+        "Query releases",
+        "List recently observed release values for one project environment, derived from events, errors, traces, and LLM calls. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
     "/query/events/properties": {
       get: sessionRoute(
         "Query event property catalog",

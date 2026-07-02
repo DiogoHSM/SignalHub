@@ -187,6 +187,13 @@ SignalMonitor includes an admin-only Integration Console.
 
 - API key rows expose edit actions for renaming keys without rotating secrets; one-time key secrets remain visible only immediately after creation.
 
+## Releases UX
+
+- Overview includes a compact Releases panel that lists recently observed deploy versions for the selected project/environment.
+- Selecting a release filters Overview KPIs and trend context to that exact release while keeping the release list available for comparison.
+- Release rows should show release id, event count, error count, trace count, and failed trace count in a dark operational row, not a white table.
+- The empty state should explain that release values come from SDK/server telemetry and are useful for deploy-scoped incident and source-map workflows.
+
 ## Artifacts UX
 
 - Artifacts should stay operational: release filter, single-map upload, bundle upload, uploaded artifact list, and delete actions should fit the active project/environment workspace.

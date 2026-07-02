@@ -39,6 +39,20 @@ const ALL_CLEAR_VM: OverviewVM = {
     { model: "gpt-4o", costUsd: "2.50" },
     { model: "claude-3-5-sonnet", costUsd: "1.00" },
   ],
+  releases: [
+    {
+      release: "web@1.2.3",
+      events: 240,
+      errors: 3,
+      traces: 80,
+      failedTraces: 2,
+      llmCalls: 12,
+      firstSeenAt: "2026-06-21T23:00:00Z",
+      lastSeenAt: "2026-06-22T00:05:00Z",
+    },
+  ],
+  selectedRelease: null,
+  selectRelease: vi.fn(),
   activity: [
     { kind: "error", title: "PaymentTimeoutError", sub: "TypeError", timestamp: "2026-06-22T00:05:00Z" },
     { kind: "llm", title: "openai / gpt-4o", sub: "timeout", timestamp: "2026-06-22T00:04:00Z" },
@@ -82,6 +96,8 @@ function mockUseOverview(vm: OverviewVM | null, status: "loading" | "ok" | "erro
     data: vm,
     status,
     reload: vi.fn(),
+    selectedRelease: vm?.selectedRelease ?? null,
+    selectRelease: vm?.selectRelease ?? vi.fn(),
   });
 }
 
@@ -262,6 +278,22 @@ describe("OverviewScreen", () => {
       // gpt-4o appears in both KPI top model and LLM by model panel
       expect(screen.getAllByText("gpt-4o").length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText("claude-3-5-sonnet")).toBeInTheDocument();
+    });
+  });
+
+  describe("releases", () => {
+    it("renders recent releases and applies a release filter", async () => {
+      const selectRelease = vi.fn();
+      mockUseOverview({ ...ALL_CLEAR_VM, selectRelease });
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByText("Releases")).toBeInTheDocument();
+      expect(screen.getByText("web@1.2.3")).toBeInTheDocument();
+      expect(screen.getByText(/3 errors/i)).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: /web@1.2.3/i }));
+
+      expect(selectRelease).toHaveBeenCalledWith("web@1.2.3");
     });
   });
 

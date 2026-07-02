@@ -114,6 +114,8 @@ describe("screen registry", () => {
       data: null,
       status: "loading",
       reload: vi.fn(),
+      selectedRelease: null,
+      selectRelease: vi.fn(),
     });
     const ctx = makeCtx();
     const { container } = render(<>{renderSection("overview", ctx)}</>);

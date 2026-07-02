@@ -401,6 +401,39 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes overview release filters and release list query params", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { data: overviewResponse() }))
+      .mockResolvedValueOnce(jsonResponse(200, { data: { releases: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient();
+    await client.getOverview({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      release: "web@1.2.3"
+    });
+    await client.listReleases!({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 8
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/query/overview?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/query/releases?project_id=prj_1&environment_id=env_1&window=7d&limit=8",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes operations query params", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: operationsResponse() }));
     vi.stubGlobal("fetch", fetchMock);

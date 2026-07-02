@@ -151,7 +151,8 @@ function makeOverviewResponse(overrides: Partial<OverviewResponse> = {}): Overvi
       errorSeverity: [],
       errorStatus: []
     },
-    recent: { errors: [], failedTraces: [], failedLlmCalls: [] }
+    recent: { errors: [], failedTraces: [], failedLlmCalls: [] },
+    releases: { selected: null, recent: [] }
   };
   return { ...base, ...overrides } as OverviewResponse;
 }
