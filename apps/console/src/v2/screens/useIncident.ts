@@ -3,6 +3,7 @@ import type { ApiClient, ErrorGroupApiClient } from "../../api/client";
 import type {
   ErrorGroupIncident,
   ErrorGroupPriority,
+  IncidentReplay,
   IncidentTimelineItem,
   SourceMapResolution,
   User
@@ -41,6 +42,8 @@ export type IncidentVM = {
   lastSeenRelative: string;
   silencedUntil: string | null;
   stack: string | null;
+  errorTimestamp: string;
+  replay: IncidentReplay | null;
   sourceMapBadge: { resolved: boolean; frameCount: number };
   sourceMapDiagnostic: {
     status: "resolved" | "partially_resolved" | "unresolved" | "unavailable" | "none";
@@ -333,6 +336,8 @@ function buildVM(incident: ErrorGroupIncident, resolution: SourceMapResolution |
     lastSeenRelative: relativeTime(group.lastSeenAt),
     silencedUntil: incident.silencedUntil,
     stack: primaryOccurrence.stack,
+    errorTimestamp: primaryOccurrence.timestamp,
+    replay: incident.replay,
     sourceMapBadge,
     sourceMapDiagnostic: sourceMapDiagnostic(incident, resolution),
     breadcrumbs: mapBreadcrumbs(stronglyRelated.items),

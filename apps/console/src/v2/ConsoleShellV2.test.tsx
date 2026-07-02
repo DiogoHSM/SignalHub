@@ -281,6 +281,8 @@ describe("ConsoleShellV2", () => {
       lastSeenRelative: "5m ago",
       silencedUntil: null,
       stack: null,
+      errorTimestamp: "2026-06-01T12:00:00.000Z",
+      replay: null,
       sourceMapBadge: { resolved: false, frameCount: 0 },
       sourceMapDiagnostic: {
         status: "none" as const,

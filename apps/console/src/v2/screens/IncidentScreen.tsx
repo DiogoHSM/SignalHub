@@ -10,6 +10,7 @@ import {
   PriorityPill,
   StatusPill,
 } from "../../components/ui/v2";
+import { IncidentReplayPanel } from "../../components/IncidentReplayPanel";
 
 // ---------------------------------------------------------------------------
 // RelItem — local subcomponent
@@ -487,6 +488,15 @@ export function IncidentScreen({
               </span>
             </div>
           </div>
+
+          {vm.replay ? (
+            <IncidentReplayPanel
+              breadcrumbs={vm.breadcrumbs}
+              errorTimestamp={vm.errorTimestamp}
+              replay={vm.replay}
+              stack={vm.stack}
+            />
+          ) : null}
 
           {/* Stack trace */}
           <div

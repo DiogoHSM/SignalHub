@@ -3372,7 +3372,7 @@ select {
 
 .incident-replay-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
 }
 
@@ -3431,6 +3431,67 @@ select {
 .incident-replay-title {
   color: #111827;
   font-weight: 700;
+}
+
+.incident-replay-events__error {
+  border-color: color-mix(in srgb, var(--sev-critical) 48%, var(--border)) !important;
+  background: var(--sev-critical-bg) !important;
+}
+
+.incident-replay-context {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.incident-replay-context > div {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface-2);
+  padding: 10px 12px;
+}
+
+.incident-replay-context h4 {
+  margin: 0 0 8px;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.incident-replay-context code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+
+.incident-replay-context ul {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.incident-replay-context li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.incident-replay-context li span,
+.incident-replay-context li small {
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.incident-replay-context li strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+  font-size: 12px;
 }
 
 .incident-timeline-row {

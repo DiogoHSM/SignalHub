@@ -1,5 +1,11 @@
 import type { IncidentReplay } from "../api/types";
 
+type ReplayBreadcrumb = {
+  kind: string;
+  timeRelative: string;
+  title: string;
+};
+
 function formatDuration(value: number | null): string {
   if (value === null) return "unknown";
   if (value < 1000) return `${value} ms`;
@@ -21,7 +27,25 @@ function productEventLabel(event: NonNullable<IncidentReplay["productEvents"]>[n
   return `Product event: ${event.name}`;
 }
 
-export function IncidentReplayPanel({ replay }: { replay: IncidentReplay | null }) {
+function errorOffsetMs(replay: IncidentReplay, errorTimestamp?: string | null): number | null {
+  if (!errorTimestamp) return null;
+  const startedAt = new Date(replay.startedAt).getTime();
+  const errorAt = new Date(errorTimestamp).getTime();
+  if (!Number.isFinite(startedAt) || !Number.isFinite(errorAt)) return null;
+  return Math.max(0, errorAt - startedAt);
+}
+
+export function IncidentReplayPanel({
+  breadcrumbs = [],
+  errorTimestamp,
+  replay,
+  stack
+}: {
+  breadcrumbs?: ReplayBreadcrumb[];
+  errorTimestamp?: string | null;
+  replay: IncidentReplay | null;
+  stack?: string | null;
+}) {
   if (!replay) {
     return (
       <section className="incident-replay-panel" aria-label="Session replay">
@@ -30,6 +54,32 @@ export function IncidentReplayPanel({ replay }: { replay: IncidentReplay | null 
       </section>
     );
   }
+
+  const errorOffset = errorOffsetMs(replay, errorTimestamp);
+  const timeline = [
+    ...replay.events.map((event, index) => ({
+      key: `replay-${event.offsetMs}-${event.type}-${index}`,
+      offsetMs: event.offsetMs,
+      kind: event.type,
+      title: eventTitle(event)
+    })),
+    ...(replay.productEvents ?? []).map((event) => ({
+      key: `product-${event.id}`,
+      offsetMs: event.offsetMs,
+      kind: "product",
+      title: productEventLabel(event)
+    })),
+    ...(errorOffset == null
+      ? []
+      : [
+          {
+            key: "error-moment",
+            offsetMs: errorOffset,
+            kind: "error moment",
+            title: stack?.split("\n")[0] ?? "Error occurred"
+          }
+        ])
+  ].sort((left, right) => left.offsetMs - right.offsetMs || left.key.localeCompare(right.key));
 
   return (
     <section className="incident-replay-panel" aria-label="Session replay">
@@ -44,34 +94,44 @@ export function IncidentReplayPanel({ replay }: { replay: IncidentReplay | null 
         <span>ID {replay.replayId}</span>
         <span>{replay.eventCount} events</span>
         <span>{formatDuration(replay.durationMs)}</span>
+        {errorOffset != null ? <span>Error moment {formatOffset(errorOffset)}</span> : null}
       </div>
       <ol className="incident-replay-events">
-        {replay.events.length === 0 && !replay.productEvents?.length ? (
+        {timeline.length === 0 ? (
           <li className="muted-text">Replay has no timeline events.</li>
         ) : null}
-        {[
-          ...replay.events.map((event, index) => ({
-            key: `replay-${event.offsetMs}-${event.type}-${index}`,
-            offsetMs: event.offsetMs,
-            kind: event.type,
-            title: eventTitle(event)
-          })),
-          ...(replay.productEvents ?? []).map((event) => ({
-            key: `product-${event.id}`,
-            offsetMs: event.offsetMs,
-            kind: "product",
-            title: productEventLabel(event)
-          }))
-        ]
-          .sort((left, right) => left.offsetMs - right.offsetMs || left.key.localeCompare(right.key))
-          .map((event) => (
-            <li key={event.key}>
+        {timeline.map((event) => (
+            <li className={event.key === "error-moment" ? "incident-replay-events__error" : undefined} key={event.key}>
               <span className="incident-replay-offset">{formatOffset(event.offsetMs)}</span>
               <span className="incident-replay-kind">{event.kind}</span>
               <span className="incident-replay-title">{event.title}</span>
             </li>
           ))}
       </ol>
+      {(stack || breadcrumbs.length > 0) ? (
+        <div className="incident-replay-context">
+          {stack ? (
+            <div>
+              <h4>Stack at error</h4>
+              <code>{stack.split("\n")[0]}</code>
+            </div>
+          ) : null}
+          {breadcrumbs.length > 0 ? (
+            <div>
+              <h4>Breadcrumbs before error</h4>
+              <ul>
+                {breadcrumbs.slice(-5).map((breadcrumb, index) => (
+                  <li key={`${breadcrumb.kind}-${breadcrumb.title}-${index}`}>
+                    <span>{breadcrumb.kind}</span>
+                    <strong>{breadcrumb.title}</strong>
+                    <small>{breadcrumb.timeRelative}</small>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

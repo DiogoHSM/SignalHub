@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IncidentVM } from "./useIncident";
@@ -30,6 +30,8 @@ const MOCK_VM: IncidentVM = {
   lastSeenRelative: "8s ago",
   silencedUntil: null,
   stack: "PaymentTimeoutError: provider timeout after 12000ms\n    at chargeCustomer (src/services/payment/charge.ts:84:12)",
+  errorTimestamp: "2026-06-01T12:00:03.400Z",
+  replay: null,
   sourceMapBadge: { resolved: true, frameCount: 3 },
   sourceMapDiagnostic: {
     status: "resolved",
@@ -70,6 +72,25 @@ const CRASH_VM: IncidentVM = {
   affectedUsers: 1,
   affectedTenants: 1,
 };
+
+const REPLAY_VM = {
+  ...MOCK_VM,
+  errorTimestamp: "2026-06-01T12:00:03.400Z",
+  replay: {
+    id: "row_1",
+    replayId: "rpl_checkout",
+    route: "/checkout",
+    startedAt: "2026-06-01T12:00:00.000Z",
+    endedAt: "2026-06-01T12:00:05.000Z",
+    durationMs: 5000,
+    eventCount: 2,
+    masked: true,
+    events: [
+      { offsetMs: 0, type: "navigation", route: "/checkout", data: {} },
+      { offsetMs: 3200, type: "click", selector: '[data-sigmon-id="pay"]', x: 0.5, y: 0.6, data: {} },
+    ],
+  },
+} as IncidentVM;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -480,6 +501,19 @@ describe("IncidentScreen", () => {
       mockUseIncident({ ...MOCK_VM, stack: null });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.getAllByText(/no stack trace/i).length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("session replay context", () => {
+    it("shows replay, error moment, stack, and breadcrumbs in the incident workspace", () => {
+      mockUseIncident(REPLAY_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+
+      const replay = screen.getByRole("region", { name: /session replay/i });
+      expect(within(replay).getAllByText(/error moment/i).length).toBeGreaterThanOrEqual(1);
+      expect(within(replay).getByText("+3.4 s")).toBeInTheDocument();
+      expect(within(replay).getAllByText(/PaymentTimeoutError/).length).toBeGreaterThanOrEqual(1);
+      expect(within(replay).getByText("button[data-cta='checkout']")).toBeInTheDocument();
     });
   });
 
