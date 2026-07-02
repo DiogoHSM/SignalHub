@@ -25,6 +25,12 @@ import { randomBytes } from "node:crypto";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 import type { AuthDependencies } from "./auth.js";
 import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
+import type {
+  AnalyticsSegmentActorType,
+  AnalyticsSegmentDefinition,
+  AnalyticsSegmentPreview,
+  AnalyticsSegmentRecord
+} from "@sigmon/db/repositories/analytics-segments.js";
 
 export interface AdminProject {
   id: string;
@@ -102,6 +108,16 @@ export type AdminResourceDependencies = {
   environments?: EnvironmentAdministrationDependencies;
   apiKeys?: ApiKeyAdministrationDependencies;
   browserOrigins?: BrowserOriginAdministrationDependencies;
+  analyticsSegments?: AnalyticsSegmentAdministrationDependencies;
+};
+
+export type AnalyticsSegmentAdministrationDependencies = {
+  list: (filters: { projectId: string; environmentId: string }) => Promise<AnalyticsSegmentRecord[]>;
+  create: (input: CreateAnalyticsSegmentInput) => Promise<AnalyticsSegmentRecord>;
+  update: (id: string, input: UpdateAnalyticsSegmentInput) => Promise<AnalyticsSegmentRecord | null | undefined>;
+  archive: (id: string) => Promise<void>;
+  get: (input: { id: string; projectId: string; environmentId: string }) => Promise<AnalyticsSegmentRecord | null | undefined>;
+  preview: (segment: AnalyticsSegmentRecord, input?: { limit?: number }) => Promise<AnalyticsSegmentPreview>;
 };
 
 export type AlertAdministrationDependencies = {
@@ -316,6 +332,42 @@ const createBrowserOriginSchema = z.object({
   origin: z.string().trim().min(1).max(2048).refine(isValidBrowserOrigin)
 });
 
+const analyticsSegmentWindowSchema = z.enum(["24h", "7d", "30d"]);
+const analyticsSegmentDefinitionSchema = z
+  .object({
+    window: analyticsSegmentWindowSchema.default("30d"),
+    eventName: z.string().trim().min(1).max(256).optional(),
+    propertyName: z.string().trim().min(1).max(128).optional(),
+    propertyValue: z.string().trim().min(1).max(512).optional()
+  })
+  .refine((input) => input.eventName || input.propertyName, {
+    message: "event_or_property_required"
+  })
+  .refine((input) => !input.propertyValue || Boolean(input.propertyName), {
+    message: "property_name_required"
+  });
+
+const analyticsSegmentActorTypeSchema = z.enum(["user", "tenant"]);
+
+const analyticsSegmentScopeQuerySchema = z.object({
+  project_id: z.string().trim().min(1),
+  environment_id: z.string().trim().min(1)
+});
+
+const analyticsSegmentSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  actorType: analyticsSegmentActorTypeSchema,
+  definition: analyticsSegmentDefinitionSchema
+});
+
+const updateAnalyticsSegmentSchema = analyticsSegmentSchema
+  .omit({ projectId: true, environmentId: true })
+  .partial()
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
 const notificationChannelNameSchema = z.string().trim().min(1).max(256);
 const notificationChannelEmailRecipientsSchema = z.array(z.string().trim().email()).min(1).max(10);
 
@@ -510,6 +562,14 @@ type UpdateEnvironmentInput = z.infer<typeof updateEnvironmentSchema>;
 type CreateApiKeyBody = z.infer<typeof createApiKeySchema>;
 type UpdateApiKeyInput = z.infer<typeof updateApiKeySchema>;
 type CreateBrowserOriginBody = z.infer<typeof createBrowserOriginSchema>;
+type CreateAnalyticsSegmentInput = z.infer<typeof analyticsSegmentSchema> & {
+  actorType: AnalyticsSegmentActorType;
+  definition: AnalyticsSegmentDefinition;
+};
+type UpdateAnalyticsSegmentInput = z.infer<typeof updateAnalyticsSegmentSchema> & {
+  actorType?: AnalyticsSegmentActorType;
+  definition?: AnalyticsSegmentDefinition;
+};
 type CreateNotificationChannelInput = z.infer<typeof notificationChannelSchema>;
 type UpdateNotificationChannelInput = z.infer<typeof updateNotificationChannelSchema>;
 type CreateAlertRuleInput = z.infer<typeof alertRuleSchema>;
@@ -1145,6 +1205,139 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     await options.adminResources.browserOrigins.archive(params.data.id);
     return reply.status(204).send();
+  });
+
+  app.get("/admin/analytics-segments", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsSegments) {
+      return reply.status(501).send({ error: "analytics_segments_repository_unavailable" });
+    }
+
+    const query = analyticsSegmentScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_analytics_segment_request" });
+    }
+
+    try {
+      const segments = await options.adminResources.analyticsSegments.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ segments });
+    } catch {
+      return reply.status(503).send({ error: "analytics_segments_unavailable" });
+    }
+  });
+
+  app.post("/admin/analytics-segments", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsSegments) {
+      return reply.status(501).send({ error: "analytics_segments_repository_unavailable" });
+    }
+
+    const parsed = analyticsSegmentSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_analytics_segment_request" });
+    }
+
+    try {
+      const segment = await options.adminResources.analyticsSegments.create(parsed.data);
+      return reply.status(201).send({ segment });
+    } catch {
+      return reply.status(503).send({ error: "analytics_segments_unavailable" });
+    }
+  });
+
+  app.patch("/admin/analytics-segments/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsSegments) {
+      return reply.status(501).send({ error: "analytics_segments_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const parsed = updateAnalyticsSegmentSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_analytics_segment_request" });
+    }
+
+    try {
+      const segment = await options.adminResources.analyticsSegments.update(params.data.id, parsed.data);
+      if (!segment) {
+        return reply.status(404).send({ error: "analytics_segment_not_found" });
+      }
+      return reply.send({ segment });
+    } catch {
+      return reply.status(503).send({ error: "analytics_segments_unavailable" });
+    }
+  });
+
+  app.delete("/admin/analytics-segments/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsSegments) {
+      return reply.status(501).send({ error: "analytics_segments_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_analytics_segment_request" });
+    }
+
+    try {
+      await options.adminResources.analyticsSegments.archive(params.data.id);
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "analytics_segments_unavailable" });
+    }
+  });
+
+  app.get("/admin/analytics-segments/:id/preview", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsSegments) {
+      return reply.status(501).send({ error: "analytics_segments_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = analyticsSegmentScopeQuerySchema
+      .extend({ limit: z.coerce.number().int().min(1).max(50).optional() })
+      .safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_analytics_segment_request" });
+    }
+
+    try {
+      const segment = await options.adminResources.analyticsSegments.get({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      if (!segment) {
+        return reply.status(404).send({ error: "analytics_segment_not_found" });
+      }
+      const preview = await options.adminResources.analyticsSegments.preview(segment, { limit: query.data.limit });
+      return reply.send({ preview });
+    } catch {
+      return reply.status(503).send({ error: "analytics_segments_unavailable" });
+    }
   });
 
   app.get("/admin/projects/:projectId/environments", async (request, reply) => {

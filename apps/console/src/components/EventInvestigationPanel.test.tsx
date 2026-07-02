@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
@@ -302,6 +302,67 @@ describe("EventInvestigationPanel", () => {
       window: "7d",
       steps: ["signup.started", "project.created", "key.created"],
       limit: 20
+    });
+  });
+
+  it("creates a saved segment and applies it as an event filter", async () => {
+    const savedSegments = [
+      {
+        id: "seg_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Team creators",
+        description: null,
+        actorType: "user" as const,
+        definition: { window: "30d" as const, eventName: "project.created", propertyName: "plan", propertyValue: "team" },
+        createdAt: "2026-05-04T12:00:00.000Z",
+        updatedAt: "2026-05-04T12:00:00.000Z",
+        archivedAt: null
+      }
+    ];
+    const listAnalyticsSegments = vi
+      .fn()
+      .mockResolvedValueOnce({ segments: [] })
+      .mockResolvedValue({ segments: savedSegments });
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "project.created" })] }),
+      listAnalyticsSegments,
+      createAnalyticsSegment: vi.fn().mockResolvedValue({ segment: { id: "seg_1" } }),
+      previewAnalyticsSegment: vi.fn().mockResolvedValue({
+        preview: {
+          segmentId: "seg_1",
+          actorType: "user",
+          window: "30d",
+          actors: 1,
+          samples: [{ actorId: "user_1", lastSeenAt: "2026-05-04T12:00:00.000Z" }]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const segmentRegion = await screen.findByRole("region", { name: "Saved segments" });
+    await userEvent.type(within(segmentRegion).getByLabelText("Segment name"), "Team creators");
+    await userEvent.type(within(segmentRegion).getByLabelText("Event name"), "project.created");
+    await userEvent.type(within(segmentRegion).getByLabelText("Property name"), "plan");
+    await userEvent.type(within(segmentRegion).getByLabelText("Property value"), "team");
+    await userEvent.click(within(segmentRegion).getByRole("button", { name: "Create segment" }));
+
+    expect(api.createAnalyticsSegment).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Team creators",
+      actorType: "user",
+      definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+    });
+    expect(await screen.findByText("Team creators")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Use as filter" }));
+    expect(api.listEvents).toHaveBeenLastCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      limit: 50,
+      segmentId: "seg_1"
     });
   });
 

@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
 import type { ErrorsTable, EventsTable, LlmCallsTable, SpansTable, TracesTable } from "../schema.js";
+import { getAnalyticsSegment, getAnalyticsSegmentActorIds } from "./analytics-segments.js";
 
 type EventRow = Selectable<EventsTable>;
 type ErrorRow = Selectable<ErrorsTable>;
@@ -29,6 +30,7 @@ export interface TelemetryFilters {
   status?: string;
   fingerprint?: string;
   errorGroupId?: string;
+  segmentId?: string;
   from?: Date;
   to?: Date;
   limit?: number;
@@ -975,6 +977,21 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
   if (traceName) query = query.where("name", "=", traceName);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) {
+      return { data: [] };
+    }
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
+    if (actorIds.length === 0) {
+      return { data: [] };
+    }
+    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+  }
   if (cursor) {
     query = query.where(({ and, eb, or }) =>
       or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])

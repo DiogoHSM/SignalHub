@@ -22,6 +22,7 @@ export type QueryFilters = {
   status?: string;
   fingerprint?: string;
   errorGroupId?: string;
+  segmentId?: string;
   from?: Date;
   to?: Date;
   limit: number;
@@ -364,6 +365,7 @@ function parseFilters(
   const traceId = optionalNonEmpty(raw, "trace_id");
   const traceName = optionalNonEmpty(raw, "trace_name");
   const eventName = optionalNonEmpty(raw, "event_name");
+  const segmentId = optionalNonEmpty(raw, "segment_id");
   const cursor = optionalNonEmpty(raw, "cursor");
 
   if (tenantId) {
@@ -390,6 +392,9 @@ function parseFilters(
   }
   if (options.includeEventName && eventName) {
     filters.eventName = eventName;
+  }
+  if (options.includeEventName && segmentId) {
+    filters.segmentId = segmentId;
   }
   if (options.includeErrorFilters) {
     const severity = optionalNonEmpty(raw, "severity");

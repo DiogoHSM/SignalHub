@@ -36,6 +36,13 @@ import {
   updateProject
 } from "../src/repositories/admin.js";
 import {
+  archiveAnalyticsSegment,
+  createAnalyticsSegment,
+  listAnalyticsSegments,
+  previewAnalyticsSegment,
+  updateAnalyticsSegment
+} from "../src/repositories/analytics-segments.js";
+import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
@@ -8942,6 +8949,81 @@ describe("repositories", () => {
           ]
         })
       ]);
+    });
+  });
+
+  it("manages analytics segments and uses them as event filters", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_seg_u1",
+        userId: "user_1",
+        tenantId: "tenant_1",
+        name: "project.created",
+        properties: { plan: "team" },
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_seg_u1_other",
+        userId: "user_1",
+        tenantId: "tenant_1",
+        name: "invoice.paid",
+        properties: { plan: "team" },
+        timestamp: new Date("2026-05-04T12:01:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_seg_u2",
+        userId: "user_2",
+        tenantId: "tenant_2",
+        name: "project.created",
+        properties: { plan: "free" },
+        timestamp: new Date("2026-05-04T12:02:00.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Team creators",
+        actorType: "user",
+        definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+      });
+
+      await expect(listAnalyticsSegments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: segment.id, name: "Team creators" })
+      ]);
+
+      const preview = await previewAnalyticsSegment(db, segment, {
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+      expect(preview).toMatchObject({ segmentId: segment.id, actorType: "user", actors: 1 });
+      expect(preview.samples).toEqual([expect.objectContaining({ actorId: "user_1" })]);
+
+      const filtered = await listEvents(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        segmentId: segment.id,
+        to: new Date("2026-05-05T12:00:00.000Z"),
+        limit: 10
+      });
+      expect(filtered.data.map((event) => event.id).sort()).toEqual(["evt_seg_u1", "evt_seg_u1_other"]);
+
+      await expect(updateAnalyticsSegment(db, segment.id, { name: "Activated team users" })).resolves.toEqual(
+        expect.objectContaining({ name: "Activated team users" })
+      );
+      await archiveAnalyticsSegment(db, segment.id);
+      await expect(listAnalyticsSegments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
     });
   });
 

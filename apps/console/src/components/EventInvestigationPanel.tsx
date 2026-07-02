@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ApiClient } from "../api/client";
-import type { EventFunnelResponse, EventPropertyCatalogResponse, EventRecord, EventRetentionResponse, QueryFilters } from "../api/types";
+import type {
+  AnalyticsSegment,
+  AnalyticsSegmentActorType,
+  AnalyticsSegmentPreview,
+  EventFunnelResponse,
+  EventPropertyCatalogResponse,
+  EventRecord,
+  EventRetentionResponse,
+  QueryFilters
+} from "../api/types";
 import { EventDetailDrawer } from "./EventDetailDrawer";
 import { EventFilters, type EventFilterValues } from "./EventFilters";
 import { EventList } from "./EventList";
@@ -17,6 +26,7 @@ type LoadState = "loading" | "ready" | "empty" | "unavailable";
 type CatalogState = "loading" | "ready" | "empty" | "unavailable";
 type FunnelState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
 type RetentionState = "idle" | "loading" | "ready" | "invalid" | "unavailable";
+type SegmentState = "loading" | "ready" | "unavailable";
 
 const defaultFilters: EventFilterValues = {
   eventName: "",
@@ -41,7 +51,7 @@ function toLimit(value: string): number {
   return Math.min(500, Math.max(1, Math.trunc(parsed)));
 }
 
-function queryFromValues(projectId: string, environmentId: string, values: EventFilterValues): QueryFilters {
+function queryFromValues(projectId: string, environmentId: string, values: EventFilterValues, segmentId?: string): QueryFilters {
   const query: QueryFilters = {
     projectId,
     environmentId,
@@ -63,6 +73,7 @@ function queryFromValues(projectId: string, environmentId: string, values: Event
   if (traceId) query.traceId = traceId;
   if (from) query.from = from;
   if (to) query.to = to;
+  if (segmentId) query.segmentId = segmentId;
 
   return query;
 }
@@ -376,6 +387,237 @@ function EventRetentionPanel({
   );
 }
 
+function SegmentManager({
+  activeSegmentId,
+  client,
+  environmentId,
+  onSelectSegment,
+  projectId,
+  reloadToken
+}: {
+  activeSegmentId?: string;
+  client: ApiClient;
+  environmentId: string;
+  onSelectSegment: (segmentId: string | undefined) => void;
+  projectId: string;
+  reloadToken: number;
+}) {
+  const [segments, setSegments] = useState<AnalyticsSegment[]>([]);
+  const [previews, setPreviews] = useState<Record<string, AnalyticsSegmentPreview>>({});
+  const [state, setState] = useState<SegmentState>("loading");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [actorType, setActorType] = useState<AnalyticsSegmentActorType>("user");
+  const [eventName, setEventName] = useState("");
+  const [propertyName, setPropertyName] = useState("");
+  const [propertyValue, setPropertyValue] = useState("");
+  const [window, setWindow] = useState<"24h" | "7d" | "30d">("30d");
+  const [error, setError] = useState<string | null>(null);
+  const [localReloadToken, setLocalReloadToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!client.listAnalyticsSegments) {
+      setState("unavailable");
+      return;
+    }
+    setState("loading");
+    void client
+      .listAnalyticsSegments({ projectId, environmentId })
+      .then(
+        ({ segments }) => {
+          if (cancelled) return;
+          setSegments(segments);
+          setState("ready");
+        },
+        () => {
+          if (cancelled) return;
+          setSegments([]);
+          setState("unavailable");
+        }
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, reloadToken, localReloadToken]);
+
+  useEffect(() => {
+    if (!client.previewAnalyticsSegment || segments.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      segments.map((segment) =>
+        client
+          .previewAnalyticsSegment!(segment.id, { projectId, environmentId, limit: 3 })
+          .then(({ preview }) => [segment.id, preview] as const)
+          .catch(() => undefined)
+      )
+    ).then((entries) => {
+      if (cancelled) return;
+      setPreviews(Object.fromEntries(entries.filter((entry): entry is readonly [string, AnalyticsSegmentPreview] => Boolean(entry))));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, segments]);
+
+  function resetForm() {
+    setEditingId(null);
+    setName("");
+    setActorType("user");
+    setEventName("");
+    setPropertyName("");
+    setPropertyValue("");
+    setWindow("30d");
+    setError(null);
+  }
+
+  function editSegment(segment: AnalyticsSegment) {
+    setEditingId(segment.id);
+    setName(segment.name);
+    setActorType(segment.actorType);
+    setEventName(segment.definition.eventName ?? "");
+    setPropertyName(segment.definition.propertyName ?? "");
+    setPropertyValue(segment.definition.propertyValue ?? "");
+    setWindow(segment.definition.window ?? "30d");
+    setError(null);
+  }
+
+  async function saveSegment() {
+    const trimmedName = name.trim();
+    const trimmedEvent = eventName.trim();
+    const trimmedProperty = propertyName.trim();
+    const trimmedValue = propertyValue.trim();
+    if (!trimmedName || (!trimmedEvent && !trimmedProperty)) {
+      setError("Name and at least one event or property condition are required.");
+      return;
+    }
+    const input = {
+      name: trimmedName,
+      actorType,
+      definition: {
+        window,
+        ...(trimmedEvent ? { eventName: trimmedEvent } : {}),
+        ...(trimmedProperty ? { propertyName: trimmedProperty } : {}),
+        ...(trimmedValue ? { propertyValue: trimmedValue } : {})
+      }
+    };
+    try {
+      if (editingId) {
+        await client.updateAnalyticsSegment?.(editingId, input);
+      } else {
+        await client.createAnalyticsSegment?.({ projectId, environmentId, ...input });
+      }
+      resetForm();
+      setLocalReloadToken((current) => current + 1);
+    } catch {
+      setError("Could not save segment.");
+    }
+  }
+
+  async function archiveSegment(segment: AnalyticsSegment) {
+    try {
+      await client.archiveAnalyticsSegment?.(segment.id);
+      if (activeSegmentId === segment.id) {
+        onSelectSegment(undefined);
+      }
+      setLocalReloadToken((current) => current + 1);
+    } catch {
+      setError("Could not archive segment.");
+    }
+  }
+
+  if (state === "unavailable") {
+    return <p className="muted-text">Saved segments unavailable</p>;
+  }
+
+  return (
+    <section aria-label="Saved segments" className="event-segments">
+      <div className="event-segments__header">
+        <div>
+          <h3>Saved segments</h3>
+          <p>Reuse event/property cohorts as filters for this project environment.</p>
+        </div>
+        {activeSegmentId ? (
+          <button onClick={() => onSelectSegment(undefined)} type="button">
+            Clear segment filter
+          </button>
+        ) : null}
+      </div>
+      {state === "loading" ? <p className="muted-text">Loading saved segments</p> : null}
+      <div className="event-segments__grid">
+        <div className="event-segments__list">
+          {segments.length === 0 && state === "ready" ? <p className="muted-text">No saved segments yet.</p> : null}
+          {segments.map((segment) => {
+            const preview = previews[segment.id];
+            return (
+              <div className={segment.id === activeSegmentId ? "event-segments__item is-active" : "event-segments__item"} key={segment.id}>
+                <div>
+                  <strong>{segment.name}</strong>
+                  <small>
+                    {segment.actorType}s · {segment.definition.window ?? "30d"} · {segment.definition.eventName ?? "any event"}
+                  </small>
+                  {segment.definition.propertyName ? (
+                    <small>
+                      {segment.definition.propertyName}
+                      {segment.definition.propertyValue ? ` = ${segment.definition.propertyValue}` : " is present"}
+                    </small>
+                  ) : null}
+                </div>
+                <div className="event-segments__meta">
+                  <span>{preview ? `${preview.actors} actors` : "Preview pending"}</span>
+                  <button onClick={() => onSelectSegment(segment.id)} type="button">Use as filter</button>
+                  <button onClick={() => editSegment(segment)} type="button">Edit</button>
+                  <button onClick={() => void archiveSegment(segment)} type="button">Archive</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="event-segments__form">
+          <label>
+            Segment name
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Activated users" />
+          </label>
+          <label>
+            Actor
+            <select value={actorType} onChange={(event) => setActorType(event.target.value as AnalyticsSegmentActorType)}>
+              <option value="user">Users</option>
+              <option value="tenant">Tenants</option>
+            </select>
+          </label>
+          <label>
+            Window
+            <select value={window} onChange={(event) => setWindow(event.target.value as "24h" | "7d" | "30d")}>
+              <option value="24h">24h</option>
+              <option value="7d">7d</option>
+              <option value="30d">30d</option>
+            </select>
+          </label>
+          <label>
+            Event name
+            <input value={eventName} onChange={(event) => setEventName(event.target.value)} placeholder="project.created" />
+          </label>
+          <label>
+            Property name
+            <input value={propertyName} onChange={(event) => setPropertyName(event.target.value)} placeholder="plan" />
+          </label>
+          <label>
+            Property value
+            <input value={propertyValue} onChange={(event) => setPropertyValue(event.target.value)} placeholder="team" />
+          </label>
+          {error ? <p className="event-segments__error">{error}</p> : null}
+          <div className="event-segments__actions">
+            <button onClick={() => void saveSegment()} type="button">{editingId ? "Save segment" : "Create segment"}</button>
+            {editingId ? <button onClick={resetForm} type="button">Cancel</button> : null}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function EventInvestigationPanel({ client, projectId, environmentId, initialFilters }: Props) {
   const initialFilterKey = JSON.stringify(initialFilters ?? {});
   const hasSyncedInitialFilters = useRef(false);
@@ -394,9 +636,10 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   const [retentionReturnEvent, setRetentionReturnEvent] = useState("app.opened");
   const [retention, setRetention] = useState<EventRetentionResponse | null>(null);
   const [retentionState, setRetentionState] = useState<RetentionState>("idle");
+  const [activeSegmentId, setActiveSegmentId] = useState<string | undefined>();
   const query = useMemo(
-    () => queryFromValues(projectId, environmentId, appliedFilters),
-    [projectId, environmentId, appliedFilters]
+    () => queryFromValues(projectId, environmentId, appliedFilters, activeSegmentId),
+    [projectId, environmentId, appliedFilters, activeSegmentId]
   );
 
   useEffect(() => {
@@ -469,6 +712,7 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
   function resetFilters() {
     setDraftFilters(defaultFilters);
     setAppliedFilters({ ...defaultFilters });
+    setActiveSegmentId(undefined);
     setReloadToken((current) => current + 1);
   }
 
@@ -562,6 +806,17 @@ export function EventInvestigationPanel({ client, projectId, environmentId, init
           <>
             <EventAnalyticsSummary events={events} />
             <EventPropertyGovernance catalog={propertyCatalog} state={propertyCatalogState} />
+            <SegmentManager
+              activeSegmentId={activeSegmentId}
+              client={client}
+              environmentId={environmentId}
+              onSelectSegment={(segmentId) => {
+                setActiveSegmentId(segmentId);
+                setReloadToken((current) => current + 1);
+              }}
+              projectId={projectId}
+              reloadToken={reloadToken}
+            />
             <EventFunnelPanel
               funnel={funnel}
               onChange={setFunnelInput}

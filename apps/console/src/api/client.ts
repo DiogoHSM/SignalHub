@@ -1,6 +1,8 @@
 import type {
   AddTriageNoteInput,
   AggregateResponse,
+  AnalyticsSegment,
+  AnalyticsSegmentPreview,
   ApmEndpointsResponse,
   ApmQuery,
   ApiKey,
@@ -12,6 +14,7 @@ import type {
   AlertSuggestionResponse,
   ConsoleConfig,
   CreateAlertRuleInput,
+  CreateAnalyticsSegmentInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
   CreatedApiKey,
@@ -70,6 +73,7 @@ import type {
   UserListQuery,
   UserListResponse,
   UpdateAlertRuleInput,
+  UpdateAnalyticsSegmentInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput,
@@ -247,6 +251,14 @@ export type ApiClient = {
   createEnvironment: (projectId: string, input: { name: string }) => Promise<{ environment: Environment }>;
   updateEnvironment: (id: string, input: { name?: string }) => Promise<{ environment: Environment }>;
   archiveEnvironment: (id: string) => Promise<void>;
+  listAnalyticsSegments?: (query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId">) => Promise<{ segments: AnalyticsSegment[] }>;
+  createAnalyticsSegment?: (input: CreateAnalyticsSegmentInput) => Promise<{ segment: AnalyticsSegment }>;
+  updateAnalyticsSegment?: (id: string, input: UpdateAnalyticsSegmentInput) => Promise<{ segment: AnalyticsSegment }>;
+  archiveAnalyticsSegment?: (id: string) => Promise<void>;
+  previewAnalyticsSegment?: (
+    id: string,
+    query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId"> & { limit?: number }
+  ) => Promise<{ preview: AnalyticsSegmentPreview }>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
@@ -418,6 +430,7 @@ function queryPath(
     if (filters.status) params.set("status", filters.status);
   }
   if (options.includeEventName && filters.eventName) params.set("event_name", filters.eventName);
+  if (options.includeEventName && filters.segmentId) params.set("segment_id", filters.segmentId);
   if (options.includeErrorFilters) {
     if (filters.severity) params.set("severity", filters.severity);
     if (filters.status) params.set("status", filters.status);
@@ -596,6 +609,26 @@ function eventRetentionPath(query: EventRetentionQuery): string {
   if (query.limit !== undefined) params.set("limit", String(query.limit));
 
   return `/query/events/retention?${params.toString()}`;
+}
+
+function analyticsSegmentsPath(query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/analytics-segments?${params.toString()}`;
+}
+
+function analyticsSegmentPreviewPath(
+  id: string,
+  query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId"> & { limit?: number }
+): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/admin/analytics-segments/${encodePathSegment(id)}/preview?${params.toString()}`;
 }
 
 function serviceMapPath(query: ApmQuery): string {
@@ -789,6 +822,19 @@ export function createApiClient(
       }),
     archiveEnvironment: (id) =>
       request<void>(path(apiBasePath, `/admin/environments/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listAnalyticsSegments: (query) =>
+      request<{ segments: AnalyticsSegment[] }>(path(apiBasePath, analyticsSegmentsPath(query))),
+    createAnalyticsSegment: (input) =>
+      request<{ segment: AnalyticsSegment }>(path(apiBasePath, "/admin/analytics-segments"), { method: "POST", body: input }),
+    updateAnalyticsSegment: (id, input) =>
+      request<{ segment: AnalyticsSegment }>(path(apiBasePath, `/admin/analytics-segments/${encodePathSegment(id)}`), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveAnalyticsSegment: (id) =>
+      request<void>(path(apiBasePath, `/admin/analytics-segments/${encodePathSegment(id)}`), { method: "DELETE" }),
+    previewAnalyticsSegment: (id, query) =>
+      request<{ preview: AnalyticsSegmentPreview }>(path(apiBasePath, analyticsSegmentPreviewPath(id, query))),
     listApiKeys: (projectId) =>
       request<{ apiKeys: ApiKey[] }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/api-keys`)),
     createApiKey: (projectId, input) =>

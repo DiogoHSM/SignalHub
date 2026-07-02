@@ -605,6 +605,11 @@ sigmonBrowser.track("checkout.pay_clicked", {
               <code>GET /query/events/retention</code> groups first-entry actors into daily, weekly, or
               monthly cohorts and counts later return activity.
             </p>
+            <p>
+              Saved segments are built from these same events. Keep actor IDs and properties stable so
+              operators can save reusable user or tenant segments, preview matching actors, and apply a
+              segment back to event investigation with <code>segment_id</code>.
+            </p>
             <h3>Common ingest failures</h3>
             <ul>
               <li><code>invalid_api_key</code>: send <code>Authorization: Bearer &lt;key&gt;</code> and use a browser-scoped key for browser calls.</li>

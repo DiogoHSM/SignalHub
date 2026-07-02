@@ -476,6 +476,58 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes event segment filters in event queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listEvents({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      segmentId: "seg_1",
+      limit: 50
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events?project_id=prj_1&environment_id=env_1&segment_id=seg_1&limit=50",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages analytics segments through admin endpoints", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { segments: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listAnalyticsSegments?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-segments?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { segment: { id: "seg_1" } }));
+    await createApiClient("/api").createAnalyticsSegment?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Team creators",
+      actorType: "user",
+      definition: { window: "30d", eventName: "project.created" }
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-segments",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { preview: { actors: 1 } }));
+    await createApiClient("/api").previewAnalyticsSegment?.("seg/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      limit: 3
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-segments/seg%2F1/preview?project_id=prj_1&environment_id=env_1&limit=3",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

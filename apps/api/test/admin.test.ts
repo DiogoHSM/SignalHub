@@ -4,6 +4,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -36,6 +37,43 @@ function sourceMapArtifact(overrides: Partial<Record<string, unknown>> = {}) {
     uploadedByTokenId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsSegment(overrides: Partial<AnalyticsSegmentRecord> = {}): AnalyticsSegmentRecord {
+  return {
+    id: "seg_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    name: "Team creators",
+    description: null,
+    actorType: "user",
+    definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsSegmentResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...analyticsSegment(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsSegmentPreview(overrides: Partial<AnalyticsSegmentPreview> = {}): AnalyticsSegmentPreview {
+  return {
+    segmentId: "seg_1",
+    actorType: "user",
+    window: "30d",
+    actors: 1,
+    samples: [{ actorId: "user_1", lastSeenAt: "2026-01-01T00:00:00.000Z" }],
     ...overrides
   };
 }
@@ -563,6 +601,115 @@ describe("admin routes", () => {
     const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_1" });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archivedOriginIds).toEqual(["borg_1"]);
+  });
+
+  it("manages analytics segments for admins", async () => {
+    const list = vi.fn(async () => [analyticsSegment()]);
+    const create = vi.fn(async (input) => analyticsSegment(input));
+    const update = vi.fn(async (_id, input) => analyticsSegment({ ...input, id: "seg_1" }));
+    const archive = vi.fn(async () => undefined);
+    const get = vi.fn(async () => analyticsSegment());
+    const preview = vi.fn(async () => analyticsSegmentPreview());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: { list, create, update, archive, get, preview }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics-segments?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ segments: [analyticsSegmentResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-segments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Team creators",
+        actorType: "user",
+        definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Team creators",
+      actorType: "user",
+      definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+    });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/analytics-segments/seg_1",
+      payload: { name: "Activated users" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith("seg_1", { name: "Activated users" });
+
+    const previewResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics-segments/seg_1/preview?project_id=prj_1&environment_id=env_1&limit=3"
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    expect(previewResponse.json()).toEqual({
+      preview: {
+        segmentId: "seg_1",
+        actorType: "user",
+        window: "30d",
+        actors: 1,
+        samples: [{ actorId: "user_1", lastSeenAt: "2026-01-01T00:00:00.000Z" }]
+      }
+    });
+    expect(get).toHaveBeenCalledWith({ id: "seg_1", projectId: "prj_1", environmentId: "env_1" });
+    expect(preview).toHaveBeenCalledWith(analyticsSegment(), { limit: 3 });
+
+    const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/analytics-segments/seg_1" });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith("seg_1");
+  });
+
+  it("rejects analytics segments without any condition", async () => {
+    const create = vi.fn(async () => analyticsSegment());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined,
+          get: async () => undefined,
+          preview: async () => analyticsSegmentPreview({ actors: 0, samples: [] })
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-segments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Invalid",
+        actorType: "user",
+        definition: { window: "30d" }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_analytics_segment_request" });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("rejects invalid browser origins", async () => {

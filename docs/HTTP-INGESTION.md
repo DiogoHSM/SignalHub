@@ -148,6 +148,16 @@ Example query:
 GET /query/events/retention?project_id=prj_123&environment_id=env_123&window=30d&entry_event=signup.started&return_event=app.opened&period=weekly&intervals=6
 ```
 
+### Saved segments
+
+Operators can save reusable user or tenant segments from event conditions in the console. The first segment model is intentionally bounded: it supports an actor type (`user` or `tenant`), a window (`24h`, `7d`, or `30d`), an optional event name, and an optional event property condition. Saved segments can be previewed and applied to `GET /query/events` with `segment_id`.
+
+Example query:
+
+```http
+GET /query/events?project_id=prj_123&environment_id=env_123&segment_id=seg_123
+```
+
 ## Errors
 
 Required fields:

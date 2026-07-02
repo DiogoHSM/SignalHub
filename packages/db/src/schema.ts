@@ -37,6 +37,21 @@ export interface ProjectBrowserOriginsTable {
   archived_at: NullableTimestamp;
 }
 
+export type AnalyticsSegmentActorType = "user" | "tenant";
+
+export interface AnalyticsSegmentsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  description: string | null;
+  actor_type: AnalyticsSegmentActorType;
+  definition: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -578,6 +593,7 @@ export interface Database {
   users: UsersTable;
   projects: ProjectsTable;
   project_browser_origins: ProjectBrowserOriginsTable;
+  analytics_segments: AnalyticsSegmentsTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;

@@ -98,6 +98,10 @@ Retention curves use the same product events. Pick a stable entry event such as 
 return event such as `app.opened`; Sigmon groups actors into daily, weekly, or monthly cohorts from the
 first entry event and counts later return activity.
 
+Saved segments also come from normal event telemetry. Keep actor identifiers and event properties
+consistent so operators can save reusable user or tenant cohorts such as "team plan users who created
+a project in the last 30 days" and apply them back to event investigation.
+
 Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
 
 ```ts

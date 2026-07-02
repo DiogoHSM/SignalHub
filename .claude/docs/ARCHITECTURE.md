@@ -58,6 +58,7 @@ Operational tables:
 - `notification_deliveries`
 - `monitors`
 - `monitor_checks`
+- `analytics_segments`
 - `source_map_artifacts`
 - `source_map_upload_tokens`
 - `error_stack_resolutions`
@@ -129,6 +130,9 @@ Admin:
 - `/admin/monitors/heartbeat`
 - `/admin/monitors/:id`
 - `/admin/monitors/:id/checks`
+- `/admin/analytics-segments`
+- `/admin/analytics-segments/:id`
+- `/admin/analytics-segments/:id/preview`
 - `/admin/source-maps`
 - `/admin/source-map-upload-tokens`
 
@@ -235,6 +239,8 @@ The Events query supports exact `event_name` filtering in addition to project, e
 `GET /query/events/funnel` analyzes ordered product-event conversion for a selected project/environment window. The first implementation is read-only and stateless: operators pass 2+ event names, and the query computes actor progression using `user_id`, then `tenant_id`, `session_id`, or `trace_id` as the actor key. It returns per-step actors, conversion, drop-off, and sample actors without adding persisted funnel definitions yet.
 
 `GET /query/events/retention` analyzes temporal retention for a selected project/environment window. The first implementation is read-only and stateless: operators pass an entry event, a return event, a period (`daily`, `weekly`, or `monthly`), and interval count. The query groups actors by their first entry event cohort and counts later return events per interval using the same actor-key fallback as funnels.
+
+Saved analytics segments live in `analytics_segments` and are scoped to one project/environment. Segment definitions are bounded JSON, not arbitrary SQL: actor type (`user` or `tenant`), window, optional event name, and optional event property condition. Admin routes create, edit, archive, list, and preview active segments. `GET /query/events` accepts `segment_id` to filter event investigation to actors matching a saved segment.
 
 High-volume investigation lists use opaque cursor pagination scoped to the exact project, environment, and active filters. This includes events, errors, LLM calls, traces, trace spans, error groups, source-map artifacts, and monitor check history. Monitor check cursors are additionally bound to the selected monitor id. Query migrations keep composite indexes aligned with the primary drilldown patterns for scope/time, trace id, tenant id, user id, source-map release, alert events, and error group ordering so operator views can page without broad table scans.
 

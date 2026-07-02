@@ -22,6 +22,14 @@ import {
   updateProject
 } from "@sigmon/db/repositories/admin.js";
 import {
+  archiveAnalyticsSegment,
+  createAnalyticsSegment,
+  getAnalyticsSegment,
+  listAnalyticsSegments,
+  previewAnalyticsSegment,
+  updateAnalyticsSegment
+} from "@sigmon/db/repositories/analytics-segments.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -581,6 +589,14 @@ const app = await buildApp({
       list: (projectId) => listProjectBrowserOrigins(db, projectId),
       create: (input) => createProjectBrowserOrigin(db, input),
       archive: (id) => archiveProjectBrowserOrigin(db, id)
+    },
+    analyticsSegments: {
+      list: (filters) => listAnalyticsSegments(db, filters),
+      create: (input) => createAnalyticsSegment(db, input),
+      update: (id, input) => updateAnalyticsSegment(db, id, input),
+      archive: (id) => archiveAnalyticsSegment(db, id),
+      get: (input) => getAnalyticsSegment(db, input),
+      preview: (segment, input) => previewAnalyticsSegment(db, segment, input)
     }
   },
   ingestion: {

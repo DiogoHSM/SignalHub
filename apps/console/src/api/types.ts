@@ -39,6 +39,50 @@ export type BrowserOrigin = {
   archivedAt: string | null;
 };
 
+export type AnalyticsSegmentActorType = "user" | "tenant";
+
+export type AnalyticsSegmentDefinition = {
+  window?: ApmWindow;
+  eventName?: string;
+  propertyName?: string;
+  propertyValue?: string;
+};
+
+export type AnalyticsSegment = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description: string | null;
+  actorType: AnalyticsSegmentActorType;
+  definition: AnalyticsSegmentDefinition;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateAnalyticsSegmentInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description?: string | null;
+  actorType: AnalyticsSegmentActorType;
+  definition: AnalyticsSegmentDefinition;
+};
+
+export type UpdateAnalyticsSegmentInput = Partial<Omit<CreateAnalyticsSegmentInput, "projectId" | "environmentId">>;
+
+export type AnalyticsSegmentPreview = {
+  segmentId: string;
+  actorType: AnalyticsSegmentActorType;
+  window: ApmWindow;
+  actors: number;
+  samples: Array<{
+    actorId: string;
+    lastSeenAt: string;
+  }>;
+};
+
 export type CreatedApiKey = ApiKey & {
   secret: string;
 };
@@ -1605,6 +1649,7 @@ export type QueryFilters = {
   status?: string;
   fingerprint?: string;
   errorGroupId?: string;
+  segmentId?: string;
   provider?: string;
   model?: string;
   promptName?: string;
