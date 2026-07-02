@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiClient } from "../api/client";
+import { AnalyticsDashboardsPanel } from "./AnalyticsDashboardsPanel";
 import { EntitiesInvestigationPanel } from "./EntitiesInvestigationPanel";
 import type { ErrorFilterValues } from "./ErrorFilters";
 import { ErrorInvestigationPanel } from "./ErrorInvestigationPanel";
@@ -20,7 +21,7 @@ type Props = {
   onOpenIncident?: (groupId: string, options?: { errorId?: string }) => void;
 };
 
-export type InvestigationTab = "events" | "errors" | "traces" | "llm" | "entities" | "users";
+export type InvestigationTab = "dashboards" | "events" | "errors" | "traces" | "llm" | "entities" | "users";
 
 export type InvestigationInitialFilters = {
   events?: Partial<EventFilterValues>;
@@ -82,6 +83,9 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
         <h2>Investigate</h2>
       </div>
       <nav className="investigation-tabs" aria-label="Investigation views">
+        <button aria-pressed={activeTab === "dashboards"} onClick={() => setActiveTab("dashboards")} type="button">
+          Dashboards
+        </button>
         <button aria-pressed={activeTab === "events"} onClick={() => setActiveTab("events")} type="button">
           Events
         </button>
@@ -101,6 +105,9 @@ export function InvestigationWorkspace({ client, projectId, environmentId, initi
           Users
         </button>
       </nav>
+      {activeTab === "dashboards" ? (
+        <AnalyticsDashboardsPanel client={client} environmentId={environmentId} projectId={projectId} />
+      ) : null}
       {activeTab === "events" ? (
         <EventInvestigationPanel
           client={client}

@@ -1396,6 +1396,67 @@ describe("query routes", () => {
     ]);
   });
 
+  it("renders saved dashboard reports from overview data", async () => {
+    const dashboardCalls: unknown[] = [];
+    const overviewCalls: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getAnalyticsDashboard: async (input) => {
+          dashboardCalls.push(input);
+          return {
+            id: "dash_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            name: "Operations report",
+            description: null,
+            category: "operational",
+            filters: { window: "30d" },
+            widgets: [
+              { id: "wid_1", type: "metric.events", title: "Events", width: "half", options: {} },
+              { id: "wid_2", type: "trend.errors", title: "Errors over time", width: "full", options: {} },
+              { id: "wid_3", type: "top.events", title: "Top events", width: "full", options: {} }
+            ],
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+            archivedAt: null
+          };
+        },
+        getOverview: async (filters) => {
+          overviewCalls.push(filters);
+          return {
+            kpis: { events: 12, errors: 2, openErrors: 1 },
+            trends: {
+              usage: [{ bucketStart: "2026-01-01T00:00:00.000Z", events: 12 }],
+              errors: [{ bucketStart: "2026-01-01T00:00:00.000Z", errors: 2, openErrors: 1 }]
+            },
+            top: { events: [{ name: "checkout.started", total: 8 }] }
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/reports/dashboards/dash_1?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      dashboard: { id: "dash_1", name: "Operations report" },
+      window: "30d",
+      widgets: [
+        { widgetId: "wid_1", type: "metric.events", data: { value: 12, label: "Events" } },
+        { widgetId: "wid_2", type: "trend.errors" },
+        { widgetId: "wid_3", type: "top.events", data: { rows: [{ name: "checkout.started", total: 8 }] } }
+      ]
+    });
+    expect(dashboardCalls).toEqual([{ id: "dash_1", projectId: "prj_1", environmentId: "env_1" }]);
+    expect(overviewCalls).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "30d" }]);
+  });
+
   it("rejects unsupported overview windows", async () => {
     app = await buildApp({
       readiness,

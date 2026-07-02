@@ -69,6 +69,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Events should let operators run ad hoc retention curves from entry and return event names in the active project/environment. Show cohort labels, entrant counts, interval labels, retained actor counts, and percentages in a compact matrix.
 - Events should let operators save reusable user or tenant segments from safe event/property conditions, preview matching actors, edit/archive old segments, and apply an active segment back to raw event investigation without writing SQL.
 - Events should let operators run ad hoc user journey paths from a start or end event, choose the actor context, see the most common compact paths, and drill from path samples back into the exact raw event.
+- Investigate should include a Dashboards workspace for saved project/environment reports. Operators can create bounded dashboards, choose a report window, archive stale dashboards, and read metric, trend, and top-list widgets derived from existing overview aggregates without writing SQL.
 - Event rows should prioritize event name, immutable id, timestamp, source, user, tenant, trace/session context, and compact property chips for quick scanning.
 - Investigation detail drawers, event rows, filters, and aggregate strips should share the dark console surface language so raw telemetry inspection feels like one professional workspace.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.

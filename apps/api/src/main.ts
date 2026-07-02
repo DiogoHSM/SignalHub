@@ -30,6 +30,13 @@ import {
   updateAnalyticsSegment
 } from "@sigmon/db/repositories/analytics-segments.js";
 import {
+  archiveAnalyticsDashboard,
+  createAnalyticsDashboard,
+  getAnalyticsDashboard,
+  listAnalyticsDashboards,
+  updateAnalyticsDashboard
+} from "@sigmon/db/repositories/analytics-dashboards.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -598,6 +605,12 @@ const app = await buildApp({
       archive: (id) => archiveAnalyticsSegment(db, id),
       get: (input) => getAnalyticsSegment(db, input),
       preview: (segment, input) => previewAnalyticsSegment(db, segment, input)
+    },
+    analyticsDashboards: {
+      list: (filters) => listAnalyticsDashboards(db, filters),
+      create: (input) => createAnalyticsDashboard(db, input),
+      update: (input) => updateAnalyticsDashboard(db, input),
+      archive: (input) => archiveAnalyticsDashboard(db, input)
     }
   },
   ingestion: {
@@ -639,6 +652,7 @@ const app = await buildApp({
     getServiceMap: (filters) => getServiceMap(db, filters),
     getWebVitals: (filters) => getWebVitals(db, filters),
     getRuntimeProfiles: (filters) => getRuntimeProfiles(db, filters),
+    getAnalyticsDashboard: (input) => getAnalyticsDashboard(db, input),
     getTraceAggregates: (filters) => getTraceAggregates(db, filters),
     listEntityTenants: (filters) => listEntityTenants(db, filters),
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),

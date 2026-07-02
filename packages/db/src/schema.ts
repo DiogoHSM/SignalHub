@@ -52,6 +52,20 @@ export interface AnalyticsSegmentsTable {
   archived_at: NullableTimestamp;
 }
 
+export interface AnalyticsDashboardsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  description: string | null;
+  category: "executive" | "operational" | "product";
+  filters: JsonColumn;
+  widgets: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -594,6 +608,7 @@ export interface Database {
   projects: ProjectsTable;
   project_browser_origins: ProjectBrowserOriginsTable;
   analytics_segments: AnalyticsSegmentsTable;
+  analytics_dashboards: AnalyticsDashboardsTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;

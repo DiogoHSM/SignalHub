@@ -5,6 +5,7 @@ import type { SourceMapResolutionResponse } from "../source-maps/resolver.js";
 import type { AuthDependencies } from "./auth.js";
 import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
 import type { AddTriageNoteResult, AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
+import type { AnalyticsDashboardRecord, AnalyticsDashboardWidget } from "@sigmon/db/repositories/analytics-dashboards.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -243,6 +244,7 @@ export type QueryDependencies = {
   getLlmByTenant?: (filters: LlmAggregateFilters) => Promise<unknown>;
   getLlmByPrompt?: (filters: LlmAggregateFilters) => Promise<unknown>;
   getLlmCostByModel?: (filters: LlmAggregateFilters) => Promise<unknown>;
+  getAnalyticsDashboard?: (input: { id: string; projectId: string; environmentId: string }) => Promise<AnalyticsDashboardRecord | null | undefined>;
 };
 
 export type QueryRouteOptions = {
@@ -256,6 +258,7 @@ const entityTenantParamsSchema = z.object({ tenantKey: z.string().trim().min(1) 
 const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
 const errorParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupParamsSchema = z.object({ id: z.string().trim().min(1) });
+const dashboardParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupStatusSchema = z.enum(["open", "investigating", "resolved", "ignored"]);
 const errorGroupPrioritySchema = z.enum(["urgent", "high", "normal", "low"]);
 const errorGroupIncidentScopeSchema = z.object({
@@ -719,6 +722,26 @@ function parseOperationsFilters(query: unknown): OperationsFilters | undefined {
     projectId,
     environmentId,
     window: rawWindow
+  };
+}
+
+function parseDashboardReportFilters(query: unknown): (Omit<OverviewFilters, "window"> & { window?: OverviewWindow }) | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const rawWindow = optionalNonEmpty(raw, "window");
+  if (rawWindow && rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    ...(rawWindow ? { window: rawWindow as OverviewWindow } : {})
   };
 }
 
@@ -1277,6 +1300,95 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
     return reply.send({ data: await options.query.getOverview(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+function dashboardWidgetData(widget: AnalyticsDashboardWidget, overview: unknown): unknown {
+  const data = overview as {
+    kpis: { events: number; errors: number; openErrors: number };
+    trends: {
+      usage: Array<{ bucketStart: string; events: number }>;
+      errors: Array<{ bucketStart: string; errors: number; openErrors: number }>;
+    };
+    top: { events: Array<{ name: string; total: number }> };
+  };
+  if (widget.type === "metric.events") {
+    return { value: data.kpis.events, label: "Events" };
+  }
+  if (widget.type === "metric.errors") {
+    return { value: data.kpis.errors, open: data.kpis.openErrors, label: "Errors" };
+  }
+  if (widget.type === "top.events") {
+    return { rows: data.top.events };
+  }
+  if (widget.type === "trend.events") {
+    return {
+      buckets: data.trends.usage.map((row) => row.bucketStart),
+      series: [{ label: "Events", values: data.trends.usage.map((row) => row.events) }]
+    };
+  }
+  if (widget.type === "trend.errors") {
+    return {
+      buckets: data.trends.errors.map((row) => row.bucketStart),
+      series: [
+        { label: "Errors", values: data.trends.errors.map((row) => row.errors) },
+        { label: "Open", values: data.trends.errors.map((row) => row.openErrors) }
+      ]
+    };
+  }
+  return null;
+}
+
+async function handleDashboardReportRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getAnalyticsDashboard || !options.query?.getOverview) {
+    return reply.status(501).send({ error: "dashboard_reports_unavailable" });
+  }
+
+  const params = dashboardParamsSchema.safeParse(request.params);
+  const filters = parseDashboardReportFilters(request.query);
+  if (!params.success || !filters) {
+    return reply.status(400).send({ error: "invalid_dashboard_report_request" });
+  }
+
+  try {
+    const dashboard = await options.query.getAnalyticsDashboard({
+      id: params.data.id,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!dashboard) {
+      return reply.status(404).send({ error: "dashboard_not_found" });
+    }
+
+    const window = filters.window ?? dashboard.filters.window ?? "7d";
+    const overview = await options.query.getOverview({ projectId: filters.projectId, environmentId: filters.environmentId, window });
+
+    return reply.send({
+      data: {
+        dashboard,
+        generatedAt: new Date().toISOString(),
+        scope: {
+          projectId: filters.projectId,
+          environmentId: filters.environmentId
+        },
+        window,
+        widgets: dashboard.widgets.map((widget) => ({
+          widgetId: widget.id,
+          type: widget.type,
+          title: widget.title,
+          width: widget.width,
+          status: "ok",
+          data: dashboardWidgetData(widget, overview)
+        }))
+      }
+    });
+  } catch {
+    return reply.status(503).send({ error: "dashboard_report_unavailable" });
   }
 }
 
@@ -2062,6 +2174,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/events/paths", (request, reply) => handleEventPathsRoute(request, reply, options));
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
+  app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));

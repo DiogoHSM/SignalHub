@@ -31,6 +31,13 @@ import type {
   AnalyticsSegmentPreview,
   AnalyticsSegmentRecord
 } from "@sigmon/db/repositories/analytics-segments.js";
+import type {
+  AnalyticsDashboardCategory,
+  AnalyticsDashboardFilters,
+  AnalyticsDashboardRecord,
+  AnalyticsDashboardWidgetInput,
+  AnalyticsDashboardWidgetType
+} from "@sigmon/db/repositories/analytics-dashboards.js";
 
 export interface AdminProject {
   id: string;
@@ -109,6 +116,7 @@ export type AdminResourceDependencies = {
   apiKeys?: ApiKeyAdministrationDependencies;
   browserOrigins?: BrowserOriginAdministrationDependencies;
   analyticsSegments?: AnalyticsSegmentAdministrationDependencies;
+  analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
 };
 
 export type AnalyticsSegmentAdministrationDependencies = {
@@ -118,6 +126,18 @@ export type AnalyticsSegmentAdministrationDependencies = {
   archive: (id: string) => Promise<void>;
   get: (input: { id: string; projectId: string; environmentId: string }) => Promise<AnalyticsSegmentRecord | null | undefined>;
   preview: (segment: AnalyticsSegmentRecord, input?: { limit?: number }) => Promise<AnalyticsSegmentPreview>;
+};
+
+export type AnalyticsDashboardAdministrationDependencies = {
+  list: (filters: { projectId: string; environmentId: string }) => Promise<AnalyticsDashboardRecord[]>;
+  create: (input: CreateAnalyticsDashboardInput) => Promise<AnalyticsDashboardRecord>;
+  update: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    patch: UpdateAnalyticsDashboardInput;
+  }) => Promise<AnalyticsDashboardRecord | null | undefined>;
+  archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
 export type AlertAdministrationDependencies = {
@@ -569,6 +589,58 @@ type CreateAnalyticsSegmentInput = z.infer<typeof analyticsSegmentSchema> & {
 type UpdateAnalyticsSegmentInput = z.infer<typeof updateAnalyticsSegmentSchema> & {
   actorType?: AnalyticsSegmentActorType;
   definition?: AnalyticsSegmentDefinition;
+};
+
+const analyticsDashboardCategorySchema = z.enum(["executive", "operational", "product"]);
+const analyticsDashboardWidgetTypeSchema = z.enum(["metric.events", "metric.errors", "top.events", "trend.events", "trend.errors"]);
+const analyticsDashboardFiltersSchema = z.object({
+  window: analyticsSegmentWindowSchema.optional(),
+  tenantId: z.string().trim().min(1).max(256).optional(),
+  userId: z.string().trim().min(1).max(256).optional(),
+  segmentId: z.string().trim().min(1).max(256).optional()
+});
+const createAnalyticsDashboardFiltersSchema = z.object({
+  window: analyticsSegmentWindowSchema.default("7d"),
+  tenantId: z.string().trim().min(1).max(256).optional(),
+  userId: z.string().trim().min(1).max(256).optional(),
+  segmentId: z.string().trim().min(1).max(256).optional()
+});
+const analyticsDashboardWidgetSchema = z.object({
+  id: z.string().trim().min(1).max(256).optional(),
+  type: analyticsDashboardWidgetTypeSchema,
+  title: z.string().trim().min(1).max(120),
+  width: z.enum(["half", "full"]).default("half"),
+  options: z.record(z.string(), z.unknown()).default({})
+});
+const analyticsDashboardScopeQuerySchema = analyticsSegmentScopeQuerySchema;
+const analyticsDashboardSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  category: analyticsDashboardCategorySchema.default("operational"),
+  filters: createAnalyticsDashboardFiltersSchema.default({ window: "7d" }),
+  widgets: z.array(analyticsDashboardWidgetSchema).min(3).max(20)
+});
+const updateAnalyticsDashboardSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional(),
+    description: z.string().trim().max(1024).nullable().optional(),
+    category: analyticsDashboardCategorySchema.optional(),
+    filters: analyticsDashboardFiltersSchema.optional(),
+    widgets: z.array(analyticsDashboardWidgetSchema).min(3).max(20).optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
+type CreateAnalyticsDashboardInput = z.infer<typeof analyticsDashboardSchema> & {
+  category: AnalyticsDashboardCategory;
+  filters: AnalyticsDashboardFilters;
+  widgets: Array<AnalyticsDashboardWidgetInput & { type: AnalyticsDashboardWidgetType }>;
+};
+type UpdateAnalyticsDashboardInput = z.infer<typeof updateAnalyticsDashboardSchema> & {
+  category?: AnalyticsDashboardCategory;
+  filters?: AnalyticsDashboardFilters;
+  widgets?: Array<AnalyticsDashboardWidgetInput & { type: AnalyticsDashboardWidgetType }>;
 };
 type CreateNotificationChannelInput = z.infer<typeof notificationChannelSchema>;
 type UpdateNotificationChannelInput = z.infer<typeof updateNotificationChannelSchema>;
@@ -1337,6 +1409,116 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.send({ preview });
     } catch {
       return reply.status(503).send({ error: "analytics_segments_unavailable" });
+    }
+  });
+
+  app.get("/admin/analytics-dashboards", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsDashboards) {
+      return reply.status(501).send({ error: "analytics_dashboards_repository_unavailable" });
+    }
+
+    const query = analyticsDashboardScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_analytics_dashboard_request" });
+    }
+
+    try {
+      const dashboards = await options.adminResources.analyticsDashboards.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ dashboards });
+    } catch {
+      return reply.status(503).send({ error: "analytics_dashboards_unavailable" });
+    }
+  });
+
+  app.post("/admin/analytics-dashboards", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsDashboards) {
+      return reply.status(501).send({ error: "analytics_dashboards_repository_unavailable" });
+    }
+
+    const parsed = analyticsDashboardSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_analytics_dashboard_request" });
+    }
+
+    try {
+      const dashboard = await options.adminResources.analyticsDashboards.create(parsed.data);
+      return reply.status(201).send({ dashboard });
+    } catch {
+      return reply.status(503).send({ error: "analytics_dashboards_unavailable" });
+    }
+  });
+
+  app.patch("/admin/analytics-dashboards/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsDashboards) {
+      return reply.status(501).send({ error: "analytics_dashboards_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = analyticsDashboardScopeQuerySchema.safeParse(request.query);
+    const parsed = updateAnalyticsDashboardSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_analytics_dashboard_request" });
+    }
+
+    try {
+      const dashboard = await options.adminResources.analyticsDashboards.update({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        patch: parsed.data
+      });
+      if (!dashboard) {
+        return reply.status(404).send({ error: "analytics_dashboard_not_found" });
+      }
+      return reply.send({ dashboard });
+    } catch {
+      return reply.status(503).send({ error: "analytics_dashboards_unavailable" });
+    }
+  });
+
+  app.delete("/admin/analytics-dashboards/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.analyticsDashboards) {
+      return reply.status(501).send({ error: "analytics_dashboards_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = analyticsDashboardScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_analytics_dashboard_request" });
+    }
+
+    try {
+      await options.adminResources.analyticsDashboards.archive({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "analytics_dashboards_unavailable" });
     }
   });
 

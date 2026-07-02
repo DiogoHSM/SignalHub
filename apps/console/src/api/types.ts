@@ -83,6 +83,71 @@ export type AnalyticsSegmentPreview = {
   }>;
 };
 
+export type AnalyticsDashboardCategory = "executive" | "operational" | "product";
+export type AnalyticsDashboardWidgetType = "metric.events" | "metric.errors" | "top.events" | "trend.events" | "trend.errors";
+
+export type AnalyticsDashboardFilters = {
+  window?: ApmWindow;
+  tenantId?: string;
+  userId?: string;
+  segmentId?: string;
+};
+
+export type AnalyticsDashboardWidget = {
+  id?: string;
+  type: AnalyticsDashboardWidgetType;
+  title: string;
+  width: "half" | "full";
+  options: Record<string, unknown>;
+};
+
+export type AnalyticsDashboard = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description: string | null;
+  category: AnalyticsDashboardCategory;
+  filters: AnalyticsDashboardFilters;
+  widgets: Array<AnalyticsDashboardWidget & { id: string }>;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateAnalyticsDashboardInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description?: string | null;
+  category?: AnalyticsDashboardCategory;
+  filters?: AnalyticsDashboardFilters;
+  widgets: AnalyticsDashboardWidget[];
+};
+
+export type UpdateAnalyticsDashboardInput = Partial<Omit<CreateAnalyticsDashboardInput, "projectId" | "environmentId">>;
+
+export type DashboardReportWidget = {
+  widgetId: string;
+  type: AnalyticsDashboardWidgetType;
+  title: string;
+  width: "half" | "full";
+  status: "ok" | "error";
+  data: unknown;
+  error?: string;
+};
+
+export type DashboardReportResponse = {
+  dashboard: AnalyticsDashboard;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  window: ApmWindow;
+  widgets: DashboardReportWidget[];
+};
+
 export type CreatedApiKey = ApiKey & {
   secret: string;
 };

@@ -1,6 +1,7 @@
 import type {
   AddTriageNoteInput,
   AggregateResponse,
+  AnalyticsDashboard,
   AnalyticsSegment,
   AnalyticsSegmentPreview,
   ApmEndpointsResponse,
@@ -14,12 +15,14 @@ import type {
   AlertSuggestionResponse,
   ConsoleConfig,
   CreateAlertRuleInput,
+  CreateAnalyticsDashboardInput,
   CreateAnalyticsSegmentInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
   CreatedApiKey,
   CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
+  DashboardReportResponse,
   Environment,
   ErrorGroupIncident,
   ErrorGroupIncidentQuery,
@@ -75,6 +78,7 @@ import type {
   UserListQuery,
   UserListResponse,
   UpdateAlertRuleInput,
+  UpdateAnalyticsDashboardInput,
   UpdateAnalyticsSegmentInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
@@ -261,6 +265,18 @@ export type ApiClient = {
     id: string,
     query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId"> & { limit?: number }
   ) => Promise<{ preview: AnalyticsSegmentPreview }>;
+  listAnalyticsDashboards?: (query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">) => Promise<{ dashboards: AnalyticsDashboard[] }>;
+  createAnalyticsDashboard?: (input: CreateAnalyticsDashboardInput) => Promise<{ dashboard: AnalyticsDashboard }>;
+  updateAnalyticsDashboard?: (
+    id: string,
+    query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">,
+    input: UpdateAnalyticsDashboardInput
+  ) => Promise<{ dashboard: AnalyticsDashboard }>;
+  archiveAnalyticsDashboard?: (id: string, query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">) => Promise<void>;
+  getDashboardReport?: (
+    id: string,
+    query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+  ) => Promise<AggregateResponse<DashboardReportResponse>>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
@@ -656,6 +672,34 @@ function analyticsSegmentPreviewPath(
   return `/admin/analytics-segments/${encodePathSegment(id)}/preview?${params.toString()}`;
 }
 
+function analyticsDashboardsPath(query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/analytics-dashboards?${params.toString()}`;
+}
+
+function analyticsDashboardScopedPath(id: string, query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/analytics-dashboards/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function dashboardReportPath(
+  id: string,
+  query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.window) params.set("window", query.window);
+
+  return `/query/reports/dashboards/${encodePathSegment(id)}?${params.toString()}`;
+}
+
 function serviceMapPath(query: ApmQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -860,6 +904,19 @@ export function createApiClient(
       request<void>(path(apiBasePath, `/admin/analytics-segments/${encodePathSegment(id)}`), { method: "DELETE" }),
     previewAnalyticsSegment: (id, query) =>
       request<{ preview: AnalyticsSegmentPreview }>(path(apiBasePath, analyticsSegmentPreviewPath(id, query))),
+    listAnalyticsDashboards: (query) =>
+      request<{ dashboards: AnalyticsDashboard[] }>(path(apiBasePath, analyticsDashboardsPath(query))),
+    createAnalyticsDashboard: (input) =>
+      request<{ dashboard: AnalyticsDashboard }>(path(apiBasePath, "/admin/analytics-dashboards"), { method: "POST", body: input }),
+    updateAnalyticsDashboard: (id, query, input) =>
+      request<{ dashboard: AnalyticsDashboard }>(path(apiBasePath, analyticsDashboardScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveAnalyticsDashboard: (id, query) =>
+      request<void>(path(apiBasePath, analyticsDashboardScopedPath(id, query)), { method: "DELETE" }),
+    getDashboardReport: (id, query) =>
+      request<AggregateResponse<DashboardReportResponse>>(path(apiBasePath, dashboardReportPath(id, query))),
     listApiKeys: (projectId) =>
       request<{ apiKeys: ApiKey[] }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/api-keys`)),
     createApiKey: (projectId, input) =>

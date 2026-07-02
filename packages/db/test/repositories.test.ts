@@ -43,6 +43,12 @@ import {
   updateAnalyticsSegment
 } from "../src/repositories/analytics-segments.js";
 import {
+  archiveAnalyticsDashboard,
+  createAnalyticsDashboard,
+  listAnalyticsDashboards,
+  updateAnalyticsDashboard
+} from "../src/repositories/analytics-dashboards.js";
+import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
@@ -9074,6 +9080,53 @@ describe("repositories", () => {
       );
       await archiveAnalyticsSegment(db, segment.id);
       await expect(listAnalyticsSegments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages scoped analytics dashboards with bounded widgets", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Dashboards Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const dashboard = await createAnalyticsDashboard(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Operations report",
+        category: "operational",
+        filters: { window: "7d" },
+        widgets: [
+          { type: "metric.events", title: "Events", width: "half", options: {} },
+          { type: "metric.errors", title: "Errors", width: "half", options: {} },
+          { type: "top.events", title: "Top events", width: "full", options: {} }
+        ]
+      });
+
+      expect(dashboard).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Operations report",
+        filters: { window: "7d" }
+      });
+      expect(dashboard.widgets).toHaveLength(3);
+      expect(dashboard.widgets[0]?.id).toMatch(/^wid_/);
+
+      await expect(listAnalyticsDashboards(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: dashboard.id, name: "Operations report" })
+      ]);
+
+      await expect(
+        updateAnalyticsDashboard(db, {
+          id: dashboard.id,
+          projectId: project.id,
+          environmentId: environment.id,
+          patch: { name: "Executive report", category: "executive", filters: { window: "30d" } }
+        })
+      ).resolves.toEqual(expect.objectContaining({ name: "Executive report", category: "executive", filters: { window: "30d" } }));
+
+      await archiveAnalyticsDashboard(db, { id: dashboard.id, projectId: project.id, environmentId: environment.id });
+      await expect(listAnalyticsDashboards(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
     });
   });
 

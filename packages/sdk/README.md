@@ -106,6 +106,10 @@ User journey paths use the same events to find common sequences before or after 
 stable `userId`, `tenantId`, `sessionId`, or `traceId` context on each product event so Sigmon can group
 paths by the right actor and expose sample events for drilldown.
 
+Custom dashboards and saved reports are also derived from normal event and error telemetry. You do not
+need a dashboard-specific SDK call; keep event naming, actor IDs, and product properties consistent so
+operators can compose stable metric, trend, and top-list widgets in the Sigmon console.
+
 Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
 
 ```ts

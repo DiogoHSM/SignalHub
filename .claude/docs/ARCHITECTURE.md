@@ -59,6 +59,7 @@ Operational tables:
 - `monitors`
 - `monitor_checks`
 - `analytics_segments`
+- `analytics_dashboards`
 - `source_map_artifacts`
 - `source_map_upload_tokens`
 - `error_stack_resolutions`
@@ -133,6 +134,8 @@ Admin:
 - `/admin/analytics-segments`
 - `/admin/analytics-segments/:id`
 - `/admin/analytics-segments/:id/preview`
+- `/admin/analytics-dashboards`
+- `/admin/analytics-dashboards/:id`
 - `/admin/source-maps`
 - `/admin/source-map-upload-tokens`
 
@@ -169,6 +172,7 @@ Query:
 - `GET /query/users`
 - `GET /query/users/:userKey`
 - `GET /query/overview`
+- `GET /query/reports/dashboards/:id`
 - `GET /query/operations`
 - `GET /query/apm/endpoints`
 - `GET /query/apm/service-map`
@@ -243,6 +247,8 @@ The Events query supports exact `event_name` filtering in addition to project, e
 Saved analytics segments live in `analytics_segments` and are scoped to one project/environment. Segment definitions are bounded JSON, not arbitrary SQL: actor type (`user` or `tenant`), window, optional event name, and optional event property condition. Admin routes create, edit, archive, list, and preview active segments. `GET /query/events` accepts `segment_id` to filter event investigation to actors matching a saved segment.
 
 `GET /query/events/paths` analyzes common user journey paths from existing event telemetry. Operators provide a start event or end event, optional actor type (`auto`, `user`, `tenant`, `session`, or `trace`), max path depth, and the same project/environment/time/entity filters used elsewhere. The query compacts repeated adjacent event names per actor, aggregates the most common paths, supports saved segment filtering, and returns sample event ids for direct event drilldown in the console.
+
+Saved analytics dashboards live in `analytics_dashboards` and are scoped to one project/environment. Dashboard definitions store bounded JSON filters and whitelisted widget definitions, not arbitrary SQL. Admin routes list, create, edit, and archive active dashboards with project/environment-scoped mutations. `GET /query/reports/dashboards/:id` renders a saved dashboard by combining its saved window/filter defaults with `GET /query/overview` aggregates and returns metric, trend, and top-list widget data for the console.
 
 High-volume investigation lists use opaque cursor pagination scoped to the exact project, environment, and active filters. This includes events, errors, LLM calls, traces, trace spans, error groups, source-map artifacts, and monitor check history. Monitor check cursors are additionally bound to the selected monitor id. Query migrations keep composite indexes aligned with the primary drilldown patterns for scope/time, trace id, tenant id, user id, source-map release, alert events, and error group ordering so operator views can page without broad table scans.
 

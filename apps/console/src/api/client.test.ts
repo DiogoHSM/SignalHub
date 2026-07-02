@@ -570,6 +570,55 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages analytics dashboards and fetches reports", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { dashboards: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listAnalyticsDashboards?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-dashboards?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { dashboard: { id: "dash_1" } }));
+    await createApiClient("/api").createAnalyticsDashboard?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Operations report",
+      widgets: [
+        { type: "metric.events", title: "Events", width: "half", options: {} },
+        { type: "metric.errors", title: "Errors", width: "half", options: {} },
+        { type: "top.events", title: "Top events", width: "full", options: {} }
+      ]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-dashboards",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { dashboard: { id: "dash_1" } }));
+    await createApiClient("/api").updateAnalyticsDashboard?.(
+      "dash/1",
+      { projectId: "prj_1", environmentId: "env_1" },
+      { name: "Executive report" }
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-dashboards/dash%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { widgets: [] } }));
+    await createApiClient("/api").getDashboardReport?.("dash/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/reports/dashboards/dash%2F1?project_id=prj_1&environment_id=env_1&window=30d",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

@@ -388,4 +388,54 @@ describe("InvestigationWorkspace", () => {
       limit: 50
     });
   });
+
+  it("creates and renders custom dashboards", async () => {
+    const dashboard = {
+      id: "dash_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Operations report",
+      description: null,
+      category: "operational" as const,
+      filters: { window: "7d" as const },
+      widgets: [
+        { id: "wid_1", type: "metric.events" as const, title: "Events", width: "half" as const, options: {} },
+        { id: "wid_2", type: "metric.errors" as const, title: "Errors", width: "half" as const, options: {} },
+        { id: "wid_3", type: "top.events" as const, title: "Top events", width: "full" as const, options: {} }
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null
+    };
+    const api = client({
+      listAnalyticsDashboards: vi.fn().mockResolvedValue({ dashboards: [] }),
+      createAnalyticsDashboard: vi.fn().mockResolvedValue({ dashboard }),
+      getDashboardReport: vi.fn().mockResolvedValue({
+        data: {
+          dashboard,
+          generatedAt: "2026-01-01T00:00:00.000Z",
+          scope: { projectId: "prj_1", environmentId: "env_1" },
+          window: "7d",
+          widgets: [
+            { widgetId: "wid_1", type: "metric.events", title: "Events", width: "half", status: "ok", data: { value: 42 } },
+            { widgetId: "wid_2", type: "metric.errors", title: "Errors", width: "half", status: "ok", data: { value: 2, open: 1 } },
+            { widgetId: "wid_3", type: "top.events", title: "Top events", width: "full", status: "ok", data: { rows: [{ name: "checkout.started", total: 8 }] } }
+          ]
+        }
+      })
+    });
+
+    render(<InvestigationWorkspace client={api} environmentId="env_1" initialTab="dashboards" projectId="prj_1" />);
+
+    expect(await screen.findByText("No saved dashboards yet.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Create dashboard" }));
+
+    expect(api.createAnalyticsDashboard).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      widgets: expect.arrayContaining([expect.objectContaining({ type: "metric.events" })])
+    }));
+    expect(await screen.findByText("checkout.started")).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+  });
 });

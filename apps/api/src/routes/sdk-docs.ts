@@ -615,6 +615,11 @@ sigmonBrowser.track("checkout.pay_clicked", {
               so <code>GET /query/events/paths</code> can group common event sequences and expose sample
               event ids for drilldown.
             </p>
+            <p>
+              Custom dashboards and saved reports use the same telemetry. There is no dashboard-specific
+              SDK call; stable event names, actor IDs, and properties let operators compose metric, trend,
+              and top-list widgets in the Sigmon console.
+            </p>
             <h3>Common ingest failures</h3>
             <ul>
               <li><code>invalid_api_key</code>: send <code>Authorization: Bearer &lt;key&gt;</code> and use a browser-scoped key for browser calls.</li>

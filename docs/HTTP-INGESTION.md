@@ -168,6 +168,10 @@ Example query:
 GET /query/events/paths?project_id=prj_123&environment_id=env_123&window=7d&start_event=signup.started&end_event=key.created&actor=auto&max_depth=5
 ```
 
+### Custom dashboards and reports
+
+Operators can save custom dashboards in the console and render report data with `GET /query/reports/dashboards/{id}`. Dashboards do not require a separate ingestion payload: metric, trend, and top-list widgets are derived from the same event and error telemetry described above. Keep event names, actor IDs, and properties stable so saved reports stay useful across releases.
+
 ## Errors
 
 Required fields:

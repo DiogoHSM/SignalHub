@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
+import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -74,6 +75,37 @@ function analyticsSegmentPreview(overrides: Partial<AnalyticsSegmentPreview> = {
     window: "30d",
     actors: 1,
     samples: [{ actorId: "user_1", lastSeenAt: "2026-01-01T00:00:00.000Z" }],
+    ...overrides
+  };
+}
+
+function analyticsDashboard(overrides: Partial<AnalyticsDashboardRecord> = {}): AnalyticsDashboardRecord {
+  return {
+    id: "dash_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    name: "Operations report",
+    description: null,
+    category: "operational",
+    filters: { window: "7d" },
+    widgets: [
+      { id: "wid_1", type: "metric.events", title: "Events", width: "half", options: {} },
+      { id: "wid_2", type: "metric.errors", title: "Errors", width: "half", options: {} },
+      { id: "wid_3", type: "top.events", title: "Top events", width: "full", options: {} }
+    ],
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsDashboardResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...analyticsDashboard(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
     ...overrides
   };
 }
@@ -709,6 +741,100 @@ describe("admin routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_analytics_segment_request" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages analytics dashboards for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [analyticsDashboard()]);
+    const create = vi.fn(async (input) => analyticsDashboard(input));
+    const update = vi.fn(async (input) => analyticsDashboard({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsDashboards: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics-dashboards?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ dashboards: [analyticsDashboardResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-dashboards",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Operations report",
+        category: "operational",
+        filters: { window: "7d" },
+        widgets: [
+          { type: "metric.events", title: "Events", width: "half", options: {} },
+          { type: "metric.errors", title: "Errors", width: "half", options: {} },
+          { type: "top.events", title: "Top events", width: "full", options: {} }
+        ]
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ projectId: "prj_1", environmentId: "env_1", name: "Operations report" }));
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/analytics-dashboards/dash_1?project_id=prj_1&environment_id=env_1",
+      payload: { name: "Executive report" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "dash_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { name: "Executive report" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/analytics-dashboards/dash_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "dash_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects dashboards with fewer than three widgets", async () => {
+    const create = vi.fn(async () => analyticsDashboard());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsDashboards: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-dashboards",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Too small",
+        widgets: [{ type: "metric.events", title: "Events", width: "half", options: {} }]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_analytics_dashboard_request" });
     expect(create).not.toHaveBeenCalled();
   });
 
