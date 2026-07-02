@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { Experiment, ExperimentResultsResponse } from "../api/types";
+import type { Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
 
 type Props = {
   client: ApiClient;
@@ -15,6 +15,12 @@ const defaultDraft = {
   name: "Checkout copy",
   conversionEvent: "checkout.completed",
   variants: "control:50,treatment:50"
+};
+
+const defaultFlagDraft = {
+  key: "new_checkout",
+  name: "New checkout",
+  enabledUserId: ""
 };
 
 function formatPercent(value: number): string {
@@ -48,11 +54,15 @@ function interpretation(row: ExperimentResultsResponse["variants"][number], inde
 
 export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const [draft, setDraft] = useState(defaultDraft);
+  const [flagDraft, setFlagDraft] = useState(defaultFlagDraft);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [results, setResults] = useState<ExperimentResultsResponse | null>(null);
   const [state, setState] = useState<LoadState>("idle");
+  const [flagsState, setFlagsState] = useState<LoadState>("idle");
   const [error, setError] = useState("");
+  const [flagError, setFlagError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -82,6 +92,38 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
         setExperiments([]);
         setResults(null);
         setState("unavailable");
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, reloadToken]);
+
+  useEffect(() => {
+    if (!projectId || !environmentId) {
+      setFlags([]);
+      setFlagsState("idle");
+      return;
+    }
+    if (!client.listFeatureFlags) {
+      setFlagsState("unavailable");
+      return;
+    }
+
+    let cancelled = false;
+    setFlagsState("loading");
+    setFlagError("");
+    void client.listFeatureFlags({ projectId, environmentId }).then(
+      ({ flags: rows }) => {
+        if (cancelled) return;
+        setFlags(rows);
+        setFlagsState(rows.length > 0 ? "ready" : "empty");
+      },
+      () => {
+        if (cancelled) return;
+        setFlags([]);
+        setFlagsState("unavailable");
       }
     );
 
@@ -135,6 +177,47 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
     setExperiments((current) => [response.experiment, ...current]);
     setSelectedId(response.experiment.id);
     setState("ready");
+  }
+
+  async function createFlag() {
+    if (!projectId || !environmentId || !client.createFeatureFlag) return;
+    if (!flagDraft.key.trim() || !flagDraft.name.trim()) {
+      setFlagError("Flag key and name are required.");
+      return;
+    }
+    setFlagError("");
+    const rules = flagDraft.enabledUserId.trim()
+      ? [{ id: "target_user", description: "Target user", variant: "on", match: { userId: flagDraft.enabledUserId.trim() } }]
+      : [];
+    const response = await client.createFeatureFlag({
+      projectId,
+      environmentId,
+      key: flagDraft.key,
+      name: flagDraft.name,
+      status: "active",
+      defaultVariant: "off",
+      variants: [
+        { key: "off", value: false },
+        { key: "on", value: true }
+      ],
+      rules
+    });
+    setFlags((current) => [response.flag, ...current]);
+    setFlagsState("ready");
+  }
+
+  async function pauseFlag(flag: FeatureFlag) {
+    if (!projectId || !environmentId || !client.updateFeatureFlag) return;
+    const nextStatus = flag.status === "active" ? "paused" : "active";
+    const response = await client.updateFeatureFlag(flag.id, { projectId, environmentId }, { status: nextStatus });
+    setFlags((current) => current.map((row) => (row.id === flag.id ? response.flag : row)));
+  }
+
+  async function archiveFlag(flag: FeatureFlag) {
+    if (!projectId || !environmentId || !client.archiveFeatureFlag) return;
+    await client.archiveFeatureFlag(flag.id, { projectId, environmentId });
+    setFlags((current) => current.filter((row) => row.id !== flag.id));
+    setFlagsState((current) => (flags.length <= 1 ? "empty" : current));
   }
 
   return (
@@ -244,6 +327,91 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                     <td>{formatPercent(row.conversionRate)}</td>
                     <td>{formatLift(row.liftPoints)}</td>
                     <td>{interpretation(row, index)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="experiments-readout" aria-label="Feature flags">
+        <div className="panel-header">
+          <h2>Feature flags</h2>
+          <span>{flags.length} active definitions</span>
+        </div>
+        <p className="muted-text">Create project-scoped flags with safe defaults. The SDK can evaluate the same rules locally and record exposures.</p>
+
+        <div className="experiments-form">
+          <label>
+            Flag key
+            <span>Stable key used in SDK evaluation.</span>
+            <input aria-label="Flag key" value={flagDraft.key} onChange={(event) => setFlagDraft((current) => ({ ...current, key: event.target.value }))} />
+          </label>
+          <label>
+            Flag name
+            <span>Operator-facing label for this control.</span>
+            <input aria-label="Flag name" value={flagDraft.name} onChange={(event) => setFlagDraft((current) => ({ ...current, name: event.target.value }))} />
+          </label>
+          <label>
+            Optional enabled user
+            <span>When filled, this user receives the on variant.</span>
+            <input
+              aria-label="Optional enabled user"
+              value={flagDraft.enabledUserId}
+              onChange={(event) => setFlagDraft((current) => ({ ...current, enabledUserId: event.target.value }))}
+            />
+          </label>
+          <button type="button" onClick={() => void createFlag()}>
+            Create flag
+          </button>
+        </div>
+
+        {flagError ? <p className="status-box unavailable">{flagError}</p> : null}
+        {flagsState === "loading" ? <p className="muted-text">Loading feature flags</p> : null}
+        {flagsState === "unavailable" ? (
+          <div className="status-box unavailable">
+            <strong>Feature flags unavailable</strong>
+            <button type="button" onClick={() => setReloadToken((current) => current + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {flagsState === "empty" ? <p className="muted-text">No feature flags yet. Create one with an off fallback before wiring the SDK.</p> : null}
+        {flags.length > 0 ? (
+          <div className="experiments-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Flag</th>
+                  <th>Status</th>
+                  <th>Default</th>
+                  <th>Variants</th>
+                  <th>Rules</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {flags.map((flag) => (
+                  <tr key={flag.id}>
+                    <th scope="row">
+                      {flag.key}
+                      <span>{flag.name}</span>
+                    </th>
+                    <td>{flag.status}</td>
+                    <td>{flag.defaultVariant}</td>
+                    <td>{flag.variants.map((variant) => variant.key).join(", ")}</td>
+                    <td>{flag.rules.length}</td>
+                    <td>
+                      <div className="experiments-row-actions">
+                        <button type="button" onClick={() => void pauseFlag(flag)}>
+                          {flag.status === "active" ? "Pause" : "Activate"}
+                        </button>
+                        <button type="button" onClick={() => void archiveFlag(flag)}>
+                          Archive
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

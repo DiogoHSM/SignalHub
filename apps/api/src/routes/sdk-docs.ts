@@ -714,9 +714,9 @@ await sigmon.flush();</code></pre>
           <section id="experiments">
             <h2>Experiments and A/B tests</h2>
             <p>
-              Sigmon experiments are derived from normal event telemetry. The SDK does not assign
-              variants or change feature-flag behavior in your app; your application should choose a
-              stable variant and send exposure and conversion events with consistent properties.
+              Sigmon experiments are derived from normal event telemetry. Create the experiment in the
+              console, use the SDK to assign a stable subject to a weighted variant, and keep
+              <code>experiment_key</code> plus <code>variant</code> on conversion events.
             </p>
             <div class="table-wrap">
               <table>
@@ -729,7 +729,7 @@ await sigmon.flush();</code></pre>
                 </thead>
                 <tbody>
                   <tr>
-                    <td><code>experiment</code></td>
+                    <td><code>experiment_key</code></td>
                     <td><code>checkout_copy</code></td>
                     <td>Stable experiment key used to group variants.</td>
                   </tr>
@@ -740,7 +740,7 @@ await sigmon.flush();</code></pre>
                   </tr>
                   <tr>
                     <td>Exposure event</td>
-                    <td><code>checkout.exposed</code></td>
+                    <td><code>sigmon.experiment.exposed</code></td>
                     <td>Marks when a user or tenant saw the variant.</td>
                   </tr>
                   <tr>
@@ -751,21 +751,22 @@ await sigmon.flush();</code></pre>
                 </tbody>
               </table>
             </div>
-            <pre><code>const experiment = "checkout_copy";
-const variant = "short_copy";
-
-sigmon.track("checkout.exposed", {
-  experiment,
-  variant,
-  page: "checkout"
+            <pre><code>const assignment = sigmon.assignExperiment({
+  experimentKey: "checkout_copy",
+  subjectId: "user_456",
+  variants: [
+    { key: "control", weight: 50 },
+    { key: "short_copy", weight: 50 }
+  ],
+  properties: { page: "checkout" }
 }, {
   tenantId: "tenant_123",
   userId: "user_456"
 });
 
 sigmon.track("checkout.completed", {
-  experiment,
-  variant,
+  experiment_key: "checkout_copy",
+  variant: assignment.variant,
   orderValueCents: 12900
 }, {
   tenantId: "tenant_123",
@@ -779,6 +780,26 @@ await sigmon.flush();</code></pre>
               statistical-significance engine, so use it to spot obvious operational changes before
               drilling into events, users, tenants, traces, errors, or LLM calls.
             </div>
+            <h3>Feature flags</h3>
+            <p>
+              Feature flags live beside experiments. Give every flag an off/default variant and evaluate
+              a local snapshot with <code>evaluateFlag</code> so application code fails closed if remote
+              config is unavailable.
+            </p>
+            <pre><code>const flag = sigmon.evaluateFlag({
+  key: "new_checkout",
+  fallbackVariant: "off",
+  variants: [
+    { key: "off", value: false },
+    { key: "on", value: true }
+  ],
+  rules: [{ variant: "on", match: { userId: "user_456" } }],
+  subject: { userId: "user_456" }
+});
+
+if (flag.value === true) {
+  renderNewCheckout();
+}</code></pre>
           </section>
 
           <section id="traces">

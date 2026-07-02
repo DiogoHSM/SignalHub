@@ -25,6 +25,10 @@ import type {
   EventInput,
   ExperimentAssignment,
   ExperimentAssignmentInput,
+  FeatureFlagEvaluation,
+  FeatureFlagEvaluationInput,
+  FeatureFlagRuleInput,
+  FeatureFlagValue,
   FlushOptions,
   FlushResult,
   IdentifyTenantInput,
@@ -274,6 +278,27 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
       };
     },
 
+    evaluateFlag(input: FeatureFlagEvaluationInput, context?: SignalContext & EventInput): FeatureFlagEvaluation {
+      const evaluation = evaluateLocalFlag(input);
+      if (input.trackExposure !== false) {
+        enqueue(
+          createEventSignal(
+            "sigmon.feature_flag.evaluated",
+            {
+              flag_key: input.key,
+              variant: evaluation.variant,
+              value: evaluation.value,
+              reason: evaluation.reason,
+              matched: evaluation.matched
+            },
+            context,
+            defaultContext
+          )
+        );
+      }
+      return evaluation;
+    },
+
     captureError(error: unknown, input?: ErrorInput): void {
       enqueue(createErrorSignal(error, input, defaultContext));
     },
@@ -442,6 +467,51 @@ function assignVariant(experimentKey: string, subjectId: string, variants: Exper
     }
   }
   return normalized[normalized.length - 1]!.key;
+}
+
+function evaluateLocalFlag(input: FeatureFlagEvaluationInput): FeatureFlagEvaluation {
+  const variants = input.variants
+    .filter((variant) => variant.key.trim())
+    .map((variant) => ({ key: variant.key.trim(), value: normalizeFlagValue(variant.value) }));
+  const fallbackVariant = input.fallbackVariant.trim();
+  const defaultVariant = variants.find((variant) => variant.key === fallbackVariant) ?? variants[0] ?? { key: fallbackVariant || "off", value: false };
+  const matchedRule = (input.rules ?? []).find((rule) => flagRuleMatches(rule, input.subject ?? {}));
+  if (matchedRule) {
+    const variant = variants.find((candidate) => candidate.key === matchedRule.variant.trim());
+    if (variant) {
+      return {
+        key: input.key,
+        variant: variant.key,
+        value: variant.value,
+        matched: true,
+        reason: "rule_match"
+      };
+    }
+  }
+  return {
+    key: input.key,
+    variant: defaultVariant.key,
+    value: defaultVariant.value,
+    matched: false,
+    reason: "default"
+  };
+}
+
+function flagRuleMatches(rule: FeatureFlagRuleInput, subject: NonNullable<FeatureFlagEvaluationInput["subject"]>): boolean {
+  const match = rule.match;
+  if (match.userId && match.userId !== subject.userId) return false;
+  if (match.tenantId && match.tenantId !== subject.tenantId) return false;
+  if (match.sessionId && match.sessionId !== subject.sessionId) return false;
+  if (match.traits) {
+    for (const [key, value] of Object.entries(match.traits)) {
+      if (subject.traits?.[key] !== value) return false;
+    }
+  }
+  return true;
+}
+
+function normalizeFlagValue(value: FeatureFlagValue): FeatureFlagValue {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null ? value : String(value);
 }
 
 function stableHash(input: string): number {

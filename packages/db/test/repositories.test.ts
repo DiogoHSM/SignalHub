@@ -56,6 +56,14 @@ import {
   archiveExperiment
 } from "../src/repositories/experiments.js";
 import {
+  archiveFeatureFlag,
+  createFeatureFlag,
+  evaluateFeatureFlag,
+  listFeatureFlagAudit,
+  listFeatureFlags,
+  updateFeatureFlag
+} from "../src/repositories/feature-flags.js";
+import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
@@ -9750,6 +9758,84 @@ describe("repositories", () => {
 
       await archiveExperiment(db, { id: experiment.id, projectId: project.id, environmentId: environment.id });
       await expect(listExperiments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages feature flags with audit history and safe evaluation fallback", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Feature Flags Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const flag = await createFeatureFlag(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "new_checkout",
+        name: "New checkout",
+        description: "Gate the new checkout flow.",
+        status: "active",
+        defaultVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [
+          { id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } },
+          { id: "beta_tenant", description: "Beta tenants", variant: "on", match: { traits: { plan: "beta" } } }
+        ],
+        actorId: "admin_1"
+      });
+
+      expect(flag).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "new_checkout",
+        status: "active",
+        defaultVariant: "off"
+      });
+
+      await expect(listFeatureFlags(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: flag.id, key: "new_checkout" })
+      ]);
+
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1", traits: { plan: "free" } },
+          fallbackVariant: "off"
+        })
+      ).resolves.toEqual(expect.objectContaining({ matched: true, variant: "on", value: true, reason: "rule_match" }));
+
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_2", traits: { plan: "free" } },
+          fallbackVariant: "off"
+        })
+      ).resolves.toEqual(expect.objectContaining({ matched: false, variant: "off", value: false, reason: "default" }));
+
+      await updateFeatureFlag(db, {
+        id: flag.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        patch: { status: "paused", name: "New checkout paused" },
+        actorId: "admin_2"
+      });
+
+      const audit = await listFeatureFlagAudit(db, { featureFlagId: flag.id, projectId: project.id, environmentId: environment.id });
+      expect(audit.map((entry) => entry.action)).toEqual(["created", "updated"]);
+      expect(audit[1]).toEqual(expect.objectContaining({ actorId: "admin_2" }));
+
+      await archiveFeatureFlag(db, { id: flag.id, projectId: project.id, environmentId: environment.id, actorId: "admin_3" });
+      await expect(listFeatureFlags(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+      await expect(listFeatureFlagAudit(db, { featureFlagId: flag.id, projectId: project.id, environmentId: environment.id })).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ action: "archived", actorId: "admin_3" })])
+      );
     });
   });
 

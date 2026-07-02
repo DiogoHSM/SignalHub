@@ -219,6 +219,78 @@ export type ExperimentResultsResponse = {
   variants: ExperimentVariantResult[];
 };
 
+export type FeatureFlagStatus = "draft" | "active" | "paused" | "archived";
+export type FeatureFlagValue = string | number | boolean | null;
+
+export type FeatureFlagVariant = {
+  key: string;
+  value: FeatureFlagValue;
+};
+
+export type FeatureFlagRuleMatch = {
+  userId?: string;
+  tenantId?: string;
+  sessionId?: string;
+  traits?: Record<string, FeatureFlagValue>;
+};
+
+export type FeatureFlagRule = {
+  id?: string;
+  description?: string;
+  variant: string;
+  match: FeatureFlagRuleMatch;
+};
+
+export type FeatureFlag = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: FeatureFlagStatus;
+  defaultVariant: string;
+  variants: FeatureFlagVariant[];
+  rules: FeatureFlagRule[];
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateFeatureFlagInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: FeatureFlagStatus;
+  defaultVariant: string;
+  variants: FeatureFlagVariant[];
+  rules?: FeatureFlagRule[];
+};
+
+export type UpdateFeatureFlagInput = Partial<Omit<CreateFeatureFlagInput, "projectId" | "environmentId" | "key">>;
+
+export type FeatureFlagAudit = {
+  id: string;
+  featureFlagId: string;
+  projectId: string;
+  environmentId: string;
+  action: "created" | "updated" | "archived";
+  actorId: string | null;
+  changes: unknown;
+  createdAt: string;
+};
+
+export type FeatureFlagEvaluation = {
+  key: string;
+  variant: string;
+  value: FeatureFlagValue;
+  matched: boolean;
+  reason: "rule_match" | "default" | "missing" | "inactive";
+  ruleId?: string;
+};
+
 export type CreatedApiKey = ApiKey & {
   secret: string;
 };

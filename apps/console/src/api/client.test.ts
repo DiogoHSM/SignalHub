@@ -769,6 +769,56 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages feature flags and fetches audit/evaluation preview", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { flags: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listFeatureFlags?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { flag: { id: "flg_1" } }));
+    await createApiClient("/api").createFeatureFlag?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "new_checkout",
+      name: "New checkout",
+      defaultVariant: "off",
+      variants: [
+        { key: "off", value: false },
+        { key: "on", value: true }
+      ],
+      rules: [{ variant: "on", match: { userId: "user_1" } }]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { flag: { id: "flg_1" } }));
+    await createApiClient("/api").updateFeatureFlag?.("flg/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags/flg%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { audit: [] }));
+    await createApiClient("/api").listFeatureFlagAudit?.("flg/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags/flg%2F1/audit?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { evaluation: { variant: "on" } }));
+    await createApiClient("/api").evaluateFeatureFlag?.("flg/1", { projectId: "prj_1", environmentId: "env_1" }, { subject: { userId: "user_1" } });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags/flg%2F1/evaluate?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

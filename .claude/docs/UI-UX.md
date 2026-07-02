@@ -125,6 +125,8 @@ SignalMonitor includes an admin-only Integration Console.
 - Variant rows should show configured weight, exposures, conversions, conversion rate, and lift against the first configured variant as a lightweight baseline.
 - Variant interpretation should stay directional: baseline, needs sample, directional lead/lag, or flat. Do not imply statistical significance until the backend supports it.
 - The empty state should tell operators whether they need to create an experiment, emit `sigmon.experiment.exposed`, or track the configured conversion event.
+- Experiments also includes the first Feature Flags surface. Operators can create a boolean-style flag with an off fallback, inspect active definitions, pause/activate, and archive flags without leaving the project/environment workspace.
+- Feature flag rows should make the safe default, current status, variant keys, rule count, and row actions visible. Audit history stays backend-supported even if the compact console only exposes the current definition in this slice.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Operations UX

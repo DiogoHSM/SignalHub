@@ -7,6 +7,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
 import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
 import type { ExperimentRecord } from "../../../packages/db/src/repositories/experiments.js";
+import type {
+  FeatureFlagAuditRecord,
+  FeatureFlagEvaluation,
+  FeatureFlagRecord
+} from "../../../packages/db/src/repositories/feature-flags.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -141,6 +146,60 @@ function experimentResponse(overrides: Partial<Record<string, unknown>> = {}) {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: null,
+    ...overrides
+  };
+}
+
+function featureFlag(overrides: Partial<FeatureFlagRecord> = {}): FeatureFlagRecord {
+  return {
+    id: "flg_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "new_checkout",
+    name: "New checkout",
+    description: null,
+    status: "active",
+    defaultVariant: "off",
+    variants: [
+      { key: "off", value: false },
+      { key: "on", value: true }
+    ],
+    rules: [{ id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } }],
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function featureFlagResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...featureFlag(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function featureFlagAudit(overrides: Partial<FeatureFlagAuditRecord> = {}): FeatureFlagAuditRecord {
+  return {
+    id: "ffaud_1",
+    featureFlagId: "flg_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    action: "created",
+    actorId: "usr_1",
+    changes: { key: "new_checkout" },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function featureFlagAuditResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...featureFlagAudit(),
+    createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };
 }
@@ -968,6 +1027,102 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_experiment_request" });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages feature flags for admins with audit history and evaluation preview", async () => {
+    const list = vi.fn(async () => [featureFlag()]);
+    const create = vi.fn(async (input) => featureFlag(input));
+    const update = vi.fn(async (input) => featureFlag({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+    const listAudit = vi.fn(async () => [featureFlagAudit()]);
+    const evaluate = vi.fn(
+      async (): Promise<FeatureFlagEvaluation> => ({
+        key: "new_checkout",
+        variant: "on",
+        value: true,
+        matched: true,
+        reason: "rule_match",
+        ruleId: "internal"
+      })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        featureFlags: { list, create, update, archive, listAudit, evaluate }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/feature-flags?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ flags: [featureFlagResponse()] });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/feature-flags",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "new_checkout",
+        name: "New checkout",
+        status: "active",
+        defaultVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [{ id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } }]
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ key: "new_checkout", actorId: "usr_1" }));
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/feature-flags/flg_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "flg_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" },
+      actorId: "usr_1"
+    });
+
+    const auditResponse = await app.inject({
+      method: "GET",
+      url: "/admin/feature-flags/flg_1/audit?project_id=prj_1&environment_id=env_1"
+    });
+    expect(auditResponse.statusCode).toBe(200);
+    expect(auditResponse.json()).toEqual({ audit: [featureFlagAuditResponse()] });
+
+    const evaluateResponse = await app.inject({
+      method: "POST",
+      url: "/admin/feature-flags/flg_1/evaluate?project_id=prj_1&environment_id=env_1",
+      payload: { subject: { userId: "user_1", traits: { plan: "beta" } }, fallbackVariant: "off" }
+    });
+    expect(evaluateResponse.statusCode).toBe(200);
+    expect(evaluateResponse.json()).toEqual({ evaluation: { key: "new_checkout", variant: "on", value: true, matched: true, reason: "rule_match", ruleId: "internal" } });
+    expect(evaluate).toHaveBeenCalledWith({
+      id: "flg_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      subject: { userId: "user_1", traits: { plan: "beta" } },
+      fallbackVariant: "off"
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/feature-flags/flg_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "flg_1", projectId: "prj_1", environmentId: "env_1", actorId: "usr_1" });
   });
 
   it("rejects invalid browser origins", async () => {

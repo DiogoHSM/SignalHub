@@ -18,6 +18,7 @@ import type {
   CreateAnalyticsDashboardInput,
   CreateAnalyticsSegmentInput,
   CreateExperimentInput,
+  CreateFeatureFlagInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
   CreatedApiKey,
@@ -28,6 +29,9 @@ import type {
   Experiment,
   ExperimentResultsQuery,
   ExperimentResultsResponse,
+  FeatureFlag,
+  FeatureFlagAudit,
+  FeatureFlagEvaluation,
   ErrorGroupIncident,
   ErrorGroupIncidentQuery,
   ErrorGroupQuery,
@@ -92,6 +96,7 @@ import type {
   UpdateAnalyticsDashboardInput,
   UpdateAnalyticsSegmentInput,
   UpdateExperimentInput,
+  UpdateFeatureFlagInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput,
@@ -303,6 +308,20 @@ export type ApiClient = {
   ) => Promise<{ experiment: Experiment }>;
   archiveExperiment?: (id: string, query: Pick<CreateExperimentInput, "projectId" | "environmentId">) => Promise<void>;
   getExperimentResults?: (query: ExperimentResultsQuery) => Promise<AggregateResponse<ExperimentResultsResponse>>;
+  listFeatureFlags?: (query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<{ flags: FeatureFlag[] }>;
+  createFeatureFlag?: (input: CreateFeatureFlagInput) => Promise<{ flag: FeatureFlag }>;
+  updateFeatureFlag?: (
+    id: string,
+    query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">,
+    input: UpdateFeatureFlagInput
+  ) => Promise<{ flag: FeatureFlag }>;
+  archiveFeatureFlag?: (id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<void>;
+  listFeatureFlagAudit?: (id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<{ audit: FeatureFlagAudit[] }>;
+  evaluateFeatureFlag?: (
+    id: string,
+    query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">,
+    input: { fallbackVariant?: string; subject?: { userId?: string; tenantId?: string; sessionId?: string; traits?: Record<string, string | number | boolean | null> } }
+  ) => Promise<{ evaluation: FeatureFlagEvaluation }>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
@@ -786,6 +805,38 @@ function experimentResultsPath(query: ExperimentResultsQuery): string {
   return `/query/experiments/${encodePathSegment(query.experimentId)}/results?${params.toString()}`;
 }
 
+function featureFlagsPath(query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags?${params.toString()}`;
+}
+
+function featureFlagScopedPath(id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function featureFlagAuditPath(id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags/${encodePathSegment(id)}/audit?${params.toString()}`;
+}
+
+function featureFlagEvaluatePath(id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags/${encodePathSegment(id)}/evaluate?${params.toString()}`;
+}
+
 function serviceMapPath(query: ApmQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -1024,6 +1075,24 @@ export function createApiClient(
       request<void>(path(apiBasePath, experimentScopedPath(id, query)), { method: "DELETE" }),
     getExperimentResults: (query) =>
       request<AggregateResponse<ExperimentResultsResponse>>(path(apiBasePath, experimentResultsPath(query))),
+    listFeatureFlags: (query) =>
+      request<{ flags: FeatureFlag[] }>(path(apiBasePath, featureFlagsPath(query))),
+    createFeatureFlag: (input) =>
+      request<{ flag: FeatureFlag }>(path(apiBasePath, "/admin/feature-flags"), { method: "POST", body: input }),
+    updateFeatureFlag: (id, query, input) =>
+      request<{ flag: FeatureFlag }>(path(apiBasePath, featureFlagScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveFeatureFlag: (id, query) =>
+      request<void>(path(apiBasePath, featureFlagScopedPath(id, query)), { method: "DELETE" }),
+    listFeatureFlagAudit: (id, query) =>
+      request<{ audit: FeatureFlagAudit[] }>(path(apiBasePath, featureFlagAuditPath(id, query))),
+    evaluateFeatureFlag: (id, query, input) =>
+      request<{ evaluation: FeatureFlagEvaluation }>(path(apiBasePath, featureFlagEvaluatePath(id, query)), {
+        method: "POST",
+        body: input
+      }),
     listApiKeys: (projectId) =>
       request<{ apiKeys: ApiKey[] }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/api-keys`)),
     createApiKey: (projectId, input) =>

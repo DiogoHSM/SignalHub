@@ -7754,8 +7754,38 @@ input[type="file"]::file-selector-button {
   color: var(--fg);
 }
 
+.experiments-readout tbody th span {
+  display: block;
+  margin-top: 3px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .experiments-readout tbody td:last-child {
   border-radius: 0 10px 10px 0;
+}
+
+.experiments-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.experiments-row-actions button {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface-2);
+  color: var(--fg-secondary);
+  padding: 0 10px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.experiments-row-actions button:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--fg);
 }
 
 .experiments-interpretation {

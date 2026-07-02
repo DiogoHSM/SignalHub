@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { Experiment, ExperimentResultsResponse } from "../api/types";
+import type { Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
 import { ExperimentsPanel } from "./ExperimentsPanel";
 
 const experiment: Experiment = {
@@ -36,12 +36,36 @@ const results: ExperimentResultsResponse = {
   ]
 };
 
+const flag: FeatureFlag = {
+  id: "flg_1",
+  projectId: "prj_1",
+  environmentId: "env_1",
+  key: "new_checkout",
+  name: "New checkout",
+  description: null,
+  status: "active",
+  defaultVariant: "off",
+  variants: [
+    { key: "off", value: false },
+    { key: "on", value: true }
+  ],
+  rules: [{ id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } }],
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null
+};
+
 function client(overrides: Partial<ApiClient>): ApiClient {
   return {
     listEvents: vi.fn().mockResolvedValue({ data: [] }),
     listExperiments: vi.fn().mockResolvedValue({ experiments: [] }),
     getExperimentResults: vi.fn().mockResolvedValue({ data: results }),
     createExperiment: vi.fn().mockResolvedValue({ experiment }),
+    listFeatureFlags: vi.fn().mockResolvedValue({ flags: [] }),
+    createFeatureFlag: vi.fn().mockResolvedValue({ flag }),
+    updateFeatureFlag: vi.fn().mockResolvedValue({ flag }),
+    archiveFeatureFlag: vi.fn().mockResolvedValue(undefined),
+    listFeatureFlagAudit: vi.fn().mockResolvedValue({ audit: [] }),
     ...overrides
   } as ApiClient;
 }
@@ -95,6 +119,41 @@ describe("ExperimentsPanel", () => {
         variants: [
           { key: "control", name: "control", weight: 50 },
           { key: "treatment", name: "treatment", weight: 50 }
+        ]
+      })
+    );
+  });
+
+  it("loads feature flags and creates a boolean flag", async () => {
+    const user = userEvent.setup();
+    const createFeatureFlag = vi.fn().mockResolvedValue({ flag: { ...flag, id: "flg_2", key: "pricing_cards", name: "Pricing cards" } });
+    const api = client({
+      listFeatureFlags: vi.fn().mockResolvedValue({ flags: [flag] }),
+      createFeatureFlag
+    });
+
+    render(<ExperimentsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const flagsRegion = await screen.findByRole("region", { name: "Feature flags" });
+    expect(within(flagsRegion).getByText("new_checkout")).toBeInTheDocument();
+    expect(within(flagsRegion).getByText("active")).toBeInTheDocument();
+
+    await user.clear(within(flagsRegion).getByLabelText("Flag key"));
+    await user.type(within(flagsRegion).getByLabelText("Flag key"), "pricing_cards");
+    await user.clear(within(flagsRegion).getByLabelText("Flag name"));
+    await user.type(within(flagsRegion).getByLabelText("Flag name"), "Pricing cards");
+    await user.click(within(flagsRegion).getByRole("button", { name: "Create flag" }));
+
+    expect(createFeatureFlag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "pricing_cards",
+        name: "Pricing cards",
+        defaultVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
         ]
       })
     );

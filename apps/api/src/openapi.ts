@@ -222,6 +222,78 @@ export const openApiDocument = {
           }
         }
       },
+      FeatureFlagVariant: {
+        type: "object",
+        required: ["key", "value"],
+        properties: {
+          key: { type: "string", examples: ["off", "on"] },
+          value: { oneOf: [{ type: "boolean" }, { type: "string" }, { type: "number" }, { type: "null" }] }
+        }
+      },
+      FeatureFlagRule: {
+        type: "object",
+        required: ["variant", "match"],
+        properties: {
+          id: { type: "string" },
+          description: { type: "string" },
+          variant: { type: "string", examples: ["on"] },
+          match: {
+            type: "object",
+            properties: {
+              userId: { type: "string" },
+              tenantId: { type: "string" },
+              sessionId: { type: "string" },
+              traits: { type: "object", additionalProperties: true }
+            }
+          }
+        }
+      },
+      FeatureFlag: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "defaultVariant", "variants", "rules"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["new_checkout"] },
+          name: { type: "string" },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          defaultVariant: { type: "string", examples: ["off"] },
+          variants: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagVariant" } },
+          rules: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagRule" } },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      FeatureFlagAudit: {
+        type: "object",
+        required: ["id", "featureFlagId", "projectId", "environmentId", "action", "changes", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          featureFlagId: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          action: { type: "string", enum: ["created", "updated", "archived"] },
+          actorId: { type: ["string", "null"] },
+          changes: { type: "object", additionalProperties: true },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
+      FeatureFlagEvaluation: {
+        type: "object",
+        required: ["flagKey", "variant", "value", "reason", "matched"],
+        properties: {
+          flagKey: { type: "string", examples: ["new_checkout"] },
+          variant: { type: "string", examples: ["on"] },
+          value: { oneOf: [{ type: "boolean" }, { type: "string" }, { type: "number" }, { type: "null" }] },
+          reason: { type: "string", enum: ["matched_rule", "default", "inactive", "not_found", "invalid_definition"] },
+          matched: { type: "boolean" },
+          ruleId: { type: ["string", "null"] },
+          ruleDescription: { type: ["string", "null"] }
+        }
+      },
       EventPayload: {
         type: "object",
         required: ["name"],
@@ -932,6 +1004,210 @@ export const openApiDocument = {
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "404": { description: "Heartbeat monitor not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List feature flags",
+        description: "List active feature flag definitions for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Feature flags",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { flags: { type: "array", items: { $ref: "#/components/schemas/FeatureFlag" } } }
+                }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create feature flag",
+        description: "Create a project/environment-scoped feature flag with a safe default variant and ordered targeting rules.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name", "defaultVariant", "variants"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  defaultVariant: { type: "string" },
+                  variants: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagVariant" } },
+                  rules: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagRule" } }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "new_checkout",
+                    name: "New checkout",
+                    status: "active",
+                    defaultVariant: "off",
+                    variants: [{ key: "off", value: false }, { key: "on", value: true }],
+                    rules: [{ variant: "on", match: { userId: "user_123" } }]
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Feature flag created",
+            content: { "application/json": { schema: { type: "object", properties: { flag: { $ref: "#/components/schemas/FeatureFlag" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update feature flag",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+        responses: {
+          "200": {
+            description: "Feature flag updated",
+            content: { "application/json": { schema: { type: "object", properties: { flag: { $ref: "#/components/schemas/FeatureFlag" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Feature flag not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive feature flag",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Feature flag archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags/{id}/audit": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List feature flag audit history",
+        description: "Returns created, updated, and archived audit entries for a feature flag.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Feature flag audit entries",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { audit: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagAudit" } } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags/{id}/evaluate": {
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Preview feature flag evaluation",
+        description: "Evaluates a feature flag for a sample user, tenant, session, or trait context.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  fallbackVariant: { type: "string" },
+                  subject: {
+                    type: "object",
+                    properties: {
+                      userId: { type: "string" },
+                      tenantId: { type: "string" },
+                      sessionId: { type: "string" },
+                      traits: { type: "object", additionalProperties: true }
+                    }
+                  }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    fallbackVariant: "off",
+                    subject: { userId: "user_123", traits: { plan: "beta" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Feature flag evaluation",
+            content: { "application/json": { schema: { type: "object", properties: { evaluation: { $ref: "#/components/schemas/FeatureFlagEvaluation" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }

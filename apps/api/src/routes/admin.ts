@@ -47,6 +47,17 @@ import type {
   ExperimentPrimaryMetric,
   UpdateExperimentInput
 } from "@sigmon/db/repositories/experiments.js";
+import type {
+  CreateFeatureFlagInput,
+  FeatureFlagAuditRecord,
+  FeatureFlagEvaluation,
+  FeatureFlagEvaluationSubject,
+  FeatureFlagRecord,
+  FeatureFlagRule,
+  FeatureFlagStatus,
+  FeatureFlagVariant,
+  UpdateFeatureFlagInput
+} from "@sigmon/db/repositories/feature-flags.js";
 
 export interface AdminProject {
   id: string;
@@ -127,6 +138,7 @@ export type AdminResourceDependencies = {
   analyticsSegments?: AnalyticsSegmentAdministrationDependencies;
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
   experiments?: ExperimentAdministrationDependencies;
+  featureFlags?: FeatureFlagAdministrationDependencies;
 };
 
 export type AnalyticsSegmentAdministrationDependencies = {
@@ -160,6 +172,27 @@ export type ExperimentAdministrationDependencies = {
     patch: UpdateExperimentInput;
   }) => Promise<ExperimentRecord | null | undefined>;
   archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
+export type FeatureFlagAdministrationDependencies = {
+  list: (filters: { projectId: string; environmentId: string }) => Promise<FeatureFlagRecord[]>;
+  create: (input: CreateFeatureFlagInput) => Promise<FeatureFlagRecord>;
+  update: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    patch: UpdateFeatureFlagInput;
+    actorId?: string | null;
+  }) => Promise<FeatureFlagRecord | null | undefined>;
+  archive: (input: { id: string; projectId: string; environmentId: string; actorId?: string | null }) => Promise<void>;
+  listAudit: (input: { featureFlagId: string; projectId: string; environmentId: string }) => Promise<FeatureFlagAuditRecord[]>;
+  evaluate: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    subject?: FeatureFlagEvaluationSubject;
+    fallbackVariant?: string;
+  }) => Promise<FeatureFlagEvaluation>;
 };
 
 export type AlertAdministrationDependencies = {
@@ -712,6 +745,67 @@ type UpdateExperimentBody = z.infer<typeof updateExperimentSchema> & {
   actorType?: ExperimentActorType;
   variants?: ExperimentVariant[];
   primaryMetric?: ExperimentPrimaryMetric;
+};
+const featureFlagStatusSchema = z.enum(["draft", "active", "paused", "archived"]);
+const featureFlagValueSchema = z.union([z.string().max(512), z.number(), z.boolean(), z.null()]);
+const featureFlagVariantSchema = z.object({
+  key: z.string().trim().min(1).max(80),
+  value: featureFlagValueSchema
+});
+const featureFlagRuleMatchSchema = z.object({
+  userId: z.string().trim().min(1).max(256).optional(),
+  tenantId: z.string().trim().min(1).max(256).optional(),
+  sessionId: z.string().trim().min(1).max(256).optional(),
+  traits: z.record(z.string().trim().min(1).max(80), featureFlagValueSchema).optional()
+});
+const featureFlagRuleSchema = z.object({
+  id: z.string().trim().min(1).max(80).optional(),
+  description: z.string().trim().max(160).optional(),
+  variant: z.string().trim().min(1).max(80),
+  match: featureFlagRuleMatchSchema
+});
+const featureFlagScopeQuerySchema = analyticsSegmentScopeQuerySchema;
+const featureFlagSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  key: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  status: featureFlagStatusSchema.default("draft"),
+  defaultVariant: z.string().trim().min(1).max(80),
+  variants: z.array(featureFlagVariantSchema).min(1).max(20),
+  rules: z.array(featureFlagRuleSchema).max(50).default([])
+});
+const updateFeatureFlagSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional(),
+    description: z.string().trim().max(1024).nullable().optional(),
+    status: featureFlagStatusSchema.optional(),
+    defaultVariant: z.string().trim().min(1).max(80).optional(),
+    variants: z.array(featureFlagVariantSchema).min(1).max(20).optional(),
+    rules: z.array(featureFlagRuleSchema).max(50).optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+const evaluateFeatureFlagSchema = z.object({
+  fallbackVariant: z.string().trim().min(1).max(80).optional(),
+  subject: z
+    .object({
+      userId: z.string().trim().min(1).max(256).optional(),
+      tenantId: z.string().trim().min(1).max(256).optional(),
+      sessionId: z.string().trim().min(1).max(256).optional(),
+      traits: z.record(z.string().trim().min(1).max(80), featureFlagValueSchema).optional()
+    })
+    .optional()
+});
+type CreateFeatureFlagBody = z.infer<typeof featureFlagSchema> & {
+  status: FeatureFlagStatus;
+  variants: FeatureFlagVariant[];
+  rules: FeatureFlagRule[];
+};
+type UpdateFeatureFlagBody = z.infer<typeof updateFeatureFlagSchema> & {
+  status?: FeatureFlagStatus;
+  variants?: FeatureFlagVariant[];
+  rules?: FeatureFlagRule[];
 };
 type CreateNotificationChannelInput = z.infer<typeof notificationChannelSchema>;
 type UpdateNotificationChannelInput = z.infer<typeof updateNotificationChannelSchema>;
@@ -1700,6 +1794,180 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(204).send();
     } catch {
       return reply.status(503).send({ error: "experiments_unavailable" });
+    }
+  });
+
+  app.get("/admin/feature-flags", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.featureFlags) {
+      return reply.status(501).send({ error: "feature_flags_repository_unavailable" });
+    }
+
+    const query = featureFlagScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_feature_flag_request" });
+    }
+
+    try {
+      const flags = await options.adminResources.featureFlags.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ flags });
+    } catch {
+      return reply.status(503).send({ error: "feature_flags_unavailable" });
+    }
+  });
+
+  app.post("/admin/feature-flags", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.featureFlags) {
+      return reply.status(501).send({ error: "feature_flags_repository_unavailable" });
+    }
+
+    const parsed = featureFlagSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_feature_flag_request" });
+    }
+
+    try {
+      const flag = await options.adminResources.featureFlags.create({
+        ...(parsed.data as CreateFeatureFlagBody),
+        actorId: admin.id
+      });
+      return reply.status(201).send({ flag });
+    } catch {
+      return reply.status(503).send({ error: "feature_flags_unavailable" });
+    }
+  });
+
+  app.patch("/admin/feature-flags/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.featureFlags) {
+      return reply.status(501).send({ error: "feature_flags_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = featureFlagScopeQuerySchema.safeParse(request.query);
+    const parsed = updateFeatureFlagSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_feature_flag_request" });
+    }
+
+    try {
+      const flag = await options.adminResources.featureFlags.update({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        patch: parsed.data as UpdateFeatureFlagBody,
+        actorId: admin.id
+      });
+      if (!flag) {
+        return reply.status(404).send({ error: "feature_flag_not_found" });
+      }
+      return reply.send({ flag });
+    } catch {
+      return reply.status(503).send({ error: "feature_flags_unavailable" });
+    }
+  });
+
+  app.get("/admin/feature-flags/:id/audit", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.featureFlags) {
+      return reply.status(501).send({ error: "feature_flags_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = featureFlagScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_feature_flag_request" });
+    }
+
+    try {
+      const audit = await options.adminResources.featureFlags.listAudit({
+        featureFlagId: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ audit });
+    } catch {
+      return reply.status(503).send({ error: "feature_flags_unavailable" });
+    }
+  });
+
+  app.post("/admin/feature-flags/:id/evaluate", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.featureFlags) {
+      return reply.status(501).send({ error: "feature_flags_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = featureFlagScopeQuerySchema.safeParse(request.query);
+    const parsed = evaluateFeatureFlagSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_feature_flag_request" });
+    }
+
+    try {
+      const evaluation = await options.adminResources.featureFlags.evaluate({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        subject: parsed.data.subject,
+        fallbackVariant: parsed.data.fallbackVariant
+      });
+      return reply.send({ evaluation });
+    } catch {
+      return reply.status(503).send({ error: "feature_flags_unavailable" });
+    }
+  });
+
+  app.delete("/admin/feature-flags/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.featureFlags) {
+      return reply.status(501).send({ error: "feature_flags_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = featureFlagScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_feature_flag_request" });
+    }
+
+    try {
+      await options.adminResources.featureFlags.archive({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        actorId: admin.id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "feature_flags_unavailable" });
     }
   });
 

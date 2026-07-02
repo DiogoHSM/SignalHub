@@ -166,6 +166,31 @@ Example result query:
 GET /query/experiments/exp_123/results?project_id=prj_123&environment_id=env_123&window=30d
 ```
 
+### Feature flags
+
+Operators can create feature flags in the console with a safe default variant and ordered targeting
+rules. SDK evaluation records a normal product event named `sigmon.feature_flag.evaluated` unless
+exposure tracking is disabled.
+
+Example exposure event body:
+
+```json
+{
+  "name": "sigmon.feature_flag.evaluated",
+  "user_id": "user_123",
+  "properties": {
+    "flag_key": "new_checkout",
+    "variant": "on",
+    "value": true,
+    "reason": "rule_match",
+    "matched": true
+  }
+}
+```
+
+Keep flag keys stable and always provide a default/off variant in application code so a missing or
+paused flag fails closed.
+
 ### Retention curves
 
 Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Retention uses the first `entry_event` per actor as the cohort start, then counts actors who later emit `return_event` across daily, weekly, or monthly intervals.

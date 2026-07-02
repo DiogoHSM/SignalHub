@@ -44,6 +44,14 @@ import {
   updateExperiment
 } from "@sigmon/db/repositories/experiments.js";
 import {
+  archiveFeatureFlag,
+  createFeatureFlag,
+  evaluateFeatureFlagById,
+  listFeatureFlagAudit,
+  listFeatureFlags,
+  updateFeatureFlag
+} from "@sigmon/db/repositories/feature-flags.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -628,6 +636,14 @@ const app = await buildApp({
       create: (input) => createExperiment(db, input),
       update: (input) => updateExperiment(db, input),
       archive: (input) => archiveExperiment(db, input)
+    },
+    featureFlags: {
+      list: (filters) => listFeatureFlags(db, filters),
+      create: (input) => createFeatureFlag(db, input),
+      update: (input) => updateFeatureFlag(db, input),
+      archive: (input) => archiveFeatureFlag(db, input),
+      listAudit: (input) => listFeatureFlagAudit(db, input),
+      evaluate: (input) => evaluateFeatureFlagById(db, input)
     }
   },
   ingestion: {

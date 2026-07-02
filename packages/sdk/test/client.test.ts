@@ -119,6 +119,71 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("evaluateFlag applies local rules with a safe fallback and records evaluation", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        tenantId: "tenant_1",
+        userId: "user_1"
+      }
+    });
+
+    const evaluation = client.evaluateFlag({
+      key: "new_checkout",
+      fallbackVariant: "off",
+      variants: [
+        { key: "off", value: false },
+        { key: "on", value: true }
+      ],
+      rules: [{ variant: "on", match: { userId: "user_1", traits: { plan: "team" } } }],
+      subject: { userId: "user_1", traits: { plan: "team" } }
+    });
+
+    expect(evaluation).toEqual({
+      key: "new_checkout",
+      variant: "on",
+      value: true,
+      matched: true,
+      reason: "rule_match"
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      name: "sigmon.feature_flag.evaluated",
+      properties: {
+        flag_key: "new_checkout",
+        variant: "on",
+        value: true,
+        reason: "rule_match",
+        matched: true
+      },
+      tenant_id: "tenant_1",
+      user_id: "user_1",
+      metadata: {}
+    });
+
+    expect(
+      client.evaluateFlag({
+        key: "new_checkout",
+        fallbackVariant: "off",
+        variants: [{ key: "off", value: false }],
+        rules: [],
+        subject: { userId: "user_2" },
+        trackExposure: false
+      })
+    ).toEqual({
+      key: "new_checkout",
+      variant: "off",
+      value: false,
+      matched: false,
+      reason: "default"
+    });
+  });
+
   it("webVital enqueues a browser performance metric", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
     const client = createSignalMonitorClient({

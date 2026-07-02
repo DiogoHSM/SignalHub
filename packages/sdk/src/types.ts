@@ -184,6 +184,42 @@ export type ExperimentAssignment = {
   variant: string;
 };
 
+export type FeatureFlagValue = string | number | boolean | null;
+
+export type FeatureFlagVariantInput = {
+  key: string;
+  value: FeatureFlagValue;
+};
+
+export type FeatureFlagRuleMatch = {
+  userId?: string;
+  tenantId?: string;
+  sessionId?: string;
+  traits?: Record<string, FeatureFlagValue>;
+};
+
+export type FeatureFlagRuleInput = {
+  variant: string;
+  match: FeatureFlagRuleMatch;
+};
+
+export type FeatureFlagEvaluationInput = {
+  key: string;
+  fallbackVariant: string;
+  variants: FeatureFlagVariantInput[];
+  rules?: FeatureFlagRuleInput[];
+  subject?: FeatureFlagRuleMatch;
+  trackExposure?: boolean;
+};
+
+export type FeatureFlagEvaluation = {
+  key: string;
+  variant: string;
+  value: FeatureFlagValue;
+  matched: boolean;
+  reason: "rule_match" | "default";
+};
+
 export type ReplayEventType = "navigation" | "click" | "input" | "console" | "network" | "error" | "custom";
 
 export type SessionReplayEventInput = {
@@ -251,6 +287,7 @@ export type SignalMonitorError = {
 export type SignalMonitorClient = {
   track: (name: string, properties?: SignalMetadata, context?: SignalContext & EventInput) => void;
   assignExperiment: (input: ExperimentAssignmentInput, context?: SignalContext & EventInput) => ExperimentAssignment;
+  evaluateFlag: (input: FeatureFlagEvaluationInput, context?: SignalContext & EventInput) => FeatureFlagEvaluation;
   captureError: (error: unknown, input?: ErrorInput) => void;
   breadcrumb: (input: BreadcrumbInput, context?: SignalContext) => void;
   llm: (input: LlmInput, context?: SignalContext) => void;

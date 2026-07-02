@@ -87,6 +87,37 @@ export interface ExperimentsTable {
   archived_at: NullableTimestamp;
 }
 
+export type FeatureFlagStatus = "draft" | "active" | "paused" | "archived";
+
+export interface FeatureFlagsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<FeatureFlagStatus, FeatureFlagStatus | undefined, FeatureFlagStatus>;
+  default_variant: string;
+  variants: JsonColumn;
+  rules: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export type FeatureFlagAuditAction = "created" | "updated" | "archived";
+
+export interface FeatureFlagAuditTable {
+  id: string;
+  feature_flag_id: string;
+  project_id: string;
+  environment_id: string;
+  action: FeatureFlagAuditAction;
+  actor_id: string | null;
+  changes: JsonColumn;
+  created_at: Timestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -684,6 +715,8 @@ export interface Database {
   analytics_segments: AnalyticsSegmentsTable;
   analytics_dashboards: AnalyticsDashboardsTable;
   experiments: ExperimentsTable;
+  feature_flags: FeatureFlagsTable;
+  feature_flag_audit: FeatureFlagAuditTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;

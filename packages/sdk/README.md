@@ -134,6 +134,29 @@ sigmon.track("checkout.completed", {
 Sigmon reads results from `GET /query/experiments/:id/results`; keep `experiment_key`, `variant`, and
 stable user/tenant/session context on exposure and conversion events.
 
+Feature flags use saved project/environment definitions in the Sigmon console and a safe SDK evaluator
+that can run with a local snapshot. Always provide an off/default variant so app code has a deterministic
+fallback if remote config is unavailable:
+
+```ts
+const flag = sigmon.evaluateFlag({
+  key: "new_checkout",
+  fallbackVariant: "off",
+  variants: [
+    { key: "off", value: false },
+    { key: "on", value: true }
+  ],
+  rules: [{ variant: "on", match: { userId: "user_456", traits: { plan: "team" } } }],
+  subject: { userId: "user_456", traits: { plan: "team" } }
+});
+
+if (flag.value === true) {
+  renderNewCheckout();
+}
+```
+
+The helper records `sigmon.feature_flag.evaluated` unless `trackExposure: false` is set.
+
 Click maps are separate from click breadcrumbs. Breadcrumbs tell the story around an error or session;
 click maps aggregate opt-in browser coordinates by route and safe selector. Add stable
 `data-sigmon-id` attributes to meaningful controls before enabling click capture.
@@ -525,6 +548,13 @@ await sigmon.flush();
 ```
 
 In the console, open `Experiments` and map the experiment property, variant property, exposure event, and conversion event. If your app already uses different names, keep them consistent and map them there.
+
+## Feature Flags
+
+Feature flags live beside experiments in the console. Each flag has a stable key, active/paused status,
+safe default variant, bounded variants, and ordered targeting rules. Use the SDK evaluator with the
+same definition shape in server or browser code, and keep `trackExposure` enabled when you want Sigmon
+to count usage of a flag.
 
 Experiment readouts are directional operational views, not a statistical-significance engine. Use them to spot obvious changes in conversion, quality, latency, or cost before drilling into events, users, tenants, traces, errors, or LLM calls.
 
