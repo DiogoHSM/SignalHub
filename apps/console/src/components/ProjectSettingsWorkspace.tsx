@@ -7,7 +7,10 @@ import type {
   DataGovernancePropertyRuleTarget,
   DataGovernanceRetentionCategory,
   Environment,
-  Project
+  Project,
+  WarehouseDataset,
+  WarehouseDestination,
+  WarehouseExportRun
 } from "../api/types";
 import { ApiKeyPanel } from "./ApiKeyPanel";
 import { ArtifactsPanel } from "./ArtifactsPanel";
@@ -62,6 +65,11 @@ const sections = [
     id: "data-governance",
     label: "Data governance",
     description: "Control retention windows and sensitive telemetry properties."
+  },
+  {
+    id: "warehouse-sync",
+    label: "Warehouse sync",
+    description: "Export telemetry incrementally to an external analytical store."
   },
   {
     id: "sdk-snippets",
@@ -237,6 +245,13 @@ const propertyRuleTargets: DataGovernancePropertyRuleTarget[] = [
   "breadcrumb.data",
   "replay.event.data",
   "identity.traits"
+];
+
+const warehouseDatasets: Array<{ key: WarehouseDataset; label: string }> = [
+  { key: "events", label: "Events" },
+  { key: "errors", label: "Errors" },
+  { key: "traces", label: "Traces" },
+  { key: "llmCalls", label: "LLM calls" }
 ];
 
 function DataGovernancePanel({
@@ -441,6 +456,315 @@ function DataGovernancePanel({
   );
 }
 
+function formatOptionalDate(value: string | null | undefined): string {
+  if (!value) return "Never";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function datasetSummary(datasets: WarehouseDataset[]): string {
+  return warehouseDatasets
+    .filter((dataset) => datasets.includes(dataset.key))
+    .map((dataset) => dataset.label)
+    .join(", ");
+}
+
+function WarehouseSyncPanel({
+  activeEnvironmentId,
+  client,
+  projectId
+}: {
+  activeEnvironmentId?: string;
+  client: ApiClient;
+  projectId: string;
+}) {
+  const [destinations, setDestinations] = useState<WarehouseDestination[]>([]);
+  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [runs, setRuns] = useState<WarehouseExportRun[]>([]);
+  const [name, setName] = useState("");
+  const [connectionUrl, setConnectionUrl] = useState("");
+  const [batchSize, setBatchSize] = useState("500");
+  const [datasets, setDatasets] = useState<WarehouseDataset[]>(["events", "errors"]);
+  const [error, setError] = useState<string | undefined>();
+  const [isBusy, setIsBusy] = useState(false);
+  const canUseApi = Boolean(
+    client.listWarehouseDestinations &&
+      client.createWarehouseDestination &&
+      client.updateWarehouseDestination &&
+      client.archiveWarehouseDestination &&
+      client.listWarehouseExportRuns &&
+      client.runWarehouseExport
+  );
+  const selected = destinations.find((destination) => destination.id === selectedId) ?? destinations[0];
+
+  useEffect(() => {
+    let cancelled = false;
+    setRuns([]);
+    if (!activeEnvironmentId || !canUseApi || !client.listWarehouseDestinations) return () => {
+      cancelled = true;
+    };
+
+    void client
+      .listWarehouseDestinations({ projectId, environmentId: activeEnvironmentId })
+      .then(({ destinations: loaded }) => {
+        if (cancelled) return;
+        setDestinations(loaded);
+        setSelectedId((current) => current ?? loaded[0]?.id);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load warehouse destinations.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEnvironmentId, canUseApi, client, projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeEnvironmentId || !selected || !client.listWarehouseExportRuns) return () => {
+      cancelled = true;
+    };
+    void client
+      .listWarehouseExportRuns(selected.id, { projectId, environmentId: activeEnvironmentId, limit: 8 })
+      .then(({ runs: loaded }) => {
+        if (!cancelled) setRuns(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setRuns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEnvironmentId, client, projectId, selected]);
+
+  function toggleDataset(dataset: WarehouseDataset) {
+    setDatasets((current) => {
+      if (current.includes(dataset)) {
+        const next = current.filter((item) => item !== dataset);
+        return next.length > 0 ? next : current;
+      }
+      return [...current, dataset];
+    });
+  }
+
+  async function reloadRuns(destination: WarehouseDestination) {
+    if (!activeEnvironmentId || !client.listWarehouseExportRuns) return;
+    const response = await client.listWarehouseExportRuns(destination.id, {
+      projectId,
+      environmentId: activeEnvironmentId,
+      limit: 8
+    });
+    setRuns(response.runs);
+  }
+
+  async function createDestination(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeEnvironmentId || !client.createWarehouseDestination) return;
+    setError(undefined);
+    setIsBusy(true);
+    try {
+      const response = await client.createWarehouseDestination({
+        projectId,
+        environmentId: activeEnvironmentId,
+        name: name.trim(),
+        destinationType: "postgres",
+        connectionUrl: connectionUrl.trim(),
+        datasets,
+        batchSize: Number(batchSize),
+        enabled: true
+      });
+      setDestinations((current) => [...current, response.destination]);
+      setSelectedId(response.destination.id);
+      setName("");
+      setConnectionUrl("");
+      setBatchSize("500");
+    } catch {
+      setError("Could not create warehouse destination.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function toggleEnabled(destination: WarehouseDestination) {
+    if (!activeEnvironmentId || !client.updateWarehouseDestination) return;
+    setError(undefined);
+    setIsBusy(true);
+    try {
+      const response = await client.updateWarehouseDestination(destination.id, {
+        projectId,
+        environmentId: activeEnvironmentId,
+        enabled: !destination.enabled
+      });
+      setDestinations((current) => current.map((item) => (item.id === destination.id ? response.destination : item)));
+    } catch {
+      setError("Could not update warehouse destination.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function runNow(destination: WarehouseDestination) {
+    if (!activeEnvironmentId || !client.runWarehouseExport) return;
+    setError(undefined);
+    setIsBusy(true);
+    try {
+      await client.runWarehouseExport(destination.id, { projectId, environmentId: activeEnvironmentId });
+      await reloadRuns(destination);
+    } catch {
+      setError("Could not start warehouse export.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function archive(destination: WarehouseDestination) {
+    if (!activeEnvironmentId || !client.archiveWarehouseDestination) return;
+    if (!window.confirm(`Archive warehouse destination ${destination.name}?`)) return;
+    setError(undefined);
+    setIsBusy(true);
+    try {
+      await client.archiveWarehouseDestination(destination.id, { projectId, environmentId: activeEnvironmentId });
+      setDestinations((current) => current.filter((item) => item.id !== destination.id));
+      setSelectedId(undefined);
+      setRuns([]);
+    } catch {
+      setError("Could not archive warehouse destination.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  if (!activeEnvironmentId) {
+    return <EmptyState description="Select an environment before configuring warehouse exports." title="No environment selected" />;
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Warehouse sync</h2>
+          <p>Export selected telemetry datasets to a Postgres analytical landing table with incremental cursors.</p>
+        </div>
+      </div>
+      {!canUseApi ? <p className="form-error">Warehouse sync management is unavailable in this deployment.</p> : null}
+      {error ? <p className="form-error">{error}</p> : null}
+
+      <div className="settings-grid settings-grid--two">
+        <section className="subpanel">
+          <h3>Destinations</h3>
+          {destinations.length === 0 ? <p className="muted-text">No warehouse destinations configured yet.</p> : null}
+          <ul className="governance-rule-list">
+            {destinations.map((destination) => (
+              <li key={destination.id}>
+                <button onClick={() => setSelectedId(destination.id)} type="button">
+                  <span>
+                    <strong>{destination.name}</strong>
+                    {destination.enabled ? " enabled" : " paused"} · {datasetSummary(destination.datasets)}
+                    <br />
+                    <small>{destination.connectionUrlPreview}</small>
+                  </span>
+                </button>
+                <button disabled={isBusy} onClick={() => void runNow(destination)} type="button">
+                  Run now
+                </button>
+                <button disabled={isBusy} onClick={() => void toggleEnabled(destination)} type="button">
+                  {destination.enabled ? "Pause" : "Resume"}
+                </button>
+                <button disabled={isBusy} onClick={() => void archive(destination)} type="button">
+                  Archive
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="subpanel">
+          <h3>Create Postgres destination</h3>
+          <p className="muted-text">
+            Sigmon writes into <code>sigmon_telemetry_export</code> using idempotent upserts by dataset and source id.
+          </p>
+          <form className="compact-form" onSubmit={createDestination}>
+            <label>
+              Name
+              <input onChange={(event) => setName(event.target.value)} placeholder="Warehouse prod" value={name} />
+            </label>
+            <label>
+              Postgres connection URL
+              <input
+                onChange={(event) => setConnectionUrl(event.target.value)}
+                placeholder="postgres://writer:password@host:5432/analytics"
+                type="password"
+                value={connectionUrl}
+              />
+            </label>
+            <label>
+              Batch size
+              <input min={1} max={5000} onChange={(event) => setBatchSize(event.target.value)} type="number" value={batchSize} />
+            </label>
+            <div>
+              <strong>Datasets</strong>
+              <div className="segmented-control">
+                {warehouseDatasets.map((dataset) => (
+                  <button
+                    className={datasets.includes(dataset.key) ? "is-active" : ""}
+                    key={dataset.key}
+                    onClick={() => toggleDataset(dataset.key)}
+                    type="button"
+                  >
+                    {dataset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button disabled={isBusy || !canUseApi || !name.trim() || !connectionUrl.trim()} type="submit">
+              Create destination
+            </button>
+          </form>
+        </section>
+      </div>
+
+      <section className="subpanel">
+        <h3>Selected destination status</h3>
+        {selected ? (
+          <>
+            <div className="settings-grid settings-grid--two">
+              <p>
+                <strong>Last success</strong>
+                <br />
+                {formatOptionalDate(selected.lastSuccessAt)}
+              </p>
+              <p>
+                <strong>Last failure</strong>
+                <br />
+                {formatOptionalDate(selected.lastFailureAt)}
+              </p>
+            </div>
+            {selected.lastErrorMessage ? <p className="form-error">{selected.lastErrorMessage}</p> : null}
+            {runs.length === 0 ? <p className="muted-text">No export runs recorded yet.</p> : null}
+            <ul className="governance-rule-list">
+              {runs.map((run) => (
+                <li key={run.id}>
+                  <span>
+                    <strong>{run.status}</strong> · {run.trigger} · {formatOptionalDate(run.startedAt)}
+                    <br />
+                    <small>
+                      Events {run.exported.events ?? 0}, errors {run.exported.errors ?? 0}, traces {run.exported.traces ?? 0}, LLM{" "}
+                      {run.exported.llmCalls ?? 0}
+                    </small>
+                  </span>
+                  {run.errorMessage ? <span className="form-error">{run.errorMessage}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="muted-text">Select or create a destination to inspect export runs.</p>
+        )}
+      </section>
+    </section>
+  );
+}
+
 export function ProjectSettingsWorkspace({
   activeEnvironment,
   activeProject,
@@ -499,6 +823,14 @@ export function ProjectSettingsWorkspace({
       case "data-governance":
         return (
           <DataGovernancePanel
+            activeEnvironmentId={activeEnvironmentId}
+            client={client}
+            projectId={activeProjectId}
+          />
+        );
+      case "warehouse-sync":
+        return (
+          <WarehouseSyncPanel
             activeEnvironmentId={activeEnvironmentId}
             client={client}
             projectId={activeProjectId}

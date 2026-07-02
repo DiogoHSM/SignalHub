@@ -78,6 +78,69 @@ export type DataGovernancePolicy = {
   updatedAt: string;
 };
 
+export type WarehouseDataset = "events" | "errors" | "traces" | "llmCalls";
+
+export type WarehouseCursorValue = {
+  timestamp: string;
+  id: string;
+};
+
+export type WarehouseCursor = Partial<Record<WarehouseDataset, WarehouseCursorValue>>;
+
+export type WarehouseDestination = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  destinationType: "postgres";
+  connectionUrlPreview: string;
+  datasets: WarehouseDataset[];
+  cursor: WarehouseCursor;
+  batchSize: number;
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastErrorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type WarehouseExportRun = {
+  id: string;
+  destinationId: string;
+  projectId: string;
+  environmentId: string;
+  trigger: "scheduled" | "manual" | "retry";
+  status: "running" | "success" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  cursorBefore: WarehouseCursor;
+  cursorAfter: WarehouseCursor;
+  exported: Partial<Record<WarehouseDataset, number>>;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type CreateWarehouseDestinationInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  destinationType?: "postgres";
+  connectionUrl: string;
+  datasets: WarehouseDataset[];
+  batchSize?: number;
+  enabled?: boolean;
+};
+
+export type UpdateWarehouseDestinationInput = Partial<
+  Pick<CreateWarehouseDestinationInput, "name" | "connectionUrl" | "datasets" | "batchSize" | "enabled">
+> & {
+  projectId: string;
+  environmentId: string;
+};
+
 export type AnalyticsSegmentActorType = "user" | "tenant";
 
 export type AnalyticsSegmentDefinition = {

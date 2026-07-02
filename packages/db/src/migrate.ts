@@ -38,7 +38,8 @@ const migrations = [
   { name: "0032_experiments.sql", url: new URL("../migrations/0032_experiments.sql", import.meta.url) },
   { name: "0033_feature_flags.sql", url: new URL("../migrations/0033_feature_flags.sql", import.meta.url) },
   { name: "0034_beta_programs.sql", url: new URL("../migrations/0034_beta_programs.sql", import.meta.url) },
-  { name: "0035_data_governance.sql", url: new URL("../migrations/0035_data_governance.sql", import.meta.url) }
+  { name: "0035_data_governance.sql", url: new URL("../migrations/0035_data_governance.sql", import.meta.url) },
+  { name: "0036_warehouse_exports.sql", url: new URL("../migrations/0036_warehouse_exports.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

@@ -151,6 +151,7 @@ describe("ProjectSettingsWorkspace", () => {
       "API keys",
       "Browser origins",
       "Data governance",
+      "Warehouse sync",
       "SDK snippets",
       "Source maps",
       "Console users"
@@ -221,6 +222,87 @@ describe("ProjectSettingsWorkspace", () => {
           { target: "event.properties", path: "email", action: "mask" },
           { target: "metadata", path: "headers.authorization", action: "block" }
         ]
+      })
+    );
+  });
+
+  it("configures warehouse sync destinations and manual runs", async () => {
+    const warehouse = {
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse",
+      destinationType: "postgres" as const,
+      connectionUrlPreview: "postgres://writer:***@warehouse/sigmon",
+      datasets: ["events", "errors"] as const,
+      cursor: {},
+      batchSize: 500,
+      enabled: true,
+      lastRunAt: "2026-05-01T00:00:00.000Z",
+      lastSuccessAt: "2026-05-01T00:00:00.000Z",
+      lastFailureAt: null,
+      lastErrorMessage: null,
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+      archivedAt: null
+    };
+    const api = client({
+      listWarehouseDestinations: vi.fn().mockResolvedValue({ destinations: [warehouse] }),
+      listWarehouseExportRuns: vi.fn().mockResolvedValue({
+        runs: [
+          {
+            id: "whrun_1",
+            destinationId: "whdst_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            trigger: "manual",
+            status: "success",
+            startedAt: "2026-05-01T00:00:00.000Z",
+            finishedAt: "2026-05-01T00:00:01.000Z",
+            cursorBefore: {},
+            cursorAfter: {},
+            exported: { events: 2 },
+            errorMessage: null,
+            createdAt: "2026-05-01T00:00:01.000Z"
+          }
+        ]
+      }),
+      createWarehouseDestination: vi.fn().mockResolvedValue({ destination: { ...warehouse, id: "whdst_2", name: "Warehouse prod" } }),
+      updateWarehouseDestination: vi.fn().mockResolvedValue({ destination: { ...warehouse, enabled: false } }),
+      archiveWarehouseDestination: vi.fn().mockResolvedValue(undefined),
+      runWarehouseExport: vi.fn().mockResolvedValue({ result: { ran: true, skipped: false, exported: 2, failed: 0 } })
+    });
+
+    renderWorkspace({ client: api });
+
+    await userEvent.click(screen.getByRole("button", { name: "Warehouse sync" }));
+
+    expect(await screen.findByRole("heading", { name: "Warehouse sync" })).toBeInTheDocument();
+    expect(await screen.findByText("postgres://writer:***@warehouse/sigmon")).toBeInTheDocument();
+    expect(screen.getByText(/Events 2/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Run now" }));
+    expect(api.runWarehouseExport).toHaveBeenCalledWith("whdst_1", { projectId: "prj_1", environmentId: "env_1" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(api.updateWarehouseDestination).toHaveBeenCalledWith("whdst_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      enabled: false
+    });
+
+    await userEvent.type(screen.getByLabelText("Name"), "Warehouse prod");
+    await userEvent.type(screen.getByLabelText("Postgres connection URL"), "postgres://writer:secret@warehouse-prod/sigmon");
+    await userEvent.clear(screen.getByLabelText("Batch size"));
+    await userEvent.type(screen.getByLabelText("Batch size"), "250");
+    await userEvent.click(screen.getByRole("button", { name: "Create destination" }));
+    expect(api.createWarehouseDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Warehouse prod",
+        connectionUrl: "postgres://writer:secret@warehouse-prod/sigmon",
+        batchSize: 250
       })
     );
   });

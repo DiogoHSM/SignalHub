@@ -406,6 +406,62 @@ export const openApiDocument = {
           updatedAt: { type: "string", format: "date-time" }
         }
       },
+      WarehouseDestination: {
+        type: "object",
+        required: [
+          "id",
+          "projectId",
+          "environmentId",
+          "name",
+          "destinationType",
+          "connectionUrlPreview",
+          "datasets",
+          "cursor",
+          "batchSize",
+          "enabled"
+        ],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string" },
+          destinationType: { type: "string", enum: ["postgres"] },
+          connectionUrlPreview: {
+            type: "string",
+            description: "Redacted connection URL. The raw URL is write-only and never returned."
+          },
+          datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+          cursor: { type: "object", additionalProperties: true },
+          batchSize: { type: "integer", minimum: 1, maximum: 5000 },
+          enabled: { type: "boolean" },
+          lastRunAt: { type: ["string", "null"], format: "date-time" },
+          lastSuccessAt: { type: ["string", "null"], format: "date-time" },
+          lastFailureAt: { type: ["string", "null"], format: "date-time" },
+          lastErrorMessage: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      WarehouseExportRun: {
+        type: "object",
+        required: ["id", "destinationId", "projectId", "environmentId", "trigger", "status", "startedAt", "exported"],
+        properties: {
+          id: { type: "string" },
+          destinationId: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          trigger: { type: "string", enum: ["scheduled", "manual", "retry"] },
+          status: { type: "string", enum: ["running", "success", "failed"] },
+          startedAt: { type: "string", format: "date-time" },
+          finishedAt: { type: ["string", "null"], format: "date-time" },
+          cursorBefore: { type: "object", additionalProperties: true },
+          cursorAfter: { type: "object", additionalProperties: true },
+          exported: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+          errorMessage: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
       EventPayload: {
         type: "object",
         required: ["name"],
@@ -1590,6 +1646,184 @@ export const openApiDocument = {
             description: "Data governance policy updated",
             content: { "application/json": { schema: { type: "object", properties: { policy: { $ref: "#/components/schemas/DataGovernancePolicy" } } } } }
           },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/warehouse-destinations": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List warehouse export destinations",
+        description: "List project/environment destinations for incremental warehouse export. Raw connection URLs are never returned.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Warehouse destinations",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { destinations: { type: "array", items: { $ref: "#/components/schemas/WarehouseDestination" } } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create warehouse export destination",
+        description: "Create a Postgres destination. The connection URL is write-only and stored for the scheduler.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "name", "connectionUrl", "datasets"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  name: { type: "string" },
+                  destinationType: { type: "string", enum: ["postgres"], default: "postgres" },
+                  connectionUrl: { type: "string", format: "uri" },
+                  datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+                  batchSize: { type: "integer", minimum: 1, maximum: 5000, default: 500 },
+                  enabled: { type: "boolean", default: true }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Warehouse destination created",
+            content: { "application/json": { schema: { type: "object", properties: { destination: { $ref: "#/components/schemas/WarehouseDestination" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/warehouse-destinations/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update warehouse export destination",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  name: { type: "string" },
+                  connectionUrl: { type: "string", format: "uri" },
+                  datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+                  batchSize: { type: "integer", minimum: 1, maximum: 5000 },
+                  enabled: { type: "boolean" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Warehouse destination updated",
+            content: { "application/json": { schema: { type: "object", properties: { destination: { $ref: "#/components/schemas/WarehouseDestination" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Warehouse destination not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive warehouse export destination",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Warehouse destination archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/warehouse-destinations/{id}/runs": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List warehouse export runs",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } }
+        ],
+        responses: {
+          "200": {
+            description: "Warehouse export runs",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { runs: { type: "array", items: { $ref: "#/components/schemas/WarehouseExportRun" } } } }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Run warehouse export now",
+        description: "Trigger a manual incremental export for one destination.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "202": { description: "Warehouse export accepted" },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },

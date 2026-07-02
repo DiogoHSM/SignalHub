@@ -75,6 +75,14 @@ import type {
   DataGovernanceRetentionPolicy,
   UpsertDataGovernancePolicyInput
 } from "@sigmon/db/repositories/data-governance.js";
+import type {
+  CreateWarehouseDestinationInput,
+  UpdateWarehouseDestinationInput,
+  WarehouseDataset,
+  WarehouseDestinationRecord,
+  WarehouseExportRunRecord,
+  WarehouseExportRunTrigger
+} from "@sigmon/db/repositories/warehouse-exports.js";
 
 export interface AdminProject {
   id: string;
@@ -158,6 +166,7 @@ export type AdminResourceDependencies = {
   featureFlags?: FeatureFlagAdministrationDependencies;
   betaPrograms?: BetaProgramAdministrationDependencies;
   dataGovernance?: DataGovernanceAdministrationDependencies;
+  warehouseExports?: WarehouseExportAdministrationDependencies;
 };
 
 export type AnalyticsSegmentAdministrationDependencies = {
@@ -233,6 +242,20 @@ export type BetaProgramAdministrationDependencies = {
 export type DataGovernanceAdministrationDependencies = {
   get: (input: { projectId: string; environmentId: string }) => Promise<DataGovernancePolicy>;
   upsert: (input: UpsertDataGovernancePolicyInput) => Promise<DataGovernancePolicy>;
+};
+
+export type WarehouseExportAdministrationDependencies = {
+  listDestinations: (input: { projectId: string; environmentId: string }) => Promise<WarehouseDestinationRecord[]>;
+  createDestination: (input: CreateWarehouseDestinationInput) => Promise<WarehouseDestinationRecord>;
+  updateDestination: (input: UpdateWarehouseDestinationInput) => Promise<WarehouseDestinationRecord | null | undefined>;
+  archiveDestination: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+  listRuns: (input: { destinationId: string; projectId: string; environmentId: string; limit?: number }) => Promise<WarehouseExportRunRecord[]>;
+  runDestination?: (input: {
+    destinationId: string;
+    projectId: string;
+    environmentId: string;
+    trigger: WarehouseExportRunTrigger;
+  }) => Promise<{ ran: boolean; skipped: boolean; exported: number; failed: number }>;
 };
 
 export type AlertAdministrationDependencies = {
@@ -712,9 +735,47 @@ const dataGovernancePolicySchema = z.object({
   propertyRules: z.array(dataGovernancePropertyRuleSchema).max(100).default([])
 });
 
+const warehouseDatasetSchema = z.enum(["events", "errors", "traces", "llmCalls"]);
+const warehouseScopeQuerySchema = analyticsSegmentScopeQuerySchema.extend({
+  limit: z.coerce.number().int().min(1).max(100).optional()
+});
+const warehouseDestinationCreateSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(256),
+  destinationType: z.literal("postgres").default("postgres"),
+  connectionUrl: z.string().trim().url(),
+  datasets: z.array(warehouseDatasetSchema).min(1).max(4).default(["events"]),
+  batchSize: z.coerce.number().int().min(1).max(5000).default(500),
+  enabled: z.boolean().default(true)
+});
+const warehouseDestinationPatchSchema = z
+  .object({
+    projectId: z.string().trim().min(1),
+    environmentId: z.string().trim().min(1),
+    name: z.string().trim().min(1).max(256).optional(),
+    connectionUrl: z.string().trim().url().optional(),
+    datasets: z.array(warehouseDatasetSchema).min(1).max(4).optional(),
+    batchSize: z.coerce.number().int().min(1).max(5000).optional(),
+    enabled: z.boolean().optional()
+  })
+  .refine((input) => Object.keys(input).some((key) => key !== "projectId" && key !== "environmentId"), {
+    message: "at_least_one_field_required"
+  });
+const warehouseDestinationActionSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1)
+});
+
 type DataGovernancePolicyBody = z.infer<typeof dataGovernancePolicySchema> & {
   retentionPolicy: DataGovernanceRetentionPolicy;
   propertyRules: DataGovernancePropertyRule[];
+};
+type WarehouseDestinationCreateBody = z.infer<typeof warehouseDestinationCreateSchema> & {
+  datasets: WarehouseDataset[];
+};
+type WarehouseDestinationPatchBody = z.infer<typeof warehouseDestinationPatchSchema> & {
+  datasets?: WarehouseDataset[];
 };
 
 type CreateUserInput = z.infer<typeof createUserSchema>;
@@ -2358,6 +2419,159 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.send({ policy });
     } catch {
       return reply.status(503).send({ error: "data_governance_unavailable" });
+    }
+  });
+
+  app.get("/admin/warehouse-destinations", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.warehouseExports) {
+      return reply.status(501).send({ error: "warehouse_exports_repository_unavailable" });
+    }
+
+    const query = warehouseScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+    }
+
+    try {
+      const destinations = await options.adminResources.warehouseExports.listDestinations({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ destinations });
+    } catch {
+      return reply.status(503).send({ error: "warehouse_exports_unavailable" });
+    }
+  });
+
+  app.post("/admin/warehouse-destinations", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.warehouseExports) {
+      return reply.status(501).send({ error: "warehouse_exports_repository_unavailable" });
+    }
+
+    const parsed = warehouseDestinationCreateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+    }
+
+    try {
+      const input = parsed.data as WarehouseDestinationCreateBody;
+      const destination = await options.adminResources.warehouseExports.createDestination(input);
+      return reply.status(201).send({ destination });
+    } catch {
+      return reply.status(503).send({ error: "warehouse_exports_unavailable" });
+    }
+  });
+
+  app.patch("/admin/warehouse-destinations/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.warehouseExports) {
+      return reply.status(501).send({ error: "warehouse_exports_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const parsed = warehouseDestinationPatchSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+    }
+
+    try {
+      const input = parsed.data as WarehouseDestinationPatchBody;
+      const destination = await options.adminResources.warehouseExports.updateDestination({
+        id: params.data.id,
+        projectId: input.projectId,
+        environmentId: input.environmentId,
+        name: input.name,
+        connectionUrl: input.connectionUrl,
+        datasets: input.datasets,
+        batchSize: input.batchSize,
+        enabled: input.enabled
+      });
+      if (!destination) return reply.status(404).send({ error: "warehouse_destination_not_found" });
+      return reply.send({ destination });
+    } catch {
+      return reply.status(503).send({ error: "warehouse_exports_unavailable" });
+    }
+  });
+
+  app.delete("/admin/warehouse-destinations/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.warehouseExports) {
+      return reply.status(501).send({ error: "warehouse_exports_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const parsed = warehouseScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+    }
+
+    try {
+      await options.adminResources.warehouseExports.archiveDestination({
+        id: params.data.id,
+        projectId: parsed.data.project_id,
+        environmentId: parsed.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "warehouse_exports_unavailable" });
+    }
+  });
+
+  app.get("/admin/warehouse-destinations/:id/runs", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.warehouseExports) {
+      return reply.status(501).send({ error: "warehouse_exports_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = warehouseScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+    }
+
+    try {
+      const runs = await options.adminResources.warehouseExports.listRuns({
+        destinationId: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        limit: query.data.limit
+      });
+      return reply.send({ runs });
+    } catch {
+      return reply.status(503).send({ error: "warehouse_exports_unavailable" });
+    }
+  });
+
+  app.post("/admin/warehouse-destinations/:id/runs", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    if (!options.adminResources?.warehouseExports?.runDestination) {
+      return reply.status(501).send({ error: "warehouse_export_runner_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const parsed = warehouseDestinationActionSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+    }
+
+    try {
+      const result = await options.adminResources.warehouseExports.runDestination({
+        destinationId: params.data.id,
+        projectId: parsed.data.projectId,
+        environmentId: parsed.data.environmentId,
+        trigger: "manual"
+      });
+      return reply.status(202).send({ result });
+    } catch {
+      return reply.status(503).send({ error: "warehouse_exports_unavailable" });
     }
   });
 

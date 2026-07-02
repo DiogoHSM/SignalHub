@@ -26,6 +26,7 @@ import type {
   CreateFeatureFlagInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
+  CreateWarehouseDestinationInput,
   CreatedApiKey,
   CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
@@ -107,6 +108,9 @@ import type {
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput,
+  UpdateWarehouseDestinationInput,
+  WarehouseDestination,
+  WarehouseExportRun,
   WebVitalsResponse,
   LlmAggregateQuery,
   LlmSummary,
@@ -409,6 +413,18 @@ export type ApiClient = {
     retentionPolicy: DataGovernancePolicy["retentionPolicy"];
     propertyRules: DataGovernancePolicy["propertyRules"];
   }) => Promise<{ policy: DataGovernancePolicy }>;
+  listWarehouseDestinations?: (query: { projectId: string; environmentId: string }) => Promise<{ destinations: WarehouseDestination[] }>;
+  createWarehouseDestination?: (input: CreateWarehouseDestinationInput) => Promise<{ destination: WarehouseDestination }>;
+  updateWarehouseDestination?: (id: string, input: UpdateWarehouseDestinationInput) => Promise<{ destination: WarehouseDestination }>;
+  archiveWarehouseDestination?: (id: string, query: { projectId: string; environmentId: string }) => Promise<void>;
+  listWarehouseExportRuns?: (
+    id: string,
+    query: { projectId: string; environmentId: string; limit?: number }
+  ) => Promise<{ runs: WarehouseExportRun[] }>;
+  runWarehouseExport?: (
+    id: string,
+    input: { projectId: string; environmentId: string }
+  ) => Promise<{ result: { ran: boolean; skipped: boolean; exported: number; failed: number } }>;
 } & AlertApiClient &
   ErrorGroupApiClient &
   SessionTimelineApiClient &
@@ -1374,6 +1390,41 @@ export function createApiClient(
         method: "PUT",
         body: input
       }),
+    listWarehouseDestinations: (query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      return request<{ destinations: WarehouseDestination[] }>(
+        path(apiBasePath, `/admin/warehouse-destinations?${search.toString()}`)
+      );
+    },
+    createWarehouseDestination: (input) =>
+      request<{ destination: WarehouseDestination }>(path(apiBasePath, "/admin/warehouse-destinations"), {
+        method: "POST",
+        body: input
+      }),
+    updateWarehouseDestination: (id, input) =>
+      request<{ destination: WarehouseDestination }>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}`),
+        { method: "PATCH", body: input }
+      ),
+    archiveWarehouseDestination: (id, query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      return request<void>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}?${search.toString()}`),
+        { method: "DELETE" }
+      );
+    },
+    listWarehouseExportRuns: (id, query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      if (query.limit !== undefined) search.set("limit", String(query.limit));
+      return request<{ runs: WarehouseExportRun[] }>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}/runs?${search.toString()}`)
+      );
+    },
+    runWarehouseExport: (id, input) =>
+      request<{ result: { ran: boolean; skipped: boolean; exported: number; failed: number } }>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}/runs`),
+        { method: "POST", body: input }
+      ),
     listNotificationChannels: () =>
       request<{ channels: NotificationChannelResponse[] }>(path(apiBasePath, "/admin/notification-channels")),
     createNotificationChannel: (input) =>

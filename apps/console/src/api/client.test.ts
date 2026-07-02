@@ -903,6 +903,63 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages warehouse export destinations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { destinations: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.listWarehouseDestinations?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { destination: { id: "whdst_1" } }));
+    await api.createWarehouseDestination?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse",
+      connectionUrl: "postgres://writer:secret@warehouse/sigmon",
+      datasets: ["events"]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { destination: { id: "whdst_1" } }));
+    await api.updateWarehouseDestination?.("whdst/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      enabled: false
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await api.archiveWarehouseDestination?.("whdst/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { runs: [] }));
+    await api.listWarehouseExportRuns?.("whdst/1", { projectId: "prj_1", environmentId: "env_1", limit: 10 });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1/runs?project_id=prj_1&environment_id=env_1&limit=10",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(202, { result: { ran: true, skipped: false, exported: 1, failed: 0 } }));
+    await api.runWarehouseExport?.("whdst/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1/runs",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
   it("fetches system health", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

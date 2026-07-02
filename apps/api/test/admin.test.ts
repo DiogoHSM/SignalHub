@@ -18,6 +18,10 @@ import type {
   BetaProgramRecord
 } from "../../../packages/db/src/repositories/beta-programs.js";
 import type { DataGovernancePolicy } from "../../../packages/db/src/repositories/data-governance.js";
+import type {
+  WarehouseDestinationRecord,
+  WarehouseExportRunRecord
+} from "../../../packages/db/src/repositories/warehouse-exports.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -206,6 +210,68 @@ function featureFlagAuditResponse(overrides: Partial<Record<string, unknown>> = 
   return {
     ...featureFlagAudit(),
     createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function warehouseDestination(overrides: Partial<WarehouseDestinationRecord> = {}): WarehouseDestinationRecord {
+  return {
+    id: "whdst_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    name: "Warehouse",
+    destinationType: "postgres",
+    connectionUrlPreview: "postgres://writer:***@warehouse.internal:5432/analytics",
+    datasets: ["events", "errors"],
+    cursor: {},
+    batchSize: 500,
+    enabled: true,
+    lastRunAt: null,
+    lastSuccessAt: null,
+    lastFailureAt: null,
+    lastErrorMessage: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function warehouseDestinationResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...warehouseDestination(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function warehouseExportRun(overrides: Partial<WarehouseExportRunRecord> = {}): WarehouseExportRunRecord {
+  return {
+    id: "whrun_1",
+    destinationId: "whdst_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    trigger: "manual",
+    status: "success",
+    startedAt: new Date("2026-01-01T00:00:00.000Z"),
+    finishedAt: new Date("2026-01-01T00:00:01.000Z"),
+    cursorBefore: {},
+    cursorAfter: { events: { timestamp: "2026-01-01T00:00:00.000Z", id: "evt_1" } },
+    exported: { events: 1 },
+    errorMessage: null,
+    createdAt: new Date("2026-01-01T00:00:01.000Z"),
+    ...overrides
+  };
+}
+
+function warehouseExportRunResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...warehouseExportRun(),
+    startedAt: "2026-01-01T00:00:00.000Z",
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    createdAt: "2026-01-01T00:00:01.000Z",
     ...overrides
   };
 }
@@ -1377,6 +1443,121 @@ describe("admin routes", () => {
       ],
       updatedByUserId: "usr_1"
     });
+  });
+
+  it("manages warehouse export destinations and manual runs for admins", async () => {
+    const listDestinations = vi.fn(async () => [warehouseDestination()]);
+    const createDestination = vi.fn(async (input) =>
+      warehouseDestination({ name: input.name, datasets: input.datasets, batchSize: input.batchSize })
+    );
+    const updateDestination = vi.fn(async (input) =>
+      warehouseDestination({ id: input.id, name: input.name ?? "Warehouse", enabled: input.enabled ?? true })
+    );
+    const archiveDestination = vi.fn(async () => undefined);
+    const listRuns = vi.fn(async () => [warehouseExportRun()]);
+    const runDestination = vi.fn(async () => ({ ran: true, skipped: false, exported: 1, failed: 0 }));
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: {
+          listDestinations,
+          createDestination,
+          updateDestination,
+          archiveDestination,
+          listRuns,
+          runDestination
+        }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/warehouse-destinations?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ destinations: [warehouseDestinationResponse()] });
+    expect(listResponse.body).not.toContain("secret");
+    expect(listDestinations).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/warehouse-destinations",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Warehouse prod",
+        destinationType: "postgres",
+        connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
+        datasets: ["events", "traces"],
+        batchSize: 1000,
+        enabled: true
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createDestination).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse prod",
+      destinationType: "postgres",
+      connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
+      datasets: ["events", "traces"],
+      batchSize: 1000,
+      enabled: true
+    });
+    expect(createResponse.body).not.toContain("secret");
+
+    const patchResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Warehouse paused",
+        enabled: false
+      }
+    });
+    expect(patchResponse.statusCode).toBe(200);
+    expect(updateDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse paused",
+      connectionUrl: undefined,
+      datasets: undefined,
+      batchSize: undefined,
+      enabled: false
+    });
+
+    const runsResponse = await app.inject({
+      method: "GET",
+      url: "/admin/warehouse-destinations/whdst_1/runs?project_id=prj_1&environment_id=env_1"
+    });
+    expect(runsResponse.statusCode).toBe(200);
+    expect(runsResponse.json()).toEqual({ runs: [warehouseExportRunResponse()] });
+    expect(listRuns).toHaveBeenCalledWith({ destinationId: "whdst_1", projectId: "prj_1", environmentId: "env_1", limit: undefined });
+
+    const runResponse = await app.inject({
+      method: "POST",
+      url: "/admin/warehouse-destinations/whdst_1/runs",
+      payload: { projectId: "prj_1", environmentId: "env_1" }
+    });
+    expect(runResponse.statusCode).toBe(202);
+    expect(runResponse.json()).toEqual({ result: { ran: true, skipped: false, exported: 1, failed: 0 } });
+    expect(runDestination).toHaveBeenCalledWith({
+      destinationId: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      trigger: "manual"
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/warehouse-destinations/whdst_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archiveDestination).toHaveBeenCalledWith({ id: "whdst_1", projectId: "prj_1", environmentId: "env_1" });
   });
 
   it("rejects invalid browser origins", async () => {

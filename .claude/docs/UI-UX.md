@@ -195,6 +195,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Data Governance is a Project Settings section for the selected project/environment. It shows collected telemetry categories, per-category retention days, and sensitive property rules.
 - Data governance retention copy must explain that project/environment windows can shorten installation-level retention; installation-level retention remains the maximum retention boundary.
 - Sensitive property rules use dot paths and explicit actions: `mask` keeps the key with `[REDACTED]`; `block` removes the key before persistence. The UI should keep this distinction visible beside the rule list and add form.
+- Warehouse Sync is a Project Settings section for the selected project/environment. It shows destination health, redacted connection details, selected datasets, batch size, pause/resume, archive, manual run, and recent export runs so operators can verify external analytics exports without leaving the console.
 
 ## Releases UX
 

@@ -67,6 +67,18 @@ import {
   upsertDataGovernancePolicy
 } from "@sigmon/db/repositories/data-governance.js";
 import {
+  archiveWarehouseDestination,
+  createWarehouseDestination,
+  getWarehouseDestination,
+  listWarehouseDestinations,
+  listWarehouseExportRuns,
+  recordWarehouseExportRun,
+  selectWarehouseExportBatch,
+  updateWarehouseDestination,
+  updateWarehouseDestinationCursor,
+  withWarehouseExportLock
+} from "@sigmon/db/repositories/warehouse-exports.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -213,6 +225,7 @@ import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
 import { runBackupOnce } from "../../worker/src/backups.js";
+import { runWarehouseExportOnce, writePostgresWarehouseBatch } from "../../worker/src/warehouse-exports.js";
 import { runRetentionOnce } from "../../worker/src/retention.js";
 import { deleteExpiredSourceMapArtifacts } from "../../worker/src/source-map-retention.js";
 
@@ -673,6 +686,36 @@ const app = await buildApp({
     dataGovernance: {
       get: (input) => getDataGovernancePolicy(db, input),
       upsert: (input) => upsertDataGovernancePolicy(db, input)
+    },
+    warehouseExports: {
+      listDestinations: (input) => listWarehouseDestinations(db, { ...input, includeDisabled: true }),
+      createDestination: (input) => createWarehouseDestination(db, input),
+      updateDestination: (input) => updateWarehouseDestination(db, input),
+      archiveDestination: (input) => archiveWarehouseDestination(db, input),
+      listRuns: (input) => listWarehouseExportRuns(db, input),
+      runDestination: async (input) => {
+        const destination = await getWarehouseDestination(db, {
+          id: input.destinationId,
+          projectId: input.projectId,
+          environmentId: input.environmentId,
+          includeSecret: true
+        });
+        if (!destination) {
+          return { ran: true, skipped: false, exported: 0, failed: 1 };
+        }
+        return runWarehouseExportOnce(
+          {
+            now: () => new Date(),
+            withLock: (run) => withWarehouseExportLock(db, run),
+            listActiveDestinations: async () => [destination],
+            selectBatch: (selectedDestination, batchInput) => selectWarehouseExportBatch(db, selectedDestination, batchInput),
+            writeBatch: (writeInput) => writePostgresWarehouseBatch(writeInput),
+            updateCursor: (cursorInput) => updateWarehouseDestinationCursor(db, cursorInput),
+            recordRun: (runInput) => recordWarehouseExportRun(db, runInput)
+          },
+          input.trigger
+        );
+      }
     }
   },
   ingestion: {

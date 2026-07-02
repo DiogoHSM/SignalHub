@@ -64,6 +64,8 @@ Operational tables:
 - `analytics_dashboards`
 - `experiments`
 - `data_governance_policies`
+- `warehouse_destinations`
+- `warehouse_export_runs`
 - `source_map_artifacts`
 - `source_map_upload_tokens`
 - `error_stack_resolutions`
@@ -145,6 +147,9 @@ Admin:
 - `/admin/analytics-dashboards`
 - `/admin/analytics-dashboards/:id`
 - `/admin/data-governance`
+- `/admin/warehouse-destinations`
+- `/admin/warehouse-destinations/:id`
+- `/admin/warehouse-destinations/:id/runs`
 - `/admin/source-maps`
 - `/admin/source-map-upload-tokens`
 
@@ -216,6 +221,8 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
 The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `click_events`, `session_replays`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Project data governance policies can define shorter per-project/environment retention windows by category; these scoped windows run after the installation-level retention pass. `click_events` and `session_replays` use the events retention window by default and are counted with deleted events. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
+
+The scheduler role also owns warehouse exports. Project/environment-scoped `warehouse_destinations` select datasets and store durable per-dataset cursors. Export runs write into the external Postgres landing table `sigmon_telemetry_export` with idempotent upserts by dataset and source id, and each attempt is recorded in `warehouse_export_runs` for operator audit and retry visibility.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 

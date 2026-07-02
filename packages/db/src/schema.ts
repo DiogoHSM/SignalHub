@@ -163,6 +163,46 @@ export interface DataGovernancePoliciesTable {
   updated_at: Timestamp;
 }
 
+export type WarehouseDestinationType = "postgres";
+export type WarehouseExportRunTrigger = "scheduled" | "manual" | "retry";
+export type WarehouseExportRunStatus = "running" | "success" | "failed";
+
+export interface WarehouseDestinationsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  destination_type: WarehouseDestinationType;
+  connection_url: string;
+  datasets: JsonColumn;
+  cursor: JsonColumn;
+  batch_size: DefaultedInteger;
+  enabled: DefaultedBoolean;
+  last_run_at: NullableTimestamp;
+  last_success_at: NullableTimestamp;
+  last_failure_at: NullableTimestamp;
+  last_error_message: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface WarehouseExportRunsTable {
+  id: string;
+  destination_id: string;
+  project_id: string;
+  environment_id: string;
+  trigger: WarehouseExportRunTrigger;
+  status: WarehouseExportRunStatus;
+  started_at: Timestamp;
+  finished_at: NullableTimestamp;
+  cursor_before: JsonColumn;
+  cursor_after: JsonColumn;
+  exported: JsonColumn;
+  error_message: string | null;
+  created_at: Timestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -765,6 +805,8 @@ export interface Database {
   beta_programs: BetaProgramsTable;
   beta_program_participants: BetaProgramParticipantsTable;
   data_governance_policies: DataGovernancePoliciesTable;
+  warehouse_destinations: WarehouseDestinationsTable;
+  warehouse_export_runs: WarehouseExportRunsTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;
