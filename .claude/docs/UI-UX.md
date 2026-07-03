@@ -133,6 +133,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Beta program controls should make the linked flag, actor scope, participant count, active actor count, adoption percentage, and participant removal actions visible. Runtime setup should be explained as feature-flag evaluation, not as a separate beta SDK path.
 - In-app Surveys live in the same Experiments workspace for now. Operators can create rating-style prompts with optional trigger event and tenant targeting, pause/activate/archive definitions, and read response totals, per-question summaries, and recent answers without leaving the selected project/environment.
 - Survey controls should make units and linkage explicit: answers are keyed by question id, browser submission uses the project browser-origin allowlist, and response reports are derived from `POST /v1/surveys/responses` / SDK `submitSurvey`.
+- NPS tracking lives beside Surveys as a standard campaign shortcut. Operators can create a 0-10 NPS campaign and read score, promoter/passive/detractor counts, trend buckets, and tenant/release/plan segments without leaving Experiments.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Feedback UX

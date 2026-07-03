@@ -202,6 +202,10 @@ sigmon.submitSurvey({
 Survey responses are sent to `POST /v1/surveys/responses`. Configure browser origins before calling
 this directly from the browser with a browser-scoped ingestion key.
 
+NPS campaigns use the same survey response endpoint. Create a standard NPS campaign in the console,
+then submit an answer keyed as `nps` on the 0-10 scale. The console reads `GET /query/surveys/:id/nps`
+to show score, promoter/passive/detractor counts, trend, and tenant/release/plan segments.
+
 For free-form product feedback, enable the Feedback widget in project settings and install the browser
 helper. It renders a small opt-in button, captures the current page URL/path, and sends text feedback
 to `POST /v1/feedback` with the same user, tenant, session, source, release, and metadata context.

@@ -79,6 +79,13 @@ export type SurveyResultFilters = ApmFilters & {
   surveyId: string;
 };
 
+export type NpsResultFilters = SurveyResultFilters & {
+  questionId?: string;
+  tenantId?: string;
+  release?: string;
+  plan?: string;
+};
+
 export type FeedbackListFilters = Pick<ApmFilters, "projectId" | "environmentId" | "limit"> & {
   status?: "open" | "reviewed" | "archived";
 };
@@ -217,6 +224,7 @@ export type QueryDependencies = {
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
   getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
   getSurveyResults?: (filters: SurveyResultFilters) => Promise<unknown | null>;
+  getNpsResults?: (filters: NpsResultFilters) => Promise<unknown | null>;
   listFeedbackItems?: (filters: FeedbackListFilters) => Promise<unknown>;
   updateFeedbackStatus?: (input: FeedbackListFilters & { id: string; status: "open" | "reviewed" | "archived" }) => Promise<unknown | null>;
   getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
@@ -890,6 +898,23 @@ function parseSurveyResultFilters(params: unknown, query: unknown): SurveyResult
   return {
     ...base,
     surveyId: parsedParams.data.id
+  };
+}
+
+function parseNpsResultFilters(params: unknown, query: unknown): NpsResultFilters | undefined {
+  const base = parseSurveyResultFilters(params, query);
+  if (!base) return undefined;
+  const raw = (query ?? {}) as RawQuery;
+  const questionId = optionalNonEmpty(raw, "question_id");
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const release = optionalNonEmpty(raw, "release");
+  const plan = optionalNonEmpty(raw, "plan");
+  return {
+    ...base,
+    ...(questionId ? { questionId } : {}),
+    ...(tenantId ? { tenantId } : {}),
+    ...(release ? { release } : {}),
+    ...(plan ? { plan } : {})
   };
 }
 
@@ -1783,6 +1808,32 @@ async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyR
   }
 }
 
+async function handleNpsResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getNpsResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseNpsResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getNpsResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "survey_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 const feedbackStatusBodySchema = z.object({
   status: z.enum(["open", "reviewed", "archived"])
 });
@@ -2624,6 +2675,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
   app.get("/query/experiments/:id/results", (request, reply) => handleExperimentResultsRoute(request, reply, options));
   app.get("/query/surveys/:id/results", (request, reply) => handleSurveyResultsRoute(request, reply, options));
+  app.get("/query/surveys/:id/nps", (request, reply) => handleNpsResultsRoute(request, reply, options));
   app.get("/query/feedback", (request, reply) => handleFeedbackListRoute(request, reply, options));
   app.patch("/query/feedback/:id", (request, reply) => handleFeedbackStatusRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));

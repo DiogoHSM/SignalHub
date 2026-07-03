@@ -820,6 +820,23 @@ describe("createApiClient", () => {
       "/api/query/surveys/surv%2F1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25",
       expect.objectContaining({ method: "GET" })
     );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { totals: { score: 42 } } }));
+    await api.getNpsResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      surveyId: "surv/1",
+      window: "30d",
+      limit: 25,
+      questionId: "nps",
+      tenantId: "tenant_1",
+      release: "2026.05.1",
+      plan: "pro"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/surveys/surv%2F1/nps?project_id=prj_1&environment_id=env_1&window=30d&limit=25&question_id=nps&tenant_id=tenant_1&release=2026.05.1&plan=pro",
+      expect.objectContaining({ method: "GET" })
+    );
   });
 
   it("manages feedback widget settings and feedback triage", async () => {

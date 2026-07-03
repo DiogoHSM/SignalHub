@@ -124,6 +124,46 @@ export interface SurveyResults {
   recentResponses: SurveyResponseRecord[];
 }
 
+export interface NpsSegmentSummary {
+  key: string;
+  label: string;
+  responses: number;
+  score: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
+}
+
+export interface NpsTrendPoint {
+  bucket: string;
+  responses: number;
+  score: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
+}
+
+export interface NpsResults {
+  survey: SurveyRecord;
+  window: ApmWindow;
+  questionId: string;
+  totals: {
+    responses: number;
+    promoters: number;
+    passives: number;
+    detractors: number;
+    score: number;
+    average: number | null;
+  };
+  trend: NpsTrendPoint[];
+  segments: {
+    tenants: NpsSegmentSummary[];
+    releases: NpsSegmentSummary[];
+    plans: NpsSegmentSummary[];
+  };
+  recentResponses: SurveyResponseRecord[];
+}
+
 function normalizeText(value: string | undefined | null, fallback: string, max = 160): string {
   const trimmed = value?.trim() ?? "";
   return (trimmed || fallback).slice(0, max);
@@ -257,6 +297,41 @@ function resolveWindow(window: ApmWindow | undefined, now: Date): { window: ApmW
   if (selected === "7d") from.setUTCDate(from.getUTCDate() - 7);
   if (selected === "30d") from.setUTCDate(from.getUTCDate() - 30);
   return { window: selected, from, to };
+}
+
+function npsBucket(score: number): "promoter" | "passive" | "detractor" {
+  if (score >= 9) return "promoter";
+  if (score >= 7) return "passive";
+  return "detractor";
+}
+
+function calculateNps(scores: number[]): { responses: number; promoters: number; passives: number; detractors: number; score: number; average: number | null } {
+  let promoters = 0;
+  let passives = 0;
+  let detractors = 0;
+  for (const score of scores) {
+    const bucket = npsBucket(score);
+    if (bucket === "promoter") promoters += 1;
+    if (bucket === "passive") passives += 1;
+    if (bucket === "detractor") detractors += 1;
+  }
+  const responses = scores.length;
+  return {
+    responses,
+    promoters,
+    passives,
+    detractors,
+    score: responses === 0 ? 0 : Math.round(((promoters - detractors) / responses) * 100),
+    average: responses === 0 ? null : Math.round((scores.reduce((sum, value) => sum + value, 0) / responses) * 10) / 10
+  };
+}
+
+function normalizeNpsScore(value: unknown): number | undefined {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return undefined;
+  const rounded = Math.round(score);
+  if (rounded < 0 || rounded > 10) return undefined;
+  return rounded;
 }
 
 export async function createSurvey(db: Db, input: CreateSurveyInput): Promise<SurveyRecord> {
@@ -430,6 +505,89 @@ export async function getSurveyResults(
     },
     questions,
     recentResponses
+  };
+}
+
+export async function getNpsResults(
+  db: Db,
+  input: {
+    surveyId: string;
+    projectId: string;
+    environmentId: string;
+    window?: ApmWindow;
+    questionId?: string;
+    tenantId?: string;
+    release?: string;
+    plan?: string;
+    limit?: number;
+    now?: Date;
+  }
+): Promise<NpsResults | undefined> {
+  const survey = await getSurvey(db, { id: input.surveyId, projectId: input.projectId, environmentId: input.environmentId });
+  if (!survey) return undefined;
+
+  const questionId = input.questionId?.trim() || survey.questions.find((question) => question.id === "nps")?.id || survey.questions[0]?.id || "nps";
+  const { window, from, to } = resolveWindow(input.window, input.now ?? new Date());
+  const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 25)));
+  let query = db
+    .selectFrom("survey_responses")
+    .selectAll()
+    .where("survey_id", "=", input.surveyId)
+    .where("project_id", "=", input.projectId)
+    .where("environment_id", "=", input.environmentId)
+    .where("submitted_at", ">=", from)
+    .where("submitted_at", "<", to);
+
+  if (input.tenantId?.trim()) query = query.where("tenant_id", "=", input.tenantId.trim());
+  if (input.release?.trim()) query = query.where("release", "=", input.release.trim());
+  if (input.plan?.trim()) query = query.where(sql`metadata ->> 'plan'`, "=", input.plan.trim());
+
+  const rows = await query.orderBy("submitted_at", "desc").execute();
+  const scored = rows
+    .map((row) => {
+      const answer = asObject(row.answers);
+      const score = normalizeNpsScore(answer[questionId]);
+      return score === undefined ? undefined : { row, response: toResponse(row), score };
+    })
+    .filter((entry): entry is { row: SurveyResponseRow; response: SurveyResponseRecord; score: number } => Boolean(entry));
+
+  const buildSegment = (key: string, label: string, scores: number[]): NpsSegmentSummary => ({ key, label, ...calculateNps(scores) });
+  const segmentScores = {
+    tenants: new Map<string, number[]>(),
+    releases: new Map<string, number[]>(),
+    plans: new Map<string, number[]>()
+  };
+  const trendScores = new Map<string, number[]>();
+
+  for (const entry of scored) {
+    const day = entry.row.submitted_at.toISOString().slice(0, 10);
+    trendScores.set(day, [...(trendScores.get(day) ?? []), entry.score]);
+    if (entry.row.tenant_id) segmentScores.tenants.set(entry.row.tenant_id, [...(segmentScores.tenants.get(entry.row.tenant_id) ?? []), entry.score]);
+    if (entry.row.release) segmentScores.releases.set(entry.row.release, [...(segmentScores.releases.get(entry.row.release) ?? []), entry.score]);
+    const plan = asObject(entry.row.metadata).plan;
+    if (typeof plan === "string" && plan.trim()) segmentScores.plans.set(plan.trim(), [...(segmentScores.plans.get(plan.trim()) ?? []), entry.score]);
+  }
+
+  const mapSegments = (segments: Map<string, number[]>) =>
+    Array.from(segments.entries())
+      .map(([key, scores]) => buildSegment(key, key, scores))
+      .sort((left, right) => right.responses - left.responses || right.score - left.score)
+      .slice(0, 10);
+
+  return {
+    survey,
+    window,
+    questionId,
+    totals: calculateNps(scored.map((entry) => entry.score)),
+    trend: Array.from(trendScores.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([bucket, scores]) => ({ bucket, ...calculateNps(scores) })),
+    segments: {
+      tenants: mapSegments(segmentScores.tenants),
+      releases: mapSegments(segmentScores.releases),
+      plans: mapSegments(segmentScores.plans)
+    },
+    recentResponses: scored.slice(0, limit).map((entry) => entry.response)
   };
 }
 

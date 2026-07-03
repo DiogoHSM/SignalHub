@@ -1872,6 +1872,54 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards NPS result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getNpsResults: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            totals: { responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0, average: 7.3 },
+            trend: [],
+            segments: { tenants: [], releases: [], plans: [] },
+            recentResponses: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/surveys/surv_1/nps?project_id=prj_1&environment_id=env_1&window=30d&limit=25&question_id=nps&tenant_id=tenant_1&release=2026.05.1&plan=pro"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        totals: { responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0, average: 7.3 },
+        trend: [],
+        segments: { tenants: [], releases: [], plans: [] },
+        recentResponses: []
+      }
+    });
+    expect(receivedFilters).toEqual([
+      {
+        surveyId: "surv_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 25,
+        questionId: "nps",
+        tenantId: "tenant_1",
+        release: "2026.05.1",
+        plan: "pro"
+      }
+    ]);
+  });
+
   it("forwards feedback list and status update filters", async () => {
     const receivedListFilters: unknown[] = [];
     const receivedStatusUpdates: unknown[] = [];

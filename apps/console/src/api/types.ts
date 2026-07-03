@@ -410,6 +410,51 @@ export type SurveyResultsResponse = {
   recentResponses: SurveyResponse[];
 };
 
+export type NpsSegmentSummary = {
+  key: string;
+  label: string;
+  responses: number;
+  score: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
+};
+
+export type NpsResultsQuery = SurveyResultsQuery & {
+  questionId?: string;
+  tenantId?: string;
+  release?: string;
+  plan?: string;
+};
+
+export type NpsResultsResponse = {
+  survey: Survey;
+  window: ApmWindow;
+  questionId: string;
+  totals: {
+    responses: number;
+    promoters: number;
+    passives: number;
+    detractors: number;
+    score: number;
+    average: number | null;
+  };
+  trend: Array<{
+    bucket: string;
+    responses: number;
+    score: number;
+    promoters: number;
+    passives: number;
+    detractors: number;
+  }>;
+  segments: {
+    tenants: NpsSegmentSummary[];
+    releases: NpsSegmentSummary[];
+    plans: NpsSegmentSummary[];
+  };
+  recentResponses: SurveyResponse[];
+};
+
 export type FeedbackStatus = "open" | "reviewed" | "archived";
 
 export type FeedbackWidgetSettings = {

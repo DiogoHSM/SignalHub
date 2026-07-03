@@ -116,6 +116,8 @@ Runtime profiles are stored in the `profiles` telemetry table. Node SDK helpers 
 
 Feedback widget settings are stored per project/environment in `feedback_widget_settings`; submissions are stored in `feedback_items`. `POST /v1/feedback` accepts short browser-safe user feedback with optional category, page URL, path, user agent, identifiers, and metadata. The JavaScript SDK exposes `installFeedbackWidget()` for a lightweight textual widget, while screenshot capture remains intentionally disabled until masking and explicit consent controls exist. Operators configure copy/enablement and triage open/reviewed/archived submissions from Project Settings.
 
+NPS tracking reuses the existing `surveys` and `survey_responses` tables. A standard NPS campaign is a survey with a 0-10 `nps` rating question and optional text comment. `GET /query/surveys/:id/nps` calculates score, promoter/passive/detractor counts, daily trend buckets, and tenant/release/plan segments from stored survey responses.
+
 ## API Surface
 
 Health:
@@ -211,6 +213,7 @@ Query:
 - `GET /query/overview`
 - `GET /query/reports/dashboards/:id`
 - `GET /query/surveys/:id/results`
+- `GET /query/surveys/:id/nps`
 - `GET /query/feedback`
 - `PATCH /query/feedback/:id`
 - `GET /query/operations`

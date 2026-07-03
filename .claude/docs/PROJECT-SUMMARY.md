@@ -38,7 +38,7 @@ Implemented capabilities:
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, trait-derived labels and chips, selected tenant top users, and cross-signal timeline drilldowns.
 - Read-only Users investigation workspace with impact-ranked user summaries, trait-derived labels and chips, selected user recent sessions, and cross-signal timeline drilldowns.
-- Experiments workspace with event-derived A/B readouts, SDK assignment helpers, feature flag definitions/evaluation, beta programs, and in-app survey definitions plus response reporting.
+- Experiments workspace with event-derived A/B readouts, SDK assignment helpers, feature flag definitions/evaluation, beta programs, in-app survey definitions plus response reporting, and NPS campaign score/trend/segment analysis.
 - Project-scoped feedback widget settings, SDK browser helper, `POST /v1/feedback` ingestion, and console triage for open/reviewed/archived feedback submissions.
 - Worker-owned telemetry and dead-letter retention with per-table windows, bounded batches, retained DLQ action history, and recorded retention runs.
 - Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.

@@ -251,6 +251,10 @@ Configure browser origins before posting survey responses directly from the brow
 go through the same worker-side data-governance rules and built-in secret redaction as other browser
 telemetry.
 
+NPS tracking is a standard survey pattern. Create an NPS campaign in the console, submit responses with
+an answer key such as `"nps": 10`, then query `GET /query/surveys/{id}/nps` for score, promoter/passive/
+detractor counts, trend buckets, and tenant/release/plan segments.
+
 ### Product feedback
 
 Use feedback for free-form comments collected by the browser SDK widget or a custom product flow.

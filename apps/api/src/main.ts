@@ -197,6 +197,7 @@ import {
 import {
   archiveSurvey,
   createSurvey,
+  getNpsResults,
   getSurveyResults,
   listSurveys,
   updateSurvey
@@ -808,6 +809,7 @@ const app = await buildApp({
     getEventFunnel: (filters) => getEventFunnel(db, filters),
     getExperimentResults: (filters) => getExperimentResults(db, filters),
     getSurveyResults: (filters) => getSurveyResults(db, filters),
+    getNpsResults: (filters) => getNpsResults(db, filters),
     listFeedbackItems: (filters) => listFeedbackItems(db, filters),
     updateFeedbackStatus: (input) => updateFeedbackItemStatus(db, input),
     getEventPaths: (filters) => getEventPaths(db, filters),

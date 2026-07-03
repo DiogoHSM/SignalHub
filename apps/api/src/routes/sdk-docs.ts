@@ -846,6 +846,12 @@ if (flag.value === true) {
               monitored app origin in the browser-origin allowlist before posting directly from the
               browser with a browser-scoped ingestion key.
             </div>
+            <div class="callout">
+              NPS campaigns use the same survey endpoint. Create the standard NPS campaign in the
+              console, submit an answer keyed as <code>nps</code> on the 0-10 scale, and read
+              <code>GET /query/surveys/:id/nps</code> for score, trend, and tenant/release/plan
+              segments.
+            </div>
             <h3>Feedback widget</h3>
             <p>
               Use surveys for structured answers and the feedback widget for free-form product

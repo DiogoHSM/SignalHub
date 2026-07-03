@@ -9,6 +9,7 @@ import type {
   Experiment,
   ExperimentResultsResponse,
   FeatureFlag,
+  NpsResultsResponse,
   Survey,
   SurveyResultsResponse
 } from "../api/types";
@@ -150,6 +151,37 @@ const surveyResults: SurveyResultsResponse = {
   ]
 };
 
+const npsSurvey: Survey = {
+  ...survey,
+  id: "surv_nps",
+  key: "quarterly_nps",
+  name: "Quarterly NPS",
+  description: "Standard NPS",
+  questions: [
+    {
+      id: "nps",
+      type: "rating",
+      label: "How likely are you to recommend us?",
+      required: true,
+      scale: { min: 0, max: 10, minLabel: "Not likely", maxLabel: "Very likely" }
+    }
+  ]
+};
+
+const npsResults: NpsResultsResponse = {
+  survey: npsSurvey,
+  window: "30d",
+  questionId: "nps",
+  totals: { responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0, average: 7.3 },
+  trend: [{ bucket: "2026-05-01", responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0 }],
+  segments: {
+    tenants: [{ key: "tenant_1", label: "tenant_1", responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0 }],
+    releases: [],
+    plans: [{ key: "pro", label: "pro", responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0 }]
+  },
+  recentResponses: []
+};
+
 function client(overrides: Partial<ApiClient>): ApiClient {
   return {
     listEvents: vi.fn().mockResolvedValue({ data: [] }),
@@ -174,6 +206,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     updateSurvey: vi.fn().mockResolvedValue({ survey }),
     archiveSurvey: vi.fn().mockResolvedValue(undefined),
     getSurveyResults: vi.fn().mockResolvedValue({ data: surveyResults }),
+    getNpsResults: vi.fn().mockResolvedValue({ data: npsResults }),
     ...overrides
   } as ApiClient;
 }
@@ -336,6 +369,43 @@ describe("ExperimentsPanel", () => {
         actorType: "user",
         triggerEvent: "pricing.viewed",
         questions: [expect.objectContaining({ id: "satisfaction", type: "rating", required: true })]
+      })
+    );
+  });
+
+  it("creates a standard NPS campaign and renders NPS results", async () => {
+    const user = userEvent.setup();
+    const createSurvey = vi.fn().mockResolvedValue({ survey: { ...npsSurvey, id: "surv_nps_2" } });
+    const api = client({
+      listSurveys: vi.fn().mockResolvedValue({ surveys: [npsSurvey] }),
+      getSurveyResults: vi.fn().mockResolvedValue({ data: { ...surveyResults, survey: npsSurvey } }),
+      getNpsResults: vi.fn().mockResolvedValue({ data: npsResults }),
+      createSurvey
+    });
+
+    render(<ExperimentsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const surveysRegion = await screen.findByRole("region", { name: "In-app surveys" });
+    expect(await within(surveysRegion).findByRole("region", { name: "NPS report" })).toBeInTheDocument();
+    expect(within(surveysRegion).getByText("NPS score")).toBeInTheDocument();
+    expect(within(surveysRegion).getByText("Tenant tenant_1")).toBeInTheDocument();
+
+    await user.clear(within(surveysRegion).getByLabelText("Survey key"));
+    await user.type(within(surveysRegion).getByLabelText("Survey key"), "quarterly_nps");
+    await user.clear(within(surveysRegion).getByLabelText("Survey name"));
+    await user.type(within(surveysRegion).getByLabelText("Survey name"), "Quarterly NPS");
+    await user.click(within(surveysRegion).getByRole("button", { name: "Create NPS campaign" }));
+
+    expect(createSurvey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "quarterly_nps",
+        name: "Quarterly NPS",
+        questions: [
+          expect.objectContaining({ id: "nps", type: "rating", scale: { min: 0, max: 10, minLabel: "Not likely", maxLabel: "Very likely" } }),
+          expect.objectContaining({ id: "comment", type: "text" })
+        ]
       })
     );
   });

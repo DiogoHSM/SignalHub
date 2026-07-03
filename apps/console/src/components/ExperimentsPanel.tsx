@@ -7,6 +7,7 @@ import type {
   Experiment,
   ExperimentResultsResponse,
   FeatureFlag,
+  NpsResultsResponse,
   Survey,
   SurveyResultsResponse
 } from "../api/types";
@@ -87,6 +88,16 @@ function formatAnswerPreview(value: Record<string, unknown>): string {
   return serialized.length > 90 ? `${serialized.slice(0, 87)}...` : serialized;
 }
 
+function isNpsSurvey(survey: Survey | null): boolean {
+  return Boolean(
+    survey?.questions.some((question) => question.id === "nps" && question.type === "rating" && question.scale?.min === 0 && question.scale?.max === 10)
+  );
+}
+
+function formatNpsScore(score: number): string {
+  return score > 0 ? `+${score}` : String(score);
+}
+
 export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const [draft, setDraft] = useState(defaultDraft);
   const [flagDraft, setFlagDraft] = useState(defaultFlagDraft);
@@ -103,6 +114,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const [selectedSurveyId, setSelectedSurveyId] = useState("");
   const [results, setResults] = useState<ExperimentResultsResponse | null>(null);
   const [surveyResults, setSurveyResults] = useState<SurveyResultsResponse | null>(null);
+  const [npsResults, setNpsResults] = useState<NpsResultsResponse | null>(null);
   const [state, setState] = useState<LoadState>("idle");
   const [flagsState, setFlagsState] = useState<LoadState>("idle");
   const [betaState, setBetaState] = useState<LoadState>("idle");
@@ -153,6 +165,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
       setSurveys([]);
       setSelectedSurveyId("");
       setSurveyResults(null);
+      setNpsResults(null);
       setSurveyState("idle");
       return;
     }
@@ -176,6 +189,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
         setSurveys([]);
         setSelectedSurveyId("");
         setSurveyResults(null);
+        setNpsResults(null);
         setSurveyState("unavailable");
       }
     );
@@ -255,6 +269,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const selected = useMemo(() => experiments.find((experiment) => experiment.id === selectedId) ?? null, [experiments, selectedId]);
   const selectedBeta = useMemo(() => betaPrograms.find((program) => program.id === selectedBetaId) ?? null, [betaPrograms, selectedBetaId]);
   const selectedSurvey = useMemo(() => surveys.find((survey) => survey.id === selectedSurveyId) ?? null, [surveys, selectedSurveyId]);
+  const selectedSurveyIsNps = isNpsSurvey(selectedSurvey);
 
   useEffect(() => {
     if (!projectId || !environmentId || !selected || !client.getExperimentResults) {
@@ -278,6 +293,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   useEffect(() => {
     if (!projectId || !environmentId || !selectedSurvey || !client.getSurveyResults) {
       setSurveyResults(null);
+      setNpsResults(null);
       return;
     }
     let cancelled = false;
@@ -289,10 +305,22 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
         if (!cancelled) setSurveyResults(null);
       }
     );
+    if (selectedSurveyIsNps && client.getNpsResults) {
+      void client.getNpsResults({ projectId, environmentId, surveyId: selectedSurvey.id, window: "30d", limit: 25, questionId: "nps" }).then(
+        ({ data }) => {
+          if (!cancelled) setNpsResults(data);
+        },
+        () => {
+          if (!cancelled) setNpsResults(null);
+        }
+      );
+    } else {
+      setNpsResults(null);
+    }
     return () => {
       cancelled = true;
     };
-  }, [client, environmentId, projectId, selectedSurvey]);
+  }, [client, environmentId, projectId, selectedSurvey, selectedSurveyIsNps]);
 
   useEffect(() => {
     if (!projectId || !environmentId || !selectedBeta) {
@@ -407,6 +435,42 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
           label: surveyDraft.question,
           required: true,
           scale: { min: 1, max: 5, minLabel: "Hard", maxLabel: "Great" }
+        }
+      ],
+      targeting: surveyDraft.targetTenantId.trim() ? { tenantId: surveyDraft.targetTenantId.trim() } : {}
+    });
+    setSurveys((current) => [response.survey, ...current]);
+    setSelectedSurveyId(response.survey.id);
+    setSurveyState("ready");
+  }
+
+  async function createNpsCampaign() {
+    if (!projectId || !environmentId || !client.createSurvey) return;
+    const key = surveyDraft.key.trim() || "nps";
+    const name = surveyDraft.name.trim() || "NPS campaign";
+    setSurveyError("");
+    const response = await client.createSurvey({
+      projectId,
+      environmentId,
+      key,
+      name,
+      description: "Standard 0-10 Net Promoter Score campaign.",
+      status: "active",
+      actorType: "user",
+      triggerEvent: surveyDraft.triggerEvent.trim() || null,
+      questions: [
+        {
+          id: "nps",
+          type: "rating",
+          label: "How likely are you to recommend us?",
+          required: true,
+          scale: { min: 0, max: 10, minLabel: "Not likely", maxLabel: "Very likely" }
+        },
+        {
+          id: "comment",
+          type: "text",
+          label: "What is the main reason for your score?",
+          required: false
         }
       ],
       targeting: surveyDraft.targetTenantId.trim() ? { tenantId: surveyDraft.targetTenantId.trim() } : {}
@@ -657,6 +721,9 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
           <button type="button" onClick={() => void createSurvey()}>
             Create survey
           </button>
+          <button type="button" onClick={() => void createNpsCampaign()}>
+            Create NPS campaign
+          </button>
         </div>
 
         {surveyError ? <p className="status-box unavailable">{surveyError}</p> : null}
@@ -735,6 +802,84 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                       <strong>{surveyResults.totals.sessions}</strong>
                     </div>
                   </div>
+                  {selectedSurveyIsNps ? (
+                    <div className="experiments-nps" role="region" aria-label="NPS report">
+                      <div className="experiments-summary">
+                        <div>
+                          <span>NPS score</span>
+                          <strong>{npsResults ? formatNpsScore(npsResults.totals.score) : "0"}</strong>
+                        </div>
+                        <div>
+                          <span>Promoters</span>
+                          <strong>{npsResults?.totals.promoters ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>Passives</span>
+                          <strong>{npsResults?.totals.passives ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>Detractors</span>
+                          <strong>{npsResults?.totals.detractors ?? 0}</strong>
+                        </div>
+                        <div>
+                          <span>Average score</span>
+                          <strong>{npsResults?.totals.average?.toFixed(1) ?? "none"}</strong>
+                        </div>
+                      </div>
+                      <div className="experiments-table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Trend bucket</th>
+                              <th>Responses</th>
+                              <th>NPS</th>
+                              <th>Promoters</th>
+                              <th>Detractors</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(npsResults?.trend ?? []).map((point) => (
+                              <tr key={point.bucket}>
+                                <th scope="row">{point.bucket}</th>
+                                <td>{point.responses}</td>
+                                <td>{formatNpsScore(point.score)}</td>
+                                <td>{point.promoters}</td>
+                                <td>{point.detractors}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="experiments-table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Segment</th>
+                              <th>Responses</th>
+                              <th>NPS</th>
+                              <th>Promoters</th>
+                              <th>Detractors</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              ...(npsResults?.segments.tenants ?? []).map((segment) => ({ ...segment, label: `Tenant ${segment.label}` })),
+                              ...(npsResults?.segments.releases ?? []).map((segment) => ({ ...segment, label: `Release ${segment.label}` })),
+                              ...(npsResults?.segments.plans ?? []).map((segment) => ({ ...segment, label: `Plan ${segment.label}` }))
+                            ].map((segment) => (
+                              <tr key={`${segment.label}-${segment.key}`}>
+                                <th scope="row">{segment.label}</th>
+                                <td>{segment.responses}</td>
+                                <td>{formatNpsScore(segment.score)}</td>
+                                <td>{segment.promoters}</td>
+                                <td>{segment.detractors}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="experiments-table-wrap">
                     <table>
                       <thead>

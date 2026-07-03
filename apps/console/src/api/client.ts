@@ -71,6 +71,8 @@ import type {
   MonitorCheckResponse,
   MonitorListQuery,
   MonitorResponse,
+  NpsResultsQuery,
+  NpsResultsResponse,
   NotificationChannelResponse,
   OverviewQuery,
   OverviewResponse,
@@ -359,6 +361,7 @@ export type ApiClient = {
   ) => Promise<{ survey: Survey }>;
   archiveSurvey?: (id: string, query: Pick<CreateSurveyInput, "projectId" | "environmentId">) => Promise<void>;
   getSurveyResults?: (query: SurveyResultsQuery) => Promise<AggregateResponse<SurveyResultsResponse>>;
+  getNpsResults?: (query: NpsResultsQuery) => Promise<AggregateResponse<NpsResultsResponse>>;
   getFeedbackWidgetSettings?: (query: Pick<UpdateFeedbackWidgetSettingsInput, "projectId" | "environmentId">) => Promise<{ settings: FeedbackWidgetSettings }>;
   updateFeedbackWidgetSettings?: (input: UpdateFeedbackWidgetSettingsInput) => Promise<{ settings: FeedbackWidgetSettings }>;
   listFeedbackItems?: (query: FeedbackListQuery) => Promise<{ feedback: FeedbackItem[] }>;
@@ -958,6 +961,20 @@ function surveyResultsPath(query: SurveyResultsQuery): string {
   return `/query/surveys/${encodePathSegment(query.surveyId)}/results?${params.toString()}`;
 }
 
+function npsResultsPath(query: NpsResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.questionId) params.set("question_id", query.questionId);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.release) params.set("release", query.release);
+  if (query.plan) params.set("plan", query.plan);
+
+  return `/query/surveys/${encodePathSegment(query.surveyId)}/nps?${params.toString()}`;
+}
+
 function feedbackWidgetPath(query: Pick<UpdateFeedbackWidgetSettingsInput, "projectId" | "environmentId">): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -1313,6 +1330,8 @@ export function createApiClient(
       request<void>(path(apiBasePath, surveyScopedPath(id, query)), { method: "DELETE" }),
     getSurveyResults: (query) =>
       request<AggregateResponse<SurveyResultsResponse>>(path(apiBasePath, surveyResultsPath(query))),
+    getNpsResults: (query) =>
+      request<AggregateResponse<NpsResultsResponse>>(path(apiBasePath, npsResultsPath(query))),
     getFeedbackWidgetSettings: (query) =>
       request<{ settings: FeedbackWidgetSettings }>(path(apiBasePath, feedbackWidgetPath(query))),
     updateFeedbackWidgetSettings: (input) =>

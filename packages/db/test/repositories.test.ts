@@ -58,6 +58,7 @@ import {
 import {
   archiveSurvey,
   createSurvey,
+  getNpsResults,
   getSurveyResults,
   listSurveys,
   recordSurveyResponse,
@@ -10124,6 +10125,110 @@ describe("repositories", () => {
 
       await archiveSurvey(db, { id: survey.id, projectId: project.id, environmentId: environment.id });
       await expect(listSurveys(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("calculates NPS score, trend, and segments from survey responses", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "NPS Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const survey = await createSurvey(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "quarterly_nps",
+        name: "Quarterly NPS",
+        status: "active",
+        actorType: "user",
+        questions: [
+          {
+            id: "nps",
+            type: "rating",
+            label: "How likely are you to recommend us?",
+            required: true,
+            scale: { min: 0, max: 10, minLabel: "Not likely", maxLabel: "Very likely" }
+          }
+        ]
+      });
+
+      const base = {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user" as const,
+        source: "browser"
+      };
+      await recordSurveyResponse(db, {
+        ...base,
+        id: "srs_nps_1",
+        actorId: "user_1",
+        userId: "user_1",
+        tenantId: "tenant_a",
+        release: "2026.05.1",
+        answers: { nps: 10 },
+        metadata: { plan: "pro" },
+        submittedAt: new Date("2026-05-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-05-01T10:00:00.000Z")
+      });
+      await recordSurveyResponse(db, {
+        ...base,
+        id: "srs_nps_2",
+        actorId: "user_2",
+        userId: "user_2",
+        tenantId: "tenant_a",
+        release: "2026.05.1",
+        answers: { nps: 8 },
+        metadata: { plan: "pro" },
+        submittedAt: new Date("2026-05-01T11:00:00.000Z"),
+        receivedAt: new Date("2026-05-01T11:00:00.000Z")
+      });
+      await recordSurveyResponse(db, {
+        ...base,
+        id: "srs_nps_3",
+        actorId: "user_3",
+        userId: "user_3",
+        tenantId: "tenant_b",
+        release: "2026.05.2",
+        answers: { nps: 4 },
+        metadata: { plan: "free" },
+        submittedAt: new Date("2026-05-02T10:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T10:00:00.000Z")
+      });
+
+      const results = await getNpsResults(db, {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-03T00:00:00.000Z")
+      });
+
+      expect(results).not.toBeUndefined();
+      if (!results) return;
+      expect(results.totals).toEqual({ responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0, average: 7.3 });
+      expect(results.trend).toEqual([
+        expect.objectContaining({ bucket: "2026-05-01", responses: 2, score: 50 }),
+        expect.objectContaining({ bucket: "2026-05-02", responses: 1, score: -100 })
+      ]);
+      expect(results.segments.tenants).toEqual([
+        expect.objectContaining({ key: "tenant_a", responses: 2, score: 50 }),
+        expect.objectContaining({ key: "tenant_b", responses: 1, score: -100 })
+      ]);
+      expect(results.segments.plans).toEqual([
+        expect.objectContaining({ key: "pro", responses: 2, score: 50 }),
+        expect.objectContaining({ key: "free", responses: 1, score: -100 })
+      ]);
+
+      const proOnly = await getNpsResults(db, {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        plan: "pro",
+        window: "7d",
+        now: new Date("2026-05-03T00:00:00.000Z")
+      });
+      expect(proOnly?.totals).toMatchObject({ responses: 2, score: 50 });
     });
   });
 

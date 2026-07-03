@@ -405,6 +405,81 @@ export const openApiDocument = {
           }
         }
       },
+      NpsSegmentSummary: {
+        type: "object",
+        required: ["key", "label", "responses", "score", "promoters", "passives", "detractors"],
+        properties: {
+          key: { type: "string" },
+          label: { type: "string" },
+          responses: { type: "integer" },
+          score: { type: "integer", minimum: -100, maximum: 100 },
+          promoters: { type: "integer" },
+          passives: { type: "integer" },
+          detractors: { type: "integer" }
+        }
+      },
+      NpsResults: {
+        type: "object",
+        required: ["survey", "window", "questionId", "totals", "trend", "segments", "recentResponses"],
+        properties: {
+          survey: { $ref: "#/components/schemas/Survey" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          questionId: { type: "string" },
+          totals: {
+            type: "object",
+            required: ["responses", "promoters", "passives", "detractors", "score", "average"],
+            properties: {
+              responses: { type: "integer" },
+              promoters: { type: "integer" },
+              passives: { type: "integer" },
+              detractors: { type: "integer" },
+              score: { type: "integer", minimum: -100, maximum: 100 },
+              average: { type: ["number", "null"] }
+            }
+          },
+          trend: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["bucket", "responses", "score", "promoters", "passives", "detractors"],
+              properties: {
+                bucket: { type: "string", examples: ["2026-05-01"] },
+                responses: { type: "integer" },
+                score: { type: "integer", minimum: -100, maximum: 100 },
+                promoters: { type: "integer" },
+                passives: { type: "integer" },
+                detractors: { type: "integer" }
+              }
+            }
+          },
+          segments: {
+            type: "object",
+            required: ["tenants", "releases", "plans"],
+            properties: {
+              tenants: { type: "array", items: { $ref: "#/components/schemas/NpsSegmentSummary" } },
+              releases: { type: "array", items: { $ref: "#/components/schemas/NpsSegmentSummary" } },
+              plans: { type: "array", items: { $ref: "#/components/schemas/NpsSegmentSummary" } }
+            }
+          },
+          recentResponses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                surveyId: { type: "string" },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: ["string", "null"] },
+                tenantId: { type: ["string", "null"] },
+                userId: { type: ["string", "null"] },
+                sessionId: { type: ["string", "null"] },
+                answers: { type: "object", additionalProperties: true },
+                submittedAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
       FeatureFlagVariant: {
         type: "object",
         required: ["key", "value"],
@@ -2740,6 +2815,35 @@ export const openApiDocument = {
           "200": {
             description: "Survey results",
             content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/SurveyResults" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/surveys/{id}/nps": {
+      get: {
+        ...sessionRoute(
+          "Query NPS results",
+          "Read Net Promoter Score totals, daily trend, tenant/release/plan segments, and recent responses for a 0-10 survey question. Query with project_id, environment_id, window=24h|7d|30d, and optional question_id, tenant_id, release, plan, and limit."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } },
+          { name: "question_id", in: "query", required: false, schema: { type: "string", default: "nps" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "release", in: "query", required: false, schema: { type: "string" } },
+          { name: "plan", in: "query", required: false, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "NPS results",
+            content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/NpsResults" } } } } }
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
