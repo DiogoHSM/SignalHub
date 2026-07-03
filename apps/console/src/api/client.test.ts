@@ -402,6 +402,24 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes recent activity query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { activity: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getRecentActivity?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      release: "web@1.2.3",
+      limit: 15
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/recent-activity?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3&limit=15",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes overview release filters and release list query params", async () => {
     const fetchMock = vi
       .fn()

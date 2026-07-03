@@ -170,6 +170,7 @@ import {
   getWebVitals,
   getRuntimeProfiles,
   getOverview,
+  getRecentActivity,
   listReleases,
   getErrorForSourceMapResolution,
   getSessionReplayDetail,
@@ -7997,6 +7998,18 @@ describe("repositories", () => {
       expect(overview.recent.failedLlmCalls).toEqual([
         expect.objectContaining({ id: "llm_failed", status: "error", promptName: "Unspecified" })
       ]);
+      expect(overview.recent.activity.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "error:err_fatal",
+        "error:err_recent",
+        "event:evt_overview_1",
+        "event:evt_overview_2",
+        "llm:llm_success",
+        "llm:llm_unspecified_prompt",
+        "trace:trc_success",
+        "error:err_warning",
+        "event:evt_overview_3",
+        "llm:llm_failed"
+      ]);
       expect(overview.trends.usage).toHaveLength(25);
       expect(overview.trends.errors).toHaveLength(25);
       expect(overview.trends.latency).toHaveLength(25);
@@ -8008,6 +8021,95 @@ describe("repositories", () => {
         errors: 2,
         openErrors: 2,
         severeErrors: 2
+      });
+    });
+  });
+
+  it("returns unified recent activity across events errors traces and llm calls", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Recent Activity Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt,
+        source: "api",
+        release: "web@1.2.3",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        sessionId: "session_a",
+        traceId: "trace_a"
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_activity",
+        name: "checkout.started",
+        timestamp: new Date("2026-05-05T11:58:00.000Z")
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_activity",
+        message: "Checkout failed",
+        severity: "error",
+        status: "open",
+        timestamp: new Date("2026-05-05T11:59:00.000Z")
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_activity",
+        name: "POST /checkout",
+        status: "success",
+        timestamp: new Date("2026-05-05T11:57:00.000Z"),
+        startedAt: new Date("2026-05-05T11:57:00.000Z"),
+        durationMs: 42
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_activity",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "summarize",
+        inputTokens: 12,
+        outputTokens: 8,
+        costUsd: "0.010000",
+        latencyMs: 120,
+        status: "success",
+        timestamp: new Date("2026-05-05T11:56:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_old_release",
+        name: "ignored",
+        release: "web@9.9.9",
+        timestamp: new Date("2026-05-03T12:00:00.000Z")
+      });
+
+      const result = await getRecentActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        limit: 3,
+        now
+      });
+
+      expect(result.activity.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "error:err_activity",
+        "event:evt_activity",
+        "trace:trc_activity"
+      ]);
+      expect(result.activity[0]).toMatchObject({
+        title: "Checkout failed",
+        status: "open",
+        severity: "error",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        sessionId: "session_a",
+        traceId: "trace_a"
       });
     });
   });

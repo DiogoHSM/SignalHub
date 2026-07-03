@@ -1,4 +1,4 @@
-import type { OverviewResponse } from "../api/types";
+import type { OverviewResponse, RecentActivityItem } from "../api/types";
 
 type Props = {
   recent: OverviewResponse["recent"];
@@ -14,36 +14,82 @@ function currency(value: string): string {
   return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(parsed);
 }
 
+function legacyActivity(recent: OverviewResponse["recent"]): RecentActivityItem[] {
+  if (recent.activity) {
+    return recent.activity;
+  }
+
+  return [
+    ...recent.errors.map((error): RecentActivityItem => ({
+      id: error.id,
+      type: "error",
+      timestamp: error.timestamp,
+      title: error.message,
+      status: error.status,
+      severity: error.severity,
+      tenantId: error.tenantId,
+      userId: error.userId,
+      sessionId: null,
+      traceId: error.traceId,
+      durationMs: null,
+      costUsd: null
+    })),
+    ...recent.failedTraces.map((trace): RecentActivityItem => ({
+      id: trace.id,
+      type: "trace",
+      timestamp: trace.timestamp,
+      title: trace.name,
+      status: trace.status,
+      severity: null,
+      tenantId: trace.tenantId,
+      userId: trace.userId,
+      sessionId: null,
+      traceId: trace.id,
+      durationMs: trace.durationMs,
+      costUsd: null
+    })),
+    ...recent.failedLlmCalls.map((call): RecentActivityItem => ({
+      id: call.id,
+      type: "llm",
+      timestamp: call.timestamp,
+      title: formatMeta([call.provider, call.model]),
+      status: call.status,
+      severity: null,
+      tenantId: call.tenantId,
+      userId: call.userId,
+      sessionId: null,
+      traceId: call.traceId,
+      durationMs: null,
+      costUsd: call.costUsd
+    }))
+  ].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+}
+
+function activityMeta(item: RecentActivityItem): string {
+  return formatMeta([
+    item.status,
+    item.severity,
+    item.durationMs === null ? null : `${item.durationMs} ms`,
+    item.costUsd === null ? null : currency(item.costUsd),
+    item.tenantId,
+    item.userId,
+    item.traceId
+  ]);
+}
+
 export function OverviewRecentSignals({ recent }: Props) {
+  const activity = legacyActivity(recent);
+
   return (
     <section className="overview-recent" aria-label="Overview recent signals">
-      <article className="overview-recent-list">
-        <h3>Recent errors</h3>
-        {recent.errors.length === 0 ? <p className="muted-text">No recent errors.</p> : null}
-        {recent.errors.map((error) => (
-          <div className="overview-recent-row" key={error.id}>
-            <strong>{error.message}</strong>
-            <span>{formatMeta([error.severity, error.status, error.tenantId, error.traceId])}</span>
-          </div>
-        ))}
-      </article>
-      <article className="overview-recent-list">
-        <h3>Failed traces</h3>
-        {recent.failedTraces.length === 0 ? <p className="muted-text">No failed traces.</p> : null}
-        {recent.failedTraces.map((trace) => (
-          <div className="overview-recent-row" key={trace.id}>
-            <strong>{trace.name}</strong>
-            <span>{formatMeta([trace.status, trace.durationMs === null ? null : `${trace.durationMs} ms`, trace.tenantId, trace.userId])}</span>
-          </div>
-        ))}
-      </article>
-      <article className="overview-recent-list">
-        <h3>Failed LLM calls</h3>
-        {recent.failedLlmCalls.length === 0 ? <p className="muted-text">No failed LLM calls.</p> : null}
-        {recent.failedLlmCalls.map((call) => (
-          <div className="overview-recent-row" key={call.id}>
-            <strong>{formatMeta([call.provider, call.model])}</strong>
-            <span>{formatMeta([call.promptName, call.status, currency(call.costUsd), call.tenantId])}</span>
+      <article className="overview-recent-list overview-recent-list--wide">
+        <h3>Recent activity</h3>
+        {activity.length === 0 ? <p className="muted-text">No recent activity in this window.</p> : null}
+        {activity.map((item) => (
+          <div className={`overview-recent-row overview-recent-row--${item.type}`} key={`${item.type}:${item.id}`}>
+            <span className="overview-recent-row__type">{item.type}</span>
+            <strong>{item.title}</strong>
+            <span>{activityMeta(item)}</span>
           </div>
         ))}
       </article>

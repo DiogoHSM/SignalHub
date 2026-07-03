@@ -2993,6 +2993,12 @@ export const openApiDocument = {
         "Read operational overview rollups for one project environment. Query with project_id, environment_id, window=24h|7d|30d, and optional release for exact deploy-version filtering."
       )
     },
+    "/query/recent-activity": {
+      get: sessionRoute(
+        "Query recent activity",
+        "Read one mixed, time-ordered activity feed across events, errors, traces, and LLM calls for one project environment. Query with project_id, environment_id, window=24h|7d|30d, optional release, and optional limit."
+      )
+    },
     "/query/releases": {
       get: sessionRoute(
         "Query releases",

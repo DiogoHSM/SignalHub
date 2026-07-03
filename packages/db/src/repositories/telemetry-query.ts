@@ -642,6 +642,32 @@ export type OverviewRecentLlmCall = {
   traceId: string | null;
 };
 
+export type RecentActivityType = "event" | "error" | "trace" | "llm";
+
+export type RecentActivityItem = {
+  id: string;
+  type: RecentActivityType;
+  timestamp: string;
+  title: string;
+  status: string;
+  severity: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  durationMs: number | null;
+  costUsd: string | null;
+};
+
+export type RecentActivityFilters = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  release?: string;
+  limit?: number;
+  now?: Date;
+};
+
 export type OverviewResponse = {
   window: OverviewWindow;
   generatedAt: string;
@@ -689,6 +715,7 @@ export type OverviewResponse = {
     errorStatus: Array<{ status: string; total: number }>;
   };
   recent: {
+    activity: RecentActivityItem[];
     errors: OverviewRecentError[];
     failedTraces: OverviewRecentTrace[];
     failedLlmCalls: OverviewRecentLlmCall[];
@@ -1149,6 +1176,136 @@ function makeBucketStarts(from: Date, to: Date, bucket: OverviewTrendBucket): st
     current = new Date(current.getTime() + step);
   }
   return starts;
+}
+
+export async function getRecentActivity(db: Db, filters: RecentActivityFilters): Promise<{ activity: RecentActivityItem[] }> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const releaseFilter = filters.release ?? null;
+  const limit = Math.max(1, Math.min(Math.floor(filters.limit ?? 20), 100));
+
+  const rows = await sql<{
+    id: string;
+    type: RecentActivityType;
+    timestamp: Date | string;
+    title: string;
+    status: string;
+    severity: string | null;
+    tenant_id: string | null;
+    user_id: string | null;
+    session_id: string | null;
+    trace_id: string | null;
+    duration_ms: number | null;
+    cost_usd: string | null;
+  }>`
+    with recent_activity as (
+      select
+        id,
+        'event'::text as type,
+        timestamp,
+        name as title,
+        'accepted'::text as status,
+        null::text as severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        null::integer as duration_ms,
+        null::text as cost_usd
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+
+      union all
+
+      select
+        id,
+        'error'::text as type,
+        timestamp,
+        message as title,
+        status,
+        severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        null::integer as duration_ms,
+        null::text as cost_usd
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+
+      union all
+
+      select
+        id,
+        'trace'::text as type,
+        timestamp,
+        name as title,
+        status,
+        null::text as severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        duration_ms,
+        null::text as cost_usd
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+
+      union all
+
+      select
+        id,
+        'llm'::text as type,
+        timestamp,
+        provider || ' / ' || model as title,
+        status,
+        null::text as severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        latency_ms as duration_ms,
+        cost_usd::text as cost_usd
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+    )
+    select id, type, timestamp, title, status, severity, tenant_id, user_id, session_id, trace_id, duration_ms, cost_usd
+    from recent_activity
+    order by timestamp desc, type asc, id asc
+    limit ${limit}
+  `.execute(db);
+
+  return {
+    activity: rows.rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      timestamp: toIso(row.timestamp),
+      title: row.title,
+      status: row.status,
+      severity: row.severity,
+      tenantId: row.tenant_id,
+      userId: row.user_id,
+      sessionId: row.session_id,
+      traceId: row.trace_id,
+      durationMs: row.duration_ms,
+      costUsd: row.cost_usd
+    }))
+  };
 }
 
 function bucketExpression(bucket: OverviewTrendBucket, column = "timestamp") {
@@ -3461,6 +3618,14 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     limit: 5,
     now: filters.now
   });
+  const recentActivityPromise = getRecentActivity(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    window: filters.window,
+    release: filters.release,
+    limit: 10,
+    now: filters.now
+  });
 
   const kpiRowsPromise = sql<{
     events: unknown;
@@ -3876,6 +4041,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     recentErrorRows,
     recentFailedTraceRows,
     recentFailedLlmCallRows,
+    recentActivity,
     recentReleases
   ] = await Promise.all([
     kpiRowsPromise,
@@ -3896,6 +4062,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     recentErrorRowsPromise,
     recentFailedTraceRowsPromise,
     recentFailedLlmCallRowsPromise,
+    recentActivityPromise,
     recentReleasesPromise
   ]);
   const kpiRow = kpiRows.rows[0];
@@ -3999,6 +4166,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       errorStatus: errorStatusRows.rows.map((row) => ({ status: row.status, total: toNumber(row.total) }))
     },
     recent: {
+      activity: recentActivity.activity,
       errors: recentErrorRows.rows.map((row) => ({
         id: row.id,
         timestamp: toIso(row.timestamp),

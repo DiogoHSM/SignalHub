@@ -1491,6 +1491,48 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards recent activity filters with release and limit", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getRecentActivity: async (filters) => {
+          receivedFilters.push(filters);
+          return { activity: [{ id: "evt_1", type: "event" }] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/recent-activity?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3&limit=15"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { activity: [{ id: "evt_1", type: "event" }] } });
+    expect(receivedFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "7d", release: "web@1.2.3", limit: 15 }
+    ]);
+  });
+
+  it("returns 501 when recent activity query dependency is missing", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {}
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/recent-activity?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "query_method_unavailable" });
+  });
+
   it("forwards release filters to overview and exposes release summaries", async () => {
     const overviewFilters: unknown[] = [];
     const releaseFilters: unknown[] = [];

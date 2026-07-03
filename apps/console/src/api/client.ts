@@ -85,6 +85,8 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  RecentActivityQuery,
+  RecentActivityResponse,
   ReleaseListQuery,
   ReleaseListResponse,
   RuntimeProfilesResponse,
@@ -460,6 +462,7 @@ export type ApiClient = {
   ) => Promise<AggregateResponse<IncidentReplay>>;
   listSessionReplays?: (query: SessionReplaySampleQuery) => Promise<QueryListResponse<SessionReplaySample>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
+  getRecentActivity?: (query: RecentActivityQuery) => Promise<AggregateResponse<RecentActivityResponse>>;
   listReleases?: (query: ReleaseListQuery) => Promise<AggregateResponse<ReleaseListResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
   getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
@@ -772,6 +775,17 @@ function overviewPath(query: OverviewQuery): string {
   if (query.release) params.set("release", query.release);
 
   return `/query/overview?${params.toString()}`;
+}
+
+function recentActivityPath(query: RecentActivityQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.release) params.set("release", query.release);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/recent-activity?${params.toString()}`;
 }
 
 function releaseListPath(query: ReleaseListQuery): string {
@@ -1583,6 +1597,7 @@ export function createApiClient(
     listSessionReplays: (query) =>
       request<QueryListResponse<SessionReplaySample>>(path(apiBasePath, queryPath("/query/replays", query, { includeEventName: true }))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
+    getRecentActivity: (query) => request<AggregateResponse<RecentActivityResponse>>(path(apiBasePath, recentActivityPath(query))),
     listReleases: (query) => request<AggregateResponse<ReleaseListResponse>>(path(apiBasePath, releaseListPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
     getEventPropertyCatalog: (query) =>

@@ -216,6 +216,7 @@ Query:
 - `GET /query/users`
 - `GET /query/users/:userKey`
 - `GET /query/overview`
+- `GET /query/recent-activity`
 - `GET /query/reports/dashboards/:id`
 - `GET /query/surveys/:id/results`
 - `GET /query/surveys/:id/nps`

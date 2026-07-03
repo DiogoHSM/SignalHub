@@ -324,6 +324,16 @@ GET /query/events/paths?project_id=prj_123&environment_id=env_123&window=7d&star
 
 Operators can save custom dashboards in the console and render report data with `GET /query/reports/dashboards/{id}`. Dashboards do not require a separate ingestion payload: metric, trend, and top-list widgets are derived from the same event and error telemetry described above. Keep event names, actor IDs, and properties stable so saved reports stay useful across releases.
 
+### Recent activity
+
+Use `GET /query/recent-activity` for one mixed, time-ordered feed across events, errors, traces, and LLM calls. It is useful for overview panels and operator timelines because it includes both successful and failed signals instead of only failure lists.
+
+```http
+GET /query/recent-activity?project_id=prj_123&environment_id=env_123&window=24h&limit=20
+```
+
+Add `release=web%401.2.3` to inspect activity around one deploy.
+
 ### Release queries
 
 Send a stable `release` value with events, errors, traces, and LLM calls to make deploy investigation useful. Operators can list recently observed releases with `GET /query/releases` and filter Overview with the same exact release value.

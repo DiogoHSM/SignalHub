@@ -1500,6 +1500,29 @@ export type OverviewRecentLlmCall = {
   traceId: string | null;
 };
 
+export type RecentActivityItem = {
+  id: string;
+  type: "event" | "error" | "trace" | "llm";
+  timestamp: string;
+  title: string;
+  status: string;
+  severity: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  durationMs: number | null;
+  costUsd: string | null;
+};
+
+export type RecentActivityQuery = OverviewQuery & {
+  limit?: number;
+};
+
+export type RecentActivityResponse = {
+  activity: RecentActivityItem[];
+};
+
 export type OverviewResponse = {
   window: OverviewWindow;
   generatedAt: string;
@@ -1547,6 +1570,7 @@ export type OverviewResponse = {
     errorStatus: Array<{ status: string; total: number }>;
   };
   recent: {
+    activity?: RecentActivityItem[];
     errors: OverviewRecentError[];
     failedTraces: OverviewRecentTrace[];
     failedLlmCalls: OverviewRecentLlmCall[];

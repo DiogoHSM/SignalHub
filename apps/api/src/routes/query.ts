@@ -41,6 +41,10 @@ export type OverviewFilters = {
   release?: string;
 };
 
+export type RecentActivityFilters = OverviewFilters & {
+  limit: number;
+};
+
 export type ReleaseFilters = {
   projectId: string;
   environmentId: string;
@@ -221,6 +225,7 @@ export type QueryDependencies = {
   getLlmAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getTraceAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getOverview?: (filters: OverviewFilters) => Promise<unknown>;
+  getRecentActivity?: (filters: RecentActivityFilters) => Promise<unknown>;
   listReleases?: (filters: ReleaseFilters) => Promise<unknown>;
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
@@ -776,6 +781,18 @@ function parseOverviewFilters(query: unknown): OverviewFilters | undefined {
   }
 
   return filters;
+}
+
+function parseRecentActivityFilters(query: unknown): RecentActivityFilters | undefined {
+  const filters = parseOverviewFilters(query);
+  if (!filters) {
+    return undefined;
+  }
+
+  return {
+    ...filters,
+    limit: parseLimit((query ?? {}) as RawQuery)
+  };
 }
 
 function parseReleaseFilters(query: unknown): ReleaseFilters | undefined {
@@ -1520,6 +1537,28 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
 
   try {
     return reply.send({ data: await options.query.getOverview(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleRecentActivityRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getRecentActivity) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseRecentActivityFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getRecentActivity(filters) });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -2691,6 +2730,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     handleFleetProjectEnvironmentsRoute(request, reply, options)
   );
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
+  app.get("/query/recent-activity", (request, reply) => handleRecentActivityRoute(request, reply, options));
   app.get("/query/releases", (request, reply) => handleReleaseListRoute(request, reply, options));
   app.get("/query/llm/summary", (request, reply) =>
     handleLlmAggregateRoute(request, reply, options,
