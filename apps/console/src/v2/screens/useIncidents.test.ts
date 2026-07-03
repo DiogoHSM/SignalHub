@@ -38,6 +38,7 @@ function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord 
     resolvedAt: null,
     ignoredAt: null,
     assignedToUserId: null,
+    assignedTo: null,
     incidentNumber: null,
     silencedUntil: null,
     createdAt: new Date(Date.now() - 7200_000).toISOString(),
@@ -387,28 +388,15 @@ describe("useIncidents", () => {
     );
   });
 
-  it("assignee: assignedToUserId matched in listUsers → {kind:'initials', initials}", async () => {
-    const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-alice" });
-
-    const { client } = makeFakeClient({
-      openGroups: [group],
-      users: [USER_ALICE, USER_BOB]
+  it("assignee: assignedTo from list response → {kind:'initials', initials}", async () => {
+    const group = makeGroup({
+      id: "g1",
+      status: "open",
+      assignedToUserId: "user-alice",
+      assignedTo: { id: "user-alice", email: "alice@example.com" }
     });
 
-    const { result } = renderHook(() =>
-      useIncidents({ client, projectId: "proj-1", environmentId: "env-1" })
-    );
-
-    await act(async () => {});
-
-    const row = result.current.data!.rows[0];
-    expect(row.assignee).toEqual({ kind: "initials", initials: "A" });
-  });
-
-  it("assignee: listUsers rejects (403) → assigned rows become {kind:'generic'}", async () => {
-    const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-alice" });
-
-    const { client } = makeFakeClient({
+    const { client, listUsers } = makeFakeClient({
       openGroups: [group],
       users: "reject-403"
     });
@@ -419,17 +407,16 @@ describe("useIncidents", () => {
 
     await act(async () => {});
 
-    expect(result.current.status).toBe("ok"); // not a screen error
     const row = result.current.data!.rows[0];
-    expect(row.assignee).toEqual({ kind: "generic" });
+    expect(row.assignee).toEqual({ kind: "initials", initials: "A" });
+    expect(listUsers).not.toHaveBeenCalled();
   });
 
-  it("assignee: listUsers rejects (non-403) → assigned rows become {kind:'generic'}", async () => {
+  it("assignee: assignedToUserId without assignedTo → assigned rows become {kind:'generic'}", async () => {
     const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-alice" });
 
     const { client } = makeFakeClient({
-      openGroups: [group],
-      users: "reject"
+      openGroups: [group]
     });
 
     const { result } = renderHook(() =>
@@ -680,10 +667,14 @@ describe("useIncidents", () => {
   });
 
   it("initials derived from email local part (first char uppercase)", async () => {
-    const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-bob" });
+    const group = makeGroup({
+      id: "g1",
+      status: "open",
+      assignedToUserId: "user-bob",
+      assignedTo: { id: "user-bob", email: "bob@example.com" }
+    });
     const { client } = makeFakeClient({
-      openGroups: [group],
-      users: [USER_BOB]
+      openGroups: [group]
     });
 
     const { result } = renderHook(() =>

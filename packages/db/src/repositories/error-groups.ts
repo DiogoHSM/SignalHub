@@ -46,6 +46,7 @@ export type ErrorGroupRecord = {
   resolvedAt: Date | null;
   ignoredAt: Date | null;
   assignedToUserId: string | null;
+  assignedTo: { id: string; email: string } | null;
   silencedUntil: Date | null;
   incidentNumber: string | null;
   trend?: number[];
@@ -174,6 +175,7 @@ export function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
     resolvedAt: row.resolved_at,
     ignoredAt: row.ignored_at,
     assignedToUserId: row.assigned_to_user_id,
+    assignedTo: null,
     silencedUntil: row.silenced_until,
     incidentNumber: row.incident_number,
     createdAt: row.created_at,
@@ -233,6 +235,32 @@ async function attachErrorGroupTrends(
   return groups.map((group) => ({
     ...group,
     trend: trends.get(group.id) ?? Array(ERROR_GROUP_TREND_BUCKETS).fill(0)
+  }));
+}
+
+async function attachErrorGroupAssignees(db: Db, groups: ErrorGroupRecord[]): Promise<ErrorGroupRecord[]> {
+  const assignedUserIds = [
+    ...new Set(
+      groups
+        .map((group) => group.assignedToUserId)
+        .filter((userId): userId is string => userId != null)
+    )
+  ];
+
+  if (assignedUserIds.length === 0) return groups;
+
+  const rows = await db
+    .selectFrom("users")
+    .select(["id", "email"])
+    .where("id", "in", assignedUserIds)
+    .where("archived_at", "is", null)
+    .execute();
+
+  const usersById = new Map(rows.map((row) => [row.id, { id: row.id, email: row.email }]));
+
+  return groups.map((group) => ({
+    ...group,
+    assignedTo: group.assignedToUserId ? usersById.get(group.assignedToUserId) ?? null : null
   }));
 }
 
@@ -479,7 +507,8 @@ export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promi
     .limit(resolveLimit(filters.limit))
     .execute();
 
-  return attachErrorGroupTrends(db, rows.map(toGroup), filters);
+  const groups = await attachErrorGroupAssignees(db, rows.map(toGroup));
+  return attachErrorGroupTrends(db, groups, filters);
 }
 
 export async function listErrorGroupsPage(db: Db, filters: ErrorGroupFilters): Promise<ErrorGroupPage> {
@@ -563,9 +592,10 @@ export async function listErrorGroupsPage(db: Db, filters: ErrorGroupFilters): P
 
   const pageRows = rows.slice(0, limit);
   const lastRow = pageRows.at(-1);
+  const groups = await attachErrorGroupAssignees(db, pageRows.map(toGroup));
 
   return {
-    data: await attachErrorGroupTrends(db, pageRows.map(toGroup), filters),
+    data: await attachErrorGroupTrends(db, groups, filters),
     cursor: rows.length > limit && lastRow ? encodeErrorGroupCursor(lastRow, filters) : undefined
   };
 }

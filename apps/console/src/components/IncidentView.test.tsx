@@ -76,6 +76,7 @@ function incidentFixture(overrides: IncidentFixtureOverrides = {}): ErrorGroupIn
       resolvedAt: null,
       ignoredAt: null,
       assignedToUserId: null,
+      assignedTo: null,
       incidentNumber: null,
       silencedUntil: null,
       createdAt: "2026-05-24T12:00:00.000Z",

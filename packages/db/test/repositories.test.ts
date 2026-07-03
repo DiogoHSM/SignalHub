@@ -11369,6 +11369,41 @@ describe("repositories", () => {
     });
   });
 
+  it("listErrorGroups includes assignedTo user summary for assigned groups", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Assigned Summary Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const user = await createUser(db, { email: "assigned-summary@example.com", passwordHash: "hash", isAdmin: false });
+
+      await insertError(db, {
+        id: "err_assign_summary_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Assigned summary error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const [group] = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      expect(group).toBeDefined();
+
+      const assignResult = await assignIncident(db, {
+        errorGroupId: group.id,
+        assignedToUserId: user.id,
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(assignResult.ok).toBe(true);
+
+      const [listed] = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      expect(listed.assignedToUserId).toBe(user.id);
+      expect(listed.assignedTo).toEqual({ id: user.id, email: "assigned-summary@example.com" });
+    });
+  });
+
   it("assign returns group_not_found for unknown error group", async () => {
     await withDb(async (db) => {
       await migrate(db);

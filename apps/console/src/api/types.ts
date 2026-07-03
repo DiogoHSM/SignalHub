@@ -1063,6 +1063,7 @@ export type ErrorGroupRecord = {
   resolvedAt: string | null;
   ignoredAt: string | null;
   assignedToUserId: string | null;
+  assignedTo: { id: string; email: string } | null;
   incidentNumber: string | null;
   silencedUntil: string | null;
   trend?: number[];

@@ -48,7 +48,7 @@ export type UseIncidentsResult = {
 // ---------------------------------------------------------------------------
 
 type UseIncidentsArgs = {
-  client: Pick<ApiClient, "listErrorGroups" | "listUsers"> & {
+  client: Pick<ApiClient, "listErrorGroups"> & {
     getIncidentMttr?: ApiClient["getIncidentMttr"];
   };
   projectId: string | undefined;
@@ -150,18 +150,11 @@ export function useIncidents({
           return null;
         })
       : Promise.resolve(null);
-    const usersFetch = client.listUsers().catch(() => null);
-
-    Promise.all([Promise.all(groupFetches), mttrFetch, usersFetch])
-      .then(([groupResponses, mttrRes, usersRes]) => {
+    Promise.all([Promise.all(groupFetches), mttrFetch])
+      .then(([groupResponses, mttrRes]) => {
         if (gen !== genRef.current) return;
 
         const allGroups: ErrorGroupRecord[] = groupResponses.flatMap((response) => response.data);
-
-        // Build user map for assignee resolution (null means fetch failed → degrade)
-        const userMap = usersRes
-          ? new Map(usersRes.users.map((u) => [u.id, u]))
-          : null;
 
         // Sort: priority rank asc, then lastSeenAt desc
         const visibleGroups = allGroups.filter(
@@ -181,18 +174,9 @@ export function useIncidents({
         const rows: IncidentRowVM[] = sorted.map((g) => {
           let assignee: IncidentAssignee = null;
           if (g.assignedToUserId != null) {
-            if (userMap === null) {
-              // listUsers failed — degrade to generic
-              assignee = { kind: "generic" };
-            } else {
-              const user = userMap.get(g.assignedToUserId);
-              if (user) {
-                assignee = { kind: "initials", initials: emailInitials(user.email) };
-              } else {
-                // User ID not found in list (could be deleted) — generic
-                assignee = { kind: "generic" };
-              }
-            }
+            assignee = g.assignedTo
+              ? { kind: "initials", initials: emailInitials(g.assignedTo.email) }
+              : { kind: "generic" };
           }
 
           return {

@@ -65,6 +65,7 @@ function errorGroup(overrides: Partial<ErrorGroupRecord>): ErrorGroupRecord {
     resolvedAt: null,
     ignoredAt: null,
     assignedToUserId: null,
+    assignedTo: null,
     incidentNumber: null,
     silencedUntil: null,
     createdAt: "2026-05-04T11:00:00.000Z",

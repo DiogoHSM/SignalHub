@@ -170,6 +170,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Console v2 Overview should drill directly into real detail screens when identifiers are available: top tenant rows open Tenant detail, incident banners open Incident detail, and recent error activity opens Incident detail with a fallback to the incident list when grouping is unavailable.
 - Error group lists should expose compact 12-bucket occurrence trends. The S2 Errors table uses a dedicated Trend column, and S4 Incidents cards keep a small inline sparkline beside occurrence/user/tenant counts so operators can spot rising incidents before opening detail.
 - S4 Incidents keeps active triage and resolved/ignored history in one screen: the History action toggles the fetched status set, and the Filters panel applies priority, status, and assignee filters without leaving the selected project/environment.
+- S4 Incidents renders assignee initials from the error-group list payload (`assignedTo.id/email`) so non-admin viewers still see assigned ownership; the admin-only user list remains limited to reassignment workflows in Incident detail.
 
 ## Traces / APM UX
 
