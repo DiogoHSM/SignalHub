@@ -1,7 +1,8 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDb, type Db } from "../src/client.js";
+import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
+import { createTestDb } from "./test-db.js";
 import { createEnvironment, createProject } from "../src/repositories/admin.js";
 import { insertError } from "../src/repositories/telemetry-writes.js";
 import {
@@ -23,7 +24,7 @@ beforeAll(async () => {
     .withUsername("sigmon")
     .withPassword("sigmon")
     .start();
-  db = createDb(container.getConnectionUri());
+  db = createTestDb(container.getConnectionUri());
   await migrate(db);
 }, 60_000);
 

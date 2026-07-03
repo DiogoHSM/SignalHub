@@ -2,9 +2,9 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
-import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
+import { createTestDb } from "./test-db.js";
 import {
   deleteDeadLetterJob,
   countDeadLetterJobs,
@@ -259,7 +259,7 @@ describe("repositories", () => {
   }, 30_000);
 
   async function withDb<T>(run: (db: Db) => Promise<T>): Promise<T> {
-    const db = createDb(container.getConnectionUri());
+    const db = createTestDb(container.getConnectionUri());
     try {
       return await run(db);
     } finally {
