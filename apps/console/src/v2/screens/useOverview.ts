@@ -9,7 +9,7 @@ import type { OperationsResponse, OverviewWindow, ReleaseSummary } from "../../a
 export type BannerVM = {
   incidents: number;
   alerts: number;
-  top: { message: string; severity: string; path?: string } | null;
+  top: { message: string; severity: string; groupId: string; errorId: string | null; path?: string } | null;
 };
 
 export type KpisVM = {
@@ -54,6 +54,9 @@ export type ActivityItemVM = {
   title: string;
   sub: string | null;
   timestamp: string;
+  errorId?: string;
+  groupId?: string;
+  tenantId?: string | null;
 };
 
 export type OverviewVM = {
@@ -106,7 +109,7 @@ function buildBanner(ops: OperationsResponse | null): BannerVM {
     incidents,
     alerts,
     top: topIncident
-      ? { message: topIncident.message, severity: topIncident.severity }
+      ? { message: topIncident.message, severity: topIncident.severity, groupId: topIncident.id, errorId: topIncident.latestErrorId }
       : null
   };
 }
@@ -225,7 +228,10 @@ export function useOverview({
             kind: "error" as const,
             title: e.message,
             sub: e.type,
-            timestamp: e.timestamp
+            timestamp: e.timestamp,
+            errorId: e.id,
+            groupId: e.errorGroupId ?? undefined,
+            tenantId: e.tenantId
           })),
           ...overview.recent.failedTraces.map((t) => ({
             kind: "trace" as const,

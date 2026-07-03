@@ -182,6 +182,7 @@ function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewRe
       errors: [
         {
           id: "err_1",
+          errorGroupId: "egrp_1",
           timestamp: "2026-05-05T12:00:00.000Z",
           message: "Checkout fetch failed",
           type: "TypeError",

@@ -55,7 +55,7 @@ const ALL_CLEAR_VM: OverviewVM = {
   selectedRelease: null,
   selectRelease: vi.fn(),
   activity: [
-    { kind: "error", title: "PaymentTimeoutError", sub: "TypeError", timestamp: "2026-06-22T00:05:00Z" },
+    { kind: "error", title: "PaymentTimeoutError", sub: "TypeError", timestamp: "2026-06-22T00:05:00Z", groupId: "egrp_payment", errorId: "err_payment" },
     { kind: "llm", title: "openai / gpt-4o", sub: "timeout", timestamp: "2026-06-22T00:04:00Z" },
     { kind: "trace", title: "generate_report", sub: "failed", timestamp: "2026-06-22T00:03:00Z" },
   ],
@@ -66,7 +66,7 @@ const INCIDENT_VM: OverviewVM = {
   banner: {
     incidents: 3,
     alerts: 2,
-    top: { message: "PaymentTimeoutError in /checkout", severity: "critical" },
+    top: { message: "PaymentTimeoutError in /checkout", severity: "critical", groupId: "egrp_checkout", errorId: "err_checkout" },
   },
 };
 
@@ -123,13 +123,15 @@ describe("OverviewScreen", () => {
       expect(screen.getByText(/PaymentTimeoutError in \/checkout/i)).toBeInTheDocument();
     });
 
-    it("navigates to incidents on 'View incidents' click", async () => {
+    it("opens the top incident directly from the incident banner", async () => {
       mockUseOverview(INCIDENT_VM);
+      const ctx = makeMockCtx();
       const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+      render(<OverviewScreen ctx={ctx} navigate={navigate} />);
 
-      await userEvent.click(screen.getByRole("button", { name: /view incidents/i }));
-      expect(navigate).toHaveBeenCalledWith("incidents");
+      await userEvent.click(screen.getByRole("button", { name: /open incident/i }));
+      expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "egrp_checkout", errorId: "err_checkout" });
+      expect(navigate).not.toHaveBeenCalled();
     });
 
     it("renders all-clear banner when no incidents", () => {
@@ -215,7 +217,7 @@ describe("OverviewScreen", () => {
     it("Open incidents tile shows banner.incidents, not failedTraces", () => {
       const vm: OverviewVM = {
         ...ALL_CLEAR_VM,
-        banner: { incidents: 7, alerts: 1, top: { message: "err", severity: "critical" } },
+        banner: { incidents: 7, alerts: 1, top: { message: "err", severity: "critical", groupId: "egrp_err", errorId: null } },
         kpis: { ...ALL_CLEAR_VM.kpis, failedTraces: 99 },
       };
       mockUseOverview(vm);
@@ -259,14 +261,14 @@ describe("OverviewScreen", () => {
       expect(screen.getByText("Globex")).toBeInTheDocument();
     });
 
-    it("navigates to investigate when a tenant row is clicked", async () => {
+    it("opens tenant detail when a tenant row is clicked", async () => {
       mockUseOverview(ALL_CLEAR_VM);
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+      const ctx = makeMockCtx();
+      render(<OverviewScreen ctx={ctx} navigate={vi.fn()} />);
 
       const tenantBtn = screen.getByRole("button", { name: /acme corp/i });
       await userEvent.click(tenantBtn);
-      expect(navigate).toHaveBeenCalledWith("investigate");
+      expect(ctx.drill).toHaveBeenCalledWith("tenant", { tenantId: "t1" });
     });
   });
 
@@ -316,13 +318,27 @@ describe("OverviewScreen", () => {
       expect(screen.getByText("generate_report")).toBeInTheDocument();
     });
 
-    it("navigates to incidents when error activity row is clicked", async () => {
+    it("opens incident detail when error activity row has a group id", async () => {
       mockUseOverview(ALL_CLEAR_VM);
+      const ctx = makeMockCtx();
       const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+      render(<OverviewScreen ctx={ctx} navigate={navigate} />);
 
       const errorRow = screen.getByRole("button", { name: /paymenttimeouterror/i });
       await userEvent.click(errorRow);
+      expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "egrp_payment", errorId: "err_payment" });
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it("falls back to incidents when error activity has no group id", async () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        activity: [{ kind: "error", title: "UngroupedError", sub: "Error", timestamp: "2026-06-22T00:05:00Z" }]
+      });
+      const navigate = vi.fn();
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /ungroupederror/i }));
       expect(navigate).toHaveBeenCalledWith("incidents");
     });
 

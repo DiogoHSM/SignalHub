@@ -167,6 +167,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
 - The command palette is a shared shell component across legacy and v2 console paths so navigation search, empty states, keyboard affordances, and destination copy remain consistent while both shells coexist.
 - Overview number formatting uses shared exact and compact helpers so KPI cards, deltas, chart legends, and Console v2 summaries do not drift in thresholds or separators.
+- Console v2 Overview should drill directly into real detail screens when identifiers are available: top tenant rows open Tenant detail, incident banners open Incident detail, and recent error activity opens Incident detail with a fallback to the incident list when grouping is unavailable.
 
 ## Traces / APM UX
 

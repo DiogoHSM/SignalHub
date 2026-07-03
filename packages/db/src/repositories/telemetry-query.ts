@@ -609,6 +609,7 @@ export interface OverviewFilters {
 
 export type OverviewRecentError = {
   id: string;
+  errorGroupId: string | null;
   timestamp: string;
   message: string;
   type: string | null;
@@ -4057,6 +4058,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
 
   const recentErrorRowsPromise = sql<{
     id: string;
+    error_group_id: string | null;
     timestamp: Date | string;
     message: string;
     type: string | null;
@@ -4066,7 +4068,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     user_id: string | null;
     trace_id: string | null;
   }>`
-    select id, timestamp, message, type, severity, status, tenant_id, user_id, trace_id
+    select id, error_group_id, timestamp, message, type, severity, status, tenant_id, user_id, trace_id
     from errors
     where project_id = ${filters.projectId}
       and environment_id = ${filters.environmentId}
@@ -4316,6 +4318,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       activity: recentActivity.activity,
       errors: recentErrorRows.rows.map((row) => ({
         id: row.id,
+        errorGroupId: row.error_group_id,
         timestamp: toIso(row.timestamp),
         message: row.message,
         type: row.type,

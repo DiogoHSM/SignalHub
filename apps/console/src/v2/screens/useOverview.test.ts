@@ -72,6 +72,7 @@ const OVERVIEW: OverviewResponse = {
     errors: [
       {
         id: "err_1",
+        errorGroupId: "egrp_1",
         timestamp: "2026-06-22T00:05:00Z",
         message: "TypeError: Cannot read property 'x' of undefined",
         type: "TypeError",
@@ -83,6 +84,7 @@ const OVERVIEW: OverviewResponse = {
       },
       {
         id: "err_2",
+        errorGroupId: null,
         timestamp: "2026-06-22T00:01:00Z",
         message: "SyntaxError: Unexpected token",
         type: "SyntaxError",
@@ -356,6 +358,8 @@ describe("useOverview", () => {
     expect(banner.top).not.toBeNull();
     expect(banner.top!.message).toBe("NullPointerException in checkout flow");
     expect(banner.top!.severity).toBe("critical");
+    expect(banner.top!.groupId).toBe("inc_1");
+    expect(banner.top!.errorId).toBe("err_1");
   });
 
   it("maps banner all-clear when no incidents and no alerts", async () => {
@@ -489,6 +493,9 @@ describe("useOverview", () => {
     expect(errorItem.kind).toBe("error");
     expect(errorItem.title).toBe("TypeError: Cannot read property 'x' of undefined");
     expect(errorItem.sub).toBe("TypeError");
+    expect(errorItem.groupId).toBe("egrp_1");
+    expect(errorItem.errorId).toBe("err_1");
+    expect(errorItem.tenantId).toBe("t1");
 
     const llmItem = activity[1];
     expect(llmItem.kind).toBe("llm");

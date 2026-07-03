@@ -1467,6 +1467,7 @@ export type OverviewQuery = {
 
 export type OverviewRecentError = {
   id: string;
+  errorGroupId: string | null;
   timestamp: string;
   message: string;
   type: string | null;

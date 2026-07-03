@@ -91,12 +91,14 @@ function IncidentBanner({
   alerts,
   topMessage,
   topSeverity,
+  onOpenIncident,
   onViewIncidents,
 }: {
   incidents: number;
   alerts: number;
   topMessage: string | null;
   topSeverity: string | null;
+  onOpenIncident?: () => void;
   onViewIncidents: () => void;
 }) {
   const isCritical = topSeverity === "critical";
@@ -135,8 +137,8 @@ function IncidentBanner({
             ) : null}
           </div>
         </div>
-        <button className="sh-btn primary" onClick={onViewIncidents}>
-          View incidents <Icon name="arrow" size={12} />
+        <button className="sh-btn primary" onClick={onOpenIncident ?? onViewIncidents}>
+          {onOpenIncident ? "Open incident" : "View incidents"} <Icon name="arrow" size={12} />
         </button>
       </div>
     </div>
@@ -259,7 +261,7 @@ function buildAiItems(kpis: KpisVM): KpiItem[] {
 // Top tenants panel
 // ---------------------------------------------------------------------------
 
-function TopTenantsPanel({ tenants, navigate }: { tenants: TenantVM[]; navigate: NavigateFn }) {
+function TopTenantsPanel({ tenants, onOpenTenant }: { tenants: TenantVM[]; onOpenTenant: (tenantId: string) => void }) {
   return (
     <Card
       title="Top tenants — activity"
@@ -295,7 +297,7 @@ function TopTenantsPanel({ tenants, navigate }: { tenants: TenantVM[]; navigate:
                 border: "none",
                 borderBottom: "1px solid var(--border-subtle)",
               }}
-              onClick={() => navigate("investigate")}
+              onClick={() => onOpenTenant(t.id)}
             >
               <span className="sh-muted sh-mono">{String(i + 1).padStart(2, "0")}</span>
               <div>
@@ -504,9 +506,11 @@ const ACTIVITY_COLOR: Record<ActivityItemVM["kind"], string> = {
 
 function RecentActivityPanel({
   items,
+  onOpenIncident,
   navigate,
 }: {
   items: ActivityItemVM[];
+  onOpenIncident: (groupId: string, errorId?: string) => void;
   navigate: NavigateFn;
 }) {
   return (
@@ -545,7 +549,13 @@ function RecentActivityPanel({
                 borderBottomWidth: 1,
                 cursor: "pointer",
               }}
-              onClick={() => navigate(dest)}
+              onClick={() => {
+                if (item.kind === "error" && item.groupId) {
+                  onOpenIncident(item.groupId, item.errorId);
+                  return;
+                }
+                navigate(dest);
+              }}
             >
               <span style={{ color }}>
                 <Icon name={iconName} size={14} />
@@ -646,6 +656,11 @@ export function OverviewScreen({
           alerts={banner.alerts}
           topMessage={banner.top?.message ?? null}
           topSeverity={banner.top?.severity ?? null}
+          onOpenIncident={
+            banner.top
+              ? () => ctx.drill("incident", { groupId: banner.top!.groupId, errorId: banner.top!.errorId ?? undefined })
+              : undefined
+          }
           onViewIncidents={() => navigate("incidents")}
         />
       ) : (
@@ -674,10 +689,14 @@ export function OverviewScreen({
           minHeight: 0,
         }}
       >
-        <TopTenantsPanel tenants={topTenants} navigate={navigate} />
+        <TopTenantsPanel tenants={topTenants} onOpenTenant={(tenantId) => ctx.drill("tenant", { tenantId })} />
         <LlmByModelPanel models={llmByModel} window={window} />
         <ReleasesPanel releases={releases} selectedRelease={selectedRelease} onSelectRelease={selectRelease} />
-        <RecentActivityPanel items={activity} navigate={navigate} />
+        <RecentActivityPanel
+          items={activity}
+          navigate={navigate}
+          onOpenIncident={(groupId, errorId) => ctx.drill("incident", { groupId, errorId })}
+        />
       </div>
     </>
   );

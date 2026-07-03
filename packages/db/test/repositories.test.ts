@@ -8011,9 +8011,9 @@ describe("repositories", () => {
         { status: "resolved", total: 1 }
       ]);
       expect(overview.recent.errors).toEqual([
-        expect.objectContaining({ id: "err_fatal", message: "Worker crashed", severity: "fatal", status: "open" }),
-        expect.objectContaining({ id: "err_recent", message: "Checkout failed", severity: "critical", status: "open" }),
-        expect.objectContaining({ id: "err_warning", message: "Slow response", severity: "warning", status: "resolved" })
+        expect.objectContaining({ id: "err_fatal", errorGroupId: expect.any(String), message: "Worker crashed", severity: "fatal", status: "open" }),
+        expect.objectContaining({ id: "err_recent", errorGroupId: expect.any(String), message: "Checkout failed", severity: "critical", status: "open" }),
+        expect.objectContaining({ id: "err_warning", errorGroupId: expect.any(String), message: "Slow response", severity: "warning", status: "resolved" })
       ]);
       expect(overview.recent.failedTraces).toEqual([expect.objectContaining({ id: "trc_failed", status: "error" })]);
       expect(overview.recent.failedLlmCalls).toEqual([
