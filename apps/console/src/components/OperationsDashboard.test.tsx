@@ -70,6 +70,7 @@ function operationsResponse(overrides: Partial<OperationsResponse> = {}): Operat
       ]
     },
     topLatency: [{ name: "checkout", p95TraceDurationMs: 640, traces: 10, failedTraces: 1 }],
+    anomalies: [],
     setupGaps: [{ key: "heartbeat_monitor", label: "No heartbeat monitor", severity: "warning", action: "monitors" }],
     ...overrides
   };
@@ -174,6 +175,43 @@ describe("OperationsDashboard", () => {
     expect(handlers.onOpenTraces).toHaveBeenCalledWith({ traceName: "checkout" });
   });
 
+  it("shows explainable anomalies and opens matching drilldowns", async () => {
+    const getOperations = vi.fn().mockResolvedValue({
+      data: operationsResponse({
+        anomalies: [
+          {
+            id: "anom_trace_p95_latency_checkout",
+            type: "trace_p95_latency",
+            label: "checkout p95 latency",
+            severity: "critical",
+            observedValue: 1800,
+            baselineValue: 320,
+            changePercent: 462.5,
+            sampleSize: 80,
+            baselineSampleSize: 75,
+            threshold: ">=500 ms and >=2x baseline",
+            reason: "p95 latency is 1800 ms versus 320 ms for the same route baseline.",
+            suggestedAlertRuleType: "trace_p95_latency",
+            routePattern: "checkout",
+            drilldown: "traces"
+          }
+        ]
+      })
+    });
+    const handlers = callbacks();
+
+    render(<OperationsDashboard client={client(getOperations)} environmentId="env_1" projectId="prj_1" {...handlers} />);
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Detected anomalies" })).toBeInTheDocument());
+    expect(screen.getByText("checkout p95 latency")).toBeInTheDocument();
+    expect(screen.getByText("Suggested rule: trace_p95_latency")).toBeInTheDocument();
+    expect(screen.getByText("+463%")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Drill down/i }));
+
+    expect(handlers.onOpenTraces).toHaveBeenCalledWith({ traceName: "checkout" });
+  });
+
   it("explains a healthy operations state without urgent actions", async () => {
     const getOperations = vi.fn().mockResolvedValue({
       data: operationsResponse({
@@ -203,6 +241,7 @@ describe("OperationsDashboard", () => {
         },
         recent: { monitors: [], alerts: [], incidents: [] },
         topLatency: [],
+        anomalies: [],
         setupGaps: []
       })
     });

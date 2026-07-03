@@ -1,6 +1,6 @@
 type IdentityProfilePanelProps = {
   kind: "tenant" | "user";
-  traits: Record<string, unknown>;
+  traits?: Record<string, unknown> | null;
   firstSeenAt?: string | null;
   lastSeenAt?: string | null;
   profileUpdatedAt?: string | null;
@@ -18,7 +18,7 @@ function formatTraitValue(value: unknown): string {
 }
 
 export function IdentityProfilePanel({ kind, traits, firstSeenAt, lastSeenAt, profileUpdatedAt }: IdentityProfilePanelProps) {
-  const entries = Object.entries(traits).sort(([left], [right]) => left.localeCompare(right));
+  const entries = Object.entries(traits ?? {}).sort(([left], [right]) => left.localeCompare(right));
   const identifyMethod = kind === "tenant" ? "identifyTenant" : "identifyUser";
 
   return (

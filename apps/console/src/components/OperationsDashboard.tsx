@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { AlertTriangle, Bell, CheckCircle2, ExternalLink, HeartPulse, SearchCode, ShieldCheck, Timer } from "lucide-react";
 import type { ApiClient } from "../api/client";
-import type { OperationsResponse, OperationsStatus, OperationsWindow } from "../api/types";
+import type { OperationsAnomaly, OperationsResponse, OperationsStatus, OperationsWindow } from "../api/types";
 
 type OperationsDashboardProps = {
   client: ApiClient;
@@ -49,6 +49,19 @@ function formatPercent(value: number | null): string {
   return value === null ? "No data" : `${Number(value.toFixed(2))}%`;
 }
 
+function formatAnomalyValue(anomaly: OperationsAnomaly, value: number): string {
+  if (anomaly.type === "trace_p95_latency") return `${Math.round(value)} ms`;
+  if (anomaly.type === "error_rate") return `${Number(value.toFixed(2))}%`;
+  if (anomaly.type === "llm_cost") return `$${value.toFixed(2)}`;
+  return `${Math.round(value)}`;
+}
+
+function formatAnomalyChange(value: number | null): string {
+  if (value === null) return "new baseline";
+  const rounded = Math.round(value);
+  return `${rounded >= 0 ? "+" : ""}${rounded}%`;
+}
+
 function statusLabel(status: OperationsStatus): string {
   if (status === "not_configured") return "not configured";
   return status;
@@ -92,7 +105,23 @@ function buildRecommendedActions(
   const activeIncidents = data.summary.incidents.open + data.summary.incidents.investigating;
   const setupMonitorGaps = data.setupGaps.filter((gap) => gap.action === "monitors").length;
   const slowestTrace = data.topLatency[0];
+  const topAnomaly = data.anomalies[0];
   const actions: RecommendedAction[] = [];
+
+  if (topAnomaly) {
+    actions.push({
+      key: "anomaly",
+      title: topAnomaly.severity === "critical" ? "Respond to critical anomaly" : "Review detected anomaly",
+      description: `${topAnomaly.label}: ${topAnomaly.reason}`,
+      action: topAnomaly.suggestedAlertRuleType ? "Review alert rule" : "Inspect signal",
+      tone: topAnomaly.severity === "critical" ? "failed" : "warning",
+      onClick: topAnomaly.drilldown === "traces"
+        ? () => handlers.onOpenTraces({ traceName: topAnomaly.routePattern ?? undefined })
+        : topAnomaly.drilldown === "alerts"
+          ? handlers.onOpenAlerts
+          : () => handlers.onOpenErrors({ status: "open" })
+    });
+  }
 
   if (activeIncidents > 0) {
     actions.push({
@@ -153,6 +182,12 @@ function buildRecommendedActions(
   }
 
   return actions.slice(0, 4);
+}
+
+function anomalyTone(severity: OperationsAnomaly["severity"]): "neutral" | "warning" | "failed" {
+  if (severity === "critical") return "failed";
+  if (severity === "warning") return "warning";
+  return "neutral";
 }
 
 function CommandCard({
@@ -238,6 +273,20 @@ export function OperationsDashboard({
 
   function retry() {
     setReloadToken((current) => current + 1);
+  }
+
+  function openAnomaly(anomaly: OperationsAnomaly) {
+    if (anomaly.drilldown === "traces") {
+      onOpenTraces({ traceName: anomaly.routePattern ?? undefined });
+      return;
+    }
+    if (anomaly.drilldown === "alerts") {
+      onOpenAlerts();
+      return;
+    }
+    if (anomaly.drilldown === "errors") {
+      onOpenErrors({ status: "open" });
+    }
   }
 
   const recommendedActions = data
@@ -366,6 +415,69 @@ export function OperationsDashboard({
               ))}
             </section>
           ) : null}
+
+          <section className="operations-anomalies" aria-label="Detected anomalies">
+            <div className="panel-header">
+              <div>
+                <h3>Anomaly detection</h3>
+                <p className="muted-text">Current window compared with the previous equivalent baseline.</p>
+              </div>
+              <span className={statusClass(data.anomalies.some((item) => item.severity === "critical") ? "failed" : data.anomalies.length > 0 ? "warning" : "success")}>
+                {data.anomalies.length === 0 ? "stable" : `${data.anomalies.length} detected`}
+              </span>
+            </div>
+            {data.anomalies.length > 0 ? (
+              <div className="operations-anomalies__list">
+                {data.anomalies.map((anomaly) => (
+                  <article className={`operations-anomaly operations-anomaly--${anomalyTone(anomaly.severity)}`} key={anomaly.id}>
+                    <div>
+                      <span className={statusClass(anomaly.severity === "critical" ? "failed" : anomaly.severity === "warning" ? "warning" : "neutral")}>
+                        {anomaly.severity}
+                      </span>
+                      <h4>{anomaly.label}</h4>
+                      <p>{anomaly.reason}</p>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Observed</dt>
+                        <dd>{formatAnomalyValue(anomaly, anomaly.observedValue)}</dd>
+                      </div>
+                      <div>
+                        <dt>Baseline</dt>
+                        <dd>{formatAnomalyValue(anomaly, anomaly.baselineValue)}</dd>
+                      </div>
+                      <div>
+                        <dt>Change</dt>
+                        <dd>{formatAnomalyChange(anomaly.changePercent)}</dd>
+                      </div>
+                      <div>
+                        <dt>Samples</dt>
+                        <dd>{anomaly.sampleSize} / {anomaly.baselineSampleSize}</dd>
+                      </div>
+                    </dl>
+                    <div className="operations-anomaly__footer">
+                      <span>{anomaly.threshold}</span>
+                      {anomaly.suggestedAlertRuleType ? <span>Suggested rule: {anomaly.suggestedAlertRuleType}</span> : <span>Use as context signal</span>}
+                      {anomaly.drilldown === "errors" || anomaly.drilldown === "traces" || anomaly.drilldown === "alerts" ? (
+                        <button className="small-action" onClick={() => openAnomaly(anomaly)} type="button">
+                          Drill down
+                          <ExternalLink aria-hidden="true" size={13} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="operations-next-actions__empty">
+                <CheckCircle2 aria-hidden="true" size={20} />
+                <div>
+                  <strong>No anomalies detected</strong>
+                  <p className="muted-text">Volume, error rate, latency, and LLM cost are within the previous-window baseline.</p>
+                </div>
+              </div>
+            )}
+          </section>
 
           <section className="operations-latency-table" aria-label="Top latency">
             <div className="panel-header">

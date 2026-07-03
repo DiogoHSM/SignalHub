@@ -1703,6 +1703,23 @@ export type OperationsSetupGap = {
   action: "monitors" | "alerts" | "setup" | "overview";
 };
 
+export type OperationsAnomaly = {
+  id: string;
+  type: "event_volume" | "error_volume" | "error_rate" | "trace_p95_latency" | "llm_cost";
+  label: string;
+  severity: "info" | "warning" | "critical";
+  observedValue: number;
+  baselineValue: number;
+  changePercent: number | null;
+  sampleSize: number;
+  baselineSampleSize: number;
+  threshold: string;
+  reason: string;
+  suggestedAlertRuleType: AlertRuleType | null;
+  routePattern: string | null;
+  drilldown: "events" | "errors" | "traces" | "llm" | "alerts";
+};
+
 export type OperationsResponse = {
   window: OperationsWindow;
   generatedAt: string;
@@ -1767,6 +1784,7 @@ export type OperationsResponse = {
     }>;
   };
   topLatency: Array<{ name: string; p95TraceDurationMs: number; traces: number; failedTraces: number }>;
+  anomalies: OperationsAnomaly[];
   setupGaps: OperationsSetupGap[];
 };
 

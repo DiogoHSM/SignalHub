@@ -29,6 +29,7 @@ function ops(lastEventAt: string | null, events = 184): OperationsResponse {
     },
     recent: { monitors: [], alerts: [], incidents: [] },
     topLatency: [],
+    anomalies: [],
     setupGaps: [],
   };
 }

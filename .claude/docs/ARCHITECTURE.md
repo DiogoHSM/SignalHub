@@ -335,9 +335,11 @@ Release tracking is a derived Overview dimension in this slice. `GET /query/rele
 
 ## Operations Console
 
-The console includes a read-only `Operations` mode for the selected project and environment. It uses `GET /query/operations` to load monitored health, alert state, error rate, p95 trace latency, ingestion freshness, active incidents, recent monitor and alert activity, top latency names, and setup gaps for `24h`, `7d`, or `30d` windows.
+The console includes a read-only `Operations` mode for the selected project and environment. It uses `GET /query/operations` to load monitored health, alert state, error rate, p95 trace latency, ingestion freshness, active incidents, recent monitor and alert activity, top latency names, anomaly detection, and setup gaps for `24h`, `7d`, or `30d` windows.
 
-Operations aggregates are computed in `packages/db/src/repositories/operations-query.ts` from existing monitors, monitor checks, alert rules, alert events, notification delivery state, error groups, events, errors, and traces. It does not add storage tables or mutation routes. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views.
+Operations aggregates are computed in `packages/db/src/repositories/operations-query.ts` from existing monitors, monitor checks, alert rules, alert events, notification delivery state, error groups, events, errors, traces, and LLM calls. It does not add storage tables or mutation routes. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views.
+
+Anomaly detection is heuristic and explainable. The repository compares the current Operations window with the previous equivalent baseline and reports outliers in event volume, error volume, error rate, route p95 latency, and LLM cost when both the sample size and deviation thresholds are high enough. Each anomaly includes observed value, baseline value, sample sizes, percent change, threshold explanation, suggested alert-rule type when one exists, and a drilldown target.
 
 `System` remains global Sigmon install health. `Operations` is scoped to a monitored project/environment, so a self-monitoring `sigmon.app` project can be added like any other project without special product logic.
 

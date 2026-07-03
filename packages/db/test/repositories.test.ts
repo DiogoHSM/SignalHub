@@ -8053,6 +8053,92 @@ describe("repositories", () => {
     });
   });
 
+  it("detects explainable operations anomalies against the previous window baseline", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Anomaly Operations Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-25T12:00:00.000Z");
+      const baselineAt = new Date("2026-05-23T12:10:00.000Z");
+      const currentAt = new Date("2026-05-24T12:10:00.000Z");
+
+      for (let index = 0; index < 20; index += 1) {
+        await insertTrace(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          id: `trc_anomaly_baseline_${index}`,
+          traceId: `trace_anomaly_baseline_${index}`,
+          name: "GET /checkout",
+          status: "success",
+          timestamp: baselineAt,
+          receivedAt: baselineAt,
+          startedAt: baselineAt,
+          durationMs: 120
+        });
+        await insertTrace(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          id: `trc_anomaly_current_${index}`,
+          traceId: `trace_anomaly_current_${index}`,
+          name: "GET /checkout",
+          status: index < 5 ? "error" : "success",
+          timestamp: currentAt,
+          receivedAt: currentAt,
+          startedAt: currentAt,
+          durationMs: 1800
+        });
+      }
+
+      await insertError(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "err_anomaly_baseline",
+        message: "baseline checkout failed",
+        severity: "error",
+        status: "open",
+        traceId: "trace_anomaly_baseline_0",
+        timestamp: baselineAt,
+        receivedAt: baselineAt
+      });
+      for (let index = 0; index < 5; index += 1) {
+        await insertError(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          id: `err_anomaly_current_${index}`,
+          message: "current checkout failed",
+          severity: "error",
+          status: "open",
+          traceId: `trace_anomaly_current_${index}`,
+          timestamp: currentAt,
+          receivedAt: currentAt
+        });
+      }
+
+      const operations = await getOperations(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(operations.anomalies.map((anomaly) => anomaly.type)).toEqual(expect.arrayContaining(["error_rate", "trace_p95_latency"]));
+      expect(operations.anomalies.find((anomaly) => anomaly.type === "trace_p95_latency")).toMatchObject({
+        label: "GET /checkout p95 latency",
+        severity: "critical",
+        observedValue: 1800,
+        baselineValue: 120,
+        routePattern: "GET /checkout",
+        suggestedAlertRuleType: "trace_p95_latency"
+      });
+      expect(operations.anomalies.find((anomaly) => anomaly.type === "error_rate")).toMatchObject({
+        observedValue: 25,
+        baselineValue: 5,
+        suggestedAlertRuleType: "error_rate"
+      });
+    });
+  });
+
   it("marks operations as not configured when no operational data exists", async () => {
     await withDb(async (db) => {
       await migrate(db);

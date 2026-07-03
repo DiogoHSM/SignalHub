@@ -84,6 +84,7 @@ function operationsResponse() {
     },
     recent: { monitors: [], alerts: [], incidents: [] },
     topLatency: [],
+    anomalies: [],
     setupGaps: []
   };
 }

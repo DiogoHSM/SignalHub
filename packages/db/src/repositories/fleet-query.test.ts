@@ -101,6 +101,7 @@ function makeOperationsResponse(overrides: Partial<OperationsResponse> = {}): Op
       ]
     },
     topLatency: [],
+    anomalies: [],
     setupGaps: [],
     ...overrides
   } as OperationsResponse;

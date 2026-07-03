@@ -203,6 +203,7 @@ const OPERATIONS: OperationsResponse = {
     ]
   },
   topLatency: [],
+  anomalies: [],
   setupGaps: []
 };
 

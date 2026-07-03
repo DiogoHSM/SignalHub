@@ -9,6 +9,8 @@ export type AlertSeverity = "info" | "warning" | "critical";
 export type DeliveryStatus = "success" | "failed" | null;
 export type ErrorGroupStatus = "open" | "investigating" | "resolved" | "ignored";
 export type ErrorGroupPriority = "urgent" | "high" | "normal" | "low";
+export type OperationsAnomalyType = "event_volume" | "error_volume" | "error_rate" | "trace_p95_latency" | "llm_cost";
+export type OperationsAnomalySeverity = "info" | "warning" | "critical";
 
 export type OperationsFilters = {
   projectId: string;
@@ -62,6 +64,23 @@ export type SetupGap = {
   action: "monitors" | "alerts" | "setup" | "overview";
 };
 
+export type OperationsAnomaly = {
+  id: string;
+  type: OperationsAnomalyType;
+  label: string;
+  severity: OperationsAnomalySeverity;
+  observedValue: number;
+  baselineValue: number;
+  changePercent: number | null;
+  sampleSize: number;
+  baselineSampleSize: number;
+  threshold: string;
+  reason: string;
+  suggestedAlertRuleType: "error_count" | "error_rate" | "trace_p95_latency" | "llm_cost" | null;
+  routePattern: string | null;
+  drilldown: "events" | "errors" | "traces" | "llm" | "alerts";
+};
+
 export type OperationsResponse = {
   window: OperationsWindow;
   generatedAt: string;
@@ -97,6 +116,7 @@ export type OperationsResponse = {
     incidents: RecentIncident[];
   };
   topLatency: Array<{ name: string; p95TraceDurationMs: number; traces: number; failedTraces: number }>;
+  anomalies: OperationsAnomaly[];
   setupGaps: SetupGap[];
 };
 
@@ -171,6 +191,344 @@ function toNullableNumber(value: unknown): number | null {
 function toIso(value: Date | string | null): string | null {
   if (value === null) return null;
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function previousOperationsRange(from: Date, to: Date): { from: Date; to: Date } {
+  const durationMs = to.getTime() - from.getTime();
+  return {
+    from: new Date(from.getTime() - durationMs),
+    to: new Date(from)
+  };
+}
+
+function percentChange(observed: number, baseline: number): number | null {
+  if (baseline <= 0) return null;
+  return ((observed - baseline) / baseline) * 100;
+}
+
+function formatCompactMetric(value: number): string {
+  if (Math.abs(value) >= 100) return String(Math.round(value));
+  if (Math.abs(value) >= 10) return value.toFixed(1).replace(/\.0$/, "");
+  return value.toFixed(2).replace(/\.00$/, "").replace(/0$/, "");
+}
+
+function anomalyId(type: OperationsAnomalyType, routePattern: string | null): string {
+  return `anom_${type}_${(routePattern ?? "global").replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase() || "global"}`;
+}
+
+function ratio(observed: number, baseline: number): number {
+  return baseline <= 0 ? Number.POSITIVE_INFINITY : observed / baseline;
+}
+
+function compareVolumeAnomaly(input: {
+  type: "event_volume" | "error_volume";
+  label: string;
+  observed: number;
+  baseline: number;
+  suggestedAlertRuleType: "error_count" | null;
+  drilldown: "events" | "errors";
+}): OperationsAnomaly | null {
+  if (input.observed < 10 || input.baseline < 3) return null;
+  const multiplier = ratio(input.observed, input.baseline);
+  const delta = input.observed - input.baseline;
+  if (multiplier < 3 && delta < 25) return null;
+
+  const severity: OperationsAnomalySeverity = multiplier >= 5 || delta >= 100 ? "critical" : "warning";
+  return {
+    id: anomalyId(input.type, null),
+    type: input.type,
+    label: input.label,
+    severity,
+    observedValue: input.observed,
+    baselineValue: input.baseline,
+    changePercent: percentChange(input.observed, input.baseline),
+    sampleSize: input.observed,
+    baselineSampleSize: input.baseline,
+    threshold: ">=3x baseline or +25 signals",
+    reason: `${input.label} is ${formatCompactMetric(multiplier)}x the previous ${input.baseline}-signal baseline.`,
+    suggestedAlertRuleType: input.suggestedAlertRuleType,
+    routePattern: null,
+    drilldown: input.drilldown
+  };
+}
+
+function compareRateAnomaly(input: { observed: number; baseline: number; sampleSize: number; baselineSampleSize: number }): OperationsAnomaly | null {
+  if (input.sampleSize < 10 || input.baselineSampleSize < 10) return null;
+  if (input.observed < 5) return null;
+  const multiplier = ratio(input.observed, Math.max(input.baseline, 0.1));
+  const delta = input.observed - input.baseline;
+  if (delta < 5 && multiplier < 2) return null;
+
+  const severity: OperationsAnomalySeverity = input.observed >= 10 && (delta >= 10 || multiplier >= 3) ? "critical" : "warning";
+  return {
+    id: anomalyId("error_rate", null),
+    type: "error_rate",
+    label: "Error rate",
+    severity,
+    observedValue: input.observed,
+    baselineValue: input.baseline,
+    changePercent: percentChange(input.observed, input.baseline),
+    sampleSize: input.sampleSize,
+    baselineSampleSize: input.baselineSampleSize,
+    threshold: ">=5pp over baseline or >=2x baseline",
+    reason: `Error rate reached ${formatCompactMetric(input.observed)}% versus ${formatCompactMetric(input.baseline)}% in the prior window.`,
+    suggestedAlertRuleType: "error_rate",
+    routePattern: null,
+    drilldown: "errors"
+  };
+}
+
+function compareLatencyAnomaly(input: {
+  route: string;
+  observed: number;
+  baseline: number;
+  sampleSize: number;
+  baselineSampleSize: number;
+}): OperationsAnomaly | null {
+  if (input.sampleSize < 10 || input.baselineSampleSize < 10) return null;
+  if (input.observed < 500) return null;
+  const multiplier = ratio(input.observed, input.baseline);
+  const delta = input.observed - input.baseline;
+  if (multiplier < 2 && delta < 500) return null;
+
+  const severity: OperationsAnomalySeverity = input.observed >= 1500 || multiplier >= 4 ? "critical" : "warning";
+  return {
+    id: anomalyId("trace_p95_latency", input.route),
+    type: "trace_p95_latency",
+    label: `${input.route} p95 latency`,
+    severity,
+    observedValue: input.observed,
+    baselineValue: input.baseline,
+    changePercent: percentChange(input.observed, input.baseline),
+    sampleSize: input.sampleSize,
+    baselineSampleSize: input.baselineSampleSize,
+    threshold: ">=500 ms and >=2x baseline",
+    reason: `p95 latency is ${formatCompactMetric(input.observed)} ms versus ${formatCompactMetric(input.baseline)} ms for the same route baseline.`,
+    suggestedAlertRuleType: "trace_p95_latency",
+    routePattern: input.route,
+    drilldown: "traces"
+  };
+}
+
+function compareLlmCostAnomaly(input: { observed: number; baseline: number; sampleSize: number; baselineSampleSize: number }): OperationsAnomaly | null {
+  if (input.sampleSize < 1 || input.observed < 1) return null;
+  const multiplier = ratio(input.observed, input.baseline);
+  const delta = input.observed - input.baseline;
+  if (input.baseline > 0 && multiplier < 2.5 && delta < 5) return null;
+  if (input.baseline === 0 && input.observed < 5) return null;
+
+  const severity: OperationsAnomalySeverity = input.observed >= 25 || multiplier >= 5 ? "critical" : "warning";
+  return {
+    id: anomalyId("llm_cost", null),
+    type: "llm_cost",
+    label: "LLM cost",
+    severity,
+    observedValue: input.observed,
+    baselineValue: input.baseline,
+    changePercent: percentChange(input.observed, input.baseline),
+    sampleSize: input.sampleSize,
+    baselineSampleSize: input.baselineSampleSize,
+    threshold: ">=2.5x baseline or +$5",
+    reason: `LLM cost is $${formatCompactMetric(input.observed)} versus $${formatCompactMetric(input.baseline)} in the prior window.`,
+    suggestedAlertRuleType: "llm_cost",
+    routePattern: null,
+    drilldown: "llm"
+  };
+}
+
+async function detectOperationsAnomalies(
+  db: Db,
+  filters: OperationsFilters,
+  range: { from: Date; to: Date }
+): Promise<OperationsAnomaly[]> {
+  const baseline = previousOperationsRange(range.from, range.to);
+  const aggregateResult = await sql<{
+    current_events: unknown;
+    baseline_events: unknown;
+    current_errors: unknown;
+    baseline_errors: unknown;
+    current_traces: unknown;
+    baseline_traces: unknown;
+    current_error_rate_percent: unknown;
+    baseline_error_rate_percent: unknown;
+    current_llm_calls: unknown;
+    baseline_llm_calls: unknown;
+    current_llm_cost: unknown;
+    baseline_llm_cost: unknown;
+  }>`
+    with current_events as (
+      select count(*)::numeric as total
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+    ),
+    baseline_events as (
+      select count(*)::numeric as total
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${baseline.from}
+        and timestamp < ${baseline.to}
+    ),
+    current_errors as (
+      select count(*)::numeric as total
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+    ),
+    baseline_errors as (
+      select count(*)::numeric as total
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${baseline.from}
+        and timestamp < ${baseline.to}
+    ),
+    current_traces as (
+      select count(*)::numeric as total
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+    ),
+    baseline_traces as (
+      select count(*)::numeric as total
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${baseline.from}
+        and timestamp < ${baseline.to}
+    ),
+    current_llm as (
+      select count(*)::numeric as calls, coalesce(sum(cost_usd), 0)::numeric as cost
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+    ),
+    baseline_llm as (
+      select count(*)::numeric as calls, coalesce(sum(cost_usd), 0)::numeric as cost
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${baseline.from}
+        and timestamp < ${baseline.to}
+    )
+    select
+      current_events.total as current_events,
+      baseline_events.total as baseline_events,
+      current_errors.total as current_errors,
+      baseline_errors.total as baseline_errors,
+      current_traces.total as current_traces,
+      baseline_traces.total as baseline_traces,
+      case when current_traces.total = 0 then 0 else (current_errors.total / current_traces.total) * 100 end as current_error_rate_percent,
+      case when baseline_traces.total = 0 then 0 else (baseline_errors.total / baseline_traces.total) * 100 end as baseline_error_rate_percent,
+      current_llm.calls as current_llm_calls,
+      baseline_llm.calls as baseline_llm_calls,
+      current_llm.cost as current_llm_cost,
+      baseline_llm.cost as baseline_llm_cost
+    from current_events, baseline_events, current_errors, baseline_errors, current_traces, baseline_traces, current_llm, baseline_llm
+  `.execute(db);
+
+  const row = aggregateResult.rows[0];
+  if (!row) return [];
+
+  const anomalies = [
+    compareVolumeAnomaly({
+      type: "event_volume",
+      label: "Event volume",
+      observed: toNumber(row.current_events),
+      baseline: toNumber(row.baseline_events),
+      suggestedAlertRuleType: null,
+      drilldown: "events"
+    }),
+    compareVolumeAnomaly({
+      type: "error_volume",
+      label: "Error volume",
+      observed: toNumber(row.current_errors),
+      baseline: toNumber(row.baseline_errors),
+      suggestedAlertRuleType: "error_count",
+      drilldown: "errors"
+    }),
+    compareRateAnomaly({
+      observed: toNumber(row.current_error_rate_percent),
+      baseline: toNumber(row.baseline_error_rate_percent),
+      sampleSize: toNumber(row.current_traces),
+      baselineSampleSize: toNumber(row.baseline_traces)
+    }),
+    compareLlmCostAnomaly({
+      observed: toNumber(row.current_llm_cost),
+      baseline: toNumber(row.baseline_llm_cost),
+      sampleSize: toNumber(row.current_llm_calls),
+      baselineSampleSize: toNumber(row.baseline_llm_calls)
+    })
+  ].filter((item): item is OperationsAnomaly => item !== null);
+
+  const routeBaselineResult = await sql<{
+    name: string;
+    current_p95_trace_duration_ms: unknown;
+    baseline_p95_trace_duration_ms: unknown;
+    current_traces: unknown;
+    baseline_traces: unknown;
+  }>`
+    with current_routes as (
+      select name,
+        percentile_cont(0.95) within group (order by duration_ms) as p95_trace_duration_ms,
+        count(*) as traces
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+        and duration_ms is not null
+      group by name
+    ),
+    baseline_routes as (
+      select name,
+        percentile_cont(0.95) within group (order by duration_ms) as p95_trace_duration_ms,
+        count(*) as traces
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${baseline.from}
+        and timestamp < ${baseline.to}
+        and duration_ms is not null
+      group by name
+    )
+    select current_routes.name,
+      current_routes.p95_trace_duration_ms as current_p95_trace_duration_ms,
+      baseline_routes.p95_trace_duration_ms as baseline_p95_trace_duration_ms,
+      current_routes.traces as current_traces,
+      baseline_routes.traces as baseline_traces
+    from current_routes
+    inner join baseline_routes on baseline_routes.name = current_routes.name
+    order by current_routes.p95_trace_duration_ms desc nulls last, current_routes.traces desc
+    limit 10
+  `.execute(db);
+
+  for (const routeRow of routeBaselineResult.rows) {
+    const anomaly = compareLatencyAnomaly({
+      route: routeRow.name,
+      observed: toNumber(routeRow.current_p95_trace_duration_ms),
+      baseline: toNumber(routeRow.baseline_p95_trace_duration_ms),
+      sampleSize: toNumber(routeRow.current_traces),
+      baselineSampleSize: toNumber(routeRow.baseline_traces)
+    });
+    if (anomaly) anomalies.push(anomaly);
+  }
+
+  return anomalies
+    .sort((a, b) => {
+      const severityOrder = { critical: 0, warning: 1, info: 2 };
+      return severityOrder[a.severity] - severityOrder[b.severity] || (b.changePercent ?? 0) - (a.changePercent ?? 0);
+    })
+    .slice(0, 6);
 }
 
 function monitorStatusCounts(rows: MonitorRow[], kind: MonitorKind): StatusCounts {
@@ -303,6 +661,7 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
       limit 10
     `.execute(db)
   ]);
+  const anomaliesPromise = detectOperationsAnomalies(db, filters, { from, to });
 
   const alertSummary = alertEventResult.rows.reduce(
     (summary, row) => {
@@ -475,6 +834,7 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
     historicalTelemetry: toNumber(historicalTelemetryResult.rows[0]?.total),
     incidents: { urgent: incidentSummary.urgent, high: incidentSummary.high }
   });
+  const anomalies = await anomaliesPromise;
 
   return {
     window: filters.window,
@@ -545,6 +905,7 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
       traces: toNumber(row.traces),
       failedTraces: toNumber(row.failed_traces)
     })),
+    anomalies,
     setupGaps
   };
 }

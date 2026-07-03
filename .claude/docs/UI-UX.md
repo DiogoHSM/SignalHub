@@ -157,7 +157,8 @@ SignalMonitor includes an admin-only Integration Console.
 - `System Health` remains global Sigmon install health: API, Postgres, Redis, queue worker, scheduler, SMTP, retention, and backups.
 - `Sigmon Admin` uses explicit installation-level destinations: System Health, Deploy, Notifications, Storage, Security, and Docs & SDK. System Health starts with an installation readiness strip for public endpoint, queue worker, scheduler, SMTP, backups, and retention.
 - Operations is read-only in this slice. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views for action.
-- Operations opens with recommended next actions ranked from incidents, monitor gaps, alert delivery, slow traces, and error-rate outliers so the operator has an immediate response path.
+- Operations opens with recommended next actions ranked from incidents, monitor gaps, alert delivery, detected anomalies, slow traces, and error-rate outliers so the operator has an immediate response path.
+- The anomaly detection section must stay explainable: show observed value, previous-window baseline, percent change, sample sizes, threshold, and the suggested alert rule when applicable. Avoid opaque "AI says so" language.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
 
 ## Traces / APM UX
