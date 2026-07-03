@@ -668,6 +668,22 @@ export type RecentActivityFilters = {
   now?: Date;
 };
 
+export type OverviewKpiDelta = {
+  current: number;
+  previous: number | null;
+  absolute: number | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
+export type OverviewMoneyDelta = {
+  current: string;
+  previous: string | null;
+  absolute: string | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
 export type OverviewResponse = {
   window: OverviewWindow;
   generatedAt: string;
@@ -695,6 +711,22 @@ export type OverviewResponse = {
     llmInputTokens: number;
     llmOutputTokens: number;
     llmCostUsd: string;
+  };
+  deltas: {
+    events: OverviewKpiDelta;
+    activeUsers: OverviewKpiDelta;
+    activeTenants: OverviewKpiDelta;
+    errors: OverviewKpiDelta;
+    openErrors: OverviewKpiDelta;
+    traces: OverviewKpiDelta;
+    failedTraces: OverviewKpiDelta;
+    averageTraceDurationMs: OverviewKpiDelta;
+    p95TraceDurationMs: OverviewKpiDelta;
+    llmCalls: OverviewKpiDelta;
+    failedLlmCalls: OverviewKpiDelta;
+    llmInputTokens: OverviewKpiDelta;
+    llmOutputTokens: OverviewKpiDelta;
+    llmCostUsd: OverviewMoneyDelta;
   };
   trends: {
     usage: Array<{ bucketStart: string; events: number; traces: number; llmCalls: number }>;
@@ -1305,6 +1337,133 @@ export async function getRecentActivity(db: Db, filters: RecentActivityFilters):
       durationMs: row.duration_ms,
       costUsd: row.cost_usd
     }))
+  };
+}
+
+type OverviewKpiSqlRow = {
+  events: unknown;
+  active_users: unknown;
+  active_tenants: unknown;
+  errors: unknown;
+  open_errors: unknown;
+  traces: unknown;
+  failed_traces: unknown;
+  average_trace_duration_ms: unknown;
+  p95_trace_duration_ms: unknown;
+  llm_calls: unknown;
+  failed_llm_calls: unknown;
+  llm_input_tokens: unknown;
+  llm_output_tokens: unknown;
+  llm_cost_usd: string;
+};
+
+async function queryOverviewKpis(
+  db: Db,
+  input: { projectId: string; environmentId: string; from: Date; to: Date; release: string | null }
+) {
+  return sql<OverviewKpiSqlRow>`
+    with scoped_events as (
+      select user_id, tenant_id
+      from events
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    scoped_errors as (
+      select user_id, tenant_id, status
+      from errors
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    scoped_traces as (
+      select user_id, tenant_id, status, duration_ms
+      from traces
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    scoped_llm_calls as (
+      select user_id, tenant_id, status, input_tokens, output_tokens, cost_usd
+      from llm_calls
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    identities as (
+      select user_id, tenant_id from scoped_events
+      union all select user_id, tenant_id from scoped_errors
+      union all select user_id, tenant_id from scoped_traces
+      union all select user_id, tenant_id from scoped_llm_calls
+    )
+    select
+      (select count(*) from scoped_events) as events,
+      (select count(distinct user_id) from identities where user_id is not null) as active_users,
+      (select count(distinct tenant_id) from identities where tenant_id is not null) as active_tenants,
+      (select count(*) from scoped_errors) as errors,
+      (select count(*) from scoped_errors where status = 'open') as open_errors,
+      (select count(*) from scoped_traces) as traces,
+      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
+      (select coalesce(avg(duration_ms), 0) from scoped_traces) as average_trace_duration_ms,
+      (select percentile_cont(0.95) within group (order by duration_ms) from scoped_traces where duration_ms is not null) as p95_trace_duration_ms,
+      (select count(*) from scoped_llm_calls) as llm_calls,
+      (select count(*) from scoped_llm_calls where status <> 'success') as failed_llm_calls,
+      (select coalesce(sum(input_tokens), 0) from scoped_llm_calls) as llm_input_tokens,
+      (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
+      (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
+  `.execute(db);
+}
+
+function previousOverviewRange(from: Date, to: Date): { from: Date; to: Date } {
+  const duration = to.getTime() - from.getTime();
+  return {
+    from: new Date(from.getTime() - duration),
+    to: new Date(to.getTime() - duration)
+  };
+}
+
+function overviewDelta(current: number | null, previous: number | null): OverviewKpiDelta {
+  const currentValue = current ?? 0;
+  if (previous === null) {
+    return { current: currentValue, previous: null, absolute: null, percent: null, direction: "none" };
+  }
+
+  const absolute = currentValue - previous;
+  return {
+    current: currentValue,
+    previous,
+    absolute,
+    percent: previous === 0 ? null : Number(((absolute / previous) * 100).toFixed(2)),
+    direction: absolute > 0 ? "up" : absolute < 0 ? "down" : "flat"
+  };
+}
+
+function overviewMoneyDelta(current: string, previous: string | null): OverviewMoneyDelta {
+  if (previous === null) {
+    return { current, previous: null, absolute: null, percent: null, direction: "none" };
+  }
+
+  const currentNumber = Number(current);
+  const previousNumber = Number(previous);
+  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) {
+    return { current, previous, absolute: null, percent: null, direction: "none" };
+  }
+
+  const absolute = currentNumber - previousNumber;
+  return {
+    current,
+    previous,
+    absolute: absolute.toFixed(6),
+    percent: previousNumber === 0 ? null : Number(((absolute / previousNumber) * 100).toFixed(2)),
+    direction: absolute > 0 ? "up" : absolute < 0 ? "down" : "flat"
   };
 }
 
@@ -3627,80 +3786,21 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     now: filters.now
   });
 
-  const kpiRowsPromise = sql<{
-    events: unknown;
-    active_users: unknown;
-    active_tenants: unknown;
-    errors: unknown;
-    open_errors: unknown;
-    traces: unknown;
-    failed_traces: unknown;
-    average_trace_duration_ms: unknown;
-    p95_trace_duration_ms: unknown;
-    llm_calls: unknown;
-    failed_llm_calls: unknown;
-    llm_input_tokens: unknown;
-    llm_output_tokens: unknown;
-    llm_cost_usd: string;
-  }>`
-    with scoped_events as (
-      select user_id, tenant_id
-      from events
-      where project_id = ${filters.projectId}
-        and environment_id = ${filters.environmentId}
-        and timestamp >= ${from}
-        and timestamp <= ${to}
-        and (${releaseFilter}::text is null or release = ${releaseFilter})
-    ),
-    scoped_errors as (
-      select user_id, tenant_id, status
-      from errors
-      where project_id = ${filters.projectId}
-        and environment_id = ${filters.environmentId}
-        and timestamp >= ${from}
-        and timestamp <= ${to}
-        and (${releaseFilter}::text is null or release = ${releaseFilter})
-    ),
-    scoped_traces as (
-      select user_id, tenant_id, status, duration_ms
-      from traces
-      where project_id = ${filters.projectId}
-        and environment_id = ${filters.environmentId}
-        and timestamp >= ${from}
-        and timestamp <= ${to}
-        and (${releaseFilter}::text is null or release = ${releaseFilter})
-    ),
-    scoped_llm_calls as (
-      select user_id, tenant_id, status, input_tokens, output_tokens, cost_usd
-      from llm_calls
-      where project_id = ${filters.projectId}
-        and environment_id = ${filters.environmentId}
-        and timestamp >= ${from}
-        and timestamp <= ${to}
-        and (${releaseFilter}::text is null or release = ${releaseFilter})
-    ),
-    identities as (
-      select user_id, tenant_id from scoped_events
-      union all select user_id, tenant_id from scoped_errors
-      union all select user_id, tenant_id from scoped_traces
-      union all select user_id, tenant_id from scoped_llm_calls
-    )
-    select
-      (select count(*) from scoped_events) as events,
-      (select count(distinct user_id) from identities where user_id is not null) as active_users,
-      (select count(distinct tenant_id) from identities where tenant_id is not null) as active_tenants,
-      (select count(*) from scoped_errors) as errors,
-      (select count(*) from scoped_errors where status = 'open') as open_errors,
-      (select count(*) from scoped_traces) as traces,
-      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
-      (select coalesce(avg(duration_ms), 0) from scoped_traces) as average_trace_duration_ms,
-      (select percentile_cont(0.95) within group (order by duration_ms) from scoped_traces where duration_ms is not null) as p95_trace_duration_ms,
-      (select count(*) from scoped_llm_calls) as llm_calls,
-      (select count(*) from scoped_llm_calls where status <> 'success') as failed_llm_calls,
-      (select coalesce(sum(input_tokens), 0) from scoped_llm_calls) as llm_input_tokens,
-      (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
-      (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
-  `.execute(db);
+  const previousRange = previousOverviewRange(from, to);
+  const kpiRowsPromise = queryOverviewKpis(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    from,
+    to,
+    release: releaseFilter
+  });
+  const previousKpiRowsPromise = queryOverviewKpis(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    from: previousRange.from,
+    to: previousRange.to,
+    release: releaseFilter
+  });
 
   const usageTrendRowsPromise = sql<{
     bucket_start: Date | string;
@@ -4024,6 +4124,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
 
   const [
     kpiRows,
+    previousKpiRows,
     usageTrendRows,
     errorTrendRows,
     latencyTrendRows,
@@ -4045,6 +4146,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     recentReleases
   ] = await Promise.all([
     kpiRowsPromise,
+    previousKpiRowsPromise,
     usageTrendRowsPromise,
     errorTrendRowsPromise,
     latencyTrendRowsPromise,
@@ -4066,6 +4168,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     recentReleasesPromise
   ]);
   const kpiRow = kpiRows.rows[0];
+  const previousKpiRow = previousKpiRows.rows[0];
 
   const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
   const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
@@ -4109,6 +4212,64 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     })
   };
 
+  const kpis: OverviewResponse["kpis"] = {
+    events: toNumber(kpiRow.events),
+    activeUsers: toNumber(kpiRow.active_users),
+    activeTenants: toNumber(kpiRow.active_tenants),
+    errors: toNumber(kpiRow.errors),
+    openErrors: toNumber(kpiRow.open_errors),
+    traces: toNumber(kpiRow.traces),
+    failedTraces: toNumber(kpiRow.failed_traces),
+    averageTraceDurationMs: toNumber(kpiRow.average_trace_duration_ms),
+    p95TraceDurationMs: kpiRow.p95_trace_duration_ms == null ? null : toNumber(kpiRow.p95_trace_duration_ms),
+    llmCalls: toNumber(kpiRow.llm_calls),
+    failedLlmCalls: toNumber(kpiRow.failed_llm_calls),
+    llmInputTokens: toNumber(kpiRow.llm_input_tokens),
+    llmOutputTokens: toNumber(kpiRow.llm_output_tokens),
+    llmCostUsd: kpiRow.llm_cost_usd
+  };
+
+  const previousKpis: OverviewResponse["kpis"] = {
+    events: toNumber(previousKpiRow.events),
+    activeUsers: toNumber(previousKpiRow.active_users),
+    activeTenants: toNumber(previousKpiRow.active_tenants),
+    errors: toNumber(previousKpiRow.errors),
+    openErrors: toNumber(previousKpiRow.open_errors),
+    traces: toNumber(previousKpiRow.traces),
+    failedTraces: toNumber(previousKpiRow.failed_traces),
+    averageTraceDurationMs: toNumber(previousKpiRow.average_trace_duration_ms),
+    p95TraceDurationMs:
+      previousKpiRow.p95_trace_duration_ms == null ? null : toNumber(previousKpiRow.p95_trace_duration_ms),
+    llmCalls: toNumber(previousKpiRow.llm_calls),
+    failedLlmCalls: toNumber(previousKpiRow.failed_llm_calls),
+    llmInputTokens: toNumber(previousKpiRow.llm_input_tokens),
+    llmOutputTokens: toNumber(previousKpiRow.llm_output_tokens),
+    llmCostUsd: previousKpiRow.llm_cost_usd
+  };
+
+  const previousHasData =
+    previousKpis.events + previousKpis.errors + previousKpis.traces + previousKpis.llmCalls > 0;
+
+  const previousNumber = (value: number | null) => (previousHasData ? value : null);
+  const previousMoney = (value: string) => (previousHasData ? value : null);
+
+  const deltas: OverviewResponse["deltas"] = {
+    events: overviewDelta(kpis.events, previousNumber(previousKpis.events)),
+    activeUsers: overviewDelta(kpis.activeUsers, previousNumber(previousKpis.activeUsers)),
+    activeTenants: overviewDelta(kpis.activeTenants, previousNumber(previousKpis.activeTenants)),
+    errors: overviewDelta(kpis.errors, previousNumber(previousKpis.errors)),
+    openErrors: overviewDelta(kpis.openErrors, previousNumber(previousKpis.openErrors)),
+    traces: overviewDelta(kpis.traces, previousNumber(previousKpis.traces)),
+    failedTraces: overviewDelta(kpis.failedTraces, previousNumber(previousKpis.failedTraces)),
+    averageTraceDurationMs: overviewDelta(kpis.averageTraceDurationMs, previousNumber(previousKpis.averageTraceDurationMs)),
+    p95TraceDurationMs: overviewDelta(kpis.p95TraceDurationMs, previousNumber(previousKpis.p95TraceDurationMs)),
+    llmCalls: overviewDelta(kpis.llmCalls, previousNumber(previousKpis.llmCalls)),
+    failedLlmCalls: overviewDelta(kpis.failedLlmCalls, previousNumber(previousKpis.failedLlmCalls)),
+    llmInputTokens: overviewDelta(kpis.llmInputTokens, previousNumber(previousKpis.llmInputTokens)),
+    llmOutputTokens: overviewDelta(kpis.llmOutputTokens, previousNumber(previousKpis.llmOutputTokens)),
+    llmCostUsd: overviewMoneyDelta(kpis.llmCostUsd, previousMoney(previousKpis.llmCostUsd))
+  };
+
   return {
     window: filters.window,
     generatedAt: to.toISOString(),
@@ -4121,22 +4282,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       to: to.toISOString(),
       bucket
     },
-    kpis: {
-      events: toNumber(kpiRow.events),
-      activeUsers: toNumber(kpiRow.active_users),
-      activeTenants: toNumber(kpiRow.active_tenants),
-      errors: toNumber(kpiRow.errors),
-      openErrors: toNumber(kpiRow.open_errors),
-      traces: toNumber(kpiRow.traces),
-      failedTraces: toNumber(kpiRow.failed_traces),
-      averageTraceDurationMs: toNumber(kpiRow.average_trace_duration_ms),
-      p95TraceDurationMs: kpiRow.p95_trace_duration_ms == null ? null : toNumber(kpiRow.p95_trace_duration_ms),
-      llmCalls: toNumber(kpiRow.llm_calls),
-      failedLlmCalls: toNumber(kpiRow.failed_llm_calls),
-      llmInputTokens: toNumber(kpiRow.llm_input_tokens),
-      llmOutputTokens: toNumber(kpiRow.llm_output_tokens),
-      llmCostUsd: kpiRow.llm_cost_usd
-    },
+    kpis,
+    deltas,
     trends,
     top: {
       events: topEventsRows.rows.map((row) => ({ name: row.name, total: toNumber(row.total) })),

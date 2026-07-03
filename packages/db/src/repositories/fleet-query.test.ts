@@ -129,6 +129,22 @@ function makeOverviewResponse(overrides: Partial<OverviewResponse> = {}): Overvi
       llmOutputTokens: 5000,
       llmCostUsd: "5.50"
     },
+    deltas: {
+      events: { current: 500, previous: null, absolute: null, percent: null, direction: "none" },
+      activeUsers: { current: 20, previous: null, absolute: null, percent: null, direction: "none" },
+      activeTenants: { current: 5, previous: null, absolute: null, percent: null, direction: "none" },
+      errors: { current: 10, previous: null, absolute: null, percent: null, direction: "none" },
+      openErrors: { current: 3, previous: null, absolute: null, percent: null, direction: "none" },
+      traces: { current: 100, previous: null, absolute: null, percent: null, direction: "none" },
+      failedTraces: { current: 5, previous: null, absolute: null, percent: null, direction: "none" },
+      averageTraceDurationMs: { current: 150, previous: null, absolute: null, percent: null, direction: "none" },
+      p95TraceDurationMs: { current: 350, previous: null, absolute: null, percent: null, direction: "none" },
+      llmCalls: { current: 50, previous: null, absolute: null, percent: null, direction: "none" },
+      failedLlmCalls: { current: 2, previous: null, absolute: null, percent: null, direction: "none" },
+      llmInputTokens: { current: 10000, previous: null, absolute: null, percent: null, direction: "none" },
+      llmOutputTokens: { current: 5000, previous: null, absolute: null, percent: null, direction: "none" },
+      llmCostUsd: { current: "5.50", previous: null, absolute: null, percent: null, direction: "none" }
+    },
     trends: {
       usage: [],
       errors: Array.from({ length: 12 }, (_, i) => ({

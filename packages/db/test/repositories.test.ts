@@ -7782,7 +7782,7 @@ describe("repositories", () => {
       const now = new Date("2026-05-05T12:00:00.000Z");
       const inWindow = new Date("2026-05-05T10:00:00.000Z");
       const olderInWindow = new Date("2026-05-05T09:00:00.000Z");
-      const outsideWindow = new Date("2026-05-03T12:00:00.000Z");
+      const previousWindow = new Date("2026-05-03T12:00:00.000Z");
       const receivedAt = new Date("2026-05-05T12:00:01.000Z");
       const base = {
         projectId: project.id,
@@ -7830,7 +7830,7 @@ describe("repositories", () => {
         timestamp: inWindow,
         receivedAt
       });
-      await insertEvent(db, { ...base, id: "evt_old", name: "old_event", timestamp: outsideWindow, receivedAt });
+      await insertEvent(db, { ...base, id: "evt_previous_window", name: "old_event", timestamp: previousWindow, receivedAt });
 
       await insertError(db, {
         ...base,
@@ -7963,6 +7963,27 @@ describe("repositories", () => {
         llmInputTokens: 125,
         llmOutputTokens: 65,
         llmCostUsd: "0.450000"
+      });
+      expect(overview.deltas.events).toEqual({
+        current: 3,
+        previous: 1,
+        absolute: 2,
+        percent: 200,
+        direction: "up"
+      });
+      expect(overview.deltas.errors).toEqual({
+        current: 3,
+        previous: 0,
+        absolute: 3,
+        percent: null,
+        direction: "up"
+      });
+      expect(overview.deltas.llmCostUsd).toEqual({
+        current: "0.450000",
+        previous: "0",
+        absolute: "0.450000",
+        percent: null,
+        direction: "up"
       });
       expect(overview.top.events).toEqual([
         { name: "dashboard_created", total: 2 },

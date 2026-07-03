@@ -345,6 +345,11 @@ GET /query/releases?project_id=prj_123&environment_id=env_123&window=7d&limit=10
 GET /query/overview?project_id=prj_123&environment_id=env_123&window=7d&release=web%401.2.3
 ```
 
+`GET /query/overview` also returns `deltas` beside `kpis`. Each KPI delta compares the selected
+window with the immediately previous window of the same size and includes `current`, `previous`,
+`absolute`, `percent`, and `direction`. `previous`, `absolute`, and `percent` are `null` when the
+prior window has no telemetry to compare against.
+
 ### Browser click maps
 
 Click maps are opt-in browser telemetry for aggregated UI density, not session replay. Send normalized

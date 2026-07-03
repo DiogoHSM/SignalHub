@@ -214,7 +214,7 @@ export function OverviewDashboard({ client, projectId, environmentId, onDrilldow
             </div>
           ) : null}
           {criticalIncident ? <OverviewIncidentBanner error={criticalIncident} onDrilldown={onDrilldown} /> : null}
-          <OverviewKpiGrid kpis={data.kpis} />
+          <OverviewKpiGrid deltas={data.deltas} kpis={data.kpis} />
           <OverviewMiniTrends trends={data.trends} />
           <OverviewTopLists onDrilldown={onDrilldown} top={data.top} />
           <OverviewRecentSignals recent={data.recent} />

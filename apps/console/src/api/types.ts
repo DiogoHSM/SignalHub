@@ -1523,6 +1523,22 @@ export type RecentActivityResponse = {
   activity: RecentActivityItem[];
 };
 
+export type OverviewKpiDelta = {
+  current: number;
+  previous: number | null;
+  absolute: number | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
+export type OverviewMoneyDelta = {
+  current: string;
+  previous: string | null;
+  absolute: string | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
 export type OverviewResponse = {
   window: OverviewWindow;
   generatedAt: string;
@@ -1550,6 +1566,22 @@ export type OverviewResponse = {
     llmInputTokens: number;
     llmOutputTokens: number;
     llmCostUsd: string;
+  };
+  deltas?: {
+    events: OverviewKpiDelta;
+    activeUsers: OverviewKpiDelta;
+    activeTenants: OverviewKpiDelta;
+    errors: OverviewKpiDelta;
+    openErrors: OverviewKpiDelta;
+    traces: OverviewKpiDelta;
+    failedTraces: OverviewKpiDelta;
+    averageTraceDurationMs: OverviewKpiDelta;
+    p95TraceDurationMs: OverviewKpiDelta;
+    llmCalls: OverviewKpiDelta;
+    failedLlmCalls: OverviewKpiDelta;
+    llmInputTokens: OverviewKpiDelta;
+    llmOutputTokens: OverviewKpiDelta;
+    llmCostUsd: OverviewMoneyDelta;
   };
   trends: {
     usage: Array<{ bucketStart: string; events: number; traces: number; llmCalls: number }>;

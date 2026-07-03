@@ -2,7 +2,10 @@ import type { OverviewResponse } from "../api/types";
 
 type Props = {
   kpis: OverviewResponse["kpis"];
+  deltas?: OverviewResponse["deltas"];
 };
+
+type OverviewDelta = NonNullable<OverviewResponse["deltas"]>[keyof NonNullable<OverviewResponse["deltas"]>];
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
@@ -19,39 +22,51 @@ function formatCurrency(value: string): string {
   return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(parsed);
 }
 
-export function OverviewKpiGrid({ kpis }: Props) {
+function formatSigned(value: number): string {
+  return `${value > 0 ? "+" : ""}${formatNumber(value)}`;
+}
+
+function formatDelta(delta: OverviewDelta | undefined, unit = "") {
+  if (!delta || delta.absolute === null) return null;
+  const absolute = typeof delta.absolute === "string" ? Number(delta.absolute) : delta.absolute;
+  if (!Number.isFinite(absolute)) return null;
+  const percent = delta.percent === null ? "" : ` (${delta.percent > 0 ? "+" : ""}${delta.percent}%)`;
+  return `${formatSigned(absolute)}${unit}${percent} vs prior window`;
+}
+
+export function OverviewKpiGrid({ kpis, deltas }: Props) {
   const totalTokens = kpis.llmInputTokens + kpis.llmOutputTokens;
   const groups = [
     {
       title: "Signal intake",
       items: [
-        { label: "Events", value: formatNumber(kpis.events) },
-        { label: "Active users", value: formatNumber(kpis.activeUsers) },
-        { label: "Active tenants", value: formatNumber(kpis.activeTenants) }
+        { delta: formatDelta(deltas?.events), label: "Events", value: formatNumber(kpis.events) },
+        { delta: formatDelta(deltas?.activeUsers), label: "Active users", value: formatNumber(kpis.activeUsers) },
+        { delta: formatDelta(deltas?.activeTenants), label: "Active tenants", value: formatNumber(kpis.activeTenants) }
       ]
     },
     {
       title: "Reliability",
       items: [
-        { label: "Errors", value: formatNumber(kpis.errors) },
-        { label: "Open errors", value: formatNumber(kpis.openErrors) },
-        { label: "Failed traces", value: formatNumber(kpis.failedTraces) }
+        { delta: formatDelta(deltas?.errors), label: "Errors", value: formatNumber(kpis.errors) },
+        { delta: formatDelta(deltas?.openErrors), label: "Open errors", value: formatNumber(kpis.openErrors) },
+        { delta: formatDelta(deltas?.failedTraces), label: "Failed traces", value: formatNumber(kpis.failedTraces) }
       ]
     },
     {
       title: "Latency",
       items: [
-        { label: "Traces", value: formatNumber(kpis.traces) },
-        { label: "Avg latency", value: formatDuration(kpis.averageTraceDurationMs) },
-        { label: "P95 latency", value: formatDuration(kpis.p95TraceDurationMs) }
+        { delta: formatDelta(deltas?.traces), label: "Traces", value: formatNumber(kpis.traces) },
+        { delta: formatDelta(deltas?.averageTraceDurationMs, " ms"), label: "Avg latency", value: formatDuration(kpis.averageTraceDurationMs) },
+        { delta: formatDelta(deltas?.p95TraceDurationMs, " ms"), label: "P95 latency", value: formatDuration(kpis.p95TraceDurationMs) }
       ]
     },
     {
       title: "AI spend",
       items: [
-        { label: "LLM calls", value: formatNumber(kpis.llmCalls) },
+        { delta: formatDelta(deltas?.llmCalls), label: "LLM calls", value: formatNumber(kpis.llmCalls) },
         { label: "LLM tokens", value: formatNumber(totalTokens) },
-        { label: "LLM cost", value: formatCurrency(kpis.llmCostUsd) }
+        { delta: formatDelta(deltas?.llmCostUsd), label: "LLM cost", value: formatCurrency(kpis.llmCostUsd) }
       ]
     }
   ];
@@ -66,6 +81,7 @@ export function OverviewKpiGrid({ kpis }: Props) {
               <div className="overview-kpi" key={item.label}>
                 <span>{item.label}</span>
                 <strong>{item.value}</strong>
+                {item.delta ? <small>{item.delta}</small> : null}
               </div>
             ))}
           </div>

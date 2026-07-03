@@ -31,7 +31,7 @@ SignalMonitor includes an admin-only Integration Console.
 - The active project is selectable from the global header in every console mode. Setup keeps the fuller project creation/sidebar workflow, but operators should not need to return to Setup just to switch context.
 - The active environment is also selectable from the global header once environments are loaded, so operators can switch monitored environments without returning to Onboarding.
 - The sigmon mark is a simple mono heartbeat SVG and should remain single-color so it can inherit the surrounding foreground/accent color.
-- Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings.
+- Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings. When available, KPI cards show a compact comparison against the immediately prior window; omit the delta line when the prior window has no telemetry.
 - Operational pages should use dark native surfaces consistently: no white form islands inside the dark console, readable secondary values, compact status pills, and grid spans chosen by workflow density rather than filling space indiscriminately.
 - The console shell uses viewport-bounded scrolling: the icon rail and topbar stay anchored to the browser height while the workspace content owns its own vertical scroll.
 - Console scrollbars should be dark-themed inside the shell and scoped to internal workspace/list panes so browser-default light scrollbars do not appear in project views.
@@ -58,6 +58,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.
+- Overview KPI cards show first-class prior-window deltas from the API instead of deriving comparisons from sparse chart buckets.
 - Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency. Trend charts should include grid context, metric-unit axis labels, stable empty states, color-consistent series, and legend values so sparse data does not read as broken.
 - Overview shows a critical incident banner above KPIs when the selected environment has an open severe error, with a direct drilldown into the grouped Errors incident queue.
 - Overview top-list rows can drill into Investigate with seeded exact filters; recent activity stays read-only and uses one mixed timeline across successful and failed events, errors, traces, and LLM calls.
