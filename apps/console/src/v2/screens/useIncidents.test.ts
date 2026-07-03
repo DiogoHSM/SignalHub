@@ -325,6 +325,44 @@ describe("useIncidents", () => {
     expect(result.current.data!.kpis.p1).toBe(3);
   });
 
+  it("uses server incident summary for active and P1 KPI precision when available", async () => {
+    const openGroups = Array.from({ length: 100 }, (_, index) =>
+      makeGroup({ id: `open-${index}`, priority: index < 10 ? "urgent" : "normal", status: "open" })
+    );
+    const { client } = makeFakeClient({ openGroups });
+    const getOperations = vi.fn().mockResolvedValue({
+      data: {
+        summary: {
+          incidents: {
+            open: 150,
+            investigating: 50,
+            urgent: 37,
+            high: 11,
+            regressed: 4
+          }
+        }
+      }
+    });
+
+    const { result } = renderHook(() =>
+      useIncidents({
+        client: { ...client, getOperations },
+        projectId: "proj-1",
+        environmentId: "env-1"
+      })
+    );
+
+    await act(async () => {});
+
+    expect(getOperations).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      environmentId: "env-1",
+      window: "24h"
+    });
+    expect(result.current.data!.kpis.active).toBe(200);
+    expect(result.current.data!.kpis.p1).toBe(37);
+  });
+
   it("mttrLabel from getIncidentMttr numeric ms via formatDurationShort", async () => {
     const { client } = makeFakeClient({ mttrMs: 42 * 60_000 }); // 42 minutes
 

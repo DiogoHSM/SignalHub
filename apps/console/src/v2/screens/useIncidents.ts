@@ -50,6 +50,7 @@ export type UseIncidentsResult = {
 type UseIncidentsArgs = {
   client: Pick<ApiClient, "listErrorGroups"> & {
     getIncidentMttr?: ApiClient["getIncidentMttr"];
+    getOperations?: ApiClient["getOperations"];
   };
   projectId: string | undefined;
   environmentId: string | undefined;
@@ -150,8 +151,17 @@ export function useIncidents({
           return null;
         })
       : Promise.resolve(null);
-    Promise.all([Promise.all(groupFetches), mttrFetch])
-      .then(([groupResponses, mttrRes]) => {
+    const operationsFetch = client.getOperations
+      ? client.getOperations({ ...scope, window: "24h" })
+          .then((response) => response.data)
+          .catch((err) => {
+            console.error(err);
+            return null;
+          })
+      : Promise.resolve(null);
+
+    Promise.all([Promise.all(groupFetches), mttrFetch, operationsFetch])
+      .then(([groupResponses, mttrRes, operationsRes]) => {
         if (gen !== genRef.current) return;
 
         const allGroups: ErrorGroupRecord[] = groupResponses.flatMap((response) => response.data);
@@ -196,8 +206,13 @@ export function useIncidents({
         });
 
         // KPIs
-        const active = allGroups.length;
-        const p1 = allGroups.filter((g) => g.priority === "urgent").length;
+        const serverIncidents = operationsRes?.summary?.incidents ?? null;
+        const active = serverIncidents
+          ? serverIncidents.open + serverIncidents.investigating
+          : allGroups.length;
+        const p1 = serverIncidents
+          ? serverIncidents.urgent
+          : allGroups.filter((g) => g.priority === "urgent").length;
         const mttrMs = mttrRes?.data?.mttrMs ?? null;
         const mttrLabel = formatDurationShort(mttrMs);
         const resolved7d = mttrRes?.data?.resolvedCount ?? 0;
