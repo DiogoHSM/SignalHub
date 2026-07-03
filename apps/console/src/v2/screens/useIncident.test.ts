@@ -19,6 +19,43 @@ const NOW_ISO = "2026-06-22T12:00:00.000Z";
 const FIRST_ISO = "2026-06-20T10:00:00.000Z";
 const LAST_ISO = "2026-06-22T11:50:00.000Z";
 
+const DEFAULT_CODE_CONTEXT: ErrorGroupIncident["codeContext"] = {
+  status: "ready",
+  summary: "Start with src/foo.ts:10.",
+  repository: {
+    provider: "github",
+    name: "api",
+    owner: "acme",
+    repo: "api",
+    url: "https://github.com/acme/api"
+  },
+  release: {
+    release: "v1.2.0",
+    commitSha: "1234567890abcdef",
+    commitUrl: "https://github.com/acme/api/commit/1234567890abcdef",
+    pullRequestNumber: 99,
+    pullRequestUrl: "https://github.com/acme/api/pull/99",
+    deployedBy: "ci"
+  },
+  suspectedFiles: [
+    {
+      path: "src/foo.ts",
+      functionName: "foo",
+      line: 10,
+      column: 5,
+      confidence: "high",
+      evidence: ["source-map frame 0"]
+    }
+  ],
+  evidence: [{ type: "source_map", label: "Source maps applied", value: "1 resolved frames", confidence: "high" }],
+  suggestedNextSteps: ["Open src/foo.ts around line 10."],
+  privacy: {
+    aiEnabled: false,
+    outboundCodeSharing: false,
+    reason: "Local deterministic analysis only."
+  }
+};
+
 function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord {
   return {
     id: "eg_1",
@@ -123,6 +160,7 @@ function makeIncident(overrides: Partial<ErrorGroupIncident> = {}): ErrorGroupIn
         createdAt: NOW_ISO
       }
     ],
+    codeContext: DEFAULT_CODE_CONTEXT,
     ...overrides
   };
 }
@@ -599,6 +637,8 @@ describe("useIncident", () => {
     expect(vm.release).toBe("v1.2.0");
     expect(vm.status).toBe("open");
     expect(vm.silencedUntil).toBeNull();
+    expect(vm.codeContext.summary).toContain("src/foo.ts");
+    expect(vm.codeContext.suspectedFiles[0]).toMatchObject({ path: "src/foo.ts", confidence: "high" });
   });
 
   // -------------------------------------------------------------------------

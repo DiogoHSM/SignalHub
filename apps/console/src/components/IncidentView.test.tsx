@@ -6,6 +6,46 @@ import type { ErrorGroupIncident } from "../api/types";
 import { IncidentTriagePanel } from "./IncidentTriagePanel";
 import { IncidentView } from "./IncidentView";
 
+const defaultCodeContext: ErrorGroupIncident["codeContext"] = {
+  status: "ready",
+  summary: "Start with src/checkout.ts:42. Sigmon connected the incident to web@1 using stack evidence.",
+  repository: {
+    provider: "github",
+    name: "web",
+    owner: "acme",
+    repo: "shop",
+    url: "https://github.com/acme/shop"
+  },
+  release: {
+    release: "web@1",
+    commitSha: "abcdef1234567890",
+    commitUrl: "https://github.com/acme/shop/commit/abcdef1234567890",
+    pullRequestNumber: 12,
+    pullRequestUrl: "https://github.com/acme/shop/pull/12",
+    deployedBy: "ci"
+  },
+  suspectedFiles: [
+    {
+      path: "src/checkout.ts",
+      functionName: "submitCheckout",
+      line: 42,
+      column: 7,
+      confidence: "high",
+      evidence: ["source-map frame 0", "release web@1"]
+    }
+  ],
+  evidence: [
+    { type: "stack", label: "Stack trace captured", value: "1 parsed frames", confidence: "high" },
+    { type: "release", label: "Release metadata linked", value: "web@1", confidence: "high" }
+  ],
+  suggestedNextSteps: ["Open src/checkout.ts around line 42."],
+  privacy: {
+    aiEnabled: false,
+    outboundCodeSharing: false,
+    reason: "Local deterministic analysis only."
+  }
+};
+
 type IncidentFixtureOverrides = Partial<Omit<ErrorGroupIncident, "group" | "primaryOccurrence" | "related">> & {
   group?: Partial<ErrorGroupIncident["group"]>;
   primaryOccurrence?: Partial<ErrorGroupIncident["primaryOccurrence"]>;
@@ -116,7 +156,8 @@ function incidentFixture(overrides: IncidentFixtureOverrides = {}): ErrorGroupIn
     incidentNumber: null,
     assignedTo: null,
     silencedUntil: null,
-    notes: []
+    notes: [],
+    codeContext: defaultCodeContext
   };
   return {
     ...base,
@@ -173,6 +214,8 @@ describe("IncidentView", () => {
     expect(within(hero).getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Source map: 2 frames")).toBeInTheDocument();
     expect(screen.getByText(/Error: Checkout failed/)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Code context" })).toHaveTextContent("src/checkout.ts:42:7");
+    expect(screen.getByRole("region", { name: "Code context" })).toHaveTextContent("External AI disabled");
     expect(within(screen.getByLabelText("Strongly related timeline")).getByText("checkout.started")).toBeInTheDocument();
     expect(within(screen.getByLabelText("Nearby context timeline")).getByText("openai gpt-4.1-mini")).toBeInTheDocument();
   });

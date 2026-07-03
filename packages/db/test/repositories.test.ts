@@ -4465,6 +4465,99 @@ describe("repositories", () => {
     });
   });
 
+  it("adds AI-ready code context with release, repository, and source-map evidence", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const uploader = await createUser(db, {
+        email: "incident-code-context@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const group = await seedGroupedError(db, {
+        id: "err_incident_code_context",
+        projectId: "prj_incident_code_context",
+        environmentId: "env_incident_code_context",
+        message: "Code context failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:00:00.000Z")
+      });
+      await sql`
+        update errors
+        set release = 'web@2',
+            trace_id = 'trace_code_context',
+            stack = 'TypeError: failed\n    at submitCheckout (https://cdn.example.com/assets/app.js:10:2)'
+        where id = 'err_incident_code_context'
+      `.execute(db);
+      await sql`
+        update error_groups
+        set latest_release = 'web@2'
+        where id = ${group.id}
+      `.execute(db);
+      await sql`
+        insert into project_code_integrations
+          (id, project_id, provider, name, owner, repo, web_base_url)
+        values
+          ('cint_incident_code_context', 'prj_incident_code_context', 'github', 'web', 'acme', 'shop', 'https://github.com/acme/shop')
+      `.execute(db);
+      await sql`
+        insert into release_metadata
+          (id, project_id, environment_id, release, integration_id, commit_sha, commit_url, pull_request_number, pull_request_url, deployed_by)
+        values
+          ('relm_incident_code_context', 'prj_incident_code_context', 'env_incident_code_context', 'web@2', 'cint_incident_code_context', 'abcdef1234567890', 'https://github.com/acme/shop/commit/abcdef1234567890', 42, 'https://github.com/acme/shop/pull/42', 'ci')
+      `.execute(db);
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
+        values
+          ('smap_incident_code_context', 'prj_incident_code_context', 'env_incident_code_context', 'web@2', 'app.js', 'app.js.map', 'application/json', 1, 'sha-code-context', '/tmp/app.map', ${uploader.id})
+      `.execute(db);
+      await sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column, original_name)
+        values
+          ('esr_incident_code_context', 'err_incident_code_context', 'prj_incident_code_context', 'env_incident_code_context', 'web@2', 'smap_incident_code_context', 0, 'app.js', 10, 2, 'src/checkout.ts', 42, 7, 'submitCheckout')
+      `.execute(db);
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: "prj_incident_code_context",
+        environmentId: "env_incident_code_context",
+        errorId: "err_incident_code_context"
+      });
+
+      expect(incident?.codeContext).toMatchObject({
+        status: "ready",
+        repository: {
+          provider: "github",
+          owner: "acme",
+          repo: "shop",
+          url: "https://github.com/acme/shop"
+        },
+        release: {
+          release: "web@2",
+          commitSha: "abcdef1234567890",
+          pullRequestNumber: 42,
+          deployedBy: "ci"
+        },
+        privacy: {
+          aiEnabled: false,
+          outboundCodeSharing: false
+        }
+      });
+      expect(incident?.codeContext.suspectedFiles[0]).toMatchObject({
+        path: "src/checkout.ts",
+        functionName: "submitCheckout",
+        line: 42,
+        column: 7,
+        confidence: "high"
+      });
+      expect(incident?.codeContext.evidence.map((item) => item.type)).toEqual(
+        expect.arrayContaining(["stack", "source_map", "release", "trace"])
+      );
+      expect(incident?.codeContext.summary).toContain("src/checkout.ts:42");
+    });
+  });
+
   it("uses the latest group occurrence when no primary error id is provided", async () => {
     await withDb(async (db) => {
       await migrate(db);

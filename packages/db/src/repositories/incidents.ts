@@ -51,6 +51,46 @@ export type IncidentReplay = {
   events: IncidentReplayEvent[];
 };
 
+export type IncidentCodeContext = {
+  status: "ready" | "limited";
+  summary: string;
+  repository: {
+    provider: "github" | "gitlab";
+    name: string;
+    owner: string;
+    repo: string;
+    url: string;
+  } | null;
+  release: {
+    release: string | null;
+    commitSha: string | null;
+    commitUrl: string | null;
+    pullRequestNumber: number | null;
+    pullRequestUrl: string | null;
+    deployedBy: string | null;
+  };
+  suspectedFiles: Array<{
+    path: string;
+    functionName: string | null;
+    line: number | null;
+    column: number | null;
+    confidence: "high" | "medium" | "low";
+    evidence: string[];
+  }>;
+  evidence: Array<{
+    type: "stack" | "source_map" | "release" | "repo" | "trace" | "breadcrumb" | "replay";
+    label: string;
+    value: string | null;
+    confidence: "high" | "medium" | "low";
+  }>;
+  suggestedNextSteps: string[];
+  privacy: {
+    aiEnabled: boolean;
+    outboundCodeSharing: boolean;
+    reason: string;
+  };
+};
+
 export type ErrorGroupIncident = {
   group: ErrorGroupRecord;
   primaryOccurrence: ErrorRecord;
@@ -71,6 +111,7 @@ export type ErrorGroupIncident = {
   assignedTo: { id: string; email: string } | null;
   silencedUntil: string | null;
   notes: { id: string; authorEmail: string; body: string; createdAt: string }[];
+  codeContext: IncidentCodeContext;
 };
 
 type IncidentTimelineRow = {
@@ -451,6 +492,217 @@ async function getSourceMapResolution(
   return frameCount > 0 ? { status: "cached", frameCount } : { status: "none" };
 }
 
+type ResolvedStackFrame = {
+  original_source: string;
+  original_line: number;
+  original_column: number;
+  original_name: string | null;
+  frame_index: number;
+};
+
+type ParsedStackFrame = {
+  path: string;
+  functionName: string | null;
+  line: number | null;
+  column: number | null;
+};
+
+function parseStackFrames(stack: string | null): ParsedStackFrame[] {
+  if (!stack) return [];
+  const frames: ParsedStackFrame[] = [];
+  const framePattern = /^\s*at\s+(?:(.*?)\s+\()?(.+?):(\d+):(\d+)\)?\s*$/;
+
+  for (const line of stack.split("\n")) {
+    const match = line.match(framePattern);
+    if (!match) continue;
+    const [, rawFunctionName, rawPath, rawLine, rawColumn] = match;
+    if (!rawPath || rawPath.includes("node:internal")) continue;
+    frames.push({
+      path: rawPath,
+      functionName: rawFunctionName?.trim() || null,
+      line: rawLine ? Number(rawLine) : null,
+      column: rawColumn ? Number(rawColumn) : null
+    });
+  }
+
+  return frames.slice(0, 8);
+}
+
+function uniqueByFrame(
+  frames: IncidentCodeContext["suspectedFiles"]
+): IncidentCodeContext["suspectedFiles"] {
+  const seen = new Set<string>();
+  const unique: IncidentCodeContext["suspectedFiles"] = [];
+  for (const frame of frames) {
+    const key = `${frame.path}:${frame.line ?? ""}:${frame.column ?? ""}:${frame.functionName ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(frame);
+  }
+  return unique.slice(0, 6);
+}
+
+async function getIncidentCodeContext(
+  db: Db,
+  input: {
+    group: ErrorGroupRecord;
+    primaryOccurrence: ErrorRecord;
+    sourceMapResolution: ErrorGroupIncident["sourceMapResolution"];
+    stronglyRelated: IncidentContextSection;
+    replay: IncidentReplay | null;
+  }
+): Promise<IncidentCodeContext> {
+  const releaseName = input.primaryOccurrence.release ?? input.group.latestRelease;
+  const releaseRow = releaseName
+    ? await db
+        .selectFrom("release_metadata")
+        .selectAll()
+        .where("project_id", "=", input.primaryOccurrence.projectId)
+        .where("environment_id", "=", input.primaryOccurrence.environmentId)
+        .where("release", "=", releaseName)
+        .executeTakeFirst()
+    : undefined;
+
+  const integrationRow = await db
+    .selectFrom("project_code_integrations")
+    .selectAll()
+    .where("project_id", "=", input.primaryOccurrence.projectId)
+    .where("revoked_at", "is", null)
+    .$if(Boolean(releaseRow?.integration_id), (qb) => qb.where("id", "=", releaseRow!.integration_id!))
+    .orderBy("created_at", "asc")
+    .executeTakeFirst();
+
+  const resolvedRows = await db
+    .selectFrom("error_stack_resolutions")
+    .select([
+      "original_source",
+      "original_line",
+      "original_column",
+      "original_name",
+      "frame_index"
+    ])
+    .where("error_id", "=", input.primaryOccurrence.id)
+    .where("project_id", "=", input.primaryOccurrence.projectId)
+    .where("environment_id", "=", input.primaryOccurrence.environmentId)
+    .orderBy("frame_index", "asc")
+    .execute() as ResolvedStackFrame[];
+
+  const resolvedFiles = resolvedRows.map((frame) => ({
+    path: frame.original_source,
+    functionName: frame.original_name,
+    line: frame.original_line,
+    column: frame.original_column,
+    confidence: "high" as const,
+    evidence: [
+      `source-map frame ${frame.frame_index}`,
+      releaseName ? `release ${releaseName}` : "release unknown"
+    ]
+  }));
+
+  const parsedFiles = parseStackFrames(input.primaryOccurrence.stack).map((frame, index) => ({
+    ...frame,
+    confidence: index === 0 ? ("medium" as const) : ("low" as const),
+    evidence: [`raw stack frame ${index + 1}`]
+  }));
+
+  const suspectedFiles = uniqueByFrame([...resolvedFiles, ...parsedFiles]);
+  const evidence: IncidentCodeContext["evidence"] = [
+    {
+      type: "stack",
+      label: input.primaryOccurrence.stack ? "Stack trace captured" : "No stack trace captured",
+      value: input.primaryOccurrence.stack ? `${parseStackFrames(input.primaryOccurrence.stack).length} parsed frames` : null,
+      confidence: input.primaryOccurrence.stack ? "high" : "low"
+    },
+    {
+      type: "source_map",
+      label: input.sourceMapResolution.status === "cached" ? "Source maps applied" : "Source maps missing",
+      value:
+        input.sourceMapResolution.status === "cached"
+          ? `${input.sourceMapResolution.frameCount} resolved frames`
+          : "Upload source maps for readable files",
+      confidence: input.sourceMapResolution.status === "cached" ? "high" : "medium"
+    },
+    {
+      type: "release",
+      label: releaseRow ? "Release metadata linked" : "Release metadata unavailable",
+      value: releaseName ?? null,
+      confidence: releaseRow ? "high" : releaseName ? "medium" : "low"
+    },
+    {
+      type: "repo",
+      label: integrationRow ? "Repository linked" : "Repository not connected",
+      value: integrationRow ? `${integrationRow.owner}/${integrationRow.repo}` : null,
+      confidence: integrationRow ? "high" : "low"
+    },
+    {
+      type: "trace",
+      label: input.primaryOccurrence.traceId ? "Trace linked" : "No linked trace",
+      value: input.primaryOccurrence.traceId,
+      confidence: input.primaryOccurrence.traceId ? "medium" : "low"
+    },
+    {
+      type: "breadcrumb",
+      label: input.stronglyRelated.items.length > 0 ? "Related context found" : "No related context",
+      value: `${input.stronglyRelated.items.length} related signals`,
+      confidence: input.stronglyRelated.items.length > 0 ? "medium" : "low"
+    },
+    {
+      type: "replay",
+      label: input.replay ? "Session replay linked" : "No session replay",
+      value: input.replay?.replayId ?? null,
+      confidence: input.replay ? "medium" : "low"
+    }
+  ];
+
+  const summary =
+    suspectedFiles.length > 0
+      ? `Start with ${suspectedFiles[0]!.path}${suspectedFiles[0]!.line ? `:${suspectedFiles[0]!.line}` : ""}. Sigmon connected the incident to ${releaseName ?? "an unknown release"} using stack, source-map, and runtime context evidence.`
+      : `Sigmon could not identify a probable source file yet. Capture full stack traces, send release metadata, and upload source maps for this environment.`;
+
+  const suggestedNextSteps = [
+    suspectedFiles.length > 0
+      ? `Open ${suspectedFiles[0]!.path}${suspectedFiles[0]!.line ? ` around line ${suspectedFiles[0]!.line}` : ""}.`
+      : "Capture thrown Error objects with stack traces in the SDK.",
+    releaseRow?.commit_url ? "Compare the linked commit with the previous healthy release." : "Attach release metadata from CI so incidents cite commits and pull requests.",
+    input.sourceMapResolution.status === "cached"
+      ? "Use the resolved source-map frames before the generated stack paths."
+      : "Upload source maps for production bundles with the same release value.",
+    input.primaryOccurrence.traceId
+      ? "Open the related trace to confirm the failing request path and downstream spans."
+      : "Add trace IDs to server-side error reporting for request-level correlation."
+  ];
+
+  return {
+    status: suspectedFiles.length > 0 || releaseRow || integrationRow ? "ready" : "limited",
+    summary,
+    repository: integrationRow
+      ? {
+          provider: integrationRow.provider,
+          name: integrationRow.name,
+          owner: integrationRow.owner,
+          repo: integrationRow.repo,
+          url: integrationRow.web_base_url
+        }
+      : null,
+    release: {
+      release: releaseName ?? null,
+      commitSha: releaseRow?.commit_sha ?? null,
+      commitUrl: releaseRow?.commit_url ?? null,
+      pullRequestNumber: releaseRow?.pull_request_number ?? null,
+      pullRequestUrl: releaseRow?.pull_request_url ?? null,
+      deployedBy: releaseRow?.deployed_by ?? null
+    },
+    suspectedFiles,
+    evidence,
+    suggestedNextSteps,
+    privacy: {
+      aiEnabled: false,
+      outboundCodeSharing: false,
+      reason: "Local deterministic analysis only. Sigmon does not send repository code or incident payloads to an external AI provider."
+    }
+  };
+}
+
 export async function getErrorGroupIncident(
   db: Db,
   input: {
@@ -502,6 +754,12 @@ export async function getErrorGroupIncident(
   }
 
   const triageNotes = await listTriageNotes(db, group.id);
+  const sourceMapResolution = await getSourceMapResolution(db, {
+    errorId: primaryOccurrence.id,
+    projectId: primaryOccurrence.projectId,
+    environmentId: primaryOccurrence.environmentId
+  });
+  const replay = await getIncidentReplay(db, primaryOccurrence);
 
   return {
     group,
@@ -515,14 +773,10 @@ export async function getErrorGroupIncident(
       lastRegressedAt: group.lastRegressedAt,
       now: input.now
     }),
-    sourceMapResolution: await getSourceMapResolution(db, {
-      errorId: primaryOccurrence.id,
-      projectId: primaryOccurrence.projectId,
-      environmentId: primaryOccurrence.environmentId
-    }),
+    sourceMapResolution,
     stronglyRelated,
     nearbyContext,
-    replay: await getIncidentReplay(db, primaryOccurrence),
+    replay,
     related: {
       traceId: primaryOccurrence.traceId,
       sessionId: primaryOccurrence.sessionId,
@@ -538,6 +792,13 @@ export async function getErrorGroupIncident(
       authorEmail: note.authorEmail,
       body: note.body,
       createdAt: note.createdAt.toISOString()
-    }))
+    })),
+    codeContext: await getIncidentCodeContext(db, {
+      group,
+      primaryOccurrence,
+      sourceMapResolution,
+      stronglyRelated,
+      replay
+    })
   };
 }

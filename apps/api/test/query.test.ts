@@ -2782,7 +2782,33 @@ describe("query routes", () => {
           sourceMapResolution: { status: "none" },
           stronglyRelated: { items: [], truncated: false },
           nearbyContext: { items: [], truncated: false },
-          related: { traceId: null, sessionId: null, userId: null, tenantId: null, release: null }
+          related: { traceId: null, sessionId: null, userId: null, tenantId: null, release: null },
+          replay: null,
+          incidentNumber: null,
+          assignedTo: null,
+          silencedUntil: null,
+          notes: [],
+          codeContext: {
+            status: "limited" as const,
+            summary: "No code context available.",
+            repository: null,
+            release: {
+              release: null,
+              commitSha: null,
+              commitUrl: null,
+              pullRequestNumber: null,
+              pullRequestUrl: null,
+              deployedBy: null
+            },
+            suspectedFiles: [],
+            evidence: [],
+            suggestedNextSteps: [],
+            privacy: {
+              aiEnabled: false,
+              outboundCodeSharing: false,
+              reason: "Local deterministic analysis only."
+            }
+          }
         })
       }
     });

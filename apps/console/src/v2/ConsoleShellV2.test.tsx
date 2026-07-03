@@ -296,6 +296,27 @@ describe("ConsoleShellV2", () => {
       related: [],
       notes: [],
       externalIssues: [],
+      codeContext: {
+        status: "limited" as const,
+        summary: "No code context available.",
+        repository: null,
+        release: {
+          release: null,
+          commitSha: null,
+          commitUrl: null,
+          pullRequestNumber: null,
+          pullRequestUrl: null,
+          deployedBy: null,
+        },
+        suspectedFiles: [],
+        evidence: [],
+        suggestedNextSteps: [],
+        privacy: {
+          aiEnabled: false,
+          outboundCodeSharing: false,
+          reason: "Local deterministic analysis only.",
+        },
+      },
     };
 
     function setupDrillMocks() {

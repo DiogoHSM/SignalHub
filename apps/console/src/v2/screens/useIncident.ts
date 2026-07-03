@@ -58,6 +58,7 @@ export type IncidentVM = {
   related: RelVM[];
   notes: { initials: string; authorEmail: string; timeRelative: string; body: string }[];
   externalIssues: IncidentExternalLink[];
+  codeContext: ErrorGroupIncident["codeContext"];
 };
 
 // ---------------------------------------------------------------------------
@@ -345,7 +346,8 @@ function buildVM(incident: ErrorGroupIncident, resolution: SourceMapResolution |
     breadcrumbs: mapBreadcrumbs(stronglyRelated.items),
     related: mapRelated(incident),
     notes,
-    externalIssues: incident.externalIssues ?? []
+    externalIssues: incident.externalIssues ?? [],
+    codeContext: incident.codeContext
   };
 }
 

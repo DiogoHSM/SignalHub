@@ -6,6 +6,7 @@ import { IncidentTechnicalPanel } from "./IncidentTechnicalPanel";
 import { IncidentTimeline } from "./IncidentTimeline";
 import { IncidentTriagePanel } from "./IncidentTriagePanel";
 import { IncidentReplayPanel } from "./IncidentReplayPanel";
+import { IncidentCodeContextPanel } from "./IncidentCodeContextPanel";
 
 type LoadState =
   | { status: "loading"; key: string }
@@ -108,6 +109,7 @@ export function IncidentView({ client, groupId, projectId, environmentId, errorI
                 onUpdated={updateReadyIncident}
                 projectId={projectId}
               />
+              <IncidentCodeContextPanel codeContext={readyIncident.codeContext} />
               <IncidentReplayPanel replay={readyIncident.replay} />
               <IncidentTimeline incident={readyIncident} />
             </div>

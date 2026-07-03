@@ -57,6 +57,42 @@ const MOCK_VM: IncidentVM = {
     { initials: "M", authorEmail: "marco@acme.dev", timeRelative: "2 min ago", body: "Reduced timeout to 8s" },
   ],
   externalIssues: [],
+  codeContext: {
+    status: "ready",
+    summary: "Start with src/services/payment/charge.ts:84.",
+    repository: {
+      provider: "github",
+      name: "api",
+      owner: "acme",
+      repo: "commerce",
+      url: "https://github.com/acme/commerce"
+    },
+    release: {
+      release: "v2026.05.14",
+      commitSha: "abcdef123456",
+      commitUrl: "https://github.com/acme/commerce/commit/abcdef123456",
+      pullRequestNumber: 74,
+      pullRequestUrl: "https://github.com/acme/commerce/pull/74",
+      deployedBy: "ci"
+    },
+    suspectedFiles: [
+      {
+        path: "src/services/payment/charge.ts",
+        functionName: "chargeCustomer",
+        line: 84,
+        column: 12,
+        confidence: "high",
+        evidence: ["source-map frame 0"]
+      }
+    ],
+    evidence: [{ type: "source_map", label: "Source maps applied", value: "3 resolved frames", confidence: "high" }],
+    suggestedNextSteps: ["Open src/services/payment/charge.ts around line 84."],
+    privacy: {
+      aiEnabled: false,
+      outboundCodeSharing: false,
+      reason: "Local deterministic analysis only."
+    }
+  },
 };
 
 const SILENCED_VM: IncidentVM = {

@@ -1091,6 +1091,45 @@ export type ErrorGroupIncident = {
   silencedUntil: string | null;
   notes: { id: string; authorEmail: string; body: string; createdAt: string }[];
   externalIssues?: IncidentExternalLink[];
+  codeContext: {
+    status: "ready" | "limited";
+    summary: string;
+    repository: {
+      provider: "github" | "gitlab";
+      name: string;
+      owner: string;
+      repo: string;
+      url: string;
+    } | null;
+    release: {
+      release: string | null;
+      commitSha: string | null;
+      commitUrl: string | null;
+      pullRequestNumber: number | null;
+      pullRequestUrl: string | null;
+      deployedBy: string | null;
+    };
+    suspectedFiles: Array<{
+      path: string;
+      functionName: string | null;
+      line: number | null;
+      column: number | null;
+      confidence: "high" | "medium" | "low";
+      evidence: string[];
+    }>;
+    evidence: Array<{
+      type: "stack" | "source_map" | "release" | "repo" | "trace" | "breadcrumb" | "replay";
+      label: string;
+      value: string | null;
+      confidence: "high" | "medium" | "low";
+    }>;
+    suggestedNextSteps: string[];
+    privacy: {
+      aiEnabled: boolean;
+      outboundCodeSharing: boolean;
+      reason: string;
+    };
+  };
 };
 
 export type TriageNoteRecord = {

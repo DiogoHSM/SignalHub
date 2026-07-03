@@ -11,6 +11,7 @@ import {
   StatusPill,
 } from "../../components/ui/v2";
 import { IncidentReplayPanel } from "../../components/IncidentReplayPanel";
+import { IncidentCodeContextPanel } from "../../components/IncidentCodeContextPanel";
 
 // ---------------------------------------------------------------------------
 // RelItem — local subcomponent
@@ -787,6 +788,8 @@ export function IncidentScreen({
               )}
             </div>
           </div>
+
+          <IncidentCodeContextPanel codeContext={vm.codeContext} variant="v2" />
 
           <div className="sh-card">
             <div className="sh-card__head">
