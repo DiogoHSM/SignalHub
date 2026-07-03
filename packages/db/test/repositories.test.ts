@@ -5719,7 +5719,7 @@ describe("repositories", () => {
         minimumSampleSize: 20
       });
 
-      expect(result).toEqual({ observedValue: "5" });
+      expect(result).toEqual({ observedValue: "5", errorGroupId: expect.any(String) });
     });
   });
 
@@ -5740,7 +5740,7 @@ describe("repositories", () => {
         minimumSampleSize: 20
       });
 
-      expect(result).toEqual({ observedValue: "0" });
+      expect(result).toEqual({ observedValue: "0", errorGroupId: null });
     });
   });
 
@@ -5819,7 +5819,7 @@ describe("repositories", () => {
         minimumSampleSize: 1
       });
 
-      expect(result).toEqual({ observedValue: "33.333333" });
+      expect(result).toEqual({ observedValue: "33.333333", errorGroupId: expect.any(String) });
     });
   });
 

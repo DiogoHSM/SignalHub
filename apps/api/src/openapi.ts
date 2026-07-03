@@ -3106,12 +3106,14 @@ export const openApiDocument = {
       get: {
         ...sessionRoute(
           "List feedback submissions",
-          "Read recent product feedback submissions for a project environment. Query with project_id, environment_id, optional status=open|reviewed|archived, and optional limit."
+          "Read recent product feedback submissions for a project environment. Query with project_id, environment_id, optional status=open|reviewed|archived, tenant_id, user_id, and optional limit."
         ),
         parameters: [
           { name: "project_id", in: "query", required: true, schema: { type: "string" } },
           { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
           { name: "status", in: "query", required: false, schema: { type: "string", enum: ["open", "reviewed", "archived"] } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
           { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 200, default: 50 } }
         ],
         responses: {

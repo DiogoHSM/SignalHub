@@ -260,7 +260,7 @@ export async function recordFeedbackItem(db: Db, input: RecordFeedbackItemInput)
 
 export async function listFeedbackItems(
   db: Db,
-  input: { projectId: string; environmentId: string; status?: FeedbackStatus; limit?: number }
+  input: { projectId: string; environmentId: string; status?: FeedbackStatus; tenantId?: string; userId?: string; limit?: number }
 ): Promise<FeedbackItemRecord[]> {
   const limit = Math.max(1, Math.min(200, Math.trunc(input.limit ?? 50)));
   let query = db
@@ -271,6 +271,12 @@ export async function listFeedbackItems(
 
   if (input.status) {
     query = query.where("status", "=", normalizeStatus(input.status));
+  }
+  if (input.tenantId) {
+    query = query.where("tenant_id", "=", input.tenantId);
+  }
+  if (input.userId) {
+    query = query.where("user_id", "=", input.userId);
   }
 
   const rows = await query.orderBy("submitted_at", "desc").limit(limit).execute();

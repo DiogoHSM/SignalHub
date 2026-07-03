@@ -149,7 +149,7 @@ describe("useConsoleProjects", () => {
     expect(result.current.environments[0].name).toBe("Preview");
   });
 
-  it("selectEnvironment switches the active environment by name", async () => {
+  it("selectEnvironment switches the active environment by id", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
         projects: [{ id: "prj_1", name: "Alpha", createdAt: "", updatedAt: "", archivedAt: null }]
@@ -167,7 +167,7 @@ describe("useConsoleProjects", () => {
     await waitFor(() => expect(result.current.activeEnvironment?.id).toBe("env_1"));
 
     act(() => {
-      result.current.selectEnvironment("Staging");
+      result.current.selectEnvironment("env_2");
     });
 
     expect(result.current.activeEnvironment?.id).toBe("env_2");

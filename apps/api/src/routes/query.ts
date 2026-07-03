@@ -94,8 +94,13 @@ export type NpsResultFilters = SurveyResultFilters & {
   plan?: string;
 };
 
-export type FeedbackListFilters = Pick<ApmFilters, "projectId" | "environmentId" | "limit"> & {
+export type FeedbackListFilters = {
+  projectId: string;
+  environmentId: string;
+  limit?: number;
   status?: "open" | "reviewed" | "archived";
+  tenantId?: string;
+  userId?: string;
 };
 
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
@@ -965,12 +970,16 @@ function parseFeedbackListFilters(query: unknown): FeedbackListFilters | undefin
   if (status !== undefined && status !== "open" && status !== "reviewed" && status !== "archived") {
     return undefined;
   }
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const userId = optionalNonEmpty(raw, "user_id");
 
   return {
     projectId,
     environmentId,
     limit: parseLimit(raw),
-    ...(status ? { status } : {})
+    ...(status ? { status } : {}),
+    ...(tenantId ? { tenantId } : {}),
+    ...(userId ? { userId } : {})
   };
 }
 
@@ -1962,7 +1971,10 @@ async function handleFeedbackStatusRoute(request: FastifyRequest, reply: Fastify
 
   try {
     const feedback = await options.query.updateFeedbackStatus({
-      ...filters,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId,
+      ...(filters.tenantId ? { tenantId: filters.tenantId } : {}),
+      ...(filters.userId ? { userId: filters.userId } : {}),
       id: params.data.id,
       status: body.data.status
     });
