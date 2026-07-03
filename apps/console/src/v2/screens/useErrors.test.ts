@@ -123,11 +123,13 @@ const OVERVIEW: OverviewResponse = {
 
 function makeClient(
   groups: ErrorGroupRecord[] = ERROR_GROUPS,
-  overview: OverviewResponse = OVERVIEW
+  overview: OverviewResponse = OVERVIEW,
+  mttrMs: number | null = 42 * 60_000
 ) {
   return {
     listErrorGroups: vi.fn().mockResolvedValue({ data: groups } as QueryListResponse<ErrorGroupRecord>),
-    getOverview: vi.fn().mockResolvedValue({ data: overview } as AggregateResponse<OverviewResponse>)
+    getOverview: vi.fn().mockResolvedValue({ data: overview } as AggregateResponse<OverviewResponse>),
+    getIncidentMttr: vi.fn().mockResolvedValue({ data: { mttrMs, resolvedCount: mttrMs === null ? 0 : 3, windowDays: 7 } })
   };
 }
 
@@ -262,27 +264,31 @@ describe("useErrors", () => {
     expect(result.current.data!.summary.openGroups).toBe(3);
   });
 
-  it("summary.mttr is always null", async () => {
+  it("summary.mttr comes from incident MTTR query", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
 
     await waitFor(() => expect(result.current.status).toBe("ok"));
 
-    expect(result.current.data!.summary.mttr).toBeNull();
+    expect(client.getIncidentMttr).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d"
+    });
+    expect(result.current.data!.summary.mttr).toBe(42 * 60_000);
   });
 
-  it("summary.topRelease = most frequent latestRelease among rows", async () => {
-    const client = makeClient();
+  it("summary.topRelease = release with most error occurrences among rows", async () => {
+    const client = makeClient([
+      makeGroup({ id: "eg_release_a", latestRelease: "v1.2.0", occurrenceCount: 2 }),
+      makeGroup({ id: "eg_release_b", latestRelease: "v1.1.0", occurrenceCount: 50 }),
+      makeGroup({ id: "eg_release_c", latestRelease: "v1.2.0", occurrenceCount: 2 })
+    ]);
     const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
 
     await waitFor(() => expect(result.current.status).toBe("ok"));
 
-    // v1.2.0 appears in GROUP_1, GROUP_2 (2 times)
-    // v1.1.0 appears in GROUP_3, GROUP_4 (2 times)
-    // null in GROUP_5
-    // tie: both v1.2.0 and v1.1.0 have count 2 — whichever is first wins
-    const topRelease = result.current.data!.summary.topRelease;
-    expect(topRelease).toBe("v1.2.0");
+    expect(result.current.data!.summary.topRelease).toBe("v1.1.0");
   });
 
   it("summary.topRelease is null when all latestRelease are null", async () => {

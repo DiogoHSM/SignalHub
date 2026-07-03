@@ -21,7 +21,7 @@ export type ErrorSummaryVM = {
   openGroups: number;
   crashes: number;
   critical: number;
-  mttr: null;
+  mttr: number | null;
   topRelease: string | null;
 };
 
@@ -50,7 +50,9 @@ export type ErrorsVM = {
 // ---------------------------------------------------------------------------
 
 type UseErrorsOptions = {
-  client: Pick<ApiClient, "getOverview"> & Pick<ErrorGroupApiClient, "listErrorGroups">;
+  client: Pick<ApiClient, "getOverview"> & Pick<ErrorGroupApiClient, "listErrorGroups"> & {
+    getIncidentMttr?: ApiClient["getIncidentMttr"];
+  };
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
@@ -85,7 +87,7 @@ function topRelease(rows: ErrorGroupRecord[]): string | null {
 
   for (const row of rows) {
     if (row.latestRelease == null) continue;
-    counts.set(row.latestRelease, (counts.get(row.latestRelease) ?? 0) + 1);
+    counts.set(row.latestRelease, (counts.get(row.latestRelease) ?? 0) + row.occurrenceCount);
   }
 
   if (counts.size === 0) return null;
@@ -138,9 +140,15 @@ export function useErrors({
 
     Promise.all([
       client.listErrorGroups(groupsQuery),
-      client.getOverview(overviewQuery).then((r) => r.data)
+      client.getOverview(overviewQuery).then((r) => r.data),
+      client.getIncidentMttr
+        ? client
+            .getIncidentMttr({ projectId, environmentId, window: "7d" })
+            .then((r) => r.data)
+            .catch(() => ({ mttrMs: null, resolvedCount: 0, windowDays: 7 }))
+        : Promise.resolve({ mttrMs: null, resolvedCount: 0, windowDays: 7 })
     ])
-      .then(([groupsRes, overview]) => {
+      .then(([groupsRes, overview, mttr]) => {
         if (gen !== genRef.current) return;
 
         const groups = groupsRes.data;
@@ -176,7 +184,7 @@ export function useErrors({
           openGroups,
           crashes,
           critical,
-          mttr: null,
+          mttr: mttr.mttrMs,
           topRelease: topRelease(groups)
         };
 

@@ -27,7 +27,7 @@ const ERRORS_VM: ErrorsVM = {
     openGroups: 14,
     crashes: 3,
     critical: 2,
-    mttr: null,
+    mttr: 42 * 60_000,
     topRelease: "v2026.05.14",
   },
   volume: [12, 18, 22, 28, 32, 38, 46, 52, 68, 82, 124, 168, 142, 98, 72, 58, 42, 32, 28, 24],
@@ -348,13 +348,11 @@ describe("ErrorsScreen", () => {
       expect(criticalLabels.length).toBeGreaterThan(0);
     });
 
-    it("renders MTTR as '—' (em dash, never a computed value)", () => {
+    it("renders formatted MTTR when available", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByText(/mttr/i)).toBeInTheDocument();
-      // MTTR value should be "—"
-      const mttrs = screen.getAllByText("—");
-      expect(mttrs.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("42 min")).toBeInTheDocument();
     });
 
     it("renders Top release label and value", () => {

@@ -14,7 +14,7 @@ import {
   StatusPill,
   SummaryStat,
 } from "../../components/ui/v2";
-import { formatCompact } from "../../components/ui/v2/format";
+import { formatCompact, formatDurationShort } from "../../components/ui/v2/format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -343,7 +343,7 @@ export function ErrorsScreen({
           <Divider />
           <SummaryStat label="Critical" value={String(summary.critical)} tone="danger" />
           <Divider />
-          <SummaryStat label="MTTR" value="—" />
+          <SummaryStat label="MTTR" value={formatDurationShort(summary.mttr)} />
           <Divider />
           <SummaryStat
             label="Top release"
