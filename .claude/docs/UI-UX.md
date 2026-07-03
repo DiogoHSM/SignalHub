@@ -160,6 +160,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Operations is read-only in this slice. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views for action.
 - Operations opens with recommended next actions ranked from incidents, monitor gaps, alert delivery, detected anomalies, slow traces, and error-rate outliers so the operator has an immediate response path.
 - The anomaly detection section must stay explainable: show observed value, previous-window baseline, percent change, sample sizes, threshold, and the suggested alert rule when applicable. Avoid opaque "AI says so" language.
+- The predictive risk section must stay explainable and operational. Show probability, risk score, severity, confidence, current-vs-baseline validation, sample sizes, and the top weighted factors with plain-language reasons. High and critical predictions should feed the recommended actions area and route to the most relevant drilldown.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
 
 ## Traces / APM UX

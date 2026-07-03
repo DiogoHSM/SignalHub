@@ -343,6 +343,8 @@ Operations aggregates are computed in `packages/db/src/repositories/operations-q
 
 Anomaly detection is heuristic and explainable. The repository compares the current Operations window with the previous equivalent baseline and reports outliers in event volume, error volume, error rate, route p95 latency, and LLM cost when both the sample size and deviation thresholds are high enough. Each anomaly includes observed value, baseline value, sample sizes, percent change, threshold explanation, suggested alert-rule type when one exists, and a drilldown target.
 
+Operations also returns a first predictive analytics slice through `predictions`. The initial prediction is an explainable `operational_risk` score for the next equivalent window. It is computed from current monitors, incidents, alert firings, alert delivery failures, telemetry error rate, failed traces, p95 latency, setup coverage, detected anomalies, and a previous-window baseline. The response includes severity, score, probability, confidence, validation sample sizes, baseline risk score, delta, top weighted factors, and a suggested drilldown. This is deterministic heuristic scoring, not an external ML or AI call, and it does not introduce new storage tables.
+
 `System` remains global Sigmon install health. `Operations` is scoped to a monitored project/environment, so a self-monitoring `sigmon.app` project can be added like any other project without special product logic.
 
 ## Alerts Console

@@ -71,6 +71,7 @@ function operationsResponse(overrides: Partial<OperationsResponse> = {}): Operat
     },
     topLatency: [{ name: "checkout", p95TraceDurationMs: 640, traces: 10, failedTraces: 1 }],
     anomalies: [],
+    predictions: [],
     setupGaps: [{ key: "heartbeat_monitor", label: "No heartbeat monitor", severity: "warning", action: "monitors" }],
     ...overrides
   };
@@ -173,6 +174,71 @@ describe("OperationsDashboard", () => {
     expect(handlers.onOpenMonitors).toHaveBeenCalled();
     expect(handlers.onOpenAlerts).toHaveBeenCalled();
     expect(handlers.onOpenTraces).toHaveBeenCalledWith({ traceName: "checkout" });
+  });
+
+  it("renders predictive risk and prioritizes high-risk drilldowns", async () => {
+    const getOperations = vi.fn().mockResolvedValue({
+      data: operationsResponse({
+        predictions: [
+          {
+            id: "pred_operational_risk_checkout",
+            type: "operational_risk",
+            label: "Checkout instability likely",
+            horizon: "next_window",
+            severity: "high",
+            score: 82.4,
+            confidence: "high",
+            probabilityPercent: 76.2,
+            validation: {
+              baselineWindow: { from: "2026-05-23T12:00:00.000Z", to: "2026-05-24T12:00:00.000Z" },
+              currentWindow: { from: "2026-05-24T12:00:00.000Z", to: "2026-05-25T12:00:00.000Z" },
+              baselineRiskScore: 31.5,
+              delta: 50.9,
+              sampleSize: 120,
+              baselineSampleSize: 98,
+              method: "weighted_signal_delta"
+            },
+            factors: [
+              {
+                key: "error_rate",
+                label: "Error rate drift",
+                impact: "negative",
+                weight: 0.55,
+                observedValue: 12.4,
+                baselineValue: 2.1,
+                reason: "Open checkout errors are running above the baseline."
+              },
+              {
+                key: "latency",
+                label: "Latency pressure",
+                impact: "negative",
+                weight: 0.33,
+                observedValue: 840,
+                baselineValue: 320,
+                reason: "p95 trace latency is elevated for checkout."
+              }
+            ],
+            suggestedDrilldown: "errors"
+          }
+        ]
+      })
+    });
+    const handlers = callbacks();
+
+    render(<OperationsDashboard client={client(getOperations)} environmentId="env_1" projectId="prj_1" {...handlers} />);
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "Predictive risk" })).toBeInTheDocument());
+    expect(screen.getByText("Checkout instability likely")).toBeInTheDocument();
+    expect(screen.getByText("76% probability in the next window with high confidence.")).toBeInTheDocument();
+    expect(screen.getByText("Risk score")).toBeInTheDocument();
+    expect(screen.getByText("Error rate drift")).toBeInTheDocument();
+    expect(screen.getByText("Open checkout errors are running above the baseline.")).toBeInTheDocument();
+    expect(screen.getByText("weighted_signal_delta")).toBeInTheDocument();
+
+    const actions = screen.getByRole("region", { name: "Recommended next actions" });
+    await userEvent.click(within(actions).getByRole("button", { name: /Review high predicted risk/i }));
+
+    expect(handlers.onOpenErrors).toHaveBeenCalledWith({ status: "open", severity: "high" });
   });
 
   it("shows explainable anomalies and opens matching drilldowns", async () => {

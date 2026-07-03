@@ -8138,6 +8138,22 @@ describe("repositories", () => {
       expect(operations.topLatency).toEqual([
         { name: "checkout", p95TraceDurationMs: 900, traces: 1, failedTraces: 1 }
       ]);
+      expect(operations.predictions[0]).toMatchObject({
+        type: "operational_risk",
+        label: "Operational risk",
+        severity: "critical",
+        suggestedDrilldown: "errors"
+      });
+      expect(operations.predictions[0]?.score).toBeGreaterThanOrEqual(75);
+      expect(operations.predictions[0]?.factors.map((factor) => factor.key)).toEqual(
+        expect.arrayContaining(["high_priority_incidents", "alert_delivery_failures", "error_rate"])
+      );
+      expect(operations.predictions[0]?.validation).toMatchObject({
+        baselineRiskScore: expect.any(Number),
+        sampleSize: expect.any(Number),
+        baselineSampleSize: expect.any(Number),
+        method: "heuristic-weighted-baseline-v1"
+      });
       expect(operations.recent.alerts[0]).toMatchObject({
         message: "Checkout p95 latency is high",
         latestDeliveryStatus: "failed"
@@ -8229,6 +8245,20 @@ describe("repositories", () => {
         baselineValue: 5,
         suggestedAlertRuleType: "error_rate"
       });
+      expect(operations.predictions[0]).toMatchObject({
+        type: "operational_risk",
+        severity: "critical",
+        confidence: "medium",
+        validation: {
+          baselineRiskScore: expect.any(Number),
+          delta: expect.any(Number),
+          sampleSize: 25,
+          baselineSampleSize: 21
+        }
+      });
+      expect(operations.predictions[0]?.factors.map((factor) => factor.key)).toEqual(
+        expect.arrayContaining(["critical_anomalies", "error_rate", "p95_latency"])
+      );
     });
   });
 
@@ -8247,6 +8277,12 @@ describe("repositories", () => {
       });
 
       expect(operations.status).toBe("not_configured");
+      expect(operations.predictions[0]).toMatchObject({
+        type: "operational_risk",
+        severity: "low",
+        confidence: "low",
+        score: 0
+      });
       expect(operations.setupGaps.map((gap) => gap.key)).toEqual([
         "http_monitor",
         "heartbeat_monitor",

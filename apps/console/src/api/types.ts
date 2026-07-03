@@ -1759,6 +1759,38 @@ export type OperationsAnomaly = {
   drilldown: "events" | "errors" | "traces" | "llm" | "alerts";
 };
 
+export type OperationsPredictionSeverity = "low" | "medium" | "high" | "critical";
+
+export type OperationsPrediction = {
+  id: string;
+  type: "operational_risk";
+  label: string;
+  horizon: "next_window";
+  severity: OperationsPredictionSeverity;
+  score: number;
+  confidence: "low" | "medium" | "high";
+  probabilityPercent: number;
+  validation: {
+    baselineWindow: { from: string; to: string };
+    currentWindow: { from: string; to: string };
+    baselineRiskScore: number;
+    delta: number;
+    sampleSize: number;
+    baselineSampleSize: number;
+    method: string;
+  };
+  factors: Array<{
+    key: string;
+    label: string;
+    impact: "positive" | "negative";
+    weight: number;
+    observedValue: number;
+    baselineValue: number | null;
+    reason: string;
+  }>;
+  suggestedDrilldown: "operations" | "alerts" | "monitors" | "errors" | "traces";
+};
+
 export type OperationsResponse = {
   window: OperationsWindow;
   generatedAt: string;
@@ -1824,6 +1856,7 @@ export type OperationsResponse = {
   };
   topLatency: Array<{ name: string; p95TraceDurationMs: number; traces: number; failedTraces: number }>;
   anomalies: OperationsAnomaly[];
+  predictions?: OperationsPrediction[];
   setupGaps: OperationsSetupGap[];
 };
 

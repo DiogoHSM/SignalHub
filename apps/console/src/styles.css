@@ -6537,6 +6537,7 @@ pre {
   padding: 8px 10px;
 }
 
+.operations-predictions,
 .operations-anomalies {
   display: grid;
   gap: 12px;
@@ -6544,6 +6545,139 @@ pre {
   border-radius: 12px;
   background: var(--bg-surface);
   padding: 14px;
+}
+
+.operations-predictions__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.operations-prediction {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface-2);
+  padding: 12px;
+}
+
+.operations-prediction--warning {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border-subtle));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-surface-2));
+}
+
+.operations-prediction--failed {
+  border-color: color-mix(in srgb, var(--critical) 48%, var(--border-subtle));
+  background: color-mix(in srgb, var(--critical) 8%, var(--bg-surface-2));
+}
+
+.operations-prediction h4,
+.operations-prediction p,
+.operations-prediction dl {
+  margin: 0;
+}
+
+.operations-prediction__summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.operations-prediction__summary h4 {
+  margin-bottom: 4px;
+}
+
+.operations-prediction__summary p {
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.operations-prediction__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.operations-prediction__metrics dt {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.operations-prediction__metrics dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.operations-prediction__validation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.operations-prediction__validation span {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+  padding: 4px 8px;
+}
+
+.operations-prediction__factors {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operations-prediction__factors li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: flex-start;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+}
+
+.operations-prediction__factors strong,
+.operations-prediction__factors small {
+  display: block;
+  min-width: 0;
+}
+
+.operations-prediction__factors small {
+  margin-top: 2px;
+  color: var(--fg-muted);
+  line-height: 1.35;
+}
+
+.operations-prediction__impact {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--fg-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 7px;
+  text-transform: uppercase;
+}
+
+.operations-prediction__impact--negative {
+  border-color: color-mix(in srgb, var(--critical) 38%, var(--border-subtle));
+  color: var(--critical);
+}
+
+.operations-prediction__impact--positive {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-subtle));
+  color: var(--accent);
 }
 
 .operations-anomalies__list {
@@ -8473,6 +8607,9 @@ input[type="file"]::file-selector-button {
   .overview-kpis,
   .overview-incident-banner,
   .overview-lists,
+  .operations-predictions__list,
+  .operations-anomalies__list,
+  .operations-next-actions__list,
   .operations-status-grid,
   .operations-recent-grid,
   .artifact-upload-grid,

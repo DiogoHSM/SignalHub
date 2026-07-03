@@ -81,6 +81,41 @@ export type OperationsAnomaly = {
   drilldown: "events" | "errors" | "traces" | "llm" | "alerts";
 };
 
+export type OperationsPredictionSeverity = "low" | "medium" | "high" | "critical";
+export type OperationsPredictionConfidence = "low" | "medium" | "high";
+
+export type OperationsPredictionFactor = {
+  key: string;
+  label: string;
+  impact: "positive" | "negative";
+  weight: number;
+  observedValue: number;
+  baselineValue: number | null;
+  reason: string;
+};
+
+export type OperationsPrediction = {
+  id: string;
+  type: "operational_risk";
+  label: string;
+  horizon: "next_window";
+  severity: OperationsPredictionSeverity;
+  score: number;
+  confidence: OperationsPredictionConfidence;
+  probabilityPercent: number;
+  validation: {
+    baselineWindow: { from: string; to: string };
+    currentWindow: { from: string; to: string };
+    baselineRiskScore: number;
+    delta: number;
+    sampleSize: number;
+    baselineSampleSize: number;
+    method: "heuristic-weighted-baseline-v1";
+  };
+  factors: OperationsPredictionFactor[];
+  suggestedDrilldown: "operations" | "alerts" | "monitors" | "errors" | "traces";
+};
+
 export type OperationsResponse = {
   window: OperationsWindow;
   generatedAt: string;
@@ -117,6 +152,7 @@ export type OperationsResponse = {
   };
   topLatency: Array<{ name: string; p95TraceDurationMs: number; traces: number; failedTraces: number }>;
   anomalies: OperationsAnomaly[];
+  predictions: OperationsPrediction[];
   setupGaps: SetupGap[];
 };
 
@@ -148,6 +184,19 @@ type IncidentRow = {
   priority: ErrorGroupPriority | null;
   last_seen_at: Date | string;
   latest_error_id: string | null;
+};
+
+type RiskSignalSnapshot = {
+  events: number;
+  errors: number;
+  traces: number;
+  failedTraces: number;
+  alertEvents: number;
+  criticalAlertEvents: number;
+  warningAlertEvents: number;
+  deliveryFailures: number;
+  errorRatePercent: number;
+  p95TraceDurationMs: number;
 };
 
 const emptyStatusCounts = (): StatusCounts => ({
@@ -603,6 +652,314 @@ function resolveStatus(input: {
   return "healthy";
 }
 
+async function getRiskSignalSnapshot(db: Db, filters: OperationsFilters, range: { from: Date; to: Date }): Promise<RiskSignalSnapshot> {
+  const result = await sql<{
+    events: unknown;
+    errors: unknown;
+    traces: unknown;
+    failed_traces: unknown;
+    alert_events: unknown;
+    critical_alert_events: unknown;
+    warning_alert_events: unknown;
+    delivery_failures: unknown;
+    error_rate_percent: unknown;
+    p95_trace_duration_ms: unknown;
+  }>`
+    with scoped_events as (
+      select id
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+    ),
+    scoped_errors as (
+      select id
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+    ),
+    scoped_traces as (
+      select status, duration_ms
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${range.from}
+        and timestamp <= ${range.to}
+    ),
+    scoped_alerts as (
+      select alert_events.id,
+        alert_events.severity,
+        latest_delivery.status as latest_delivery_status
+      from alert_events
+      left join lateral (
+        select status
+        from notification_deliveries
+        where notification_deliveries.alert_event_id = alert_events.id
+        order by attempted_at desc, created_at desc
+        limit 1
+      ) latest_delivery on true
+      where alert_events.project_id = ${filters.projectId}
+        and alert_events.environment_id = ${filters.environmentId}
+        and alert_events.triggered_at >= ${range.from}
+        and alert_events.triggered_at <= ${range.to}
+    )
+    select
+      (select count(*) from scoped_events) as events,
+      (select count(*) from scoped_errors) as errors,
+      (select count(*) from scoped_traces) as traces,
+      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
+      (select count(*) from scoped_alerts) as alert_events,
+      (select count(*) from scoped_alerts where severity = 'critical') as critical_alert_events,
+      (select count(*) from scoped_alerts where severity = 'warning') as warning_alert_events,
+      (select count(*) from scoped_alerts where latest_delivery_status = 'failed') as delivery_failures,
+      case
+        when (select count(*) from scoped_traces) = 0 then 0
+        else (((select count(*) from scoped_errors)::numeric / (select count(*) from scoped_traces)::numeric) * 100)
+      end as error_rate_percent,
+      coalesce((select percentile_cont(0.95) within group (order by duration_ms) from scoped_traces where duration_ms is not null), 0) as p95_trace_duration_ms
+  `.execute(db);
+  const row = result.rows[0];
+  return {
+    events: toNumber(row?.events),
+    errors: toNumber(row?.errors),
+    traces: toNumber(row?.traces),
+    failedTraces: toNumber(row?.failed_traces),
+    alertEvents: toNumber(row?.alert_events),
+    criticalAlertEvents: toNumber(row?.critical_alert_events),
+    warningAlertEvents: toNumber(row?.warning_alert_events),
+    deliveryFailures: toNumber(row?.delivery_failures),
+    errorRatePercent: toNumber(row?.error_rate_percent),
+    p95TraceDurationMs: toNumber(row?.p95_trace_duration_ms)
+  };
+}
+
+function riskSeverity(score: number): OperationsPredictionSeverity {
+  if (score >= 75) return "critical";
+  if (score >= 50) return "high";
+  if (score >= 25) return "medium";
+  return "low";
+}
+
+function riskConfidence(currentSampleSize: number, baselineSampleSize: number): OperationsPredictionConfidence {
+  if (currentSampleSize >= 50 && baselineSampleSize >= 20) return "high";
+  if (currentSampleSize >= 10 || baselineSampleSize >= 10) return "medium";
+  return "low";
+}
+
+function compactFactorValue(value: number): string {
+  if (Math.abs(value) >= 100) return String(Math.round(value));
+  if (Math.abs(value) >= 10) return String(Number(value.toFixed(1)));
+  return String(Number(value.toFixed(2)));
+}
+
+function buildRiskScore(input: {
+  snapshot: RiskSignalSnapshot;
+  monitorDown: number;
+  monitorDegraded: number;
+  incidents: { open: number; investigating: number; urgent: number; high: number; regressed: number };
+  anomalies: OperationsAnomaly[];
+  setupGaps: SetupGap[];
+  historicalTelemetry: number;
+}): { score: number; factors: OperationsPredictionFactor[] } {
+  const factors: OperationsPredictionFactor[] = [];
+  const addFactor = (
+    key: string,
+    label: string,
+    weight: number,
+    observedValue: number,
+    baselineValue: number | null,
+    reason: string,
+    impact: "positive" | "negative" = "negative"
+  ) => {
+    if (weight <= 0) return;
+    factors.push({ key, label, impact, weight, observedValue, baselineValue, reason });
+  };
+
+  const criticalAnomalies = input.anomalies.filter((anomaly) => anomaly.severity === "critical").length;
+  const warningAnomalies = input.anomalies.filter((anomaly) => anomaly.severity === "warning").length;
+  addFactor(
+    "critical_anomalies",
+    "Critical anomalies",
+    criticalAnomalies * 18 + warningAnomalies * 8,
+    criticalAnomalies + warningAnomalies,
+    null,
+    `${criticalAnomalies} critical and ${warningAnomalies} warning anomalies versus the previous window.`
+  );
+
+  addFactor(
+    "down_monitors",
+    "Down monitors",
+    input.monitorDown * 25 + input.monitorDegraded * 10,
+    input.monitorDown + input.monitorDegraded,
+    null,
+    `${input.monitorDown} monitors are down and ${input.monitorDegraded} are degraded or unknown.`
+  );
+
+  addFactor(
+    "urgent_incidents",
+    "Urgent incidents",
+    input.incidents.urgent * 22 + input.incidents.regressed * 10,
+    input.incidents.urgent + input.incidents.regressed,
+    null,
+    `${input.incidents.urgent} urgent incidents and ${input.incidents.regressed} regressions are active.`
+  );
+
+  addFactor(
+    "high_priority_incidents",
+    "High priority incidents",
+    input.incidents.high * 12 + Math.max(input.incidents.open + input.incidents.investigating - input.incidents.high - input.incidents.urgent, 0) * 4,
+    input.incidents.open + input.incidents.investigating,
+    null,
+    `${input.incidents.open + input.incidents.investigating} active incidents include ${input.incidents.high} high priority groups.`
+  );
+
+  addFactor(
+    "critical_alerts",
+    "Critical alert firings",
+    input.snapshot.criticalAlertEvents * 16 + input.snapshot.warningAlertEvents * 5,
+    input.snapshot.criticalAlertEvents + input.snapshot.warningAlertEvents,
+    null,
+    `${input.snapshot.criticalAlertEvents} critical and ${input.snapshot.warningAlertEvents} warning alert events fired.`
+  );
+
+  addFactor(
+    "alert_delivery_failures",
+    "Alert delivery failures",
+    input.snapshot.deliveryFailures * 10,
+    input.snapshot.deliveryFailures,
+    null,
+    `${input.snapshot.deliveryFailures} alert deliveries failed in this window.`
+  );
+
+  addFactor(
+    "error_rate",
+    "Error rate",
+    input.snapshot.errorRatePercent >= 10 ? 22 : input.snapshot.errorRatePercent >= 5 ? 12 : 0,
+    input.snapshot.errorRatePercent,
+    null,
+    `Error rate is ${compactFactorValue(input.snapshot.errorRatePercent)}% across ${input.snapshot.traces} traces.`
+  );
+
+  addFactor(
+    "failed_traces",
+    "Failed traces",
+    input.snapshot.failedTraces >= 10 ? 12 : input.snapshot.failedTraces > 0 ? 6 : 0,
+    input.snapshot.failedTraces,
+    null,
+    `${input.snapshot.failedTraces} traces failed in this window.`
+  );
+
+  addFactor(
+    "p95_latency",
+    "P95 latency",
+    input.snapshot.p95TraceDurationMs >= 1500 ? 16 : input.snapshot.p95TraceDurationMs >= 750 ? 10 : input.snapshot.p95TraceDurationMs >= 500 ? 6 : 0,
+    input.snapshot.p95TraceDurationMs,
+    null,
+    `Global p95 trace latency is ${Math.round(input.snapshot.p95TraceDurationMs)} ms.`
+  );
+
+  addFactor(
+    "telemetry_freshness",
+    "Telemetry freshness",
+    input.snapshot.events + input.snapshot.errors + input.snapshot.traces === 0 && input.historicalTelemetry > 0 ? 10 : 0,
+    input.snapshot.events + input.snapshot.errors + input.snapshot.traces,
+    null,
+    "This environment had telemetry before, but none arrived in the current window."
+  );
+
+  addFactor(
+    "setup_gaps",
+    "Setup gaps",
+    input.historicalTelemetry > 0 ? Math.min(input.setupGaps.filter((gap) => gap.severity === "warning").length * 5, 15) : 0,
+    input.setupGaps.length,
+    null,
+    `${input.setupGaps.length} setup gaps reduce monitoring coverage.`
+  );
+
+  const sortedFactors = factors
+    .sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label))
+    .slice(0, 8);
+  const score = Math.min(100, Math.round(sortedFactors.reduce((total, factor) => total + factor.weight, 0)));
+  return { score, factors: sortedFactors };
+}
+
+function suggestedRiskDrilldown(factors: OperationsPredictionFactor[]): OperationsPrediction["suggestedDrilldown"] {
+  const top = factors[0]?.key;
+  if (!top) return "operations";
+  if (top.includes("monitor")) return "monitors";
+  if (top.includes("alert")) return "alerts";
+  if (top.includes("latency") || top.includes("trace")) return "traces";
+  if (top.includes("incident") || top.includes("error")) return "errors";
+  return "operations";
+}
+
+async function buildOperationsPredictions(input: {
+  db: Db;
+  filters: OperationsFilters;
+  range: { from: Date; to: Date };
+  monitorRows: MonitorRow[];
+  incidentSummary: { open: number; investigating: number; urgent: number; high: number; regressed: number };
+  anomalies: OperationsAnomaly[];
+  setupGaps: SetupGap[];
+  historicalTelemetry: number;
+}): Promise<OperationsPrediction[]> {
+  const baselineRange = previousOperationsRange(input.range.from, input.range.to);
+  const [currentSnapshot, baselineSnapshot] = await Promise.all([
+    getRiskSignalSnapshot(input.db, input.filters, input.range),
+    getRiskSignalSnapshot(input.db, input.filters, baselineRange)
+  ]);
+  const currentMonitorDown = input.monitorRows.filter((row) => row.enabled && row.status === "down").length;
+  const currentMonitorDegraded = input.monitorRows.filter((row) => row.enabled && (row.status === "degraded" || row.status === "unknown")).length;
+  const current = buildRiskScore({
+    snapshot: currentSnapshot,
+    monitorDown: currentMonitorDown,
+    monitorDegraded: currentMonitorDegraded,
+    incidents: input.incidentSummary,
+    anomalies: input.anomalies,
+    setupGaps: input.setupGaps,
+    historicalTelemetry: input.historicalTelemetry
+  });
+  const baseline = buildRiskScore({
+    snapshot: baselineSnapshot,
+    monitorDown: 0,
+    monitorDegraded: 0,
+    incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 },
+    anomalies: [],
+    setupGaps: [],
+    historicalTelemetry: input.historicalTelemetry
+  });
+  const currentSampleSize = currentSnapshot.events + currentSnapshot.errors + currentSnapshot.traces + currentSnapshot.alertEvents;
+  const baselineSampleSize = baselineSnapshot.events + baselineSnapshot.errors + baselineSnapshot.traces + baselineSnapshot.alertEvents;
+  const score = current.score;
+
+  return [
+    {
+      id: "pred_operational_risk",
+      type: "operational_risk",
+      label: "Operational risk",
+      horizon: "next_window",
+      severity: riskSeverity(score),
+      score,
+      confidence: riskConfidence(currentSampleSize, baselineSampleSize),
+      probabilityPercent: Math.min(95, Math.max(5, Math.round(5 + score * 0.9))),
+      validation: {
+        baselineWindow: { from: baselineRange.from.toISOString(), to: baselineRange.to.toISOString() },
+        currentWindow: { from: input.range.from.toISOString(), to: input.range.to.toISOString() },
+        baselineRiskScore: baseline.score,
+        delta: score - baseline.score,
+        sampleSize: currentSampleSize,
+        baselineSampleSize,
+        method: "heuristic-weighted-baseline-v1"
+      },
+      factors: current.factors,
+      suggestedDrilldown: suggestedRiskDrilldown(current.factors)
+    }
+  ];
+}
+
 export async function getOperations(db: Db, filters: OperationsFilters): Promise<OperationsResponse> {
   const { from, to } = resolveOperationsRange(filters.window, filters.now);
 
@@ -835,6 +1192,16 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
     incidents: { urgent: incidentSummary.urgent, high: incidentSummary.high }
   });
   const anomalies = await anomaliesPromise;
+  const predictions = await buildOperationsPredictions({
+    db,
+    filters,
+    range: { from, to },
+    monitorRows,
+    incidentSummary,
+    anomalies,
+    setupGaps,
+    historicalTelemetry: toNumber(historicalTelemetryResult.rows[0]?.total)
+  });
 
   return {
     window: filters.window,
@@ -906,6 +1273,7 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
       failedTraces: toNumber(row.failed_traces)
     })),
     anomalies,
+    predictions,
     setupGaps
   };
 }

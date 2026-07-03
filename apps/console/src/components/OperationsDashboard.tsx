@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Bell, CheckCircle2, ExternalLink, HeartPulse, SearchCode, ShieldCheck, Timer } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, ExternalLink, HeartPulse, SearchCode, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import type { ApiClient } from "../api/client";
-import type { OperationsAnomaly, OperationsResponse, OperationsStatus, OperationsWindow } from "../api/types";
+import type { OperationsAnomaly, OperationsPrediction, OperationsResponse, OperationsStatus, OperationsWindow } from "../api/types";
 
 type OperationsDashboardProps = {
   client: ApiClient;
@@ -49,11 +49,21 @@ function formatPercent(value: number | null): string {
   return value === null ? "No data" : `${Number(value.toFixed(2))}%`;
 }
 
+function formatSignedNumber(value: number): string {
+  const rounded = Number(value.toFixed(2));
+  return `${rounded >= 0 ? "+" : ""}${rounded}`;
+}
+
 function formatAnomalyValue(anomaly: OperationsAnomaly, value: number): string {
   if (anomaly.type === "trace_p95_latency") return `${Math.round(value)} ms`;
   if (anomaly.type === "error_rate") return `${Number(value.toFixed(2))}%`;
   if (anomaly.type === "llm_cost") return `$${value.toFixed(2)}`;
   return `${Math.round(value)}`;
+}
+
+function formatPredictionValue(value: number | null): string {
+  if (value === null) return "No baseline";
+  return Number(value.toFixed(2)).toLocaleString();
 }
 
 function formatAnomalyChange(value: number | null): string {
@@ -98,6 +108,7 @@ function buildRecommendedActions(
     onOpenErrors: (filters?: { status?: "open" | "investigating"; severity?: string }) => void;
     onOpenMonitors: () => void;
     onOpenTraces: (filters?: { traceName?: string }) => void;
+    onOpenOperations: () => void;
   }
 ): RecommendedAction[] {
   const downMonitors = data.summary.monitors.http.down + data.summary.monitors.heartbeat.down;
@@ -106,7 +117,19 @@ function buildRecommendedActions(
   const setupMonitorGaps = data.setupGaps.filter((gap) => gap.action === "monitors").length;
   const slowestTrace = data.topLatency[0];
   const topAnomaly = data.anomalies[0];
+  const topPrediction = getTopPrediction(data.predictions ?? []);
   const actions: RecommendedAction[] = [];
+
+  if (topPrediction && (topPrediction.severity === "high" || topPrediction.severity === "critical")) {
+    actions.push({
+      key: `prediction-${topPrediction.id}`,
+      title: topPrediction.severity === "critical" ? "Act on critical predicted risk" : "Review high predicted risk",
+      description: `${topPrediction.label}: ${Math.round(topPrediction.probabilityPercent)}% probability with ${topPrediction.confidence} confidence.`,
+      action: drilldownActionLabel(topPrediction.suggestedDrilldown),
+      tone: topPrediction.severity === "critical" ? "failed" : "warning",
+      onClick: () => openPredictionDrilldown(topPrediction, handlers)
+    });
+  }
 
   if (topAnomaly) {
     actions.push({
@@ -182,6 +205,63 @@ function buildRecommendedActions(
   }
 
   return actions.slice(0, 4);
+}
+
+function predictionSeverityRank(severity: OperationsPrediction["severity"]): number {
+  if (severity === "critical") return 4;
+  if (severity === "high") return 3;
+  if (severity === "medium") return 2;
+  return 1;
+}
+
+function getTopPrediction(predictions: OperationsPrediction[]): OperationsPrediction | undefined {
+  return [...predictions].sort((left, right) => {
+    const severityDelta = predictionSeverityRank(right.severity) - predictionSeverityRank(left.severity);
+    return severityDelta === 0 ? right.score - left.score : severityDelta;
+  })[0];
+}
+
+function predictionTone(severity: OperationsPrediction["severity"]): "neutral" | "warning" | "failed" {
+  if (severity === "critical") return "failed";
+  if (severity === "high" || severity === "medium") return "warning";
+  return "neutral";
+}
+
+function drilldownActionLabel(drilldown: OperationsPrediction["suggestedDrilldown"]): string {
+  if (drilldown === "operations") return "Review operations";
+  if (drilldown === "alerts") return "Open alerts";
+  if (drilldown === "monitors") return "Open monitors";
+  if (drilldown === "traces") return "Open traces";
+  return "Open errors";
+}
+
+function openPredictionDrilldown(
+  prediction: OperationsPrediction,
+  handlers: {
+    onOpenAlerts: () => void;
+    onOpenErrors: (filters?: { status?: "open" | "investigating"; severity?: string }) => void;
+    onOpenMonitors: () => void;
+    onOpenOperations: () => void;
+    onOpenTraces: (filters?: { traceName?: string }) => void;
+  }
+) {
+  if (prediction.suggestedDrilldown === "alerts") {
+    handlers.onOpenAlerts();
+    return;
+  }
+  if (prediction.suggestedDrilldown === "monitors") {
+    handlers.onOpenMonitors();
+    return;
+  }
+  if (prediction.suggestedDrilldown === "traces") {
+    handlers.onOpenTraces();
+    return;
+  }
+  if (prediction.suggestedDrilldown === "errors") {
+    handlers.onOpenErrors({ status: "open", severity: prediction.severity });
+    return;
+  }
+  handlers.onOpenOperations();
 }
 
 function anomalyTone(severity: OperationsAnomaly["severity"]): "neutral" | "warning" | "failed" {
@@ -290,8 +370,9 @@ export function OperationsDashboard({
   }
 
   const recommendedActions = data
-    ? buildRecommendedActions(data, { onOpenAlerts, onOpenErrors, onOpenMonitors, onOpenTraces })
+    ? buildRecommendedActions(data, { onOpenAlerts, onOpenErrors, onOpenMonitors, onOpenOperations: () => undefined, onOpenTraces })
     : [];
+  const predictions = data?.predictions ?? [];
 
   if (!projectId || !environmentId) {
     return (
@@ -415,6 +496,91 @@ export function OperationsDashboard({
               ))}
             </section>
           ) : null}
+
+          <section className="operations-predictions" aria-label="Predictive risk">
+            <div className="panel-header">
+              <div>
+                <h3>Predictive risk</h3>
+                <p className="muted-text">Projected operational risk for the next window, validated against baseline behavior.</p>
+              </div>
+              <span className={statusClass(predictions.some((item) => item.severity === "critical") ? "failed" : predictions.some((item) => item.severity === "high" || item.severity === "medium") ? "warning" : "success")}>
+                {predictions.length === 0 ? "stable" : `${predictions.length} projected`}
+              </span>
+            </div>
+            {predictions.length > 0 ? (
+              <div className="operations-predictions__list">
+                {predictions.map((prediction) => {
+                  const topFactors = [...prediction.factors].sort((left, right) => right.weight - left.weight).slice(0, 3);
+
+                  return (
+                    <article className={`operations-prediction operations-prediction--${predictionTone(prediction.severity)}`} key={prediction.id}>
+                      <div className="operations-prediction__summary">
+                        <span className={statusClass(prediction.severity === "critical" ? "failed" : prediction.severity === "high" || prediction.severity === "medium" ? "warning" : "neutral")}>
+                          {prediction.severity}
+                        </span>
+                        <div>
+                          <h4>{prediction.label}</h4>
+                          <p>{Math.round(prediction.probabilityPercent)}% probability in the next window with {prediction.confidence} confidence.</p>
+                        </div>
+                      </div>
+                      <dl className="operations-prediction__metrics">
+                        <div>
+                          <dt>Risk score</dt>
+                          <dd>{Number(prediction.score.toFixed(2))}</dd>
+                        </div>
+                        <div>
+                          <dt>Probability</dt>
+                          <dd>{Number(prediction.probabilityPercent.toFixed(2))}%</dd>
+                        </div>
+                        <div>
+                          <dt>Baseline</dt>
+                          <dd>{Number(prediction.validation.baselineRiskScore.toFixed(2))}</dd>
+                        </div>
+                        <div>
+                          <dt>Delta</dt>
+                          <dd>{formatSignedNumber(prediction.validation.delta)}</dd>
+                        </div>
+                      </dl>
+                      <div className="operations-prediction__validation">
+                        <span>{prediction.validation.method}</span>
+                        <span>Current {formatTimestamp(prediction.validation.currentWindow.from)} - {formatTimestamp(prediction.validation.currentWindow.to)}</span>
+                        <span>Baseline {formatTimestamp(prediction.validation.baselineWindow.from)} - {formatTimestamp(prediction.validation.baselineWindow.to)}</span>
+                        <span>Samples {prediction.validation.sampleSize} / {prediction.validation.baselineSampleSize}</span>
+                      </div>
+                      {topFactors.length > 0 ? (
+                        <ul className="operations-prediction__factors">
+                          {topFactors.map((factor) => (
+                            <li key={factor.key}>
+                              <span className={`operations-prediction__impact operations-prediction__impact--${factor.impact}`}>
+                                {factor.impact}
+                              </span>
+                              <div>
+                                <strong>{factor.label}</strong>
+                                <small>{factor.reason}</small>
+                                <small>Observed {formatPredictionValue(factor.observedValue)} vs baseline {formatPredictionValue(factor.baselineValue)} · weight {Number(factor.weight.toFixed(2))}</small>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <button className="small-action" onClick={() => openPredictionDrilldown(prediction, { onOpenAlerts, onOpenErrors, onOpenMonitors, onOpenOperations: () => undefined, onOpenTraces })} type="button">
+                        {drilldownActionLabel(prediction.suggestedDrilldown)}
+                        <ExternalLink aria-hidden="true" size={13} />
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="operations-next-actions__empty">
+                <Sparkles aria-hidden="true" size={20} />
+                <div>
+                  <strong>No predictive risk</strong>
+                  <p className="muted-text">The current window is tracking close to the learned baseline.</p>
+                </div>
+              </div>
+            )}
+          </section>
 
           <section className="operations-anomalies" aria-label="Detected anomalies">
             <div className="panel-header">
