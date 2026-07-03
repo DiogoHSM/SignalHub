@@ -25,7 +25,25 @@ const migrations = [
   { name: "0019_dead_letter_retention.sql", url: new URL("../migrations/0019_dead_letter_retention.sql", import.meta.url) },
   { name: "0020_dead_letter_scoped_alerts.sql", url: new URL("../migrations/0020_dead_letter_scoped_alerts.sql", import.meta.url) },
   { name: "0021_investigation_query_indexes.sql", url: new URL("../migrations/0021_investigation_query_indexes.sql", import.meta.url) },
-  { name: "0022_error_stack_resolution_scope.sql", url: new URL("../migrations/0022_error_stack_resolution_scope.sql", import.meta.url) }
+  { name: "0022_error_stack_resolution_scope.sql", url: new URL("../migrations/0022_error_stack_resolution_scope.sql", import.meta.url) },
+  { name: "0023_alert_on_call_triage.sql", url: new URL("../migrations/0023_alert_on_call_triage.sql", import.meta.url) },
+  { name: "0024_web_vitals.sql", url: new URL("../migrations/0024_web_vitals.sql", import.meta.url) },
+  { name: "0025_runtime_profiles.sql", url: new URL("../migrations/0025_runtime_profiles.sql", import.meta.url) },
+  { name: "0026_analytics_segments.sql", url: new URL("../migrations/0026_analytics_segments.sql", import.meta.url) },
+  { name: "0027_analytics_dashboards.sql", url: new URL("../migrations/0027_analytics_dashboards.sql", import.meta.url) },
+  { name: "0028_click_events.sql", url: new URL("../migrations/0028_click_events.sql", import.meta.url) },
+  { name: "0029_session_replays.sql", url: new URL("../migrations/0029_session_replays.sql", import.meta.url) },
+  { name: "0030_event_replays.sql", url: new URL("../migrations/0030_event_replays.sql", import.meta.url) },
+  { name: "0031_session_replay_segments.sql", url: new URL("../migrations/0031_session_replay_segments.sql", import.meta.url) },
+  { name: "0032_experiments.sql", url: new URL("../migrations/0032_experiments.sql", import.meta.url) },
+  { name: "0033_feature_flags.sql", url: new URL("../migrations/0033_feature_flags.sql", import.meta.url) },
+  { name: "0034_beta_programs.sql", url: new URL("../migrations/0034_beta_programs.sql", import.meta.url) },
+  { name: "0035_data_governance.sql", url: new URL("../migrations/0035_data_governance.sql", import.meta.url) },
+  { name: "0036_warehouse_exports.sql", url: new URL("../migrations/0036_warehouse_exports.sql", import.meta.url) },
+  { name: "0037_code_integrations.sql", url: new URL("../migrations/0037_code_integrations.sql", import.meta.url) },
+  { name: "0038_surveys.sql", url: new URL("../migrations/0038_surveys.sql", import.meta.url) },
+  { name: "0039_feedback_widget.sql", url: new URL("../migrations/0039_feedback_widget.sql", import.meta.url) },
+  { name: "0040_message_campaigns.sql", url: new URL("../migrations/0040_message_campaigns.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

@@ -9,7 +9,8 @@ export type UseConsoleProjectsResult = {
   activeEnvironment: Environment | undefined;
   isLoading: boolean;
   selectProject: (projectId: string) => void;
-  selectEnvironment: (name: string) => void;
+  selectEnvironment: (environmentId: string) => void;
+  selectEnvironmentByName: (name: string) => void;
   reload: () => void;
 };
 
@@ -106,6 +107,16 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
   );
 
   const selectEnvironment = useCallback(
+    (environmentId: string) => {
+      const environment = environments.find((e) => e.id === environmentId);
+      if (!environment) return;
+      activeEnvironmentRef.current = environment;
+      setActiveEnvironment(environment);
+    },
+    [environments]
+  );
+
+  const selectEnvironmentByName = useCallback(
     (name: string) => {
       const environment = environments.find((e) => e.name === name);
       if (!environment) return;
@@ -125,6 +136,7 @@ export function useConsoleProjects(client: ApiClient): UseConsoleProjectsResult 
     isLoading,
     selectProject,
     selectEnvironment,
+    selectEnvironmentByName,
     reload,
   };
 }

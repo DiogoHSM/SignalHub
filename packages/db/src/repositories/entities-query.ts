@@ -42,7 +42,9 @@ export type TenantSummary = {
   keyTraits: Record<string, string>;
   isUnassigned: boolean;
   impactScore: number;
+  firstSeenAt: string | null;
   lastSeenAt: string | null;
+  profileUpdatedAt: string | null;
   events: number;
   errors: number;
   openErrors: number;
@@ -241,6 +243,8 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
     active_users: unknown;
     active_sessions: unknown;
     profile_traits: unknown;
+    profile_first_seen_at: Date | string | null;
+    profile_updated_at: Date | string | null;
   }>`
     with profile_matches as (
       select tenant_id
@@ -349,16 +353,50 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
         count(distinct session_id) filter (where session_id is not null) as active_sessions
       from all_rows
       group by tenant_id
+    ),
+    profile_candidates as (
+      select tenant_id
+      from tenant_profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and traits <> '{}'::jsonb
+        and (
+          ${pattern ?? null}::text is null
+          or tenant_id ilike ${pattern ?? ""}
+          or traits ->> 'name' ilike ${pattern ?? ""}
+          or traits ->> 'display_name' ilike ${pattern ?? ""}
+          or traits ->> 'email' ilike ${pattern ?? ""}
+          or traits ->> 'plan' ilike ${pattern ?? ""}
+          or traits ->> 'role' ilike ${pattern ?? ""}
+          or traits ->> 'operation_mode' ilike ${pattern ?? ""}
+          or traits ->> 'status' ilike ${pattern ?? ""}
+        )
+    ),
+    profile_data as (
+      select tenant_id, traits, first_seen_at, last_seen_at, updated_at
+      from tenant_profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
     )
-    select aggregated.tenant_id, aggregated.last_seen_at, aggregated.events, aggregated.errors,
-      aggregated.open_errors, aggregated.severe_errors, aggregated.traces, aggregated.failed_traces,
-      aggregated.llm_calls, aggregated.failed_llm_calls, aggregated.llm_cost_usd, aggregated.active_users,
-      aggregated.active_sessions, coalesce(tenant_profiles.traits, '{}'::jsonb) as profile_traits
+    select coalesce(aggregated.tenant_id, profile_candidates.tenant_id) as tenant_id,
+      coalesce(aggregated.last_seen_at, profile_data.last_seen_at) as last_seen_at,
+      coalesce(aggregated.events, 0) as events, coalesce(aggregated.errors, 0) as errors,
+      coalesce(aggregated.open_errors, 0) as open_errors, coalesce(aggregated.severe_errors, 0) as severe_errors,
+      coalesce(aggregated.traces, 0) as traces, coalesce(aggregated.failed_traces, 0) as failed_traces,
+      coalesce(aggregated.llm_calls, 0) as llm_calls, coalesce(aggregated.failed_llm_calls, 0) as failed_llm_calls,
+      coalesce(aggregated.llm_cost_usd, '0') as llm_cost_usd, coalesce(aggregated.active_users, 0) as active_users,
+      coalesce(aggregated.active_sessions, 0) as active_sessions,
+      coalesce(profile_data.traits, '{}'::jsonb) as profile_traits,
+      profile_data.first_seen_at as profile_first_seen_at,
+      profile_data.updated_at as profile_updated_at
     from aggregated
-    left join tenant_profiles
-      on tenant_profiles.project_id = ${filters.projectId}
-      and tenant_profiles.environment_id = ${filters.environmentId}
-      and tenant_profiles.tenant_id = aggregated.tenant_id
+    full outer join profile_candidates
+      on profile_candidates.tenant_id = aggregated.tenant_id
+    left join profile_data
+      on profile_data.tenant_id = coalesce(aggregated.tenant_id, profile_candidates.tenant_id)
+    where coalesce(aggregated.tenant_id, profile_candidates.tenant_id) is not null
+       or aggregated.tenant_id is null
+       and profile_candidates.tenant_id is null
   `.execute(db);
 
   const tenants = rows.rows.map((row): TenantSummary => {
@@ -383,7 +421,9 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
         failedLlmCalls,
         llmCostUsd: Number(llmCostUsd)
       }),
+      firstSeenAt: row.profile_first_seen_at ? toIso(row.profile_first_seen_at) : null,
       lastSeenAt: row.last_seen_at ? toIso(row.last_seen_at) : null,
+      profileUpdatedAt: row.profile_updated_at ? toIso(row.profile_updated_at) : null,
       events: toNumber(row.events),
       errors,
       openErrors,
@@ -468,6 +508,8 @@ async function getEntityTenantSummary(
     active_sessions: unknown;
     total_signals: unknown;
     profile_traits: unknown;
+    profile_first_seen_at: Date | string | null;
+    profile_updated_at: Date | string | null;
   }>`
     with scoped_events as (
       select user_id, session_id, timestamp, 1::bigint as events, 0::bigint as errors,
@@ -542,6 +584,20 @@ async function getEntityTenantSummary(
           and environment_id = ${filters.environmentId}
           and tenant_id = ${tenantId}
       ), '{}'::jsonb) as profile_traits
+      , (
+        select first_seen_at
+        from tenant_profiles
+        where project_id = ${filters.projectId}
+          and environment_id = ${filters.environmentId}
+          and tenant_id = ${tenantId}
+      ) as profile_first_seen_at
+      , (
+        select updated_at
+        from tenant_profiles
+        where project_id = ${filters.projectId}
+          and environment_id = ${filters.environmentId}
+          and tenant_id = ${tenantId}
+      ) as profile_updated_at
     from all_rows
   `.execute(db);
   const row = rows.rows[0];
@@ -569,8 +625,10 @@ async function getEntityTenantSummary(
             failedTraces,
             failedLlmCalls,
             llmCostUsd: Number(llmCostUsd)
-          }),
-    lastSeenAt: row?.last_seen_at ? toIso(row.last_seen_at) : null,
+      }),
+    firstSeenAt: row?.profile_first_seen_at ? toIso(row.profile_first_seen_at) : null,
+    lastSeenAt: row?.last_seen_at ? toIso(row.last_seen_at) : row?.profile_first_seen_at ? toIso(row.profile_first_seen_at) : null,
+    profileUpdatedAt: row?.profile_updated_at ? toIso(row.profile_updated_at) : null,
     events: toNumber(row?.events),
     errors,
     openErrors,

@@ -95,6 +95,7 @@ describe("loadConfig", () => {
       tracesDays: 90,
       spansDays: 90,
       llmCallsDays: 180,
+      profilesDays: 30,
       breadcrumbsDays: 30,
       deadLetterJobsDays: 30
     });
@@ -123,6 +124,7 @@ describe("loadConfig", () => {
       tracesDays: 30,
       spansDays: 15,
       llmCallsDays: 120,
+      profilesDays: 30,
       breadcrumbsDays: 30,
       deadLetterJobsDays: 45
     });

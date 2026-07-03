@@ -32,11 +32,13 @@ function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord 
     occurrenceCount: 5,
     affectedUsersCount: 2,
     affectedTenantsCount: 1,
+    trend: [0, 1, 2, 3, 5, 8, 13, 8, 5, 3, 2, 1],
     latestErrorId: null,
     latestRelease: null,
     resolvedAt: null,
     ignoredAt: null,
     assignedToUserId: null,
+    assignedTo: null,
     incidentNumber: null,
     silencedUntil: null,
     createdAt: new Date(Date.now() - 7200_000).toISOString(),
@@ -51,6 +53,8 @@ const USER_BOB: User = { id: "user-bob", email: "bob@example.com", isAdmin: true
 function makeFakeClient(overrides: {
   openGroups?: ErrorGroupRecord[];
   investigatingGroups?: ErrorGroupRecord[];
+  resolvedGroups?: ErrorGroupRecord[];
+  ignoredGroups?: ErrorGroupRecord[];
   users?: User[] | "reject" | "reject-403";
   mttrMs?: number | null | "omit";
   resolvedCount?: number;
@@ -59,6 +63,8 @@ function makeFakeClient(overrides: {
   const {
     openGroups = [],
     investigatingGroups = [],
+    resolvedGroups = [],
+    ignoredGroups = [],
     users = [],
     mttrMs = null,
     resolvedCount = 0,
@@ -73,6 +79,12 @@ function makeFakeClient(overrides: {
       }
       if (status === "investigating") {
         return Promise.resolve({ data: investigatingGroups });
+      }
+      if (status === "resolved") {
+        return Promise.resolve({ data: resolvedGroups });
+      }
+      if (status === "ignored") {
+        return Promise.resolve({ data: ignoredGroups });
       }
       return Promise.resolve({ data: [] });
     }
@@ -146,6 +158,90 @@ describe("useIncidents", () => {
     const statuses = calls.map((c: Array<{ status?: string }>) => c[0]?.status);
     expect(statuses).toContain("open");
     expect(statuses).toContain("investigating");
+  });
+
+  it("preserves the per-group trend series for incident rows", async () => {
+    const trend = [0, 0, 1, 2, 4, 8, 16, 8, 4, 2, 1, 0];
+    const group = makeGroup({ id: "trend-group", status: "open", trend });
+    const { client } = makeFakeClient({ openGroups: [group] });
+
+    const { result } = renderHook(() =>
+      useIncidents({ client, projectId: "proj-1", environmentId: "env-1" })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows[0]).toMatchObject({
+      id: "trend-group",
+      trend
+    });
+  });
+
+  it("history view fetches resolved and ignored incidents", async () => {
+    const resolved = makeGroup({ id: "resolved-1", status: "resolved" });
+    const ignored = makeGroup({ id: "ignored-1", status: "ignored" });
+    const { client, listErrorGroups } = makeFakeClient({
+      resolvedGroups: [resolved],
+      ignoredGroups: [ignored]
+    });
+
+    const { result } = renderHook(() =>
+      useIncidents({ client, projectId: "proj-1", environmentId: "env-1", view: "history" })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows.map((row) => row.id)).toEqual(["resolved-1", "ignored-1"]);
+    expect(listErrorGroups.mock.calls.map((call: Array<{ status?: string }>) => call[0]?.status)).toEqual([
+      "resolved",
+      "ignored"
+    ]);
+  });
+
+  it("statusFilter fetches only the requested incident status", async () => {
+    const resolved = makeGroup({ id: "resolved-only", status: "resolved" });
+    const { client, listErrorGroups } = makeFakeClient({ resolvedGroups: [resolved] });
+
+    const { result } = renderHook(() =>
+      useIncidents({
+        client,
+        projectId: "proj-1",
+        environmentId: "env-1",
+        view: "history",
+        statusFilter: "resolved"
+      })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows.map((row) => row.id)).toEqual(["resolved-only"]);
+    expect(listErrorGroups).toHaveBeenCalledTimes(1);
+    expect(listErrorGroups).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "resolved", limit: 100 })
+    );
+  });
+
+  it("filters rows locally by priority and assignee", async () => {
+    const groups = [
+      makeGroup({ id: "urgent-assigned", priority: "urgent", assignedToUserId: "user-alice" }),
+      makeGroup({ id: "urgent-unassigned", priority: "urgent", assignedToUserId: null }),
+      makeGroup({ id: "high-assigned", priority: "high", assignedToUserId: "user-bob" })
+    ];
+    const { client } = makeFakeClient({ openGroups: groups, users: [USER_ALICE, USER_BOB] });
+
+    const { result } = renderHook(() =>
+      useIncidents({
+        client,
+        projectId: "proj-1",
+        environmentId: "env-1",
+        priorityFilter: "P1",
+        assigneeFilter: "assigned"
+      })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows.map((row) => row.id)).toEqual(["urgent-assigned"]);
   });
 
   it("passes limit:100 and projectId/environmentId to each listErrorGroups call", async () => {
@@ -229,6 +325,44 @@ describe("useIncidents", () => {
     expect(result.current.data!.kpis.p1).toBe(3);
   });
 
+  it("uses server incident summary for active and P1 KPI precision when available", async () => {
+    const openGroups = Array.from({ length: 100 }, (_, index) =>
+      makeGroup({ id: `open-${index}`, priority: index < 10 ? "urgent" : "normal", status: "open" })
+    );
+    const { client } = makeFakeClient({ openGroups });
+    const getOperations = vi.fn().mockResolvedValue({
+      data: {
+        summary: {
+          incidents: {
+            open: 150,
+            investigating: 50,
+            urgent: 37,
+            high: 11,
+            regressed: 4
+          }
+        }
+      }
+    });
+
+    const { result } = renderHook(() =>
+      useIncidents({
+        client: { ...client, getOperations },
+        projectId: "proj-1",
+        environmentId: "env-1"
+      })
+    );
+
+    await act(async () => {});
+
+    expect(getOperations).toHaveBeenCalledWith({
+      projectId: "proj-1",
+      environmentId: "env-1",
+      window: "24h"
+    });
+    expect(result.current.data!.kpis.active).toBe(200);
+    expect(result.current.data!.kpis.p1).toBe(37);
+  });
+
   it("mttrLabel from getIncidentMttr numeric ms via formatDurationShort", async () => {
     const { client } = makeFakeClient({ mttrMs: 42 * 60_000 }); // 42 minutes
 
@@ -292,28 +426,15 @@ describe("useIncidents", () => {
     );
   });
 
-  it("assignee: assignedToUserId matched in listUsers → {kind:'initials', initials}", async () => {
-    const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-alice" });
-
-    const { client } = makeFakeClient({
-      openGroups: [group],
-      users: [USER_ALICE, USER_BOB]
+  it("assignee: assignedTo from list response → {kind:'initials', initials}", async () => {
+    const group = makeGroup({
+      id: "g1",
+      status: "open",
+      assignedToUserId: "user-alice",
+      assignedTo: { id: "user-alice", email: "alice@example.com" }
     });
 
-    const { result } = renderHook(() =>
-      useIncidents({ client, projectId: "proj-1", environmentId: "env-1" })
-    );
-
-    await act(async () => {});
-
-    const row = result.current.data!.rows[0];
-    expect(row.assignee).toEqual({ kind: "initials", initials: "A" });
-  });
-
-  it("assignee: listUsers rejects (403) → assigned rows become {kind:'generic'}", async () => {
-    const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-alice" });
-
-    const { client } = makeFakeClient({
+    const { client, listUsers } = makeFakeClient({
       openGroups: [group],
       users: "reject-403"
     });
@@ -324,17 +445,16 @@ describe("useIncidents", () => {
 
     await act(async () => {});
 
-    expect(result.current.status).toBe("ok"); // not a screen error
     const row = result.current.data!.rows[0];
-    expect(row.assignee).toEqual({ kind: "generic" });
+    expect(row.assignee).toEqual({ kind: "initials", initials: "A" });
+    expect(listUsers).not.toHaveBeenCalled();
   });
 
-  it("assignee: listUsers rejects (non-403) → assigned rows become {kind:'generic'}", async () => {
+  it("assignee: assignedToUserId without assignedTo → assigned rows become {kind:'generic'}", async () => {
     const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-alice" });
 
     const { client } = makeFakeClient({
-      openGroups: [group],
-      users: "reject"
+      openGroups: [group]
     });
 
     const { result } = renderHook(() =>
@@ -585,10 +705,14 @@ describe("useIncidents", () => {
   });
 
   it("initials derived from email local part (first char uppercase)", async () => {
-    const group = makeGroup({ id: "g1", status: "open", assignedToUserId: "user-bob" });
+    const group = makeGroup({
+      id: "g1",
+      status: "open",
+      assignedToUserId: "user-bob",
+      assignedTo: { id: "user-bob", email: "bob@example.com" }
+    });
     const { client } = makeFakeClient({
-      openGroups: [group],
-      users: [USER_BOB]
+      openGroups: [group]
     });
 
     const { result } = renderHook(() =>

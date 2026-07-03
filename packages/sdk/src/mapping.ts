@@ -1,15 +1,21 @@
 import type {
   BreadcrumbInput,
+  ClickInput,
   ErrorInput,
   EventInput,
+  FeedbackInput,
   IdentifyTenantInput,
   IdentifyUserInput,
   LlmInput,
   QueuedSignal,
+  RuntimeProfileInput,
   SignalContext,
   SignalMetadata,
+  SessionReplayInput,
   SpanInput,
-  TraceInput
+  SurveyResponseInput,
+  TraceInput,
+  WebVitalInput
 } from "./types.js";
 
 const UNSERIALIZABLE_THROWN_VALUE_MESSAGE = "[Unserializable thrown value]";
@@ -61,14 +67,17 @@ export function createEventSignal(
   context?: SignalContext & EventInput,
   defaultContext?: SignalContext
 ): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, context),
+    name,
+    properties
+  };
+  assignDefined(payload, "replay_id", context?.replayId);
+
   return {
     kind: "event",
     endpointPath: "/v1/events",
-    payload: {
-      ...mergeContext(defaultContext, context),
-      name,
-      properties
-    }
+    payload
   };
 }
 
@@ -88,6 +97,7 @@ export function createErrorSignal(
   assignDefined(payload, "type", extracted.type);
   assignDefined(payload, "stack", extracted.stack);
   assignDefined(payload, "fingerprint", input?.fingerprint);
+  assignDefined(payload, "replay_id", input?.replayId);
 
   return {
     kind: "error",
@@ -235,6 +245,206 @@ export function createSpanSignal(
   return {
     kind: "span",
     endpointPath: "/v1/spans",
+    payload
+  };
+}
+
+export function createWebVitalSignal(
+  input: WebVitalInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const mergedContext = {
+    ...context,
+    timestamp: input.timestamp,
+    metadata: {
+      ...(context?.metadata ?? {}),
+      ...(input.metadata ?? {})
+    }
+  };
+  const payload = {
+    ...mergeContext(defaultContext, mergedContext),
+    name: input.name,
+    value: input.value
+  };
+
+  assignDefined(payload, "rating", input.rating);
+  assignDefined(payload, "route", input.route);
+  assignDefined(payload, "navigation_type", input.navigationType);
+
+  return {
+    kind: "web_vital",
+    endpointPath: "/v1/web-vitals",
+    payload
+  };
+}
+
+export function createClickSignal(
+  input: ClickInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    route: input.route,
+    selector: input.selector,
+    x: input.x,
+    y: input.y,
+    viewport_width: input.viewportWidth,
+    viewport_height: input.viewportHeight,
+    masked: input.masked ?? true
+  };
+
+  assignDefined(payload, "element_tag", input.elementTag);
+  assignDefined(payload, "element_role", input.elementRole);
+  assignDefined(payload, "scroll_x", input.scrollX);
+  assignDefined(payload, "scroll_y", input.scrollY);
+
+  return {
+    kind: "click",
+    endpointPath: "/v1/clicks",
+    payload
+  };
+}
+
+export function createSessionReplaySignal(
+  input: SessionReplayInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const startedAt = input.startedAt ?? new Date();
+  const endedAt = input.endedAt;
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    replay_id: input.replayId,
+    started_at: serializeDate(startedAt),
+    events: (input.events ?? []).map((event) => ({
+      offset_ms: event.offsetMs,
+      type: event.type,
+      route: event.route,
+      selector: event.selector,
+      message: event.message,
+      x: event.x,
+      y: event.y,
+      data: event.data ?? {}
+    })),
+    masked: input.masked ?? true
+  };
+
+  assignDefined(payload, "ended_at", serializeDate(endedAt));
+  assignDefined(payload, "duration_ms", input.durationMs ?? computeDurationMs(startedAt, endedAt));
+  assignDefined(payload, "route", input.route);
+  assignDefined(payload, "error_id", input.errorId);
+
+  return {
+    kind: "replay",
+    endpointPath: "/v1/replays",
+    payload
+  };
+}
+
+export function createSurveyResponseSignal(
+  input: SurveyResponseInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    survey_id: input.surveyId,
+    actor_type: input.actorType ?? "user",
+    answers: input.answers
+  };
+
+  assignDefined(payload, "actor_id", input.actorId);
+
+  return {
+    kind: "survey_response",
+    endpointPath: "/v1/surveys/responses",
+    payload
+  };
+}
+
+export function createFeedbackSignal(
+  input: FeedbackInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const mergedContext = {
+    ...context,
+    timestamp: input.timestamp,
+    metadata: {
+      ...(context?.metadata ?? {}),
+      ...(input.metadata ?? {})
+    }
+  };
+  const payload = {
+    ...mergeContext(defaultContext, mergedContext),
+    message: input.message
+  };
+
+  assignDefined(payload, "category", input.category);
+  assignDefined(payload, "page_url", input.pageUrl);
+  assignDefined(payload, "path", input.path);
+  assignDefined(payload, "user_agent", input.userAgent);
+
+  return {
+    kind: "feedback",
+    endpointPath: "/v1/feedback",
+    payload
+  };
+}
+
+export function createRuntimeProfileSignal(
+  input: RuntimeProfileInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const startedAt = input.startedAt ?? new Date();
+  const endedAt = input.endedAt;
+  const mergedContext = {
+    ...context,
+    timestamp: input.timestamp,
+    metadata: {
+      ...(context?.metadata ?? {}),
+      ...(input.metadata ?? {})
+    }
+  };
+  const payload = {
+    ...mergeContext(defaultContext, mergedContext),
+    name: input.name,
+    kind: input.kind,
+    runtime: input.runtime ?? "node",
+    started_at: serializeDate(startedAt),
+    sample_count: input.sampleCount ?? 0,
+    top_functions: (input.topFunctions ?? []).map((frame) => ({
+      function_name: frame.functionName,
+      url: frame.url,
+      line_number: frame.lineNumber,
+      column_number: frame.columnNumber,
+      self_time_ms: frame.selfTimeMs ?? 0,
+      total_time_ms: frame.totalTimeMs,
+      sample_count: frame.sampleCount ?? 0
+    })),
+    summary: input.summary ?? {}
+  };
+
+  assignDefined(payload, "service", input.service);
+  assignDefined(payload, "route", input.route);
+  assignDefined(payload, "ended_at", serializeDate(endedAt));
+  assignDefined(payload, "duration_ms", input.durationMs ?? computeDurationMs(startedAt, endedAt));
+  assignDefined(payload, "sampling_interval_ms", input.samplingIntervalMs);
+  assignDefined(payload, "cpu_usage_percent", input.cpuUsagePercent);
+  assignDefined(payload, "cpu_user_ms", input.cpuUserMs);
+  assignDefined(payload, "cpu_system_ms", input.cpuSystemMs);
+  assignDefined(payload, "rss_bytes", input.rssBytes);
+  assignDefined(payload, "heap_used_bytes", input.heapUsedBytes);
+  assignDefined(payload, "heap_total_bytes", input.heapTotalBytes);
+  assignDefined(payload, "external_bytes", input.externalBytes);
+  assignDefined(payload, "array_buffers_bytes", input.arrayBuffersBytes);
+
+  return {
+    kind: "profile",
+    endpointPath: "/v1/profiles",
     payload
   };
 }

@@ -31,6 +31,22 @@ function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewRe
       llmOutputTokens: 800,
       llmCostUsd: "1.250000"
     },
+    deltas: {
+      events: { current: 18, previous: 10, absolute: 8, percent: 80, direction: "up" },
+      activeUsers: { current: 4, previous: 2, absolute: 2, percent: 100, direction: "up" },
+      activeTenants: { current: 2, previous: 2, absolute: 0, percent: 0, direction: "flat" },
+      errors: { current: 3, previous: 1, absolute: 2, percent: 200, direction: "up" },
+      openErrors: { current: 1, previous: 1, absolute: 0, percent: 0, direction: "flat" },
+      traces: { current: 7, previous: 4, absolute: 3, percent: 75, direction: "up" },
+      failedTraces: { current: 1, previous: 0, absolute: 1, percent: null, direction: "up" },
+      averageTraceDurationMs: { current: 250, previous: 125, absolute: 125, percent: 100, direction: "up" },
+      p95TraceDurationMs: { current: 400, previous: 250, absolute: 150, percent: 60, direction: "up" },
+      llmCalls: { current: 5, previous: 2, absolute: 3, percent: 150, direction: "up" },
+      failedLlmCalls: { current: 1, previous: 0, absolute: 1, percent: null, direction: "up" },
+      llmInputTokens: { current: 1200, previous: 600, absolute: 600, percent: 100, direction: "up" },
+      llmOutputTokens: { current: 800, previous: 400, absolute: 400, percent: 100, direction: "up" },
+      llmCostUsd: { current: "1.250000", previous: "0.500000", absolute: "0.750000", percent: 150, direction: "up" }
+    },
     trends: {
       usage: [
         { bucketStart: "2026-05-05T10:00:00.000Z", events: 10, traces: 4, llmCalls: 2 },
@@ -65,6 +81,7 @@ function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewRe
       errors: [
         {
           id: "err_1",
+          errorGroupId: "egrp_1",
           timestamp: "2026-05-05T12:00:00.000Z",
           message: "Checkout fetch failed",
           type: "TypeError",
@@ -150,6 +167,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
@@ -202,6 +220,7 @@ describe("OverviewDashboard", () => {
     expect(within(kpis).getByText("Latency")).toBeInTheDocument();
     expect(within(kpis).getByText("AI spend")).toBeInTheDocument();
     expect(within(kpis).getByText("Events")).toBeInTheDocument();
+    expect(within(kpis).getByText("+8 (+80%) vs prior window")).toBeInTheDocument();
     expect(screen.getByText("Active users")).toBeInTheDocument();
     expect(screen.getByText("Active tenants")).toBeInTheDocument();
     expect(screen.getByText("LLM cost")).toBeInTheDocument();

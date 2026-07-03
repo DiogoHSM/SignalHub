@@ -28,6 +28,29 @@ describe("Next.js SDK wrapper", () => {
     });
   });
 
+  it("prefers W3C traceparent over request id headers", () => {
+    const request = new Request("https://app.example.com/api/orders", {
+      method: "GET",
+      headers: {
+        traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        "x-request-id": "req_123"
+      }
+    });
+
+    expect(buildNextContext({ request, routeName: "GET /api/orders" })).toEqual({
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      source: "GET /api/orders",
+      metadata: {
+        correlation_id: "4bf92f3577b34da6a3ce929d0e0e4736",
+        parent_span_id: "00f067aa0ba902b7",
+        request_method: "GET",
+        request_path: "/api/orders",
+        route_name: "GET /api/orders",
+        traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+      }
+    });
+  });
+
   it("captures and flushes route handler errors with merged request context", async () => {
     const calls: Array<{ url: string; body: unknown }> = [];
     const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -352,7 +375,10 @@ describe("Next.js SDK wrapper", () => {
 
       expect(calls[0].body).toMatchObject({
         message: "browser exploded",
+        source: "browser",
         context: {
+          mechanism: "browser.error",
+          handled: false,
           component: "browser",
           session_id: "session_1",
           message: "Script failed",
@@ -363,10 +389,65 @@ describe("Next.js SDK wrapper", () => {
       });
       expect(calls[1].body).toMatchObject({
         message: "promise exploded",
+        source: "browser",
         context: {
+          mechanism: "browser.unhandledrejection",
+          handled: false,
           component: "browser",
           session_id: "session_1",
           type: "unhandledrejection"
+        }
+      });
+
+      stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves Next context when browser capture is imported from the Next entrypoint", async () => {
+    const listeners: Record<string, EventListenerOrEventListenerObject> = {};
+    const addEventListenerMock = vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+      listeners[type] = listener;
+    });
+    const calls: Array<{ body: unknown }> = [];
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ body: JSON.parse(String(init?.body)) });
+      return new Response("{}", { status: 202 });
+    });
+
+    vi.stubGlobal("addEventListener", addEventListenerMock);
+    vi.stubGlobal("removeEventListener", vi.fn());
+
+    try {
+      const client = createSignalMonitorClient({
+        endpoint: "https://sigmon.example.com",
+        apiKey: "sh_test",
+        fetch: fetchImpl
+      });
+      const stop = installBrowserErrorCapture(client, {
+        flush: true,
+        context: {
+          routeName: "Client /checkout",
+          module: "checkout",
+          metadata: { component: "browser" }
+        }
+      });
+
+      (listeners.error as EventListener)({ error: new Error("checkout exploded") } as unknown as Event);
+
+      await vi.waitFor(() => {
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+      });
+
+      expect(calls[0].body).toMatchObject({
+        message: "checkout exploded",
+        source: "Client /checkout",
+        context: {
+          route_name: "Client /checkout",
+          module: "checkout",
+          component: "browser",
+          mechanism: "browser.error"
         }
       });
 

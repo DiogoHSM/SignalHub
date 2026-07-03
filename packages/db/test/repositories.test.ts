@@ -2,9 +2,9 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
-import { createDb } from "../src/client.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
+import { createTestDb } from "./test-db.js";
 import {
   deleteDeadLetterJob,
   countDeadLetterJobs,
@@ -36,14 +36,85 @@ import {
   updateProject
 } from "../src/repositories/admin.js";
 import {
+  archiveAnalyticsSegment,
+  createAnalyticsSegment,
+  listAnalyticsSegments,
+  previewAnalyticsSegment,
+  updateAnalyticsSegment
+} from "../src/repositories/analytics-segments.js";
+import {
+  archiveAnalyticsDashboard,
+  createAnalyticsDashboard,
+  listAnalyticsDashboards,
+  updateAnalyticsDashboard
+} from "../src/repositories/analytics-dashboards.js";
+import {
+  createExperiment,
+  getExperimentResults,
+  listExperiments,
+  updateExperiment,
+  archiveExperiment
+} from "../src/repositories/experiments.js";
+import {
+  archiveSurvey,
+  createSurvey,
+  getNpsResults,
+  getSurveyResults,
+  listSurveys,
+  recordSurveyResponse,
+  updateSurvey
+} from "../src/repositories/surveys.js";
+import {
+  archiveMessageCampaign,
+  createMessageCampaign,
+  getMessageCampaignResults,
+  listMessageCampaigns,
+  recordMessageCampaignEvent,
+  upsertMessageCampaignOptOut
+} from "../src/repositories/message-campaigns.js";
+import {
+  getFeedbackWidgetSettings,
+  listFeedbackItems,
+  recordFeedbackItem,
+  updateFeedbackItemStatus,
+  upsertFeedbackWidgetSettings
+} from "../src/repositories/feedback-widget.js";
+import {
+  archiveFeatureFlag,
+  createFeatureFlag,
+  evaluateFeatureFlag,
+  listFeatureFlagAudit,
+  listFeatureFlags,
+  updateFeatureFlag
+} from "../src/repositories/feature-flags.js";
+import {
+  addBetaProgramParticipant,
+  archiveBetaProgram,
+  createBetaProgram,
+  getBetaProgramAdoption,
+  listBetaProgramParticipants,
+  listBetaPrograms,
+  removeBetaProgramParticipant,
+  updateBetaProgram
+} from "../src/repositories/beta-programs.js";
+import {
+  applyDataGovernanceRules,
+  getDataGovernancePolicy,
+  upsertDataGovernancePolicy
+} from "../src/repositories/data-governance.js";
+import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
+  isErrorGroupSilenced,
+  listAlertEscalationsDue,
   listActiveAlertRules,
   listAlertEvents,
+  markAlertEventEscalated,
   recordAlertEvent,
   recordNotificationDelivery,
   updateNotificationChannel,
+  updateAlertEventTriage,
   updateAlertRule,
   updateAlertRuleEvaluation,
   withAlertEvaluationLock
@@ -71,23 +142,40 @@ import {
 } from "../src/repositories/users.js";
 import {
   insertBreadcrumb,
+  insertClickEvent,
   insertError,
   insertEvent,
   insertLlmCall,
+  insertProfile,
+  insertSessionReplay,
   insertSpan,
-  insertTrace
+  insertTrace,
+  insertWebVital
 } from "../src/repositories/telemetry-writes.js";
 import {
   buildBucketAxis,
   getErrorAggregates,
   getEventAggregates,
+  getEventClickMap,
+  getEventFunnel,
+  getEventPaths,
+  getEventPropertyCatalog,
+  getEventRetention,
   getLlmAggregates,
   getLlmByPrompt,
   getLlmByTenant,
   getLlmCostByModel,
   getLlmSummary,
+  getApmEndpoints,
+  getServiceMap,
+  getWebVitals,
+  getRuntimeProfiles,
   getOverview,
+  getRecentActivity,
+  listReleases,
   getErrorForSourceMapResolution,
+  getSessionReplayDetail,
+  listSessionReplays,
   getTraceAggregates,
   listErrors,
   listEvents,
@@ -171,7 +259,7 @@ describe("repositories", () => {
   }, 30_000);
 
   async function withDb<T>(run: (db: Db) => Promise<T>): Promise<T> {
-    const db = createDb(container.getConnectionUri());
+    const db = createTestDb(container.getConnectionUri());
     try {
       return await run(db);
     } finally {
@@ -358,8 +446,8 @@ describe("repositories", () => {
       await migrate(db);
 
       await sql`select id, type, enabled from notification_channels limit 0`.execute(db);
-      await sql`select id, type, threshold from alert_rules limit 0`.execute(db);
-      await sql`select id, observed_value from alert_events limit 0`.execute(db);
+      await sql`select id, type, threshold, escalation_minutes, escalation_channel_id from alert_rules limit 0`.execute(db);
+      await sql`select id, observed_value, acknowledged_at, snoozed_until, escalation_due_at, escalated_at from alert_events limit 0`.execute(db);
       await sql`select id, status from notification_deliveries limit 0`.execute(db);
     });
   });
@@ -847,7 +935,7 @@ describe("repositories", () => {
         .where("environment_id", "=", "env_identity")
         .where("user_id", "=", "usr_ana")
         .executeTakeFirstOrThrow();
-      expect(outOfOrderUser.traits).toEqual({ name: "Ana Historical", token: "[REDACTED]" });
+      expect(outOfOrderUser.traits).toEqual({ name: "Ana Historical", role: "admin", token: "[REDACTED]" });
       expect(outOfOrderUser.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
       expect(outOfOrderUser.last_seen_at).toEqual(new Date("2026-05-25T10:10:00.000Z"));
       expect(outOfOrderUser.updated_at).toEqual(new Date("2026-05-25T09:55:00.000Z"));
@@ -899,7 +987,7 @@ describe("repositories", () => {
         .where("environment_id", "=", "env_identity")
         .where("tenant_id", "=", "tenant_acme")
         .executeTakeFirstOrThrow();
-      expect(outOfOrderTenant.traits).toEqual({ plan: "legacy" });
+      expect(outOfOrderTenant.traits).toEqual({ plan: "legacy", region: "br" });
       expect(outOfOrderTenant.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
       expect(outOfOrderTenant.last_seen_at).toEqual(new Date("2026-05-25T10:11:00.000Z"));
       expect(outOfOrderTenant.updated_at).toEqual(new Date("2026-05-25T09:56:00.000Z"));
@@ -1592,6 +1680,323 @@ describe("repositories", () => {
     });
   });
 
+  it("persists and aggregates browser click map samples", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Click Map Writes" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const input = {
+        id: "clk_repository",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        traceId: "trc_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:01.000Z"),
+        source: "browser",
+        release: "1.2.3",
+        metadata: { safe: true },
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        elementTag: "button",
+        elementRole: "button",
+        x: 0.62,
+        y: 0.48,
+        viewportWidth: 1440,
+        viewportHeight: 900,
+        scrollX: 0,
+        scrollY: 320,
+        masked: true
+      };
+
+      await insertClickEvent(db, input);
+      await insertClickEvent(db, input);
+      await insertClickEvent(db, { ...input, id: "clk_repository_other", x: 0.64, y: 0.48 });
+
+      const rows = await db
+        .selectFrom("click_events")
+        .select(["id", "route", "selector", "x", "y", "viewport_width", "masked"])
+        .where("project_id", "=", project.id)
+        .execute();
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        viewport_width: 1440,
+        masked: true
+      });
+
+      const clickMap = await getEventClickMap(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        route: "/checkout",
+        window: "7d",
+        now: new Date("2026-05-12T12:00:00.000Z"),
+        gridSize: 20,
+        limit: 10
+      });
+
+      expect(clickMap.totals.clicks).toBe(2);
+      expect(clickMap.selectors[0]).toMatchObject({ selector: '[data-sigmon-id="submit"]', clicks: 2 });
+      expect(clickMap.points).toEqual(
+        expect.arrayContaining([expect.objectContaining({ xBucket: 12, yBucket: expect.any(Number), clicks: 2 })])
+      );
+    });
+  });
+
+  it("persists privacy-safe session replays and returns them on linked incidents", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Replay Linked Incident" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertSessionReplay(db, {
+        id: "rpl_job_1",
+        replayId: "rpl_checkout_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        source: "browser",
+        release: "1.2.3",
+        route: "/checkout",
+        errorId: "err_replay_incident",
+        startedAt: new Date("2026-05-11T11:59:58.000Z"),
+        endedAt: new Date("2026-05-11T12:00:03.000Z"),
+        durationMs: 5000,
+        masked: true,
+        events: [
+          { offsetMs: 0, type: "navigation", route: "/checkout", data: {} },
+          { offsetMs: 2100, type: "click", selector: '[data-sigmon-id="pay"]', x: 0.5, y: 0.2, data: { masked: true } }
+        ]
+      });
+      await insertSessionReplay(db, {
+        id: "rpl_job_1",
+        replayId: "rpl_checkout_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        route: "/checkout",
+        startedAt: new Date("2026-05-11T11:59:58.000Z"),
+        events: []
+      });
+
+      const group = await seedGroupedError(db, {
+        id: "err_replay_incident",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Replay linked failure",
+        severity: "error",
+        timestamp: new Date("2026-05-11T12:00:02.000Z")
+      });
+      await sql`update errors set replay_id = 'rpl_checkout_1' where id = 'err_replay_incident'`.execute(db);
+
+      const rows = await db.selectFrom("session_replays").select(["id", "replay_id", "event_count"]).execute();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ replay_id: "rpl_checkout_1", event_count: 2 });
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        errorId: "err_replay_incident"
+      });
+
+      expect(incident?.replay).toMatchObject({
+        replayId: "rpl_checkout_1",
+        route: "/checkout",
+        masked: true,
+        eventCount: 2
+      });
+      expect(incident?.replay?.events).toEqual(
+        expect.arrayContaining([expect.objectContaining({ offsetMs: 2100, type: "click", selector: '[data-sigmon-id="pay"]' })])
+      );
+    });
+  });
+
+  it("links product events to session replays for event investigation", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Replay Linked Events" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertSessionReplay(db, {
+        id: "rpl_job_events_1",
+        replayId: "rpl_checkout_events",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        source: "browser",
+        route: "/checkout",
+        startedAt: new Date("2026-05-11T12:00:00.000Z"),
+        endedAt: new Date("2026-05-11T12:00:05.000Z"),
+        durationMs: 5000,
+        masked: true,
+        events: [{ offsetMs: 0, type: "navigation", route: "/checkout", data: {} }]
+      });
+
+      await insertEvent(db, {
+        id: "evt_replay_click",
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        timestamp: new Date("2026-05-11T12:00:02.250Z"),
+        receivedAt: new Date("2026-05-11T12:00:03.000Z"),
+        source: "browser",
+        name: "checkout.clicked",
+        replayId: "rpl_checkout_events",
+        properties: { button: "pay" }
+      });
+
+      const events = await listEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
+      expect(events.data[0]).toMatchObject({ id: "evt_replay_click", replayId: "rpl_checkout_events" });
+
+      const replay = await getSessionReplayDetail(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        replayId: "rpl_checkout_events"
+      });
+
+      expect(replay).toMatchObject({
+        replayId: "rpl_checkout_events",
+        productEvents: [
+          expect.objectContaining({
+            id: "evt_replay_click",
+            name: "checkout.clicked",
+            offsetMs: 2250
+          })
+        ]
+      });
+    });
+  });
+
+  it("lists session replay samples filtered by saved analytics segment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Replay Segments" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-11T12:00:05.000Z"),
+        source: "browser"
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_segment_match",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        name: "project.created",
+        timestamp: new Date("2026-05-11T12:00:00.000Z"),
+        properties: { plan: "team" }
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_segment_miss",
+        tenantId: "tenant_free",
+        userId: "user_free",
+        name: "project.created",
+        timestamp: new Date("2026-05-11T12:01:00.000Z"),
+        properties: { plan: "free" }
+      });
+
+      await insertSessionReplay(db, {
+        ...base,
+        id: "rpl_team_job",
+        replayId: "rpl_team",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        sessionId: "sess_team",
+        route: "/checkout",
+        timestamp: new Date("2026-05-11T12:02:00.000Z"),
+        startedAt: new Date("2026-05-11T12:02:00.000Z"),
+        durationMs: 7000,
+        masked: true,
+        events: [{ offsetMs: 0, type: "navigation", route: "/checkout", data: {} }]
+      });
+      await insertSessionReplay(db, {
+        ...base,
+        id: "rpl_free_job",
+        replayId: "rpl_free",
+        tenantId: "tenant_free",
+        userId: "user_free",
+        sessionId: "sess_free",
+        route: "/billing",
+        timestamp: new Date("2026-05-11T12:03:00.000Z"),
+        startedAt: new Date("2026-05-11T12:03:00.000Z"),
+        events: []
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_replay_context",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        sessionId: "sess_team",
+        name: "checkout.started",
+        replayId: "rpl_team",
+        timestamp: new Date("2026-05-11T12:02:03.000Z"),
+        properties: {}
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_replay_context",
+        tenantId: "tenant_team",
+        userId: "user_team",
+        sessionId: "sess_team",
+        message: "Checkout crashed",
+        severity: "error",
+        replayId: "rpl_team",
+        timestamp: new Date("2026-05-11T12:02:04.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Team creators",
+        actorType: "user",
+        definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+      });
+
+      const replays = await listSessionReplays(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        segmentId: segment.id,
+        to: new Date("2026-05-12T12:00:00.000Z"),
+        limit: 10
+      });
+
+      expect(replays.data).toEqual([
+        expect.objectContaining({
+          replayId: "rpl_team",
+          tenantId: "tenant_team",
+          userId: "user_team",
+          route: "/checkout",
+          linkedEventId: "evt_replay_context",
+          linkedEventName: "checkout.started",
+          linkedErrorId: "err_replay_context",
+          linkedErrorMessage: "Checkout crashed"
+        })
+      ]);
+    });
+  });
+
   it("ignores duplicate event ids during telemetry retries", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -1616,6 +2021,160 @@ describe("repositories", () => {
         await db.deleteFrom("events").where("id", "=", input.id).execute();
       }
     });
+  });
+
+  it("stores environment data governance retention and property rules", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Governance" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const empty = await getDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(empty.retentionPolicy).toEqual({});
+      expect(empty.propertyRules).toEqual([]);
+
+      const policy = await upsertDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        retentionPolicy: { events: 30, errors: 180, traces: 14, webVitals: 30 },
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "metadata", path: "request.headers.authorization", action: "block" }
+        ],
+        updatedByUserId: null
+      });
+
+      expect(policy.retentionPolicy).toEqual({ events: 30, errors: 180, traces: 14, webVitals: 30 });
+      expect(policy.propertyRules).toEqual([
+        { target: "event.properties", path: "email", action: "mask" },
+        { target: "metadata", path: "request.headers.authorization", action: "block" }
+      ]);
+
+      await expect(getDataGovernancePolicy(db, { projectId: project.id, environmentId: environment.id })).resolves.toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        retentionPolicy: { events: 30, errors: 180, traces: 14, webVitals: 30 }
+      });
+
+      const otherProject = await createProject(db, { name: "Other Governance" });
+      await expect(
+        upsertDataGovernancePolicy(db, {
+          projectId: otherProject.id,
+          environmentId: environment.id,
+          retentionPolicy: { events: 7 },
+          propertyRules: []
+        })
+      ).rejects.toThrow();
+    });
+  });
+
+  it("uses project data governance windows during retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Governed Retention" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await insertEvent(db, {
+        id: "evt_governed_old",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-01-01T00:00:00.000Z"),
+        name: "governed.old"
+      });
+      await insertEvent(db, {
+        id: "evt_governed_fresh",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-02-20T00:00:00.000Z"),
+        receivedAt: new Date("2026-02-20T00:00:00.000Z"),
+        name: "governed.fresh"
+      });
+      await upsertDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        retentionPolicy: { events: 30 },
+        propertyRules: []
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        eventsDays: 365,
+        errorsDays: 365,
+        tracesDays: 365,
+        spansDays: 365,
+        llmCallsDays: 365,
+        profilesDays: 365,
+        breadcrumbsDays: 365,
+        deadLetterJobsDays: 365,
+        sourceMapsEnabled: false,
+        sourceMapsDays: 365,
+        sourceMapsBatchSize: 100,
+        now: new Date("2026-03-05T00:00:00.000Z"),
+        batchSize: 100
+      });
+
+      expect(deleted.events).toBe(1);
+      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_old").executeTakeFirst()).resolves.toBeUndefined();
+      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_fresh").executeTakeFirst()).resolves.toMatchObject({
+        id: "evt_governed_fresh"
+      });
+    });
+  });
+
+  it("masks and blocks configured property paths without mutating the original payload", () => {
+    const payload = {
+      email: "admin@example.com",
+      keep: "visible",
+      request: {
+        headers: {
+          authorization: "Bearer secret",
+          accept: "json"
+        }
+      }
+    };
+
+    const governed = applyDataGovernanceRules(
+      payload,
+      {
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "event.properties", path: "request.headers.authorization", action: "block" },
+          { target: "metadata", path: "keep", action: "block" }
+        ]
+      },
+      "event.properties"
+    );
+
+    expect(governed).toEqual({
+      email: "[REDACTED]",
+      keep: "visible",
+      request: { headers: { accept: "json" } }
+    });
+    expect(payload.request.headers.authorization).toBe("Bearer secret");
+  });
+
+  it("ignores unsafe data governance property paths", () => {
+    const payload = { safe: "visible" };
+    const originalToString = Object.prototype.toString;
+
+    const governed = applyDataGovernanceRules(
+      payload,
+      {
+        propertyRules: [
+          { target: "event.properties", path: "__proto__.toString", action: "block" },
+          { target: "event.properties", path: "constructor.prototype.polluted", action: "mask" },
+          { target: "event.properties", path: "safe", action: "mask" }
+        ]
+      },
+      "event.properties"
+    );
+
+    expect(governed).toEqual({ safe: "[REDACTED]" });
+    expect(Object.prototype.toString).toBe(originalToString);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   it("paginates event lists with scoped timestamp cursors", async () => {
@@ -2991,15 +3550,19 @@ describe("repositories", () => {
         projectId: project.id,
         environmentId: environment.id,
         notificationChannelId: channel.id,
+        escalationChannelId: channel.id,
         name: "Critical errors",
         type: "critical_errors",
         severity: "critical",
         windowMinutes: 10,
         threshold: "1",
         cooldownMinutes: 30,
+        escalationMinutes: 5,
         enabled: true
       });
       expect(rule.type).toBe("critical_errors");
+      expect(rule.escalationChannelId).toBe(channel.id);
+      expect(rule.escalationMinutes).toBe(5);
 
       const evaluatedAt = new Date("2026-05-06T12:00:00.000Z");
       await updateAlertRuleEvaluation(db, {
@@ -3035,7 +3598,45 @@ describe("repositories", () => {
       });
 
       const events = await listAlertEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
-      expect(events[0]).toMatchObject({ id: event.id, latestDeliveryStatus: "success" });
+      expect(events[0]).toMatchObject({
+        id: event.id,
+        latestDeliveryStatus: "success",
+        escalationDueAt: new Date("2026-05-06T12:05:00.000Z")
+      });
+
+      const dueBeforeAck = await listAlertEscalationsDue(db, {
+        now: new Date("2026-05-06T12:06:00.000Z")
+      });
+      expect(dueBeforeAck[0]).toMatchObject({
+        id: event.id,
+        ruleEscalationChannelId: channel.id,
+        ruleName: "Critical errors"
+      });
+
+      await updateAlertEventTriage(db, event.id, {
+        status: "acknowledged",
+        actorUserId: null,
+        actorEmail: "ops@example.com",
+        now: new Date("2026-05-06T12:02:00.000Z"),
+        note: "investigating"
+      });
+
+      await expect(
+        listAlertEscalationsDue(db, { now: new Date("2026-05-06T12:06:00.000Z") })
+      ).resolves.toEqual([]);
+
+      await updateAlertEventTriage(db, event.id, {
+        status: "triggered",
+        actorUserId: null,
+        actorEmail: "ops@example.com",
+        now: new Date("2026-05-06T12:03:00.000Z")
+      });
+      await markAlertEventEscalated(db, event.id, new Date("2026-05-06T12:06:00.000Z"));
+      const escalated = await listAlertEvents(db, { projectId: project.id, environmentId: environment.id, limit: 10 });
+      expect(escalated[0]).toMatchObject({
+        status: "triggered",
+        escalatedAt: new Date("2026-05-06T12:06:00.000Z")
+      });
     });
   });
 
@@ -3874,6 +4475,99 @@ describe("repositories", () => {
     });
   });
 
+  it("adds AI-ready code context with release, repository, and source-map evidence", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const uploader = await createUser(db, {
+        email: "incident-code-context@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const group = await seedGroupedError(db, {
+        id: "err_incident_code_context",
+        projectId: "prj_incident_code_context",
+        environmentId: "env_incident_code_context",
+        message: "Code context failure",
+        severity: "error",
+        timestamp: new Date("2026-05-24T12:00:00.000Z")
+      });
+      await sql`
+        update errors
+        set release = 'web@2',
+            trace_id = 'trace_code_context',
+            stack = 'TypeError: failed\n    at submitCheckout (https://cdn.example.com/assets/app.js:10:2)'
+        where id = 'err_incident_code_context'
+      `.execute(db);
+      await sql`
+        update error_groups
+        set latest_release = 'web@2'
+        where id = ${group.id}
+      `.execute(db);
+      await sql`
+        insert into project_code_integrations
+          (id, project_id, provider, name, owner, repo, web_base_url)
+        values
+          ('cint_incident_code_context', 'prj_incident_code_context', 'github', 'web', 'acme', 'shop', 'https://github.com/acme/shop')
+      `.execute(db);
+      await sql`
+        insert into release_metadata
+          (id, project_id, environment_id, release, integration_id, commit_sha, commit_url, pull_request_number, pull_request_url, deployed_by)
+        values
+          ('relm_incident_code_context', 'prj_incident_code_context', 'env_incident_code_context', 'web@2', 'cint_incident_code_context', 'abcdef1234567890', 'https://github.com/acme/shop/commit/abcdef1234567890', 42, 'https://github.com/acme/shop/pull/42', 'ci')
+      `.execute(db);
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
+        values
+          ('smap_incident_code_context', 'prj_incident_code_context', 'env_incident_code_context', 'web@2', 'app.js', 'app.js.map', 'application/json', 1, 'sha-code-context', '/tmp/app.map', ${uploader.id})
+      `.execute(db);
+      await sql`
+        insert into error_stack_resolutions
+          (id, error_id, project_id, environment_id, release, source_map_artifact_id, frame_index, minified_file, minified_line, minified_column, original_source, original_line, original_column, original_name)
+        values
+          ('esr_incident_code_context', 'err_incident_code_context', 'prj_incident_code_context', 'env_incident_code_context', 'web@2', 'smap_incident_code_context', 0, 'app.js', 10, 2, 'src/checkout.ts', 42, 7, 'submitCheckout')
+      `.execute(db);
+
+      const incident = await getErrorGroupIncident(db, {
+        groupId: group.id,
+        projectId: "prj_incident_code_context",
+        environmentId: "env_incident_code_context",
+        errorId: "err_incident_code_context"
+      });
+
+      expect(incident?.codeContext).toMatchObject({
+        status: "ready",
+        repository: {
+          provider: "github",
+          owner: "acme",
+          repo: "shop",
+          url: "https://github.com/acme/shop"
+        },
+        release: {
+          release: "web@2",
+          commitSha: "abcdef1234567890",
+          pullRequestNumber: 42,
+          deployedBy: "ci"
+        },
+        privacy: {
+          aiEnabled: false,
+          outboundCodeSharing: false
+        }
+      });
+      expect(incident?.codeContext.suspectedFiles[0]).toMatchObject({
+        path: "src/checkout.ts",
+        functionName: "submitCheckout",
+        line: 42,
+        column: 7,
+        confidence: "high"
+      });
+      expect(incident?.codeContext.evidence.map((item) => item.type)).toEqual(
+        expect.arrayContaining(["stack", "source_map", "release", "trace"])
+      );
+      expect(incident?.codeContext.summary).toContain("src/checkout.ts:42");
+    });
+  });
+
   it("uses the latest group occurrence when no primary error id is provided", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -4266,6 +4960,49 @@ describe("repositories", () => {
           lastRegressedAt: expect.any(Date)
         })
       );
+    });
+  });
+
+  it("returns 12-bucket occurrence trends for listed error groups", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_group_trend', 'Group Trend')`.execute(db);
+      await sql`insert into environments (id, project_id, name) values ('env_group_trend', 'prj_group_trend', 'production')`.execute(db);
+
+      await insertError(db, {
+        id: "err_group_trend_1",
+        projectId: "prj_group_trend",
+        environmentId: "env_group_trend",
+        timestamp: new Date("2026-06-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T00:00:01.000Z"),
+        message: "Trend grouped error",
+        type: "TrendError",
+        severity: "error",
+        fingerprint: "trend-fingerprint"
+      });
+      await insertError(db, {
+        id: "err_group_trend_2",
+        projectId: "prj_group_trend",
+        environmentId: "env_group_trend",
+        timestamp: new Date("2026-06-01T12:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T12:00:01.000Z"),
+        message: "Trend grouped error",
+        type: "TrendError",
+        severity: "error",
+        fingerprint: "trend-fingerprint"
+      });
+
+      const groups = await listErrorGroups(db, {
+        projectId: "prj_group_trend",
+        environmentId: "env_group_trend"
+      });
+
+      expect(groups).toHaveLength(1);
+      const trend = groups[0]!.trend;
+      expect(trend).toBeDefined();
+      expect(trend!).toHaveLength(12);
+      expect(trend!.reduce((sum, value) => sum + value, 0)).toBe(2);
+      expect(trend!.some((value) => value > 0)).toBe(true);
     });
   });
 
@@ -4911,6 +5648,7 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(criticalResult.observedValue).toBe("1");
+      expect(criticalResult.errorGroupId).toEqual(expect.any(String));
 
       const errorCountResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -4920,6 +5658,7 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(errorCountResult.observedValue).toBe("2");
+      expect(errorCountResult.errorGroupId).toEqual(expect.any(String));
 
       const latencyResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -4947,6 +5686,7 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(errorRateResult.observedValue).toBe("200");
+      expect(errorRateResult.errorGroupId).toEqual(expect.any(String));
 
       const deadLetterResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -4979,7 +5719,7 @@ describe("repositories", () => {
         minimumSampleSize: 20
       });
 
-      expect(result).toEqual({ observedValue: "5" });
+      expect(result).toEqual({ observedValue: "5", errorGroupId: expect.any(String) });
     });
   });
 
@@ -5000,7 +5740,7 @@ describe("repositories", () => {
         minimumSampleSize: 20
       });
 
-      expect(result).toEqual({ observedValue: "0" });
+      expect(result).toEqual({ observedValue: "0", errorGroupId: null });
     });
   });
 
@@ -5079,7 +5819,7 @@ describe("repositories", () => {
         minimumSampleSize: 1
       });
 
-      expect(result).toEqual({ observedValue: "33.333333" });
+      expect(result).toEqual({ observedValue: "33.333333", errorGroupId: expect.any(String) });
     });
   });
 
@@ -5119,7 +5859,9 @@ describe("repositories", () => {
         traces: 3,
         spans: 4,
         llmCalls: 5,
-        breadcrumbs: 6,
+        webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 6,
         deadLetterJobs: 0,
           sourceMapArtifacts: 0,
         sourceMapFiles: 0
@@ -5130,6 +5872,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5175,6 +5918,8 @@ describe("repositories", () => {
           traces: 3,
           spans: 4,
           llmCalls: 5,
+          webVitals: 0,
+          profiles: 0,
           breadcrumbs: 6,
           deadLetterJobs: 0,
           sourceMapArtifacts: 7,
@@ -5186,6 +5931,7 @@ describe("repositories", () => {
           tracesDays: 90,
           spansDays: 90,
           llmCallsDays: 180,
+          profilesDays: 30,
           breadcrumbsDays: 30,
           deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5340,6 +6086,50 @@ describe("repositories", () => {
         model: "gpt-5",
         status: "success"
       });
+      await insertWebVital(db, {
+        id: "wvt_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        name: "LCP",
+        value: 2400,
+        rating: "needs-improvement",
+        route: "/old"
+      });
+      await insertWebVital(db, {
+        id: "wvt_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        name: "LCP",
+        value: 1200,
+        rating: "good",
+        route: "/fresh"
+      });
+      await insertSessionReplay(db, {
+        id: "rpl_old_retention",
+        replayId: "replay_old_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: oldTimestamp,
+        receivedAt,
+        startedAt: oldTimestamp,
+        route: "/old",
+        events: [{ offsetMs: 0, type: "navigation", route: "/old", data: {} }]
+      });
+      await insertSessionReplay(db, {
+        id: "rpl_fresh_retention",
+        replayId: "replay_fresh_retention",
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: freshTimestamp,
+        receivedAt,
+        startedAt: freshTimestamp,
+        route: "/fresh",
+        events: [{ offsetMs: 0, type: "navigation", route: "/fresh", data: {} }]
+      });
 
       const deleted = await deleteExpiredTelemetry(db, {
         now: new Date("2026-05-06T12:00:00.000Z"),
@@ -5349,6 +6139,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5357,14 +6148,16 @@ describe("repositories", () => {
       });
 
       expect(deleted).toEqual({
-        events: 2,
+        events: 3,
         errors: 1,
         traces: 1,
         spans: 1,
         llmCalls: 1,
+        webVitals: 1,
+        profiles: 0,
         breadcrumbs: 0,
         deadLetterJobs: 0,
-          sourceMapArtifacts: 0,
+        sourceMapArtifacts: 0,
         sourceMapFiles: 0
       });
 
@@ -5384,6 +6177,14 @@ describe("repositories", () => {
       await expect(listLlmCalls(db, filters)).resolves.toMatchObject({
         data: [expect.objectContaining({ id: "llm_fresh_retention" })]
       });
+      await expect(db.selectFrom("web_vitals").select("id").where("id", "=", "wvt_old_retention").executeTakeFirst())
+        .resolves.toBeUndefined();
+      await expect(db.selectFrom("web_vitals").select("id").where("id", "=", "wvt_fresh_retention").executeTakeFirst())
+        .resolves.toMatchObject({ id: "wvt_fresh_retention" });
+      await expect(db.selectFrom("session_replays").select("id").where("id", "=", "rpl_old_retention").executeTakeFirst())
+        .resolves.toBeUndefined();
+      await expect(db.selectFrom("session_replays").select("id").where("id", "=", "rpl_fresh_retention").executeTakeFirst())
+        .resolves.toMatchObject({ id: "rpl_fresh_retention" });
     });
   });
 
@@ -5436,6 +6237,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -5450,6 +6252,60 @@ describe("repositories", () => {
       await expect(
         db.selectFrom("breadcrumbs").select("id").where("id", "=", "brd_new").executeTakeFirst()
       ).resolves.toBeTruthy();
+    });
+  });
+
+  it("deletes expired click map samples with event retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Click Retention Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        x: 0.5,
+        y: 0.5,
+        viewportWidth: 1280,
+        viewportHeight: 720
+      };
+
+      await insertClickEvent(db, {
+        ...base,
+        id: "clk_old",
+        timestamp: new Date("2026-01-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-01-01T00:00:00.000Z")
+      });
+      await insertClickEvent(db, {
+        ...base,
+        id: "clk_new",
+        timestamp: new Date("2026-05-10T00:00:00.000Z"),
+        receivedAt: new Date("2026-05-10T00:00:00.000Z")
+      });
+
+      const deleted = await deleteExpiredTelemetry(db, {
+        now: new Date("2026-05-11T00:00:00.000Z"),
+        batchSize: 100,
+        eventsDays: 30,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        profilesDays: 30,
+        breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      });
+
+      expect(deleted.events).toBe(1);
+      await expect(db.selectFrom("click_events").select("id").where("id", "=", "clk_old").executeTakeFirst())
+        .resolves.toBeUndefined();
+      await expect(db.selectFrom("click_events").select("id").where("id", "=", "clk_new").executeTakeFirst())
+        .resolves.toBeTruthy();
     });
   });
 
@@ -5488,6 +6344,7 @@ describe("repositories", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -6324,6 +7181,325 @@ describe("repositories", () => {
     });
   });
 
+  it("aggregates APM endpoint latency, throughput, error rate, and Apdex", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "APM Endpoint Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:55:01.000Z"),
+        startedAt: new Date("2026-05-24T11:55:00.000Z"),
+        endedAt: new Date("2026-05-24T11:55:01.000Z"),
+        metadata: {}
+      };
+
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_orders_1",
+        traceId: "trace_apm_orders_1",
+        name: "GET /api/orders",
+        status: "success",
+        durationMs: 100
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_orders_2",
+        traceId: "trace_apm_orders_2",
+        name: "GET /api/orders",
+        status: "success",
+        durationMs: 600
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_orders_3",
+        traceId: "trace_apm_orders_3",
+        name: "GET /api/orders",
+        status: "error",
+        durationMs: 2400
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_health",
+        traceId: "trace_apm_health",
+        name: "GET /api/health",
+        status: "success",
+        durationMs: 20
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_apm_old",
+        traceId: "trace_apm_old",
+        timestamp: new Date("2026-05-20T11:55:00.000Z"),
+        name: "GET /api/old",
+        status: "error",
+        durationMs: 5000
+      });
+
+      const apm = await getApmEndpoints(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(apm.totals).toMatchObject({
+        endpoints: 2,
+        requests: 4,
+        errors: 1,
+        errorRatePercent: 25
+      });
+      expect(apm.endpoints[0]).toMatchObject({
+        name: "GET /api/orders",
+        requests: 3,
+        errors: 1,
+        errorRatePercent: 33,
+        p50DurationMs: 600,
+        p95DurationMs: 2220,
+        p99DurationMs: 2364,
+        averageDurationMs: 1033,
+        apdex: 0.5
+      });
+      expect(apm.endpoints[1]).toMatchObject({
+        name: "GET /api/health",
+        requests: 1,
+        errors: 0,
+        p95DurationMs: 20,
+        apdex: 1
+      });
+      await expect(
+        listTraces(db, { projectId: project.id, environmentId: environment.id, traceName: "GET /api/orders", limit: 10 })
+      ).resolves.toMatchObject({ data: expect.arrayContaining([expect.objectContaining({ name: "GET /api/orders" })]) });
+    });
+  });
+
+  it("aggregates service map edges from span service metadata", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Service Map Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        traceId: "trace_service_map",
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:55:01.000Z"),
+        startedAt: new Date("2026-05-24T11:55:00.000Z"),
+        endedAt: new Date("2026-05-24T11:55:01.000Z"),
+        source: "api",
+        release: "1.0.0"
+      };
+
+      await insertSpan(db, {
+        ...base,
+        id: "spn_service_map_db_1",
+        name: "postgres query orders",
+        status: "success",
+        durationMs: 120,
+        metadata: { service: "api", target_service: "postgres", db: { system: "postgres" } }
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_service_map_db_2",
+        name: "postgres query orders",
+        status: "error",
+        durationMs: 500,
+        metadata: { service: "api", target_service: "postgres" }
+      });
+      await insertSpan(db, {
+        ...base,
+        id: "spn_service_map_worker",
+        name: "http request worker",
+        status: "success",
+        durationMs: 80,
+        metadata: { service: "api", peer_service: "worker" }
+      });
+
+      const map = await getServiceMap(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(map.totals).toMatchObject({
+        edges: 2,
+        spans: 3,
+        errors: 1,
+        errorRatePercent: 33
+      });
+      expect(map.edges[0]).toMatchObject({
+        source: "api",
+        target: "postgres",
+        dependencyType: "database",
+        spans: 2,
+        traces: 1,
+        errors: 1,
+        errorRatePercent: 50,
+        averageDurationMs: 310,
+        p95DurationMs: 481
+      });
+    });
+  });
+
+  it("aggregates web vitals by route and release with p75 metrics", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Web Vitals Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: new Date("2026-05-24T11:55:01.000Z"),
+        source: "browser",
+        metadata: {}
+      };
+
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_lcp_1",
+        name: "LCP",
+        value: 2100,
+        rating: "good",
+        route: "/dashboard",
+        release: "1.0.0"
+      });
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_lcp_2",
+        timestamp: new Date("2026-05-24T11:56:00.000Z"),
+        name: "LCP",
+        value: 3200,
+        rating: "needs-improvement",
+        route: "/dashboard",
+        release: "1.0.1"
+      });
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_inp_1",
+        timestamp: new Date("2026-05-24T11:56:00.000Z"),
+        name: "INP",
+        value: 180,
+        rating: "good",
+        route: "/dashboard",
+        release: "1.0.1"
+      });
+      await insertWebVital(db, {
+        ...base,
+        id: "wvt_old",
+        timestamp: new Date("2026-05-20T11:55:00.000Z"),
+        name: "LCP",
+        value: 9000,
+        rating: "poor",
+        route: "/old",
+        release: "1.0.1"
+      });
+
+      const vitals = await getWebVitals(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(vitals.totals).toMatchObject({ samples: 3, routes: 1, releases: 2 });
+      expect(vitals.metrics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "LCP",
+            route: "/dashboard",
+            samples: 2,
+            p75Value: 2925,
+            latestRelease: "1.0.1",
+            previousRelease: "1.0.0",
+            regressionPercent: 52
+          }),
+          expect.objectContaining({
+            name: "INP",
+            route: "/dashboard",
+            samples: 1,
+            p75Value: 180
+          })
+        ])
+      );
+    });
+  });
+
+  it("aggregates runtime profiles with hot functions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Runtime Profiles" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-24T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-24T11:55:00.000Z"),
+        receivedAt: now,
+        source: "node",
+        metadata: {}
+      };
+
+      await insertProfile(db, {
+        ...base,
+        id: "prf_cpu_1",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        service: "worker",
+        startedAt: new Date("2026-05-24T11:55:00.000Z"),
+        durationMs: 1000,
+        sampleCount: 5,
+        cpuUsagePercent: "42",
+        topFunctions: [
+          { functionName: "tick", url: "file:///app/worker.ts", selfTimeMs: 25, totalTimeMs: 30, sampleCount: 5 }
+        ]
+      });
+      await insertProfile(db, {
+        ...base,
+        id: "prf_mem_1",
+        name: "worker.memory",
+        kind: "memory",
+        runtime: "node",
+        service: "worker",
+        timestamp: new Date("2026-05-24T11:56:00.000Z"),
+        startedAt: new Date("2026-05-24T11:56:00.000Z"),
+        heapUsedBytes: "2048",
+        rssBytes: "4096"
+      });
+
+      const profiles = await getRuntimeProfiles(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(profiles.totals).toMatchObject({
+        profiles: 2,
+        cpuProfiles: 1,
+        memoryProfiles: 1,
+        samples: 5,
+        avgCpuUsagePercent: 42,
+        maxHeapUsedBytes: 2048
+      });
+      expect(profiles.hotFunctions).toEqual([
+        expect.objectContaining({ functionName: "tick", selfTimeMs: 25, sampleCount: 5 })
+      ]);
+      expect(profiles.profiles.map((profile) => profile.id)).toEqual(["prf_mem_1", "prf_cpu_1"]);
+    });
+  });
+
   it("returns a compact mixed session timeline around a center timestamp", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -6653,7 +7829,7 @@ describe("repositories", () => {
       const now = new Date("2026-05-05T12:00:00.000Z");
       const inWindow = new Date("2026-05-05T10:00:00.000Z");
       const olderInWindow = new Date("2026-05-05T09:00:00.000Z");
-      const outsideWindow = new Date("2026-05-03T12:00:00.000Z");
+      const previousWindow = new Date("2026-05-03T12:00:00.000Z");
       const receivedAt = new Date("2026-05-05T12:00:01.000Z");
       const base = {
         projectId: project.id,
@@ -6701,7 +7877,7 @@ describe("repositories", () => {
         timestamp: inWindow,
         receivedAt
       });
-      await insertEvent(db, { ...base, id: "evt_old", name: "old_event", timestamp: outsideWindow, receivedAt });
+      await insertEvent(db, { ...base, id: "evt_previous_window", name: "old_event", timestamp: previousWindow, receivedAt });
 
       await insertError(db, {
         ...base,
@@ -6835,6 +8011,27 @@ describe("repositories", () => {
         llmOutputTokens: 65,
         llmCostUsd: "0.450000"
       });
+      expect(overview.deltas.events).toEqual({
+        current: 3,
+        previous: 1,
+        absolute: 2,
+        percent: 200,
+        direction: "up"
+      });
+      expect(overview.deltas.errors).toEqual({
+        current: 3,
+        previous: 0,
+        absolute: 3,
+        percent: null,
+        direction: "up"
+      });
+      expect(overview.deltas.llmCostUsd).toEqual({
+        current: "0.450000",
+        previous: "0",
+        absolute: "0.450000",
+        percent: null,
+        direction: "up"
+      });
       expect(overview.top.events).toEqual([
         { name: "dashboard_created", total: 2 },
         { name: "chat_started", total: 1 }
@@ -6861,13 +8058,25 @@ describe("repositories", () => {
         { status: "resolved", total: 1 }
       ]);
       expect(overview.recent.errors).toEqual([
-        expect.objectContaining({ id: "err_fatal", message: "Worker crashed", severity: "fatal", status: "open" }),
-        expect.objectContaining({ id: "err_recent", message: "Checkout failed", severity: "critical", status: "open" }),
-        expect.objectContaining({ id: "err_warning", message: "Slow response", severity: "warning", status: "resolved" })
+        expect.objectContaining({ id: "err_fatal", errorGroupId: expect.any(String), message: "Worker crashed", severity: "fatal", status: "open" }),
+        expect.objectContaining({ id: "err_recent", errorGroupId: expect.any(String), message: "Checkout failed", severity: "critical", status: "open" }),
+        expect.objectContaining({ id: "err_warning", errorGroupId: expect.any(String), message: "Slow response", severity: "warning", status: "resolved" })
       ]);
       expect(overview.recent.failedTraces).toEqual([expect.objectContaining({ id: "trc_failed", status: "error" })]);
       expect(overview.recent.failedLlmCalls).toEqual([
         expect.objectContaining({ id: "llm_failed", status: "error", promptName: "Unspecified" })
+      ]);
+      expect(overview.recent.activity.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "error:err_fatal",
+        "error:err_recent",
+        "event:evt_overview_1",
+        "event:evt_overview_2",
+        "llm:llm_success",
+        "llm:llm_unspecified_prompt",
+        "trace:trc_success",
+        "error:err_warning",
+        "event:evt_overview_3",
+        "llm:llm_failed"
       ]);
       expect(overview.trends.usage).toHaveLength(25);
       expect(overview.trends.errors).toHaveLength(25);
@@ -6880,6 +8089,95 @@ describe("repositories", () => {
         errors: 2,
         openErrors: 2,
         severeErrors: 2
+      });
+    });
+  });
+
+  it("returns unified recent activity across events errors traces and llm calls", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Recent Activity Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt,
+        source: "api",
+        release: "web@1.2.3",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        sessionId: "session_a",
+        traceId: "trace_a"
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_activity",
+        name: "checkout.started",
+        timestamp: new Date("2026-05-05T11:58:00.000Z")
+      });
+      await insertError(db, {
+        ...base,
+        id: "err_activity",
+        message: "Checkout failed",
+        severity: "error",
+        status: "open",
+        timestamp: new Date("2026-05-05T11:59:00.000Z")
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_activity",
+        name: "POST /checkout",
+        status: "success",
+        timestamp: new Date("2026-05-05T11:57:00.000Z"),
+        startedAt: new Date("2026-05-05T11:57:00.000Z"),
+        durationMs: 42
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_activity",
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "summarize",
+        inputTokens: 12,
+        outputTokens: 8,
+        costUsd: "0.010000",
+        latencyMs: 120,
+        status: "success",
+        timestamp: new Date("2026-05-05T11:56:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_old_release",
+        name: "ignored",
+        release: "web@9.9.9",
+        timestamp: new Date("2026-05-03T12:00:00.000Z")
+      });
+
+      const result = await getRecentActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        limit: 3,
+        now
+      });
+
+      expect(result.activity.map((item) => `${item.type}:${item.id}`)).toEqual([
+        "error:err_activity",
+        "event:evt_activity",
+        "trace:trc_activity"
+      ]);
+      expect(result.activity[0]).toMatchObject({
+        title: "Checkout failed",
+        status: "open",
+        severity: "error",
+        tenantId: "tenant_a",
+        userId: "user_a",
+        sessionId: "session_a",
+        traceId: "trace_a"
       });
     });
   });
@@ -7018,11 +8316,127 @@ describe("repositories", () => {
       expect(operations.topLatency).toEqual([
         { name: "checkout", p95TraceDurationMs: 900, traces: 1, failedTraces: 1 }
       ]);
+      expect(operations.predictions[0]).toMatchObject({
+        type: "operational_risk",
+        label: "Operational risk",
+        severity: "critical",
+        suggestedDrilldown: "errors"
+      });
+      expect(operations.predictions[0]?.score).toBeGreaterThanOrEqual(75);
+      expect(operations.predictions[0]?.factors.map((factor) => factor.key)).toEqual(
+        expect.arrayContaining(["high_priority_incidents", "alert_delivery_failures", "error_rate"])
+      );
+      expect(operations.predictions[0]?.validation).toMatchObject({
+        baselineRiskScore: expect.any(Number),
+        sampleSize: expect.any(Number),
+        baselineSampleSize: expect.any(Number),
+        method: "heuristic-weighted-baseline-v1"
+      });
       expect(operations.recent.alerts[0]).toMatchObject({
         message: "Checkout p95 latency is high",
         latestDeliveryStatus: "failed"
       });
       expect(operations.setupGaps.map((gap) => gap.key)).not.toContain("http_monitor");
+    });
+  });
+
+  it("detects explainable operations anomalies against the previous window baseline", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Anomaly Operations Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-25T12:00:00.000Z");
+      const baselineAt = new Date("2026-05-23T12:10:00.000Z");
+      const currentAt = new Date("2026-05-24T12:10:00.000Z");
+
+      for (let index = 0; index < 20; index += 1) {
+        await insertTrace(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          id: `trc_anomaly_baseline_${index}`,
+          traceId: `trace_anomaly_baseline_${index}`,
+          name: "GET /checkout",
+          status: "success",
+          timestamp: baselineAt,
+          receivedAt: baselineAt,
+          startedAt: baselineAt,
+          durationMs: 120
+        });
+        await insertTrace(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          id: `trc_anomaly_current_${index}`,
+          traceId: `trace_anomaly_current_${index}`,
+          name: "GET /checkout",
+          status: index < 5 ? "error" : "success",
+          timestamp: currentAt,
+          receivedAt: currentAt,
+          startedAt: currentAt,
+          durationMs: 1800
+        });
+      }
+
+      await insertError(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "err_anomaly_baseline",
+        message: "baseline checkout failed",
+        severity: "error",
+        status: "open",
+        traceId: "trace_anomaly_baseline_0",
+        timestamp: baselineAt,
+        receivedAt: baselineAt
+      });
+      for (let index = 0; index < 5; index += 1) {
+        await insertError(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          id: `err_anomaly_current_${index}`,
+          message: "current checkout failed",
+          severity: "error",
+          status: "open",
+          traceId: `trace_anomaly_current_${index}`,
+          timestamp: currentAt,
+          receivedAt: currentAt
+        });
+      }
+
+      const operations = await getOperations(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(operations.anomalies.map((anomaly) => anomaly.type)).toEqual(expect.arrayContaining(["error_rate", "trace_p95_latency"]));
+      expect(operations.anomalies.find((anomaly) => anomaly.type === "trace_p95_latency")).toMatchObject({
+        label: "GET /checkout p95 latency",
+        severity: "critical",
+        observedValue: 1800,
+        baselineValue: 120,
+        routePattern: "GET /checkout",
+        suggestedAlertRuleType: "trace_p95_latency"
+      });
+      expect(operations.anomalies.find((anomaly) => anomaly.type === "error_rate")).toMatchObject({
+        observedValue: 25,
+        baselineValue: 5,
+        suggestedAlertRuleType: "error_rate"
+      });
+      expect(operations.predictions[0]).toMatchObject({
+        type: "operational_risk",
+        severity: "critical",
+        confidence: "medium",
+        validation: {
+          baselineRiskScore: expect.any(Number),
+          delta: expect.any(Number),
+          sampleSize: 25,
+          baselineSampleSize: 21
+        }
+      });
+      expect(operations.predictions[0]?.factors.map((factor) => factor.key)).toEqual(
+        expect.arrayContaining(["critical_anomalies", "error_rate", "p95_latency"])
+      );
     });
   });
 
@@ -7041,6 +8455,12 @@ describe("repositories", () => {
       });
 
       expect(operations.status).toBe("not_configured");
+      expect(operations.predictions[0]).toMatchObject({
+        type: "operational_risk",
+        severity: "low",
+        confidence: "low",
+        score: 0
+      });
       expect(operations.setupGaps.map((gap) => gap.key)).toEqual([
         "http_monitor",
         "heartbeat_monitor",
@@ -7269,6 +8689,13 @@ describe("repositories", () => {
         traits: { display_name: "Display ERP", operation_mode: 2, status: true },
         timestamp: new Date("2026-05-05T11:00:00.000Z")
       });
+      await identifyTenantProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_identified_only",
+        traits: { name: "Identified Only", plan: "starter" },
+        timestamp: new Date("2026-05-05T11:10:00.000Z")
+      });
       await insertEvent(db, {
         id: "evt_tenant_profile",
         projectId: project.id,
@@ -7397,6 +8824,41 @@ describe("repositories", () => {
         now
       });
       expect(byStatus.tenants.map((tenant) => tenant.tenantId)).toEqual(["tenant_display"]);
+
+      const bySessionWithProfile = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "session_1",
+        limit: 50,
+        now
+      });
+      expect(bySessionWithProfile.tenants).toHaveLength(1);
+      expect(bySessionWithProfile.tenants[0]).toMatchObject({
+        tenantId: "tenant_1",
+        label: "MicroERP",
+        traits: { name: "MicroERP", plan: "pro" },
+        keyTraits: { plan: "pro" }
+      });
+
+      const identifiedOnly = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "Identified Only",
+        limit: 50,
+        now
+      });
+      expect(identifiedOnly.tenants).toHaveLength(1);
+      expect(identifiedOnly.tenants[0]).toMatchObject({
+        tenantId: "tenant_identified_only",
+        label: "Identified Only",
+        events: 0,
+        errors: 0,
+        activeUsers: 0,
+        traits: { name: "Identified Only", plan: "starter" }
+      });
+      expect(identifiedOnly.tenants[0]?.lastSeenAt).toBe("2026-05-05T11:10:00.000Z");
 
       const allTenants = await listEntityTenants(db, {
         projectId: project.id,
@@ -7628,6 +9090,14 @@ describe("repositories", () => {
         traits: { display_name: "Ana Display", operation_mode: 7, status: "suspended" },
         timestamp: new Date("2026-05-05T11:00:00.000Z")
       });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_identified_only",
+        tenantId: "tenant_1",
+        traits: { name: "Only Identified", role: "viewer" },
+        timestamp: new Date("2026-05-05T11:10:00.000Z")
+      });
       await insertEvent(db, {
         id: "evt_user_profile",
         projectId: project.id,
@@ -7756,6 +9226,41 @@ describe("repositories", () => {
         now
       });
       expect(byStatus.users.map((user) => user.userId)).toEqual(["user_display"]);
+
+      const bySessionWithProfile = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "session_1",
+        limit: 50,
+        now
+      });
+      expect(bySessionWithProfile.users).toHaveLength(1);
+      expect(bySessionWithProfile.users[0]).toMatchObject({
+        userId: "user_1",
+        label: "Ana Souza",
+        traits: { name: "Ana Souza", plan: "enterprise", role: "admin" },
+        keyTraits: { plan: "enterprise", role: "admin" }
+      });
+
+      const identifiedOnly = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        search: "Only Identified",
+        limit: 50,
+        now
+      });
+      expect(identifiedOnly.users).toHaveLength(1);
+      expect(identifiedOnly.users[0]).toMatchObject({
+        userId: "user_identified_only",
+        label: "Only Identified",
+        events: 0,
+        errors: 0,
+        activeSessions: 0,
+        traits: { name: "Only Identified", role: "viewer" }
+      });
+      expect(identifiedOnly.users[0]?.lastSeenAt).toBe("2026-05-05T11:10:00.000Z");
 
       const allUsers = await listUsersActivity(db, {
         projectId: project.id,
@@ -8350,6 +9855,91 @@ describe("repositories", () => {
     });
   });
 
+  it("summarizes releases across telemetry and filters overview to an exact release", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Release Entity" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        receivedAt: new Date("2026-05-05T11:00:01.000Z"),
+        tenantId: "tenant_release",
+        userId: "user_release",
+        sessionId: "session_release",
+        traceId: "trace_release"
+      };
+
+      await insertEvent(db, { ...base, id: "evt_release_1", name: "checkout.started", release: "web@1.0.0" });
+      await insertError(db, {
+        ...base,
+        id: "err_release_1",
+        message: "Release one error",
+        severity: "error",
+        status: "open",
+        release: "web@1.0.0"
+      });
+      await insertTrace(db, {
+        ...base,
+        id: "trc_release_1",
+        name: "GET /checkout",
+        status: "error",
+        startedAt: base.timestamp,
+        durationMs: 450,
+        release: "web@1.0.0"
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_release_2",
+        name: "checkout.started",
+        timestamp: new Date("2026-05-05T11:30:00.000Z"),
+        release: "web@2.0.0"
+      });
+
+      const releases = await listReleases(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(releases.releases).toEqual([
+        expect.objectContaining({
+          release: "web@2.0.0",
+          events: 1,
+          errors: 0,
+          traces: 0,
+          firstSeenAt: "2026-05-05T11:30:00.000Z",
+          lastSeenAt: "2026-05-05T11:30:00.000Z"
+        }),
+        expect.objectContaining({
+          release: "web@1.0.0",
+          events: 1,
+          errors: 1,
+          traces: 1,
+          failedTraces: 1,
+          firstSeenAt: "2026-05-05T11:00:00.000Z",
+          lastSeenAt: "2026-05-05T11:00:00.000Z"
+        })
+      ]);
+
+      const filteredOverview = await getOverview(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        release: "web@1.0.0",
+        now
+      });
+
+      expect(filteredOverview.kpis).toMatchObject({ events: 1, errors: 1, traces: 1, failedTraces: 1 });
+      expect(filteredOverview.top.events).toEqual([{ name: "checkout.started", total: 1 }]);
+      expect(filteredOverview.releases.selected).toBe("web@1.0.0");
+    });
+  });
+
   it("filters events by exact event name", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -8369,6 +9959,1071 @@ describe("repositories", () => {
       await expect(
         listEvents(db, { projectId: project.id, environmentId: environment.id, eventName: "checkout.started" })
       ).resolves.toMatchObject({ data: [expect.objectContaining({ id: "evt_named_1", name: "checkout.started" })] });
+    });
+  });
+
+  it("builds an event property governance catalog with type and naming conflicts", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Properties API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const timestamp = new Date("2026-05-04T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-04T12:00:01.000Z");
+      const base = { projectId: project.id, environmentId: environment.id, timestamp, receivedAt };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_property_catalog_1",
+        name: "checkout.started",
+        properties: { plan: "team", amount: 1200 }
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_property_catalog_2",
+        name: "checkout.started",
+        properties: { Plan: "team", amount: "1200" }
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_property_catalog_3",
+        name: "invoice.paid",
+        properties: { plan: "enterprise", channel: "pix" }
+      });
+
+      const catalog = await getEventPropertyCatalog(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        limit: 20
+      });
+
+      expect(catalog.totals).toMatchObject({ events: 3, properties: 5, conflictProperties: 1, similarNameGroups: 1 });
+      expect(catalog.properties).toContainEqual(
+        expect.objectContaining({
+          eventName: "checkout.started",
+          propertyName: "amount",
+          totalOccurrences: 2,
+          eventCount: 2,
+          coveragePercent: 100,
+          hasTypeConflict: true,
+          typeCounts: { number: 1, string: 1 },
+          sampleValues: expect.arrayContaining(["1200"])
+        })
+      );
+      expect(catalog.properties).toContainEqual(
+        expect.objectContaining({
+          eventName: "checkout.started",
+          propertyName: "plan",
+          similarPropertyNames: ["Plan"]
+        })
+      );
+      expect(catalog.similarNameGroups).toEqual([
+        {
+          normalizedName: "plan",
+          propertyNames: ["Plan", "plan"],
+          eventNames: ["checkout.started", "invoice.paid"]
+        }
+      ]);
+    });
+  });
+
+  it("calculates conversion funnels by actor and ordered event sequence", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_funnel_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u1_3", userId: "user_1", name: "key.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u2_1", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u2_2", userId: "user_2", name: "project.created", timestamp: new Date("2026-05-04T12:03:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u3_1", userId: "user_3", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_before", userId: "user_4", name: "project.created", timestamp: new Date("2026-05-04T11:58:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_funnel_u4_1", userId: "user_4", name: "signup.started", timestamp: new Date("2026-05-04T12:04:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created", "key.created"]
+      });
+
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 4, conversionPercent: 100, dropOffFromPreviousPercent: 0 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 2, conversionPercent: 50, dropOffFromPreviousPercent: 50 }),
+        expect.objectContaining({ index: 2, name: "key.created", actors: 1, conversionPercent: 25, dropOffFromPreviousPercent: 50 })
+      ]);
+      expect(funnel.totals).toMatchObject({ entrants: 4, completed: 1, conversionPercent: 25 });
+      expect(funnel.sampleActors.map((actor) => actor.actorId)).toEqual(["user_1", "user_2", "user_3", "user_4"]);
+      expect(funnel.sampleActors[0]).toMatchObject({ reachedStepIndex: 2, reachedStepName: "key.created" });
+    });
+  });
+
+  it("calculates common event paths by actor with deterministic sample drilldowns", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Paths API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_path_u1_1", userId: "user_1", tenantId: "tenant_a", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u1_2", userId: "user_1", tenantId: "tenant_a", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u1_3", userId: "user_1", tenantId: "tenant_a", name: "key.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u1_4", userId: "user_1", tenantId: "tenant_a", name: "invoice.paid", timestamp: new Date("2026-05-04T12:03:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u2_1", userId: "user_2", tenantId: "tenant_a", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u2_2", userId: "user_2", tenantId: "tenant_a", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_u2_3", userId: "user_2", tenantId: "tenant_a", name: "key.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_other", userId: "user_3", tenantId: "tenant_b", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_path_other_2", userId: "user_3", tenantId: "tenant_b", name: "billing.failed", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+
+      const paths = await getEventPaths(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        tenantId: "tenant_a",
+        startEvent: "signup.started",
+        endEvent: "key.created",
+        pathLength: 5
+      });
+
+      expect(paths.totals).toEqual({ actors: 2, paths: 1, events: 7 });
+      expect(paths.paths).toEqual([
+        expect.objectContaining({
+          path: ["signup.started", "project.created", "key.created"],
+          actors: 2,
+          occurrences: 2,
+          sampleEvents: [
+            expect.objectContaining({ id: "evt_path_u1_1", name: "signup.started", actorId: "user_1" }),
+            expect.objectContaining({ id: "evt_path_u1_2", name: "project.created", actorId: "user_1" }),
+            expect.objectContaining({ id: "evt_path_u1_3", name: "key.created", actorId: "user_1" })
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("calculates temporal retention cohorts by actor", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Retention API" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_ret_u1_entry", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u1_d0", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-04T13:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u1_d1", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-05T13:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u2_entry", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T14:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u2_d2", userId: "user_2", name: "app.opened", timestamp: new Date("2026-05-06T14:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u3_entry", userId: "user_3", name: "signup.started", timestamp: new Date("2026-05-05T09:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u3_before", userId: "user_3", name: "app.opened", timestamp: new Date("2026-05-05T08:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ret_u3_d1", userId: "user_3", name: "app.opened", timestamp: new Date("2026-05-06T09:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-08T12:00:00.000Z"),
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3
+      });
+
+      expect(retention.totals).toEqual({ cohorts: 2, entrants: 3 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2026-05-04",
+          entrants: 2,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 1, retentionPercent: 50 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 50 },
+            { index: 2, label: "D2", retainedActors: 1, retentionPercent: 50 }
+          ]
+        }),
+        expect.objectContaining({
+          cohortLabel: "2026-05-05",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 },
+            { index: 2, label: "D2", retainedActors: 0, retentionPercent: 0 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("manages analytics segments and uses them as event filters", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_seg_u1",
+        userId: "user_1",
+        tenantId: "tenant_1",
+        name: "project.created",
+        properties: { plan: "team" },
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_seg_u1_other",
+        userId: "user_1",
+        tenantId: "tenant_1",
+        name: "invoice.paid",
+        properties: { plan: "team" },
+        timestamp: new Date("2026-05-04T12:01:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_seg_u2",
+        userId: "user_2",
+        tenantId: "tenant_2",
+        name: "project.created",
+        properties: { plan: "free" },
+        timestamp: new Date("2026-05-04T12:02:00.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Team creators",
+        actorType: "user",
+        definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+      });
+
+      await expect(listAnalyticsSegments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: segment.id, name: "Team creators" })
+      ]);
+
+      const preview = await previewAnalyticsSegment(db, segment, {
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+      expect(preview).toMatchObject({ segmentId: segment.id, actorType: "user", actors: 1 });
+      expect(preview.samples).toEqual([expect.objectContaining({ actorId: "user_1" })]);
+
+      const filtered = await listEvents(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        segmentId: segment.id,
+        to: new Date("2026-05-05T12:00:00.000Z"),
+        limit: 10
+      });
+      expect(filtered.data.map((event) => event.id).sort()).toEqual(["evt_seg_u1", "evt_seg_u1_other"]);
+
+      await expect(updateAnalyticsSegment(db, segment.id, { name: "Activated team users" })).resolves.toEqual(
+        expect.objectContaining({ name: "Activated team users" })
+      );
+      await archiveAnalyticsSegment(db, segment.id);
+      await expect(listAnalyticsSegments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages scoped analytics dashboards with bounded widgets", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Dashboards Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const dashboard = await createAnalyticsDashboard(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Operations report",
+        category: "operational",
+        filters: { window: "7d" },
+        widgets: [
+          { type: "metric.events", title: "Events", width: "half", options: {} },
+          { type: "metric.errors", title: "Errors", width: "half", options: {} },
+          { type: "top.events", title: "Top events", width: "full", options: {} }
+        ]
+      });
+
+      expect(dashboard).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Operations report",
+        filters: { window: "7d" }
+      });
+      expect(dashboard.widgets).toHaveLength(3);
+      expect(dashboard.widgets[0]?.id).toMatch(/^wid_/);
+
+      await expect(listAnalyticsDashboards(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: dashboard.id, name: "Operations report" })
+      ]);
+
+      await expect(
+        updateAnalyticsDashboard(db, {
+          id: dashboard.id,
+          projectId: project.id,
+          environmentId: environment.id,
+          patch: { name: "Executive report", category: "executive", filters: { window: "30d" } }
+        })
+      ).resolves.toEqual(expect.objectContaining({ name: "Executive report", category: "executive", filters: { window: "30d" } }));
+
+      await archiveAnalyticsDashboard(db, { id: dashboard.id, projectId: project.id, environmentId: environment.id });
+      await expect(listAnalyticsDashboards(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages A/B experiments and calculates variant conversion results", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Experiments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      const experiment = await createExperiment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "checkout_copy",
+        name: "Checkout copy",
+        description: "Compare headline copy.",
+        actorType: "user",
+        exposureEvent: "sigmon.experiment.exposed",
+        conversionEvent: "checkout.completed",
+        variants: [
+          { key: "control", name: "Control", weight: 50 },
+          { key: "treatment", name: "Treatment", weight: 50 }
+        ],
+        primaryMetric: { eventName: "checkout.completed", windowHours: 24 }
+      });
+
+      expect(experiment).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "checkout_copy",
+        status: "draft",
+        variants: [
+          { key: "control", name: "Control", weight: 50 },
+          { key: "treatment", name: "Treatment", weight: 50 }
+        ]
+      });
+
+      await updateExperiment(db, {
+        id: experiment.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        patch: { status: "running" }
+      });
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u1_exposure",
+        userId: "user_1",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "control" },
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u1_conversion",
+        userId: "user_1",
+        name: "checkout.completed",
+        properties: { experiment_key: "checkout_copy", variant: "control" },
+        timestamp: new Date("2026-05-04T12:10:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u2_exposure",
+        userId: "user_2",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "control" },
+        timestamp: new Date("2026-05-04T12:20:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u3_exposure",
+        userId: "user_3",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:30:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u3_conversion",
+        userId: "user_3",
+        name: "checkout.completed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:40:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u4_exposure",
+        userId: "user_4",
+        name: "sigmon.experiment.exposed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:50:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_exp_u4_conversion",
+        userId: "user_4",
+        name: "checkout.completed",
+        properties: { experiment_key: "checkout_copy", variant: "treatment" },
+        timestamp: new Date("2026-05-04T12:55:00.000Z")
+      });
+
+      await expect(listExperiments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: experiment.id, key: "checkout_copy", status: "running" })
+      ]);
+
+      const results = await getExperimentResults(db, {
+        experimentId: experiment.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+
+      expect(results).not.toBeNull();
+      if (!results) return;
+      expect(results.totals).toEqual({ exposures: 4, conversions: 3, variants: 2 });
+      expect(results.variants).toEqual([
+        expect.objectContaining({ key: "control", exposures: 2, conversions: 1, conversionRate: 50, liftPoints: null }),
+        expect.objectContaining({ key: "treatment", exposures: 2, conversions: 2, conversionRate: 100, liftPoints: 50 })
+      ]);
+
+      await archiveExperiment(db, { id: experiment.id, projectId: project.id, environmentId: environment.id });
+      await expect(listExperiments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages surveys and aggregates in-app survey responses", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Survey Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const submittedAt = new Date("2026-05-04T12:00:00.000Z");
+
+      const survey = await createSurvey(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "activation_pulse",
+        name: "Activation pulse",
+        status: "active",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        questions: [
+          { id: "satisfaction", type: "rating", label: "How satisfied are you?", required: true, scale: { min: 1, max: 5 } },
+          { id: "role", type: "choice", label: "Role", required: false, options: ["owner", "operator"] }
+        ],
+        targeting: { tenantId: "tenant_1", sampleRate: 0.5 }
+      });
+
+      expect(survey).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "activation_pulse",
+        status: "active",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        targeting: { tenantId: "tenant_1", sampleRate: 0.5 }
+      });
+
+      const paused = await updateSurvey(db, {
+        id: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        patch: { status: "paused" }
+      });
+      expect(paused?.status).toBe("paused");
+
+      await recordSurveyResponse(db, {
+        id: "srs_survey_1",
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_1",
+        userId: "user_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        answers: { satisfaction: 5, role: "owner" },
+        metadata: { source: "widget" },
+        submittedAt,
+        receivedAt: submittedAt
+      });
+      await recordSurveyResponse(db, {
+        id: "srs_survey_2",
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_2",
+        userId: "user_2",
+        tenantId: "tenant_1",
+        sessionId: "sess_2",
+        answers: { satisfaction: 4, role: "operator" },
+        submittedAt: new Date("2026-05-04T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:05:00.000Z")
+      });
+
+      await expect(listSurveys(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: survey.id, key: "activation_pulse", status: "paused" })
+      ]);
+
+      const results = await getSurveyResults(db, {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+
+      expect(results).not.toBeUndefined();
+      if (!results) return;
+      expect(results.totals).toEqual({ responses: 2, users: 2, tenants: 1, sessions: 2 });
+      expect(results.questions).toEqual([
+        expect.objectContaining({ id: "satisfaction", responses: 2, average: 4.5 }),
+        expect.objectContaining({ id: "role", responses: 2, choices: [{ value: "owner", count: 1 }, { value: "operator", count: 1 }] })
+      ]);
+      expect(results.recentResponses.map((response) => response.id)).toEqual(["srs_survey_2", "srs_survey_1"]);
+
+      await archiveSurvey(db, { id: survey.id, projectId: project.id, environmentId: environment.id });
+      await expect(listSurveys(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("calculates NPS score, trend, and segments from survey responses", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "NPS Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const survey = await createSurvey(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "quarterly_nps",
+        name: "Quarterly NPS",
+        status: "active",
+        actorType: "user",
+        questions: [
+          {
+            id: "nps",
+            type: "rating",
+            label: "How likely are you to recommend us?",
+            required: true,
+            scale: { min: 0, max: 10, minLabel: "Not likely", maxLabel: "Very likely" }
+          }
+        ]
+      });
+
+      const base = {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user" as const,
+        source: "browser"
+      };
+      await recordSurveyResponse(db, {
+        ...base,
+        id: "srs_nps_1",
+        actorId: "user_1",
+        userId: "user_1",
+        tenantId: "tenant_a",
+        release: "2026.05.1",
+        answers: { nps: 10 },
+        metadata: { plan: "pro" },
+        submittedAt: new Date("2026-05-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-05-01T10:00:00.000Z")
+      });
+      await recordSurveyResponse(db, {
+        ...base,
+        id: "srs_nps_2",
+        actorId: "user_2",
+        userId: "user_2",
+        tenantId: "tenant_a",
+        release: "2026.05.1",
+        answers: { nps: 8 },
+        metadata: { plan: "pro" },
+        submittedAt: new Date("2026-05-01T11:00:00.000Z"),
+        receivedAt: new Date("2026-05-01T11:00:00.000Z")
+      });
+      await recordSurveyResponse(db, {
+        ...base,
+        id: "srs_nps_3",
+        actorId: "user_3",
+        userId: "user_3",
+        tenantId: "tenant_b",
+        release: "2026.05.2",
+        answers: { nps: 4 },
+        metadata: { plan: "free" },
+        submittedAt: new Date("2026-05-02T10:00:00.000Z"),
+        receivedAt: new Date("2026-05-02T10:00:00.000Z")
+      });
+
+      const results = await getNpsResults(db, {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-03T00:00:00.000Z")
+      });
+
+      expect(results).not.toBeUndefined();
+      if (!results) return;
+      expect(results.totals).toEqual({ responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0, average: 7.3 });
+      expect(results.trend).toEqual([
+        expect.objectContaining({ bucket: "2026-05-01", responses: 2, score: 50 }),
+        expect.objectContaining({ bucket: "2026-05-02", responses: 1, score: -100 })
+      ]);
+      expect(results.segments.tenants).toEqual([
+        expect.objectContaining({ key: "tenant_a", responses: 2, score: 50 }),
+        expect.objectContaining({ key: "tenant_b", responses: 1, score: -100 })
+      ]);
+      expect(results.segments.plans).toEqual([
+        expect.objectContaining({ key: "pro", responses: 2, score: 50 }),
+        expect.objectContaining({ key: "free", responses: 1, score: -100 })
+      ]);
+
+      const proOnly = await getNpsResults(db, {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        plan: "pro",
+        window: "7d",
+        now: new Date("2026-05-03T00:00:00.000Z")
+      });
+      expect(proOnly?.totals).toMatchObject({ responses: 2, score: 50 });
+    });
+  });
+
+  it("manages message campaigns, measures engagement, and respects opt-outs", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Campaign Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Active tenants",
+        actorType: "tenant",
+        definition: { window: "30d", eventName: "invoice.created" }
+      });
+      const channel = await createNotificationChannel(db, {
+        name: "Lifecycle email",
+        type: "email",
+        emailRecipients: ["ops@example.com"],
+        enabled: true
+      });
+
+      const campaign = await createMessageCampaign(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "invoice_activation",
+        name: "Invoice activation",
+        status: "active",
+        channelType: "email",
+        notificationChannelId: channel.id,
+        segmentId: segment.id,
+        conversionEvent: "invoice.paid",
+        subject: "Create your first invoice",
+        body: "Invite tenants to finish onboarding.",
+        ctaUrl: "https://app.example.com/invoices",
+        consentCategory: "product",
+        privacyNote: "Only opted-in product contacts should receive this."
+      });
+
+      const baseEvent = {
+        campaignId: campaign.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "tenant" as const
+      };
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "delivered",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:00:00.000Z")
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "opened",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:05:00.000Z")
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "clicked",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:10:00.000Z")
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "converted",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:30:00.000Z")
+      });
+      await upsertMessageCampaignOptOut(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        campaignId: campaign.id,
+        actorType: "tenant",
+        actorId: "tenant_2",
+        category: "product",
+        reason: "User unsubscribed"
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "opted_out",
+        actorId: "tenant_2",
+        tenantId: "tenant_2",
+        occurredAt: new Date("2026-06-01T11:00:00.000Z")
+      });
+
+      const listed = await listMessageCampaigns(db, { projectId: project.id, environmentId: environment.id });
+      expect(listed[0]).toMatchObject({
+        id: campaign.id,
+        key: "invoice_activation",
+        channelType: "email",
+        consentCategory: "product",
+        segmentId: segment.id
+      });
+
+      const results = await getMessageCampaignResults(db, {
+        campaignId: campaign.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-06-02T00:00:00.000Z")
+      });
+
+      expect(results?.totals).toMatchObject({
+        delivered: 1,
+        opened: 1,
+        clicked: 1,
+        converted: 1,
+        optedOut: 1,
+        uniqueActors: 2
+      });
+      expect(results?.rates).toMatchObject({
+        openRate: 100,
+        clickRate: 100,
+        conversionRate: 100,
+        optOutRate: 100
+      });
+      expect(results?.recentEvents.map((event) => event.type)).toEqual(["opted_out", "converted", "clicked", "opened", "delivered"]);
+      expect(results?.optOuts[0]).toMatchObject({ actorId: "tenant_2", category: "product", reason: "User unsubscribed" });
+
+      await archiveMessageCampaign(db, { id: campaign.id, projectId: project.id, environmentId: environment.id });
+      expect(await listMessageCampaigns(db, { projectId: project.id, environmentId: environment.id })).toEqual([]);
+    });
+  });
+
+  it("manages feedback widget settings and triages feedback submissions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Feedback Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await expect(getFeedbackWidgetSettings(db, { projectId: project.id, environmentId: environment.id })).resolves.toMatchObject({
+        enabled: false,
+        title: "Send feedback"
+      });
+
+      const settings = await upsertFeedbackWidgetSettings(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        enabled: true,
+        title: "Tell us",
+        buttonLabel: "Feedback",
+        accentColor: "#66e38a",
+        privacyNote: "Do not include secrets."
+      });
+      expect(settings).toMatchObject({
+        enabled: true,
+        title: "Tell us",
+        privacyNote: "Do not include secrets."
+      });
+
+      const item = await recordFeedbackItem(db, {
+        id: "fbk_test_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Export wording is unclear",
+        category: "ux",
+        pageUrl: "https://app.example.com/reports",
+        path: "/reports",
+        tenantId: "tenant_1",
+        userId: "user_1",
+        metadata: { surface: "reports" },
+        submittedAt: new Date("2026-05-04T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      });
+      expect(item).toMatchObject({ id: "fbk_test_1", status: "open", category: "ux" });
+
+      await expect(listFeedbackItems(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: "fbk_test_1", message: "Export wording is unclear" })
+      ]);
+
+      const reviewed = await updateFeedbackItemStatus(db, {
+        id: item.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        status: "reviewed"
+      });
+      expect(reviewed?.status).toBe("reviewed");
+      await expect(listFeedbackItems(db, { projectId: project.id, environmentId: environment.id, status: "open" })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages feature flags with audit history and safe evaluation fallback", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Feature Flags Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const flag = await createFeatureFlag(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "new_checkout",
+        name: "New checkout",
+        description: "Gate the new checkout flow.",
+        status: "active",
+        defaultVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [
+          { id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } },
+          { id: "beta_tenant", description: "Beta tenants", variant: "on", match: { traits: { plan: "beta" } } },
+          { id: "rollout_10", description: "Gradual rollout", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }
+        ],
+        actorId: "admin_1"
+      });
+
+      expect(flag).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "new_checkout",
+        status: "active",
+        defaultVariant: "off"
+      });
+
+      await expect(listFeatureFlags(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: flag.id, key: "new_checkout" })
+      ]);
+
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1", traits: { plan: "free" } },
+          fallbackVariant: "off"
+        })
+      ).resolves.toEqual(expect.objectContaining({ matched: true, variant: "on", value: true, reason: "rule_match" }));
+
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_4", traits: { plan: "free" } },
+          fallbackVariant: "off"
+        })
+      ).resolves.toEqual(expect.objectContaining({ matched: false, variant: "off", value: false, reason: "default" }));
+
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_2", traits: { plan: "free" } },
+          fallbackVariant: "off"
+        })
+      ).resolves.toEqual(expect.objectContaining({ matched: true, variant: "on", value: true, reason: "rule_match", ruleId: "rollout_10" }));
+
+      await updateFeatureFlag(db, {
+        id: flag.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        patch: { status: "paused", name: "New checkout paused" },
+        actorId: "admin_2"
+      });
+
+      const audit = await listFeatureFlagAudit(db, { featureFlagId: flag.id, projectId: project.id, environmentId: environment.id });
+      expect(audit.map((entry) => entry.action)).toEqual(["created", "updated"]);
+      expect(audit[1]).toEqual(expect.objectContaining({ actorId: "admin_2" }));
+
+      await archiveFeatureFlag(db, { id: flag.id, projectId: project.id, environmentId: environment.id, actorId: "admin_3" });
+      await expect(listFeatureFlags(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+      await expect(listFeatureFlagAudit(db, { featureFlagId: flag.id, projectId: project.id, environmentId: environment.id })).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ action: "archived", actorId: "admin_3" })])
+      );
+    });
+  });
+
+  it("manages beta programs, participants, adoption, and linked feature flag access", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Beta Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const flag = await createFeatureFlag(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "new_checkout",
+        name: "New checkout",
+        status: "active",
+        defaultVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ]
+      });
+
+      const program = await createBetaProgram(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "checkout_beta",
+        name: "Checkout beta",
+        description: "Early access for checkout redesign.",
+        status: "active",
+        featureFlagId: flag.id,
+        featureFlagVariant: "on",
+        actorType: "user"
+      });
+
+      await expect(listBetaPrograms(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: program.id, key: "checkout_beta", featureFlagId: flag.id })
+      ]);
+
+      const participant = await addBetaProgramParticipant(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_1",
+        status: "active",
+        notes: "Requested access from support."
+      });
+
+      expect(participant).toMatchObject({ actorId: "user_1", status: "active", notes: "Requested access from support." });
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "on", matched: true });
+
+      await insertEvent(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "evt_beta_u1",
+        userId: "user_1",
+        name: "checkout.opened",
+        properties: {},
+        timestamp: new Date("2026-05-04T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      });
+
+      const adoption = await getBetaProgramAdoption(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+      expect(adoption).toMatchObject({ programId: program.id, participants: 1, activeParticipants: 1, activeActorsWithEvents: 1, events: 1 });
+
+      await expect(
+        updateBetaProgram(db, { id: program.id, projectId: project.id, environmentId: environment.id, patch: { name: "Checkout preview" } })
+      ).resolves.toEqual(expect.objectContaining({ name: "Checkout preview" }));
+      await expect(listBetaProgramParticipants(db, { programId: program.id, projectId: project.id, environmentId: environment.id })).resolves.toHaveLength(1);
+
+      await removeBetaProgramParticipant(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        participantId: participant.id
+      });
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "off", matched: false });
+
+      await addBetaProgramParticipant(db, {
+        programId: program.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_1",
+        status: "active"
+      });
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "on", matched: true });
+
+      await archiveBetaProgram(db, { id: program.id, projectId: project.id, environmentId: environment.id });
+      await expect(listBetaPrograms(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+      await expect(
+        evaluateFeatureFlag(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          key: "new_checkout",
+          subject: { userId: "user_1" },
+          fallbackVariant: "off"
+        })
+      ).resolves.toMatchObject({ variant: "off", matched: false });
     });
   });
 
@@ -8714,6 +11369,41 @@ describe("repositories", () => {
     });
   });
 
+  it("listErrorGroups includes assignedTo user summary for assigned groups", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Assigned Summary Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const user = await createUser(db, { email: "assigned-summary@example.com", passwordHash: "hash", isAdmin: false });
+
+      await insertError(db, {
+        id: "err_assign_summary_001",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Assigned summary error",
+        severity: "error",
+        timestamp: new Date("2026-06-01T10:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T10:00:01.000Z")
+      });
+
+      const [group] = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      expect(group).toBeDefined();
+
+      const assignResult = await assignIncident(db, {
+        errorGroupId: group.id,
+        assignedToUserId: user.id,
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(assignResult.ok).toBe(true);
+
+      const [listed] = await listErrorGroups(db, { projectId: project.id, environmentId: environment.id });
+      expect(listed.assignedToUserId).toBe(user.id);
+      expect(listed.assignedTo).toEqual({ id: user.id, email: "assigned-summary@example.com" });
+    });
+  });
+
   it("assign returns group_not_found for unknown error group", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -8899,11 +11589,17 @@ describe("repositories", () => {
       const silenced = await silenceIncident(db, { errorGroupId: group.id, until, projectId: project.id, environmentId: environment.id });
       expect(silenced).not.toBeNull();
       expect(silenced!.silencedUntil).toEqual(until);
+      await expect(
+        isErrorGroupSilenced(db, { errorGroupId: group.id, now: new Date("2026-06-08T09:59:59.000Z") })
+      ).resolves.toBe(true);
 
       // Clear silence
       const cleared = await silenceIncident(db, { errorGroupId: group.id, until: null, projectId: project.id, environmentId: environment.id });
       expect(cleared).not.toBeNull();
       expect(cleared!.silencedUntil).toBeNull();
+      await expect(
+        isErrorGroupSilenced(db, { errorGroupId: group.id, now: new Date("2026-06-08T09:59:59.000Z") })
+      ).resolves.toBe(false);
     });
   });
 

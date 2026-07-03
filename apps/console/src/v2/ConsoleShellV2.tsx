@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Command } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type { Environment, User } from "../api/types";
+import { CommandPalette, type CommandPaletteItem } from "../components/CommandPalette";
 import { NavRail } from "./shell/NavRail";
 import { TopBar } from "./shell/TopBar";
 import { HealthRail } from "./shell/HealthRail";
@@ -24,6 +24,8 @@ const STORAGE_KEY = "sh_v2_state";
 type PersistedState = {
   nav?: NavSection;
   projectId?: string;
+  environmentId?: string;
+  /** Legacy localStorage key from the first v2 shell. Prefer environmentId. */
   env?: string;
   railCollapsed?: boolean;
 };
@@ -92,7 +94,6 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   // Command palette
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [commandQuery, setCommandQuery] = useState("");
 
   // ─── hooks ────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     activeEnvironment,
     selectProject,
     selectEnvironment,
+    selectEnvironmentByName,
     reload: reloadProjects,
   } = useConsoleProjects(client);
 
@@ -124,9 +126,13 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   }, [projects.length > 0]);
 
   useEffect(() => {
-    if (!persisted.env || environments.length === 0) return;
-    const env = environments.find((e) => e.name === persisted.env);
-    if (env) selectEnvironment(env.name);
+    if (environments.length === 0) return;
+    const env = persisted.environmentId
+      ? environments.find((e) => e.id === persisted.environmentId)
+      : persisted.env
+        ? environments.find((e) => e.name === persisted.env)
+        : undefined;
+    if (env) selectEnvironment(env.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [environments.length > 0]);
 
@@ -173,16 +179,16 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     (id: string) => {
       setDetail(null);
       selectProject(id);
-      saveState({ projectId: id });
+      saveState({ projectId: id, environmentId: undefined, env: undefined });
     },
     [selectProject]
   );
 
   const handleSelectEnv = useCallback(
-    (name: string) => {
+    (environmentId: string) => {
       setDetail(null);
-      selectEnvironment(name);
-      saveState({ env: name });
+      selectEnvironment(environmentId);
+      saveState({ environmentId, env: undefined });
     },
     [selectEnvironment]
   );
@@ -199,10 +205,10 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   const handleOpenEnv = useCallback(
     (projectId: string, envName: string) => {
       handleSelectProject(projectId);
-      handleSelectEnv(envName);
+      selectEnvironmentByName(envName);
       if (railCollapsed) toggleRail();
     },
-    [handleSelectProject, handleSelectEnv, railCollapsed, toggleRail]
+    [handleSelectProject, railCollapsed, selectEnvironmentByName, toggleRail]
   );
 
   const handleRefresh = useCallback(() => {
@@ -222,7 +228,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     async (name: string) => {
       if (!activeProject) return;
       const { environment: created } = await client.createEnvironment(activeProject.id, { name });
-      selectEnvironment(created.name);
+      selectEnvironment(created.id);
     },
     [client, activeProject, selectEnvironment]
   );
@@ -245,7 +251,8 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   const handleSelectEnvironmentObj = useCallback(
     (env: Environment) => {
-      selectEnvironment(env.name);
+      selectEnvironment(env.id);
+      saveState({ environmentId: env.id, env: undefined });
     },
     [selectEnvironment]
   );
@@ -312,12 +319,11 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     { section: "settings", title: "Settings", description: "Project and environment settings" },
   ];
 
-  const normalizedQuery = commandQuery.trim().toLowerCase();
-  const filteredCommands = normalizedQuery
-    ? commandDestinations.filter((d) =>
-        `${d.title} ${d.description}`.toLowerCase().includes(normalizedQuery)
-      )
-    : commandDestinations;
+  const commandItems: CommandPaletteItem[] = commandDestinations.map((destination) => ({
+    id: destination.section,
+    title: destination.title,
+    description: destination.description
+  }));
 
   return (
     <div className="sh-v2">
@@ -383,59 +389,16 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
         <ToastStack toasts={toasts} onDismiss={dismiss} />
       </div>
 
-      {/* Command palette — reuses the legacy markup pattern from ConsoleShell */}
       {isCommandPaletteOpen ? (
-        <div
-          aria-label="Command palette"
-          aria-modal="true"
-          className="command-palette"
-          role="dialog"
-        >
-          <div
-            className="command-palette__backdrop"
-            onClick={() => {
-              setIsCommandPaletteOpen(false);
-              setCommandQuery("");
-            }}
-          />
-          <section className="command-palette__panel">
-            <label className="command-palette__search">
-              <Command aria-hidden="true" size={16} />
-              <input
-                aria-label="Search commands"
-                autoFocus
-                onChange={(e) => setCommandQuery(e.target.value)}
-                placeholder="Jump to section…"
-                value={commandQuery}
-              />
-              <kbd>Esc</kbd>
-            </label>
-            <div className="command-palette__list">
-              {filteredCommands.length === 0 ? (
-                <p className="muted-text">No commands match this search.</p>
-              ) : (
-                filteredCommands.map((d) => (
-                  <button
-                    aria-label={`Open ${d.title}`}
-                    className="command-palette__item"
-                    key={d.section}
-                    onClick={() => {
-                      navigate(d.section);
-                      setIsCommandPaletteOpen(false);
-                      setCommandQuery("");
-                    }}
-                    type="button"
-                  >
-                    <span>
-                      <strong>Open {d.title}</strong>
-                      <small>{d.description}</small>
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
-        </div>
+        <CommandPalette
+          items={commandItems}
+          onClose={() => setIsCommandPaletteOpen(false)}
+          onSelect={(item) => {
+            navigate(item.id as NavSection);
+            setIsCommandPaletteOpen(false);
+          }}
+          placeholder="Jump to section..."
+        />
       ) : null}
     </div>
   );

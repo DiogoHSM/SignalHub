@@ -44,7 +44,7 @@ Keep these scopes separate:
 ## Node.js
 
 ```ts
-import { createSignalMonitorClient } from "@sigmon/sdk/node";
+import { createSignalMonitorClient, installNodeErrorCapture } from "@sigmon/sdk/node";
 
 const sigmon = createSignalMonitorClient({
   endpoint: process.env.SIGMON_ENDPOINT ?? "https://my.sigmon.app",
@@ -74,6 +74,188 @@ sigmon.captureError(new Error("Payment provider timeout"), {
 await sigmon.flush();
 ```
 
+### Event property hygiene
+
+Sigmon accepts flexible event properties, then surfaces a property catalog in the console and through
+`GET /query/events/properties`. Keep properties easy to query:
+
+- Use stable `snake_case` names.
+- Keep one JSON type per property name, for example `amount_cents` is always a number.
+- Put `tenantId`, `userId`, `sessionId`, and `traceId` in Sigmon context instead of duplicating them in properties.
+- Avoid secrets, tokens, cookies, raw PII, full request bodies, and full response bodies.
+- Use `metadata` for runtime/emitter context and `properties` for product-event facts.
+
+Funnels are derived from normal event telemetry. To make conversion analysis useful, send stable actor
+context on each funnel event:
+
+```ts
+sigmon.track("signup.started", {}, { userId: "user_456", tenantId: "tenant_123" });
+sigmon.track("project.created", {}, { userId: "user_456", tenantId: "tenant_123" });
+sigmon.track("key.created", {}, { userId: "user_456", tenantId: "tenant_123" });
+```
+
+Retention curves use the same product events. Pick a stable entry event such as `signup.started` and a
+return event such as `app.opened`; Sigmon groups actors into daily, weekly, or monthly cohorts from the
+first entry event and counts later return activity.
+
+Saved segments also come from normal event telemetry. Keep actor identifiers and event properties
+consistent so operators can save reusable user or tenant cohorts such as "team plan users who created
+a project in the last 30 days" and apply them back to event investigation.
+
+User journey paths use the same events to find common sequences before or after a selected event. Send
+stable `userId`, `tenantId`, `sessionId`, or `traceId` context on each product event so Sigmon can group
+paths by the right actor and expose sample events for drilldown.
+
+Custom dashboards and saved reports are also derived from normal event and error telemetry. You do not
+need a dashboard-specific SDK call; keep event naming, actor IDs, and product properties consistent so
+operators can compose stable metric, trend, and top-list widgets in the Sigmon console.
+
+A/B experiments use deterministic SDK assignment plus normal event telemetry. Create the experiment in
+the Sigmon console, then assign a subject and let the SDK send the exposure event:
+
+```ts
+const assignment = sigmon.assignExperiment({
+  experimentKey: "checkout_copy",
+  subjectId: "user_456",
+  variants: [
+    { key: "control", weight: 50 },
+    { key: "treatment", weight: 50 }
+  ],
+  properties: { surface: "pricing" }
+});
+
+renderCheckoutCopy(assignment.variant);
+sigmon.track("checkout.completed", {
+  experiment_key: "checkout_copy",
+  variant: assignment.variant
+});
+```
+
+Sigmon reads results from `GET /query/experiments/:id/results`; keep `experiment_key`, `variant`, and
+stable user/tenant/session context on exposure and conversion events.
+
+Feature flags use saved project/environment definitions in the Sigmon console and a safe SDK evaluator
+that can run with a local snapshot. Always provide an off/default variant so app code has a deterministic
+fallback if remote config is unavailable:
+
+```ts
+const flag = sigmon.evaluateFlag({
+  key: "new_checkout",
+  fallbackVariant: "off",
+  variants: [
+    { key: "off", value: false },
+    { key: "on", value: true }
+  ],
+  rules: [{ variant: "on", match: { userId: "user_456", traits: { plan: "team" } } }],
+  subject: { userId: "user_456", traits: { plan: "team" } }
+});
+
+if (flag.value === true) {
+  renderNewCheckout();
+}
+```
+
+The helper records `sigmon.feature_flag.evaluated` unless `trackExposure: false` is set.
+
+For gradual rollouts, add a deterministic percentage rule. The same rule shape works in server and
+browser code, and the SDK uses the same stable hash as the Sigmon API preview:
+
+```ts
+const flag = sigmon.evaluateFlag({
+  key: "new_checkout",
+  fallbackVariant: "off",
+  variants: [
+    { key: "off", value: false },
+    { key: "on", value: true }
+  ],
+  rules: [{ id: "gradual_rollout", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }],
+  subject: { userId: "user_456" }
+});
+```
+
+Beta programs are managed in the Sigmon console or admin API and can be linked to a feature flag.
+When you add or remove beta participants, Sigmon updates scoped targeting rules on that linked flag.
+Application code still reads the rollout through `evaluateFlag`, so early access fails closed with the
+same default/off variant as any other feature flag.
+
+In-app surveys are also managed in the Sigmon console. Use `submitSurvey` when a browser widget or
+product flow collects answers. The `answers` object is keyed by survey question id and is persisted
+with the same user, tenant, session, source, release, and metadata context as other telemetry:
+
+```ts
+sigmon.submitSurvey({
+  surveyId: "srv_activation_pulse",
+  actorType: "user",
+  actorId: "user_456",
+  answers: {
+    satisfaction: 5,
+    comment: "Great"
+  }
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456",
+  sessionId: "sess_789",
+  metadata: { placement: "checkout_success" }
+});
+```
+
+Survey responses are sent to `POST /v1/surveys/responses`. Configure browser origins before calling
+this directly from the browser with a browser-scoped ingestion key.
+
+NPS campaigns use the same survey response endpoint. Create a standard NPS campaign in the console,
+then submit an answer keyed as `nps` on the 0-10 scale. The console reads `GET /query/surveys/:id/nps`
+to show score, promoter/passive/detractor counts, trend, and tenant/release/plan segments.
+
+For free-form product feedback, enable the Feedback widget in project settings and install the browser
+helper. It renders a small opt-in button, captures the current page URL/path, and sends text feedback
+to `POST /v1/feedback` with the same user, tenant, session, source, release, and metadata context.
+
+```ts
+import { createSignalMonitorClient, installFeedbackWidget } from "@sigmon/sdk/browser";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT!,
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY!,
+  defaultContext: {
+    source: "browser",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+installFeedbackWidget(sigmonBrowser, {
+  buttonLabel: "Feedback",
+  category: "ux",
+  flush: true,
+  context: () => ({
+    tenantId: currentTenantId(),
+    userId: currentUserId(),
+    sessionId: currentSessionId()
+  })
+});
+```
+
+Screenshot capture is intentionally not enabled in the SDK until masking and explicit consent controls
+are available.
+
+Click maps are separate from click breadcrumbs. Breadcrumbs tell the story around an error or session;
+click maps aggregate opt-in browser coordinates by route and safe selector. Add stable
+`data-sigmon-id` attributes to meaningful controls before enabling click capture.
+
+Install runtime-level capture in worker, queue, cron, and CLI entrypoints:
+
+```ts
+installNodeErrorCapture(sigmon, {
+  captureUncaughtExceptions: true,
+  captureUnhandledRejections: true,
+  flush: true,
+  context: {
+    metadata: { service: "worker" }
+  }
+});
+```
+
+The helper records `mechanism` as `node.uncaughtException` or `node.unhandledRejection`, marks the event as unhandled, defaults severity to `fatal`, and returns a cleanup function for tests or hot reloads.
+
 ## Browser
 
 ```ts
@@ -98,6 +280,55 @@ sigmon.track("checkout.pay_clicked", {
   plan: "team"
 });
 ```
+
+### Browser session replay
+
+Session replay is opt-in and privacy-safe. The browser helper records a masked interaction timeline
+with navigation and safe click selectors; it does not capture screenshots, DOM snapshots, raw text,
+input values, passwords, cookies, or HTML.
+
+Use one `replayId` to connect product events, error occurrences, and the replay buffer:
+
+```ts
+import {
+  createBrowserReplayRecorder,
+  createSignalMonitorClient,
+  installBrowserErrorCapture
+} from "@sigmon/sdk/browser";
+
+const sigmon = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY ?? "",
+  defaultContext: {
+    source: "web",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+const replay = createBrowserReplayRecorder(sigmon, {
+  enabled: true,
+  route: () => window.location.pathname
+});
+
+const stopErrors = installBrowserErrorCapture(sigmon, {
+  flush: true,
+  context: {
+    replayId: replay.replayId
+  }
+});
+
+sigmon.track("checkout.pay_clicked", { plan: "team" }, { replayId: replay.replayId });
+
+window.addEventListener("error", () => {
+  void replay.flush();
+});
+```
+
+Add `data-sigmon-id` attributes to meaningful buttons and links so the replay timeline uses stable,
+intentional selectors.
+
+The console can filter replay samples by saved segment through `GET /query/replays`. Stable `userId`,
+`tenantId`, event names, and shared `replayId` values make those cohort replay samples actionable.
 
 ## Next.js App Router
 
@@ -128,8 +359,7 @@ Install browser global error capture from a Client Component:
 "use client";
 
 import { useEffect } from "react";
-import { createSignalMonitorClient } from "@sigmon/sdk/browser";
-import { installBrowserErrorCapture } from "@sigmon/sdk/next";
+import { createSignalMonitorClient, installBrowserErrorCapture } from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
   endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
@@ -152,6 +382,188 @@ export function SignalMonitorBrowserCapture() {
   return null;
 }
 ```
+
+Install browser Web Vitals capture from the same Client Component when you want route-level LCP,
+INP, CLS, FCP, FID, and TTFB in the APM view. The helper uses the browser PerformanceObserver API
+directly, sends p75-ready samples to `/v1/web-vitals`, and stays opt-in so public browser keys are
+only used from allowlisted origins.
+
+```tsx
+"use client";
+
+import { useEffect } from "react";
+import {
+  createSignalMonitorClient,
+  installBrowserErrorCapture,
+  installBrowserClickCapture,
+  installBrowserWebVitals
+} from "@sigmon/sdk/browser";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY ?? "",
+  defaultContext: {
+    source: "web",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+export function SignalMonitorBrowserCapture() {
+  useEffect(() => {
+    const stopErrors = installBrowserErrorCapture(sigmonBrowser, { flush: true });
+    const stopVitals = installBrowserWebVitals(sigmonBrowser, {
+      route: () => window.location.pathname,
+      metadata: { service: "web" },
+      flush: true
+    });
+    const stopClicks = installBrowserClickCapture(sigmonBrowser, {
+      enabled: true,
+      route: () => window.location.pathname,
+      flush: true
+    });
+    return () => {
+      stopClicks();
+      stopVitals();
+      stopErrors();
+    };
+  }, []);
+
+  return null;
+}
+```
+
+Install browser click map capture only after reviewing privacy expectations for the monitored app.
+The helper sends normalized viewport coordinates to `/v1/clicks`, uses `data-sigmon-id` when present,
+falls back to minimal tag/role selectors, ignores form fields and `contenteditable` regions, respects
+`data-sigmon-ignore`, and never sends text content, input values, DOM snapshots, or screenshots.
+
+```tsx
+"use client";
+
+import { useEffect } from "react";
+import { createSignalMonitorClient, installBrowserClickCapture } from "@sigmon/sdk/browser";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY ?? "",
+  defaultContext: {
+    source: "web",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+export function SignalMonitorClickMaps() {
+  useEffect(() => {
+    return installBrowserClickCapture(sigmonBrowser, {
+      enabled: true,
+      route: () => window.location.pathname,
+      selectorAttribute: "data-sigmon-id",
+      ignoreSelectors: ["[data-sigmon-ignore]"],
+      flush: true
+    });
+  }, []);
+
+  return null;
+}
+```
+
+## Runtime Profiles
+
+Node runtime profiling is opt-in and bounded. Use it around worker jobs, scheduled tasks, CLI commands,
+or suspicious request paths when you need CPU hot functions or memory snapshots in the Traces/APM view.
+Profiles are sent to `/v1/profiles` and retained by `RETENTION_PROFILES_DAYS`.
+
+```ts
+import {
+  captureNodeMemoryProfile,
+  createSignalMonitorClient,
+  startNodeCpuProfile
+} from "@sigmon/sdk/node";
+
+const sigmon = createSignalMonitorClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://my.sigmon.app",
+  apiKey: process.env.SIGMON_API_KEY ?? "",
+  defaultContext: {
+    source: "worker",
+    release: process.env.APP_VERSION,
+    metadata: { service: "worker" }
+  }
+});
+
+const cpu = await startNodeCpuProfile(sigmon, {
+  name: "worker.reconcileInvoices",
+  service: "worker",
+  maxDurationMs: 10_000,
+  flush: true
+});
+
+try {
+  await reconcileInvoices();
+} finally {
+  await cpu.stop();
+}
+
+await captureNodeMemoryProfile(sigmon, {
+  name: "worker.reconcileInvoices.memory",
+  service: "worker",
+  flush: true
+});
+```
+
+For custom runtimes or external profilers, call `sigmon.profile(...)` directly:
+
+```ts
+await sigmon.profile({
+  name: "api.checkout.cpu",
+  kind: "cpu",
+  runtime: "node",
+  service: "api",
+  startedAt: new Date().toISOString(),
+  endedAt: new Date().toISOString(),
+  durationMs: 250,
+  sampleCount: 120,
+  topFunctions: [
+    { functionName: "priceCart", selfTimeMs: 80, totalTimeMs: 120, sampleCount: 30 }
+  ],
+  summary: { trigger: "manual-smoke" }
+});
+```
+
+## Traces, Spans, and Propagation
+
+Use `startTrace` around request or workflow boundaries. New traces created without a custom `traceId` use W3C-compatible ids and expose `traceparent` headers for downstream calls.
+
+```ts
+const trace = sigmon.startTrace("POST /api/checkout", {
+  tenantId: "tenant_123",
+  userId: "user_456",
+  metadata: { service: "api" }
+});
+
+await fetch("https://worker.example.com/jobs", {
+  method: "POST",
+  headers: trace.headers(),
+  body: JSON.stringify({ type: "checkout" })
+});
+
+sigmon.span({
+  traceId: trace.traceId,
+  name: "postgres order lookup",
+  durationMs: 42,
+  status: "success"
+}, {
+  metadata: {
+    service: "api",
+    target_service: "postgres",
+    "db.system": "postgres"
+  }
+});
+
+trace.end({ status: "success" });
+await sigmon.flush();
+```
+
+Next.js wrappers read incoming `traceparent` headers automatically. Add `metadata.service`, `metadata.target_service`, `metadata.peer_service`, or `metadata.peer` to spans when you want the Sigmon service map to show dependency edges.
 
 ## Identify
 
@@ -217,7 +629,23 @@ await sigmon.flush();
 
 In the console, open `Experiments` and map the experiment property, variant property, exposure event, and conversion event. If your app already uses different names, keep them consistent and map them there.
 
+## Feature Flags
+
+Feature flags live beside experiments in the console. Each flag has a stable key, active/paused status,
+safe default variant, bounded variants, and ordered targeting rules. Use the SDK evaluator with the
+same definition shape in server or browser code, and keep `trackExposure` enabled when you want Sigmon
+to count usage of a flag.
+
+Gradual rollout rules are percentage-based feature-flag rules. Pick a stickiness unit (`user`,
+`tenant`, or `session`) and a percentage from 0 to 100; Sigmon buckets matching subjects
+deterministically so the same actor keeps the same result across requests and runtimes.
+
 Experiment readouts are directional operational views, not a statistical-significance engine. Use them to spot obvious changes in conversion, quality, latency, or cost before drilling into events, users, tenants, traces, errors, or LLM calls.
+
+Beta programs live beside feature flags in the console. Create a program, link it to a flag and variant,
+then add user or tenant participants. Sigmon syncs those participants into flag targeting rules, while
+your application continues to call `evaluateFlag` with a safe fallback. Adoption is measured from normal
+event telemetry emitted by participating users or tenants.
 
 ## Source Maps
 
@@ -236,6 +664,15 @@ pnpm source-maps:upload \
 ```
 
 Use `--file ./dist/assets/app.js.map --minified-file assets/app.js` for a single map, or `--bundle ./dist/source-maps.zip` for multiple maps. Use `--timeout-ms` or `SIGMON_UPLOAD_TIMEOUT_MS` when CI needs a non-default upload timeout.
+
+When an incident still shows minified frames, use the source-map diagnostic in the incident stack panel:
+
+- `Source maps resolved`: the release and generated file path matched an uploaded artifact.
+- `Source maps partially resolved`: at least one generated file matched, but another frame did not. Upload maps for every generated chunk in the stack.
+- `Source maps not applied`: the error has no release, no matching uploaded artifact for that release, or the generated file path differs from the uploaded `--minified-file`.
+- `Source maps unavailable`: the Sigmon source-map storage or artifacts API needs operational attention.
+
+For Vercel/Next.js, the most common failure is a release mismatch: browser/server errors must send the same `NEXT_PUBLIC_APP_VERSION` (or deploy id/commit SHA) that CI used in `pnpm source-maps:upload --release`.
 
 ## Production Smoke Tests
 
@@ -265,6 +702,12 @@ fetch("https://my.sigmon.app/v1/events", {
 ```
 
 Expected result is `202` and a new event in the selected project/environment. A `401` means the key is wrong or scoped to a different project/environment; a browser CORS failure means the app origin is not allowlisted in Sigmon.
+
+Common ingest failures now include a `hint` field:
+
+- `invalid_api_key`: check that the request sends `Authorization: Bearer <key>` and that browser calls use a browser-scoped key for the same project/environment.
+- `invalid_ingestion_payload`: compare the request body with `/docs` or `/openapi.json`, or use the SDK to generate schema-compatible payloads.
+- `ingestion_unavailable`: check Sigmon Redis connectivity and worker/scheduler health.
 
 ## OpenAPI
 

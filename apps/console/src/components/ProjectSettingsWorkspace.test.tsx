@@ -44,6 +44,25 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     listBrowserOrigins: vi.fn().mockResolvedValue({ origins: [] }),
     createBrowserOrigin: vi.fn(),
     archiveBrowserOrigin: vi.fn(),
+    getFeedbackWidgetSettings: vi.fn().mockResolvedValue({
+      settings: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        enabled: false,
+        title: "Send feedback",
+        prompt: "Tell us what happened or what could be better.",
+        placeholder: "Write your feedback...",
+        buttonLabel: "Feedback",
+        accentColor: "#66e38a",
+        allowScreenshot: false,
+        privacyNote: null,
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z"
+      }
+    }),
+    updateFeedbackWidgetSettings: vi.fn(),
+    listFeedbackItems: vi.fn().mockResolvedValue({ feedback: [] }),
+    updateFeedbackStatus: vi.fn(),
     listEvents: vi.fn(),
     listErrors: vi.fn(),
     listTraces: vi.fn().mockResolvedValue({ data: [] }),
@@ -73,6 +92,7 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
@@ -144,7 +164,18 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByText("Send first ping")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Project settings sections" })).toBeInTheDocument();
 
-    for (const label of ["Project", "Environments", "API keys", "Browser origins", "SDK snippets", "Source maps", "Console users"]) {
+    for (const label of [
+      "Project",
+      "Environments",
+      "API keys",
+      "Browser origins",
+      "Feedback widget",
+      "Data governance",
+      "Warehouse sync",
+      "SDK snippets",
+      "Source maps",
+      "Console users"
+    ]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Console users" })).toHaveAccessibleDescription(
@@ -159,6 +190,141 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.getByText("Create and select deployment environments for this project.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Environments" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Production" })).toBeInTheDocument();
+  });
+
+  it("configures data governance retention and sensitive property rules", async () => {
+    const api = client({
+      getDataGovernancePolicy: vi.fn().mockResolvedValue({
+        policy: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          retentionPolicy: { events: 45, errors: 180 },
+          propertyRules: [{ target: "event.properties", path: "email", action: "mask" }],
+          updatedByUserId: null,
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z"
+        }
+      }),
+      updateDataGovernancePolicy: vi.fn().mockResolvedValue({
+        policy: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          retentionPolicy: { events: 45, errors: 180 },
+          propertyRules: [
+            { target: "event.properties", path: "email", action: "mask" },
+            { target: "metadata", path: "headers.authorization", action: "block" }
+          ],
+          updatedByUserId: "usr_admin",
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z"
+        }
+      })
+    });
+
+    renderWorkspace({ client: api });
+
+    await userEvent.click(screen.getByRole("button", { name: "Data governance" }));
+
+    expect(await screen.findByRole("heading", { name: "Data governance" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Events retention days")).toHaveValue(45);
+    expect(await screen.findByText((_, element) => element?.textContent === "mask event.properties.email")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Target"), "metadata");
+    await userEvent.type(screen.getByLabelText("Property path"), "headers.authorization");
+    await userEvent.selectOptions(screen.getByLabelText("Action"), "block");
+    await userEvent.click(screen.getByRole("button", { name: "Add rule" }));
+
+    expect(api.updateDataGovernancePolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "metadata", path: "headers.authorization", action: "block" }
+        ]
+      })
+    );
+  });
+
+  it("configures warehouse sync destinations and manual runs", async () => {
+    const warehouse = {
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse",
+      destinationType: "postgres" as const,
+      connectionUrlPreview: "postgres://writer:***@warehouse/sigmon",
+      datasets: ["events", "errors"] as const,
+      cursor: {},
+      batchSize: 500,
+      enabled: true,
+      lastRunAt: "2026-05-01T00:00:00.000Z",
+      lastSuccessAt: "2026-05-01T00:00:00.000Z",
+      lastFailureAt: null,
+      lastErrorMessage: null,
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+      archivedAt: null
+    };
+    const api = client({
+      listWarehouseDestinations: vi.fn().mockResolvedValue({ destinations: [warehouse] }),
+      listWarehouseExportRuns: vi.fn().mockResolvedValue({
+        runs: [
+          {
+            id: "whrun_1",
+            destinationId: "whdst_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            trigger: "manual",
+            status: "success",
+            startedAt: "2026-05-01T00:00:00.000Z",
+            finishedAt: "2026-05-01T00:00:01.000Z",
+            cursorBefore: {},
+            cursorAfter: {},
+            exported: { events: 2 },
+            errorMessage: null,
+            createdAt: "2026-05-01T00:00:01.000Z"
+          }
+        ]
+      }),
+      createWarehouseDestination: vi.fn().mockResolvedValue({ destination: { ...warehouse, id: "whdst_2", name: "Warehouse prod" } }),
+      updateWarehouseDestination: vi.fn().mockResolvedValue({ destination: { ...warehouse, enabled: false } }),
+      archiveWarehouseDestination: vi.fn().mockResolvedValue(undefined),
+      runWarehouseExport: vi.fn().mockResolvedValue({ result: { ran: true, skipped: false, exported: 2, failed: 0 } })
+    });
+
+    renderWorkspace({ client: api });
+
+    await userEvent.click(screen.getByRole("button", { name: "Warehouse sync" }));
+
+    expect(await screen.findByRole("heading", { name: "Warehouse sync" })).toBeInTheDocument();
+    expect(await screen.findByText("postgres://writer:***@warehouse/sigmon")).toBeInTheDocument();
+    expect(screen.getByText(/Events 2/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Run now" }));
+    expect(api.runWarehouseExport).toHaveBeenCalledWith("whdst_1", { projectId: "prj_1", environmentId: "env_1" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(api.updateWarehouseDestination).toHaveBeenCalledWith("whdst_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      enabled: false
+    });
+
+    await userEvent.type(screen.getByLabelText("Name"), "Warehouse prod");
+    await userEvent.type(screen.getByLabelText("Postgres connection URL"), "postgres://writer:secret@warehouse-prod/sigmon");
+    await userEvent.clear(screen.getByLabelText("Batch size"));
+    await userEvent.type(screen.getByLabelText("Batch size"), "250");
+    await userEvent.click(screen.getByRole("button", { name: "Create destination" }));
+    expect(api.createWarehouseDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Warehouse prod",
+        connectionUrl: "postgres://writer:secret@warehouse-prod/sigmon",
+        batchSize: 250
+      })
+    );
   });
 
   it("updates and archives the selected project", async () => {
@@ -247,6 +413,109 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.queryByText("https://app.example.com")).not.toBeInTheDocument();
 
     confirmSpy.mockRestore();
+  });
+
+  it("configures the feedback widget and triages recent feedback", async () => {
+    const api = client({
+      getFeedbackWidgetSettings: vi.fn().mockResolvedValue({
+        settings: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          enabled: true,
+          title: "Send feedback",
+          prompt: "Tell us what happened.",
+          placeholder: "Write your feedback...",
+          buttonLabel: "Feedback",
+          accentColor: "#66e38a",
+          allowScreenshot: false,
+          privacyNote: null,
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z"
+        }
+      }),
+      updateFeedbackWidgetSettings: vi.fn().mockResolvedValue({
+        settings: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          enabled: true,
+          title: "Report feedback",
+          prompt: "Tell us what happened.",
+          placeholder: "Write your feedback...",
+          buttonLabel: "Feedback",
+          accentColor: "#66e38a",
+          allowScreenshot: false,
+          privacyNote: null,
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:05:00.000Z"
+        }
+      }),
+      listFeedbackItems: vi.fn().mockResolvedValue({
+        feedback: [
+          {
+            id: "fbk_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            status: "open",
+            message: "The export button is unclear.",
+            category: "ux",
+            pageUrl: "https://app.example.com/reports",
+            path: "/reports",
+            userAgent: "Vitest",
+            tenantId: "tenant_1",
+            userId: "user_1",
+            sessionId: null,
+            traceId: null,
+            metadata: {},
+            submittedAt: "2026-05-01T00:00:00.000Z",
+            updatedAt: "2026-05-01T00:00:00.000Z"
+          }
+        ]
+      }),
+      updateFeedbackStatus: vi.fn().mockResolvedValue({
+        feedback: {
+          id: "fbk_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status: "reviewed",
+          message: "The export button is unclear.",
+          category: "ux",
+          pageUrl: "https://app.example.com/reports",
+          path: "/reports",
+          userAgent: "Vitest",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          sessionId: null,
+          traceId: null,
+          metadata: {},
+          submittedAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:05:00.000Z"
+        }
+      })
+    });
+
+    renderWorkspace({ client: api });
+
+    await userEvent.click(screen.getByRole("button", { name: "Feedback widget" }));
+
+    expect(await screen.findByRole("heading", { name: "Feedback widget" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Enable widget for this environment")).toBeChecked();
+    expect(await screen.findByText("The export button is unclear.")).toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText("Panel title"));
+    await userEvent.type(screen.getByLabelText("Panel title"), "Report feedback");
+    await userEvent.click(screen.getByRole("button", { name: "Save widget" }));
+
+    expect(api.updateFeedbackWidgetSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        title: "Report feedback",
+        allowScreenshot: false
+      })
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark reviewed" }));
+    expect(api.updateFeedbackStatus).toHaveBeenCalledWith("fbk_1", { projectId: "prj_1", environmentId: "env_1" }, "reviewed");
   });
 
   it("labels console user access as installation-level, not project membership", async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ScreenCtx } from "./registry";
 import { useTraces } from "./useTraces";
-import type { TraceListItemVM } from "./useTraces";
+import type { ApmEndpointVM, ServiceMapEdgeVM, TraceListItemVM, UseTracesResult, WebVitalMetricVM } from "./useTraces";
 import { SPAN_KIND_COLOR, useTraceSpans } from "./useTraceSpans";
 import type { SpanNodeVM } from "./useTraceSpans";
 import {
@@ -52,6 +52,38 @@ function spanAttributes(span: SpanNodeVM): string {
     attrs.metadata = span.metadata;
   }
   return boundText(JSON.stringify(attrs, null, 2));
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+function formatApdex(value: number | null): string {
+  return value === null ? "—" : value.toFixed(2);
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) return "—";
+  if (value < 1024) return `${Math.round(value)} B`;
+  const units = ["KB", "MB", "GB"];
+  let n = value / 1024;
+  for (const unit of units) {
+    if (n < 1024 || unit === "GB") return `${n >= 10 ? n.toFixed(0) : n.toFixed(1)} ${unit}`;
+    n /= 1024;
+  }
+  return `${Math.round(value)} B`;
+}
+
+function formatWebVitalValue(metric: WebVitalMetricVM["name"], value: number | null): string {
+  if (value === null) return "—";
+  if (metric === "CLS") return value.toFixed(3);
+  return formatLatency(value);
+}
+
+function webVitalTone(metric: WebVitalMetricVM): "ok" | "warn" | "critical" {
+  if (metric.poor > 0) return "critical";
+  if (metric.needsImprovement > 0 || (metric.regressionPercent ?? 0) > 20) return "warn";
+  return "ok";
 }
 
 // Build the ruler tick labels (0 … totalMs) for the waterfall header.
@@ -110,9 +142,349 @@ function TraceListRow({ trace, onOpen }: { trace: TraceListItemVM; onOpen: () =>
   );
 }
 
-function TraceListView({ ctx, traces, onOpen }: {
+function EndpointRow({
+  endpoint,
+  active,
+  onSelect
+}: {
+  endpoint: ApmEndpointVM;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const tone = endpoint.errors > 0 ? "critical" : endpoint.p95DurationMs != null && endpoint.p95DurationMs > 1000 ? "warn" : "ok";
+  return (
+    <button
+      className={`sh-row sh-row--btn ${active ? "is-active" : ""}`}
+      style={{
+        gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
+        alignItems: "center",
+        width: "100%",
+        textAlign: "left",
+        border: "none",
+        borderBottom: "1px solid var(--border-subtle)",
+        background: active ? "rgba(87, 242, 135, 0.12)" : "transparent",
+        cursor: "pointer",
+      }}
+      onClick={onSelect}
+    >
+      <span className="sh-mono" style={{ color: "var(--fg)", fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {endpoint.name}
+      </span>
+      <span className="sh-mono">{endpoint.requests}</span>
+      <span className={`sh-tag ${tone}`}>{endpoint.errors}</span>
+      <span className="sh-mono">{formatPercent(endpoint.errorRatePercent)}</span>
+      <span className="sh-mono">{formatLatency(endpoint.p50DurationMs)}</span>
+      <span className="sh-mono">{formatLatency(endpoint.p95DurationMs)}</span>
+      <span className="sh-mono">{formatLatency(endpoint.p99DurationMs)}</span>
+      <span className="sh-mono">{formatApdex(endpoint.apdex)}</span>
+    </button>
+  );
+}
+
+function EndpointTable({
+  endpoints,
+  activeEndpoint,
+  onSelect
+}: {
+  endpoints: ApmEndpointVM[];
+  activeEndpoint: string | null;
+  onSelect: (name: string) => void;
+}) {
+  return (
+    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="sh-card__head">
+        <h2 className="sh-h2">APM endpoints</h2>
+        <span className="sh-tag">slowest by p95</span>
+      </div>
+      <div
+        className="sh-row"
+        style={{
+          gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
+          padding: "8px 18px",
+          borderBottom: "1px solid var(--border-subtle)",
+          color: "var(--fg-faint)",
+          fontSize: 11,
+          fontWeight: 700,
+        }}
+      >
+        <span>Endpoint</span>
+        <span>Req</span>
+        <span>Errors</span>
+        <span>Error rate</span>
+        <span>p50</span>
+        <span>p95</span>
+        <span>p99</span>
+        <span>Apdex</span>
+      </div>
+      <div style={{ overflow: "auto", maxHeight: 260 }}>
+        {endpoints.length === 0 ? (
+          <EmptyHint icon="waterfall" title="No APM data yet" sub="Trace endpoints will appear here as traffic arrives." />
+        ) : (
+          endpoints.map((endpoint) => (
+            <EndpointRow
+              key={endpoint.name}
+              endpoint={endpoint}
+              active={endpoint.name === activeEndpoint}
+              onSelect={() => onSelect(endpoint.name)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ServiceMapPanel({ serviceMap }: { serviceMap: UseTracesResult["serviceMap"] }) {
+  const edges = serviceMap.edges.slice(0, 8);
+  return (
+    <div className="sh-card">
+      <div className="sh-card__head">
+        <div>
+          <h2 className="sh-h2">Service map</h2>
+          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            Span dependencies inferred from service, peer, target and operation metadata.
+          </p>
+        </div>
+        <span className="sh-tag">
+          {serviceMap.totals?.services ?? 0} services · {serviceMap.totals?.edges ?? edges.length} edges
+        </span>
+      </div>
+      {edges.length === 0 ? (
+        <EmptyHint icon="waterfall" title="No service dependencies yet" sub="Add span metadata such as service and target_service to build the map." />
+      ) : (
+        <div style={{ display: "grid", gap: 8, padding: "0 18px 18px" }}>
+          {edges.map((edge) => (
+            <ServiceMapEdgeRow edge={edge} key={`${edge.source}:${edge.target}:${edge.dependencyType}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ServiceMapEdgeRow({ edge }: { edge: ServiceMapEdgeVM }) {
+  const tone = edge.errors > 0 ? "critical" : edge.p95DurationMs != null && edge.p95DurationMs > 1000 ? "warn" : "ok";
+  return (
+    <div
+      className="sh-row"
+      style={{
+        gridTemplateColumns: "minmax(180px, 1fr) 28px minmax(180px, 1fr) repeat(5, minmax(72px, .45fr))",
+        alignItems: "center",
+        padding: "10px 12px",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 10,
+        background: "rgba(255,255,255,0.015)",
+      }}
+    >
+      <span className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {edge.source}
+      </span>
+      <Icon name="arrow" size={13} style={{ color: "var(--fg-faint)" }} />
+      <span className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {edge.target}
+      </span>
+      <span className="sh-tag mono">{edge.dependencyType}</span>
+      <span className="sh-mono">{edge.spans} spans</span>
+      <span className="sh-mono">{edge.traces} traces</span>
+      <span className={`sh-tag ${tone}`}>{edge.errors} err</span>
+      <span className="sh-mono">p95 {formatLatency(edge.p95DurationMs)}</span>
+    </div>
+  );
+}
+
+function WebVitalsPanel({ webVitals }: { webVitals: UseTracesResult["webVitals"] }) {
+  const totals = webVitals.totals;
+  const metrics = webVitals.metrics.slice(0, 8);
+  return (
+    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="sh-card__head">
+        <div>
+          <h2 className="sh-h2">Web vitals</h2>
+          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            Browser experience p75 by route, metric and release.
+          </p>
+        </div>
+        <span className="sh-tag">
+          {totals?.samples ?? 0} samples · {totals?.routes ?? 0} routes
+        </span>
+      </div>
+      <div className="sh-card__body" style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+          <SummaryStat label="LCP p75" value={formatWebVitalValue("LCP", totals?.p75LcpMs ?? null)} />
+          <SummaryStat label="INP p75" value={formatWebVitalValue("INP", totals?.p75InpMs ?? null)} />
+          <SummaryStat label="CLS p75" value={formatWebVitalValue("CLS", totals?.p75Cls ?? null)} mono />
+          <SummaryStat
+            label="Poor samples"
+            value={String(totals?.poorSamples ?? 0)}
+            tone={(totals?.poorSamples ?? 0) > 0 ? "danger" : undefined}
+          />
+        </div>
+        {metrics.length === 0 ? (
+          <EmptyHint icon="activity" title="No Web Vitals yet" sub="Install browser Web Vitals capture to see route-level UX regressions." />
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {metrics.map((metric) => {
+              const tone = webVitalTone(metric);
+              return (
+                <div
+                  key={`${metric.name}:${metric.route}`}
+                  className="sh-row"
+                  style={{
+                    gridTemplateColumns: "76px minmax(180px, 1.2fr) repeat(5, minmax(78px, .5fr))",
+                    alignItems: "center",
+                    padding: "10px 12px",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: 10,
+                    background: "rgba(255,255,255,0.015)",
+                  }}
+                >
+                  <span className={`sh-tag ${tone}`}>{metric.name}</span>
+                  <span className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {metric.route}
+                  </span>
+                  <span className="sh-mono">p75 {formatWebVitalValue(metric.name, metric.p75Value)}</span>
+                  <span className="sh-mono">{metric.samples} samples</span>
+                  <span className="sh-mono">{metric.poor} poor</span>
+                  <span className="sh-mono">{metric.latestRelease ?? "no release"}</span>
+                  <span className={`sh-tag ${(metric.regressionPercent ?? 0) > 20 ? "warn" : "mono"}`}>
+                    {metric.regressionPercent === null ? "no baseline" : `${formatPercent(metric.regressionPercent)} vs prev`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesResult["runtimeProfiles"] }) {
+  const totals = runtimeProfiles.totals;
+  const hotFunctions = runtimeProfiles.hotFunctions.slice(0, 8);
+  const profiles = runtimeProfiles.profiles.slice(0, 6);
+
+  return (
+    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="sh-card__head">
+        <div>
+          <h2 className="sh-h2">Runtime profiles</h2>
+          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+            Opt-in CPU and memory snapshots from Node.js workers, jobs and route handlers.
+          </p>
+        </div>
+        <span className="sh-tag">
+          {totals?.profiles ?? 0} profiles · {totals?.samples ?? 0} samples
+        </span>
+      </div>
+      <div className="sh-card__body" style={{ display: "grid", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+          <SummaryStat label="CPU profiles" value={String(totals?.cpuProfiles ?? 0)} />
+          <SummaryStat label="Memory snapshots" value={String(totals?.memoryProfiles ?? 0)} />
+          <SummaryStat label="Avg CPU" value={formatPercent(totals?.avgCpuUsagePercent ?? null)} />
+          <SummaryStat label="Max heap" value={formatBytes(totals?.maxHeapUsedBytes ?? null)} mono />
+        </div>
+        {hotFunctions.length === 0 && profiles.length === 0 ? (
+          <EmptyHint icon="activity" title="No runtime profiles yet" sub="Use @sigmon/sdk/node to capture targeted CPU windows or memory snapshots." />
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, .9fr)", gap: 12 }}>
+            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+              <h3 className="sh-h3">Hot functions</h3>
+              {hotFunctions.length === 0 ? (
+                <EmptyHint icon="activity" title="No CPU hotspots" sub="CPU profiles will show aggregated self time here." />
+              ) : (
+                hotFunctions.map((frame) => (
+                  <div
+                    key={`${frame.functionName}:${frame.url ?? ""}:${frame.selfTimeMs}`}
+                    className="sh-row"
+                    style={{
+                      gridTemplateColumns: "minmax(160px, 1fr) 86px 72px 72px",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 10,
+                      background: "rgba(255,255,255,0.015)",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {frame.functionName}
+                      </div>
+                      <div className="sh-muted sh-mono" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {frame.url ?? "runtime"} · {frame.lastSeenAt ? relativeTime(frame.lastSeenAt) : "never"}
+                      </div>
+                    </div>
+                    <span className="sh-mono">{formatLatency(frame.selfTimeMs)}</span>
+                    <span className="sh-mono">{frame.sampleCount} smp</span>
+                    <span className="sh-mono">{frame.profileCount} prof</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+              <h3 className="sh-h3">Recent profiles</h3>
+              {profiles.length === 0 ? (
+                <EmptyHint icon="waterfall" title="No recent snapshots" sub="Captured profiles will appear here with route and trace context." />
+              ) : (
+                profiles.map((profile) => (
+                  <div
+                    key={profile.id}
+                    style={{
+                      padding: "10px 12px",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 10,
+                      background: "rgba(255,255,255,0.015)",
+                      minWidth: 0,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                      <span className={`sh-tag ${profile.kind === "cpu" ? "warn" : "mono"}`}>{profile.kind}</span>
+                      <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {profile.name}
+                      </strong>
+                    </div>
+                    <div className="sh-muted sh-mono" style={{ fontSize: 11 }}>
+                      {profile.route ?? profile.service ?? profile.runtime} · {relativeTime(profile.startedAt)}
+                    </div>
+                    <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                      <span className="sh-mono">{formatLatency(profile.durationMs)}</span>
+                      <span className="sh-mono">{profile.sampleCount} samples</span>
+                      <span className="sh-mono">heap {formatBytes(profile.heapUsedBytes)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TraceListView({
+  ctx,
+  traces,
+  endpoints,
+  totals,
+  serviceMap,
+  webVitals,
+  runtimeProfiles,
+  activeEndpoint,
+  onSelectEndpoint,
+  onClearEndpoint,
+  onOpen
+}: {
   ctx: ScreenCtx;
   traces: TraceListItemVM[];
+  endpoints: ApmEndpointVM[];
+  totals: UseTracesResult["totals"];
+  serviceMap: UseTracesResult["serviceMap"];
+  webVitals: UseTracesResult["webVitals"];
+  runtimeProfiles: UseTracesResult["runtimeProfiles"];
+  activeEndpoint: string | null;
+  onSelectEndpoint: (name: string) => void;
+  onClearEndpoint: () => void;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -121,29 +493,37 @@ function TraceListView({ ctx, traces, onOpen }: {
         title="Traces"
         sub={
           <>
-            Recent traces for{" "}
+            APM endpoint performance and recent traces for{" "}
             <strong style={{ color: "var(--fg)" }}>
               {ctx.project?.name} · {ctx.environment?.name}
             </strong>{" "}
-            — {traces.length} shown.
+            — {traces.length} traces shown.
           </>
         }
         actions={
           <>
-            <button className="sh-btn" onClick={() => ctx.pushToast("Trace history is not yet available")}>
-              <Icon name="history" size={14} />
-              History
-            </button>
-            <button className="sh-btn" onClick={() => ctx.pushToast("Trace filters are not yet available")}>
-              <Icon name="filter" size={14} />
-              Filters
-            </button>
+            {activeEndpoint ? (
+              <button className="sh-btn" onClick={onClearEndpoint}>
+                <Icon name="x" size={14} />
+                Clear endpoint
+              </button>
+            ) : null}
           </>
         }
       />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Endpoints" value={String(totals?.endpoints ?? endpoints.length)} /></div></div>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Requests" value={String(totals?.requests ?? 0)} /></div></div>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Errors" value={String(totals?.errors ?? 0)} tone={(totals?.errors ?? 0) > 0 ? "danger" : undefined} /></div></div>
+        <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Apdex" value={formatApdex(totals?.apdex ?? null)} /></div></div>
+      </div>
+      <EndpointTable endpoints={endpoints} activeEndpoint={activeEndpoint} onSelect={onSelectEndpoint} />
+      <WebVitalsPanel webVitals={webVitals} />
+      <RuntimeProfilesPanel runtimeProfiles={runtimeProfiles} />
+      <ServiceMapPanel serviceMap={serviceMap} />
       <div className="sh-card" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <div className="sh-card__head">
-          <h2 className="sh-h2">Recent traces</h2>
+          <h2 className="sh-h2">{activeEndpoint ? `Recent traces · ${activeEndpoint}` : "Recent traces"}</h2>
           <span className="sh-tag">latest 25</span>
         </div>
         <div style={{ overflow: "auto", flex: 1 }}>
@@ -452,8 +832,14 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
   const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(undefined);
+  const [selectedEndpointName, setSelectedEndpointName] = useState<string | null>(null);
 
-  const { data, status } = useTraces({ client: ctx.client, projectId, environmentId });
+  const { data, endpoints, serviceMap, webVitals, runtimeProfiles, totals, status } = useTraces({
+    client: ctx.client,
+    projectId,
+    environmentId,
+    endpointName: selectedEndpointName,
+  });
 
   if (!ctx.project || !ctx.environment) {
     return (
@@ -492,5 +878,22 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
     );
   }
 
-  return <TraceListView ctx={ctx} traces={data} onOpen={setSelectedTraceId} />;
+  return (
+    <TraceListView
+      ctx={ctx}
+      traces={data}
+      endpoints={endpoints}
+      totals={totals}
+      serviceMap={serviceMap}
+      webVitals={webVitals}
+      runtimeProfiles={runtimeProfiles}
+      activeEndpoint={selectedEndpointName}
+      onSelectEndpoint={(name) => {
+        setSelectedTraceId(undefined);
+        setSelectedEndpointName(name);
+      }}
+      onClearEndpoint={() => setSelectedEndpointName(null)}
+      onOpen={setSelectedTraceId}
+    />
+  );
 }

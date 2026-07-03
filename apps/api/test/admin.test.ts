@@ -4,6 +4,31 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
+import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
+import type { ExperimentRecord } from "../../../packages/db/src/repositories/experiments.js";
+import type {
+  FeatureFlagAuditRecord,
+  FeatureFlagEvaluation,
+  FeatureFlagRecord
+} from "../../../packages/db/src/repositories/feature-flags.js";
+import type {
+  BetaProgramAdoption,
+  BetaProgramParticipantRecord,
+  BetaProgramRecord
+} from "../../../packages/db/src/repositories/beta-programs.js";
+import type { SurveyRecord } from "../../../packages/db/src/repositories/surveys.js";
+import type { MessageCampaignRecord } from "../../../packages/db/src/repositories/message-campaigns.js";
+import type { DataGovernancePolicy } from "../../../packages/db/src/repositories/data-governance.js";
+import type {
+  WarehouseDestinationRecord,
+  WarehouseExportRunRecord
+} from "../../../packages/db/src/repositories/warehouse-exports.js";
+import type {
+  CodeIntegrationRecord,
+  ReleaseMetadataRecord
+} from "../../../packages/db/src/repositories/code-integrations.js";
+import type { FeedbackWidgetSettings } from "../../../packages/db/src/repositories/feedback-widget.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -36,6 +61,468 @@ function sourceMapArtifact(overrides: Partial<Record<string, unknown>> = {}) {
     uploadedByTokenId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsSegment(overrides: Partial<AnalyticsSegmentRecord> = {}): AnalyticsSegmentRecord {
+  return {
+    id: "seg_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    name: "Team creators",
+    description: null,
+    actorType: "user",
+    definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsSegmentResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...analyticsSegment(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsSegmentPreview(overrides: Partial<AnalyticsSegmentPreview> = {}): AnalyticsSegmentPreview {
+  return {
+    segmentId: "seg_1",
+    actorType: "user",
+    window: "30d",
+    actors: 1,
+    samples: [{ actorId: "user_1", lastSeenAt: "2026-01-01T00:00:00.000Z" }],
+    ...overrides
+  };
+}
+
+function analyticsDashboard(overrides: Partial<AnalyticsDashboardRecord> = {}): AnalyticsDashboardRecord {
+  return {
+    id: "dash_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    name: "Operations report",
+    description: null,
+    category: "operational",
+    filters: { window: "7d" },
+    widgets: [
+      { id: "wid_1", type: "metric.events", title: "Events", width: "half", options: {} },
+      { id: "wid_2", type: "metric.errors", title: "Errors", width: "half", options: {} },
+      { id: "wid_3", type: "top.events", title: "Top events", width: "full", options: {} }
+    ],
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function analyticsDashboardResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...analyticsDashboard(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function experiment(overrides: Partial<ExperimentRecord> = {}): ExperimentRecord {
+  return {
+    id: "exp_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "checkout_copy",
+    name: "Checkout copy",
+    description: null,
+    status: "running",
+    actorType: "user",
+    exposureEvent: "sigmon.experiment.exposed",
+    conversionEvent: "checkout.completed",
+    variants: [
+      { key: "control", name: "Control", weight: 50 },
+      { key: "treatment", name: "Treatment", weight: 50 }
+    ],
+    primaryMetric: { eventName: "checkout.completed", windowHours: 24 },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function experimentResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...experiment(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function survey(overrides: Partial<SurveyRecord> = {}): SurveyRecord {
+  return {
+    id: "surv_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "activation_pulse",
+    name: "Activation pulse",
+    description: null,
+    status: "active",
+    actorType: "user",
+    triggerEvent: "checkout.completed",
+    questions: [
+      {
+        id: "satisfaction",
+        type: "rating",
+        label: "How satisfied are you?",
+        required: true,
+        scale: { min: 1, max: 5, minLabel: "Hard", maxLabel: "Great" }
+      }
+    ],
+    targeting: { tenantId: "tenant_1" },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function surveyResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...survey(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function messageCampaign(overrides: Partial<MessageCampaignRecord> = {}): MessageCampaignRecord {
+  return {
+    id: "cmp_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "invoice_activation",
+    name: "Invoice activation",
+    description: null,
+    status: "active",
+    channelType: "email",
+    notificationChannelId: "chn_1",
+    segmentId: "seg_1",
+    conversionEvent: "invoice.paid",
+    subject: "Create your first invoice",
+    body: "Invite tenants to finish onboarding.",
+    ctaUrl: "https://app.example.com/invoices",
+    consentCategory: "product",
+    privacyNote: "Only opted-in contacts.",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function messageCampaignResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...messageCampaign(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function feedbackWidgetSettings(overrides: Partial<FeedbackWidgetSettings> = {}): FeedbackWidgetSettings {
+  return {
+    projectId: "prj_1",
+    environmentId: "env_1",
+    enabled: true,
+    title: "Send feedback",
+    prompt: "Tell us what happened.",
+    placeholder: "Write your feedback...",
+    buttonLabel: "Feedback",
+    accentColor: "#66e38a",
+    allowScreenshot: false,
+    privacyNote: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function feedbackWidgetSettingsResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...feedbackWidgetSettings(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function featureFlag(overrides: Partial<FeatureFlagRecord> = {}): FeatureFlagRecord {
+  return {
+    id: "flg_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "new_checkout",
+    name: "New checkout",
+    description: null,
+    status: "active",
+    defaultVariant: "off",
+    variants: [
+      { key: "off", value: false },
+      { key: "on", value: true }
+    ],
+    rules: [{ id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } }],
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function featureFlagResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...featureFlag(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function featureFlagAudit(overrides: Partial<FeatureFlagAuditRecord> = {}): FeatureFlagAuditRecord {
+  return {
+    id: "ffaud_1",
+    featureFlagId: "flg_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    action: "created",
+    actorId: "usr_1",
+    changes: { key: "new_checkout" },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function featureFlagAuditResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...featureFlagAudit(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function warehouseDestination(overrides: Partial<WarehouseDestinationRecord> = {}): WarehouseDestinationRecord {
+  return {
+    id: "whdst_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    name: "Warehouse",
+    destinationType: "postgres",
+    connectionUrlPreview: "postgres://writer:***@warehouse.internal:5432/analytics",
+    datasets: ["events", "errors"],
+    cursor: {},
+    batchSize: 500,
+    enabled: true,
+    lastRunAt: null,
+    lastSuccessAt: null,
+    lastFailureAt: null,
+    lastErrorMessage: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function warehouseDestinationResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...warehouseDestination(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function warehouseExportRun(overrides: Partial<WarehouseExportRunRecord> = {}): WarehouseExportRunRecord {
+  return {
+    id: "whrun_1",
+    destinationId: "whdst_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    trigger: "manual",
+    status: "success",
+    startedAt: new Date("2026-01-01T00:00:00.000Z"),
+    finishedAt: new Date("2026-01-01T00:00:01.000Z"),
+    cursorBefore: {},
+    cursorAfter: { events: { timestamp: "2026-01-01T00:00:00.000Z", id: "evt_1" } },
+    exported: { events: 1 },
+    errorMessage: null,
+    createdAt: new Date("2026-01-01T00:00:01.000Z"),
+    ...overrides
+  };
+}
+
+function warehouseExportRunResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...warehouseExportRun(),
+    startedAt: "2026-01-01T00:00:00.000Z",
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    createdAt: "2026-01-01T00:00:01.000Z",
+    ...overrides
+  };
+}
+
+function codeIntegration(overrides: Partial<CodeIntegrationRecord> = {}): CodeIntegrationRecord {
+  return {
+    id: "cint_1",
+    projectId: "prj_1",
+    provider: "github",
+    name: "Web",
+    owner: "acme",
+    repo: "web",
+    webBaseUrl: "https://github.com/acme/web",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    revokedAt: null,
+    ...overrides
+  };
+}
+
+function codeIntegrationResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...codeIntegration(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function releaseMetadata(overrides: Partial<ReleaseMetadataRecord> = {}): ReleaseMetadataRecord {
+  return {
+    id: "relm_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    release: "web@1.2.3",
+    integrationId: "cint_1",
+    commitSha: "abcdef123456",
+    commitUrl: "https://github.com/acme/web/commit/abcdef123456",
+    pullRequestNumber: 42,
+    pullRequestUrl: "https://github.com/acme/web/pull/42",
+    deployedBy: "github-actions",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function releaseMetadataResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...releaseMetadata(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function betaProgram(overrides: Partial<BetaProgramRecord> = {}): BetaProgramRecord {
+  return {
+    id: "beta_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "checkout_beta",
+    name: "Checkout beta",
+    description: "Early access for checkout redesign.",
+    status: "active",
+    actorType: "user",
+    featureFlagId: "flg_1",
+    featureFlagVariant: "on",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...betaProgram(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramParticipant(overrides: Partial<BetaProgramParticipantRecord> = {}): BetaProgramParticipantRecord {
+  return {
+    id: "betap_1",
+    programId: "beta_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    actorType: "user",
+    actorId: "user_1",
+    status: "active",
+    notes: "Requested early access.",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    removedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramParticipantResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...betaProgramParticipant(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    removedAt: null,
+    ...overrides
+  };
+}
+
+function betaProgramAdoption(overrides: Partial<BetaProgramAdoption> = {}): BetaProgramAdoption {
+  return {
+    programId: "beta_1",
+    window: "30d",
+    participants: 3,
+    activeParticipants: 2,
+    activeActorsWithEvents: 1,
+    events: 4,
+    adoptionRate: 50,
+    samples: [{ actorId: "user_1", events: 4, lastSeenAt: "2026-01-01T00:00:00.000Z" }],
+    ...overrides
+  };
+}
+
+function dataGovernancePolicy(overrides: Partial<DataGovernancePolicy> = {}): DataGovernancePolicy {
+  return {
+    projectId: "prj_1",
+    environmentId: "env_1",
+    retentionPolicy: { events: 45, errors: 180 },
+    propertyRules: [{ target: "event.properties", path: "email", action: "mask" }],
+    updatedByUserId: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function dataGovernancePolicyResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...dataGovernancePolicy(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };
 }
@@ -563,6 +1050,974 @@ describe("admin routes", () => {
     const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_1" });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archivedOriginIds).toEqual(["borg_1"]);
+  });
+
+  it("manages project code integrations and release metadata", async () => {
+    const list = vi.fn(async () => [codeIntegration()]);
+    const create = vi.fn(async (input) => codeIntegration({ ...input, id: "cint_2" }));
+    const revoke = vi.fn(async () => codeIntegration());
+    const upsertReleaseMetadata = vi.fn(async (input) => releaseMetadata(input));
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        codeIntegrations: { list, create, revoke, upsertReleaseMetadata }
+      }
+    });
+
+    const listResponse = await app.inject({ method: "GET", url: "/admin/projects/prj_1/code-integrations" });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ integrations: [codeIntegrationResponse()] });
+    expect(list).toHaveBeenCalledWith("prj_1");
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/code-integrations",
+      payload: { provider: "gitlab", name: "API", owner: "platform/team", repo: "api" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      provider: "gitlab",
+      name: "API",
+      owner: "platform/team",
+      repo: "api"
+    });
+
+    const releaseResponse = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/release-metadata",
+      payload: {
+        environmentId: "env_1",
+        release: "web@1.2.3",
+        integrationId: "cint_1",
+        commitSha: "abcdef123456",
+        commitUrl: "https://github.com/acme/web/commit/abcdef123456",
+        pullRequestNumber: 42,
+        pullRequestUrl: "https://github.com/acme/web/pull/42",
+        deployedBy: "github-actions"
+      }
+    });
+    expect(releaseResponse.statusCode).toBe(201);
+    expect(releaseResponse.json()).toEqual({ metadata: releaseMetadataResponse() });
+    expect(upsertReleaseMetadata).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "web@1.2.3",
+      integrationId: "cint_1",
+      commitSha: "abcdef123456",
+      commitUrl: "https://github.com/acme/web/commit/abcdef123456",
+      pullRequestNumber: 42,
+      pullRequestUrl: "https://github.com/acme/web/pull/42",
+      deployedBy: "github-actions"
+    });
+
+    const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/projects/prj_1/code-integrations/cint_1" });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(revoke).toHaveBeenCalledWith({ projectId: "prj_1", integrationId: "cint_1" });
+  });
+
+  it("manages analytics segments for admins", async () => {
+    const list = vi.fn(async () => [analyticsSegment()]);
+    const create = vi.fn(async (input) => analyticsSegment(input));
+    const update = vi.fn(async (_id, input) => analyticsSegment({ ...input, id: "seg_1" }));
+    const archive = vi.fn(async () => undefined);
+    const get = vi.fn(async () => analyticsSegment());
+    const preview = vi.fn(async () => analyticsSegmentPreview());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: { list, create, update, archive, get, preview }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics-segments?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ segments: [analyticsSegmentResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-segments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Team creators",
+        actorType: "user",
+        definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Team creators",
+      actorType: "user",
+      definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+    });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/analytics-segments/seg_1",
+      payload: { name: "Activated users" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith("seg_1", { name: "Activated users" });
+
+    const previewResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics-segments/seg_1/preview?project_id=prj_1&environment_id=env_1&limit=3"
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    expect(previewResponse.json()).toEqual({
+      preview: {
+        segmentId: "seg_1",
+        actorType: "user",
+        window: "30d",
+        actors: 1,
+        samples: [{ actorId: "user_1", lastSeenAt: "2026-01-01T00:00:00.000Z" }]
+      }
+    });
+    expect(get).toHaveBeenCalledWith({ id: "seg_1", projectId: "prj_1", environmentId: "env_1" });
+    expect(preview).toHaveBeenCalledWith(analyticsSegment(), { limit: 3 });
+
+    const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/analytics-segments/seg_1" });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith("seg_1");
+  });
+
+  it("rejects analytics segments without any condition", async () => {
+    const create = vi.fn(async () => analyticsSegment());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined,
+          get: async () => undefined,
+          preview: async () => analyticsSegmentPreview({ actors: 0, samples: [] })
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-segments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Invalid",
+        actorType: "user",
+        definition: { window: "30d" }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_analytics_segment_request" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages analytics dashboards for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [analyticsDashboard()]);
+    const create = vi.fn(async (input) => analyticsDashboard(input));
+    const update = vi.fn(async (input) => analyticsDashboard({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsDashboards: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics-dashboards?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ dashboards: [analyticsDashboardResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-dashboards",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Operations report",
+        category: "operational",
+        filters: { window: "7d" },
+        widgets: [
+          { type: "metric.events", title: "Events", width: "half", options: {} },
+          { type: "metric.errors", title: "Errors", width: "half", options: {} },
+          { type: "top.events", title: "Top events", width: "full", options: {} }
+        ]
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ projectId: "prj_1", environmentId: "env_1", name: "Operations report" }));
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/analytics-dashboards/dash_1?project_id=prj_1&environment_id=env_1",
+      payload: { name: "Executive report" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "dash_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { name: "Executive report" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/analytics-dashboards/dash_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "dash_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects dashboards with fewer than three widgets", async () => {
+    const create = vi.fn(async () => analyticsDashboard());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsDashboards: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-dashboards",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Too small",
+        widgets: [{ type: "metric.events", title: "Events", width: "half", options: {} }]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_analytics_dashboard_request" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages experiments for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [experiment()]);
+    const create = vi.fn(async (input) => experiment(input));
+    const update = vi.fn(async (input) => experiment({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        experiments: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/experiments?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ experiments: [experimentResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/experiments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "checkout_copy",
+        name: "Checkout copy",
+        actorType: "user",
+        exposureEvent: "sigmon.experiment.exposed",
+        conversionEvent: "checkout.completed",
+        variants: [
+          { key: "control", name: "Control", weight: 50 },
+          { key: "treatment", name: "Treatment", weight: 50 }
+        ],
+        primaryMetric: { eventName: "checkout.completed", windowHours: 24 }
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ key: "checkout_copy", variants: expect.any(Array) }));
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/experiments/exp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "exp_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/experiments/exp_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "exp_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects experiments with fewer than two variants", async () => {
+    const create = vi.fn(async () => experiment());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        experiments: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/experiments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "bad",
+        name: "Bad",
+        variants: [{ key: "only", name: "Only", weight: 100 }]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_experiment_request" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages surveys for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [survey()]);
+    const create = vi.fn(async (input) => survey(input));
+    const update = vi.fn(async (input) => survey({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        surveys: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/surveys?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ surveys: [surveyResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/surveys",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "activation_pulse",
+        name: "Activation pulse",
+        status: "active",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        questions: [
+          {
+            id: "satisfaction",
+            type: "rating",
+            label: "How satisfied are you?",
+            required: true,
+            scale: { min: 1, max: 5, minLabel: "Hard", maxLabel: "Great" }
+          }
+        ],
+        targeting: { tenantId: "tenant_1" }
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "activation_pulse",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        targeting: { tenantId: "tenant_1" }
+      })
+    );
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/surveys/surv_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "surv_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/surveys/surv_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "surv_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects surveys without questions", async () => {
+    const create = vi.fn(async () => survey());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        surveys: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/surveys",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "bad",
+        name: "Bad",
+        questions: []
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_survey_request" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages message campaigns for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [messageCampaign()]);
+    const create = vi.fn(async (input) => messageCampaign(input));
+    const update = vi.fn(async (input) => messageCampaign({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        messageCampaigns: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/message-campaigns?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ campaigns: [messageCampaignResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/message-campaigns",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "invoice_activation",
+        name: "Invoice activation",
+        status: "active",
+        channelType: "email",
+        notificationChannelId: "chn_1",
+        segmentId: "seg_1",
+        conversionEvent: "invoice.paid",
+        subject: "Create your first invoice",
+        body: "Invite tenants to finish onboarding.",
+        ctaUrl: "https://app.example.com/invoices",
+        consentCategory: "product",
+        privacyNote: "Only opted-in contacts."
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "invoice_activation",
+        channelType: "email",
+        notificationChannelId: "chn_1",
+        consentCategory: "product"
+      })
+    );
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/message-campaigns/cmp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "cmp_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/message-campaigns/cmp_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "cmp_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("manages feedback widget settings for a scoped environment", async () => {
+    const getSettings = vi.fn(async () => feedbackWidgetSettings());
+    const upsertSettings = vi.fn(async (input) => feedbackWidgetSettings(input));
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        feedbackWidget: { getSettings, upsertSettings }
+      }
+    });
+
+    const getResponse = await app.inject({
+      method: "GET",
+      url: "/admin/feedback-widget?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({ settings: feedbackWidgetSettingsResponse() });
+    expect(getSettings).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: "/admin/feedback-widget",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        enabled: true,
+        title: "Report feedback",
+        prompt: "What should we improve?",
+        placeholder: "Tell us what happened...",
+        buttonLabel: "Feedback",
+        accentColor: "#00aa66",
+        allowScreenshot: false,
+        privacyNote: "Do not include secrets."
+      }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(upsertSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        title: "Report feedback",
+        privacyNote: "Do not include secrets."
+      })
+    );
+  });
+
+  it("manages feature flags for admins with audit history and evaluation preview", async () => {
+    const list = vi.fn(async () => [featureFlag()]);
+    const create = vi.fn(async (input) => featureFlag(input));
+    const update = vi.fn(async (input) => featureFlag({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+    const listAudit = vi.fn(async () => [featureFlagAudit()]);
+    const evaluate = vi.fn(
+      async (): Promise<FeatureFlagEvaluation> => ({
+        key: "new_checkout",
+        variant: "on",
+        value: true,
+        matched: true,
+        reason: "rule_match",
+        ruleId: "internal"
+      })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        featureFlags: { list, create, update, archive, listAudit, evaluate }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/feature-flags?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ flags: [featureFlagResponse()] });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/feature-flags",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "new_checkout",
+        name: "New checkout",
+        status: "active",
+        defaultVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [
+          { id: "internal", description: "Internal user", variant: "on", match: { userId: "user_1" } },
+          { id: "gradual_rollout", description: "Gradual rollout", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }
+        ]
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "new_checkout",
+        actorId: "usr_1",
+        rules: expect.arrayContaining([expect.objectContaining({ id: "gradual_rollout", rollout: { percentage: 10, stickiness: "user" } })])
+      })
+    );
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/feature-flags/flg_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "flg_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" },
+      actorId: "usr_1"
+    });
+
+    const auditResponse = await app.inject({
+      method: "GET",
+      url: "/admin/feature-flags/flg_1/audit?project_id=prj_1&environment_id=env_1"
+    });
+    expect(auditResponse.statusCode).toBe(200);
+    expect(auditResponse.json()).toEqual({ audit: [featureFlagAuditResponse()] });
+
+    const evaluateResponse = await app.inject({
+      method: "POST",
+      url: "/admin/feature-flags/flg_1/evaluate?project_id=prj_1&environment_id=env_1",
+      payload: { subject: { userId: "user_1", traits: { plan: "beta" } }, fallbackVariant: "off" }
+    });
+    expect(evaluateResponse.statusCode).toBe(200);
+    expect(evaluateResponse.json()).toEqual({ evaluation: { key: "new_checkout", variant: "on", value: true, matched: true, reason: "rule_match", ruleId: "internal" } });
+    expect(evaluate).toHaveBeenCalledWith({
+      id: "flg_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      subject: { userId: "user_1", traits: { plan: "beta" } },
+      fallbackVariant: "off"
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/feature-flags/flg_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "flg_1", projectId: "prj_1", environmentId: "env_1", actorId: "usr_1" });
+  });
+
+  it("manages beta programs, participants, and adoption for admins", async () => {
+    const list = vi.fn(async () => [betaProgram()]);
+    const create = vi.fn(async (input) => betaProgram(input));
+    const update = vi.fn(async (input) => betaProgram({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+    const listParticipants = vi.fn(async () => [betaProgramParticipant()]);
+    const addParticipant = vi.fn(async (input) => betaProgramParticipant(input));
+    const removeParticipant = vi.fn(async () => undefined);
+    const getAdoption = vi.fn(async () => betaProgramAdoption());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        betaPrograms: { list, create, update, archive, listParticipants, addParticipant, removeParticipant, getAdoption }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/beta-programs?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ programs: [betaProgramResponse()] });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/beta-programs",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "checkout_beta",
+        name: "Checkout beta",
+        status: "active",
+        actorType: "user",
+        featureFlagId: "flg_1",
+        featureFlagVariant: "on"
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ key: "checkout_beta", actorType: "user" }));
+
+    const participantsResponse = await app.inject({
+      method: "GET",
+      url: "/admin/beta-programs/beta_1/participants?project_id=prj_1&environment_id=env_1"
+    });
+    expect(participantsResponse.statusCode).toBe(200);
+    expect(participantsResponse.json()).toEqual({ participants: [betaProgramParticipantResponse()] });
+
+    const addResponse = await app.inject({
+      method: "POST",
+      url: "/admin/beta-programs/beta_1/participants",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        actorType: "user",
+        actorId: "user_1",
+        status: "active",
+        notes: "Requested early access."
+      }
+    });
+    expect(addResponse.statusCode).toBe(201);
+    expect(addParticipant).toHaveBeenCalledWith(expect.objectContaining({ programId: "beta_1", actorId: "user_1", actorType: "user" }));
+
+    const adoptionResponse = await app.inject({
+      method: "GET",
+      url: "/admin/beta-programs/beta_1/adoption?project_id=prj_1&environment_id=env_1&window=30d"
+    });
+    expect(adoptionResponse.statusCode).toBe(200);
+    expect(adoptionResponse.json()).toEqual({ adoption: betaProgramAdoption() });
+    expect(getAdoption).toHaveBeenCalledWith({ programId: "beta_1", projectId: "prj_1", environmentId: "env_1", window: "30d" });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/beta-programs/beta_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({ id: "beta_1", projectId: "prj_1", environmentId: "env_1", patch: { status: "paused" } });
+
+    const removeResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/beta-programs/beta_1/participants/betap_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(removeResponse.statusCode).toBe(204);
+    expect(removeParticipant).toHaveBeenCalledWith({ programId: "beta_1", projectId: "prj_1", environmentId: "env_1", participantId: "betap_1" });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/beta-programs/beta_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "beta_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("manages data governance policies for admins", async () => {
+    const get = vi.fn(async () => dataGovernancePolicy());
+    const upsert = vi.fn(async (input) =>
+      dataGovernancePolicy({
+        retentionPolicy: input.retentionPolicy,
+        propertyRules: input.propertyRules,
+        updatedByUserId: input.updatedByUserId ?? null
+      })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        dataGovernance: { get, upsert }
+      }
+    });
+
+    const getResponse = await app.inject({
+      method: "GET",
+      url: "/admin/data-governance?project_id=prj_1&environment_id=env_1"
+    });
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({ policy: dataGovernancePolicyResponse() });
+    expect(get).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const putResponse = await app.inject({
+      method: "PUT",
+      url: "/admin/data-governance",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        retentionPolicy: { events: 60, errors: 365 },
+        propertyRules: [
+          { target: "event.properties", path: "email", action: "mask" },
+          { target: "metadata", path: "headers.authorization", action: "block" }
+        ]
+      }
+    });
+    expect(putResponse.statusCode).toBe(200);
+    expect(upsert).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      retentionPolicy: { events: 60, errors: 365 },
+      propertyRules: [
+        { target: "event.properties", path: "email", action: "mask" },
+        { target: "metadata", path: "headers.authorization", action: "block" }
+      ],
+      updatedByUserId: "usr_1"
+    });
+  });
+
+  it("manages warehouse export destinations and manual runs for admins", async () => {
+    const listDestinations = vi.fn(async () => [warehouseDestination()]);
+    const createDestination = vi.fn(async (input) =>
+      warehouseDestination({ name: input.name, datasets: input.datasets, batchSize: input.batchSize })
+    );
+    const updateDestination = vi.fn(async (input) =>
+      warehouseDestination({ id: input.id, name: input.name ?? "Warehouse", enabled: input.enabled ?? true })
+    );
+    const archiveDestination = vi.fn(async () => undefined);
+    const listRuns = vi.fn(async () => [warehouseExportRun()]);
+    const runDestination = vi.fn(async () => ({ ran: true, skipped: false, exported: 1, failed: 0 }));
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: {
+          listDestinations,
+          createDestination,
+          updateDestination,
+          archiveDestination,
+          listRuns,
+          runDestination
+        }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/warehouse-destinations?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ destinations: [warehouseDestinationResponse()] });
+    expect(listResponse.body).not.toContain("secret");
+    expect(listDestinations).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/warehouse-destinations",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Warehouse prod",
+        destinationType: "postgres",
+        connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
+        datasets: ["events", "traces"],
+        batchSize: 1000,
+        enabled: true
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(createDestination).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse prod",
+      destinationType: "postgres",
+      connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
+      datasets: ["events", "traces"],
+      batchSize: 1000,
+      enabled: true
+    });
+    expect(createResponse.body).not.toContain("secret");
+
+    const patchResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Warehouse paused",
+        enabled: false
+      }
+    });
+    expect(patchResponse.statusCode).toBe(200);
+    expect(updateDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse paused",
+      connectionUrl: undefined,
+      datasets: undefined,
+      batchSize: undefined,
+      enabled: false
+    });
+
+    const runsResponse = await app.inject({
+      method: "GET",
+      url: "/admin/warehouse-destinations/whdst_1/runs?project_id=prj_1&environment_id=env_1"
+    });
+    expect(runsResponse.statusCode).toBe(200);
+    expect(runsResponse.json()).toEqual({ runs: [warehouseExportRunResponse()] });
+    expect(listRuns).toHaveBeenCalledWith({ destinationId: "whdst_1", projectId: "prj_1", environmentId: "env_1", limit: undefined });
+
+    const runResponse = await app.inject({
+      method: "POST",
+      url: "/admin/warehouse-destinations/whdst_1/runs",
+      payload: { projectId: "prj_1", environmentId: "env_1" }
+    });
+    expect(runResponse.statusCode).toBe(202);
+    expect(runResponse.json()).toEqual({ result: { ran: true, skipped: false, exported: 1, failed: 0 } });
+    expect(runDestination).toHaveBeenCalledWith({
+      destinationId: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      trigger: "manual"
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/warehouse-destinations/whdst_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archiveDestination).toHaveBeenCalledWith({ id: "whdst_1", projectId: "prj_1", environmentId: "env_1" });
   });
 
   it("rejects invalid browser origins", async () => {

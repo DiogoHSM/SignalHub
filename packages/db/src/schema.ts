@@ -37,6 +37,354 @@ export interface ProjectBrowserOriginsTable {
   archived_at: NullableTimestamp;
 }
 
+export type CodeIntegrationProvider = "github" | "gitlab";
+
+export interface ProjectCodeIntegrationsTable {
+  id: string;
+  project_id: string;
+  provider: CodeIntegrationProvider;
+  name: string;
+  owner: string;
+  repo: string;
+  web_base_url: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  revoked_at: NullableTimestamp;
+}
+
+export interface IncidentExternalLinksTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  error_group_id: string;
+  integration_id: string | null;
+  provider: CodeIntegrationProvider;
+  external_key: string;
+  title: string;
+  url: string;
+  state: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface ReleaseMetadataTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  release: string;
+  integration_id: string | null;
+  commit_sha: string | null;
+  commit_url: string | null;
+  pull_request_number: number | null;
+  pull_request_url: string | null;
+  deployed_by: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export type AnalyticsSegmentActorType = "user" | "tenant";
+
+export interface AnalyticsSegmentsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  description: string | null;
+  actor_type: AnalyticsSegmentActorType;
+  definition: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface AnalyticsDashboardsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  description: string | null;
+  category: "executive" | "operational" | "product";
+  filters: JsonColumn;
+  widgets: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export type ExperimentStatus = "draft" | "running" | "paused" | "completed" | "archived";
+export type ExperimentActorType = "user" | "tenant" | "session";
+
+export interface ExperimentsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<ExperimentStatus, ExperimentStatus | undefined, ExperimentStatus>;
+  actor_type: ColumnType<ExperimentActorType, ExperimentActorType | undefined, ExperimentActorType>;
+  exposure_event: string;
+  conversion_event: string;
+  variants: JsonColumn;
+  primary_metric: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export type FeatureFlagStatus = "draft" | "active" | "paused" | "archived";
+
+export interface FeatureFlagsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<FeatureFlagStatus, FeatureFlagStatus | undefined, FeatureFlagStatus>;
+  default_variant: string;
+  variants: JsonColumn;
+  rules: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export type FeatureFlagAuditAction = "created" | "updated" | "archived";
+
+export interface FeatureFlagAuditTable {
+  id: string;
+  feature_flag_id: string;
+  project_id: string;
+  environment_id: string;
+  action: FeatureFlagAuditAction;
+  actor_id: string | null;
+  changes: JsonColumn;
+  created_at: Timestamp;
+}
+
+export type BetaProgramStatus = "draft" | "active" | "paused" | "archived";
+export type BetaProgramActorType = "user" | "tenant";
+
+export interface BetaProgramsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<BetaProgramStatus, BetaProgramStatus | undefined, BetaProgramStatus>;
+  actor_type: ColumnType<BetaProgramActorType, BetaProgramActorType | undefined, BetaProgramActorType>;
+  feature_flag_id: string | null;
+  feature_flag_variant: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export type BetaProgramParticipantStatus = "invited" | "active" | "opted_out" | "removed";
+
+export interface BetaProgramParticipantsTable {
+  id: string;
+  program_id: string;
+  project_id: string;
+  environment_id: string;
+  actor_type: ColumnType<BetaProgramActorType, BetaProgramActorType | undefined, BetaProgramActorType>;
+  actor_id: string;
+  status: ColumnType<BetaProgramParticipantStatus, BetaProgramParticipantStatus | undefined, BetaProgramParticipantStatus>;
+  notes: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  removed_at: NullableTimestamp;
+}
+
+export type SurveyStatus = "draft" | "active" | "paused" | "archived";
+export type SurveyActorType = "user" | "tenant" | "session";
+export type SurveyResponseActorType = SurveyActorType | "anonymous";
+
+export interface SurveysTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<SurveyStatus, SurveyStatus | undefined, SurveyStatus>;
+  actor_type: ColumnType<SurveyActorType, SurveyActorType | undefined, SurveyActorType>;
+  trigger_event: string | null;
+  questions: JsonColumn;
+  targeting: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface SurveyResponsesTable {
+  id: string;
+  survey_id: string;
+  project_id: string;
+  environment_id: string;
+  actor_type: ColumnType<SurveyResponseActorType, SurveyResponseActorType | undefined, SurveyResponseActorType>;
+  actor_id: string | null;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  release: string | null;
+  source: string | null;
+  answers: JsonColumn;
+  metadata: JsonColumn;
+  submitted_at: Timestamp;
+  received_at: Timestamp;
+}
+
+export type MessageCampaignStatus = "draft" | "active" | "paused" | "archived";
+export type MessageCampaignChannelType = "email" | "webhook" | "in_app";
+export type MessageCampaignEventType = "queued" | "sent" | "delivered" | "opened" | "clicked" | "converted" | "failed" | "opted_out";
+export type MessageCampaignActorType = "user" | "tenant" | "session" | "anonymous";
+
+export interface MessageCampaignsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<MessageCampaignStatus, MessageCampaignStatus | undefined, MessageCampaignStatus>;
+  channel_type: ColumnType<MessageCampaignChannelType, MessageCampaignChannelType | undefined, MessageCampaignChannelType>;
+  notification_channel_id: string | null;
+  segment_id: string | null;
+  conversion_event: string | null;
+  subject: string | null;
+  body: string;
+  cta_url: string | null;
+  consent_category: string;
+  privacy_note: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface MessageCampaignEventsTable {
+  id: string;
+  campaign_id: string;
+  project_id: string;
+  environment_id: string;
+  type: MessageCampaignEventType;
+  actor_type: ColumnType<MessageCampaignActorType, MessageCampaignActorType | undefined, MessageCampaignActorType>;
+  actor_id: string | null;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  release: string | null;
+  source: string | null;
+  metadata: JsonColumn;
+  occurred_at: Timestamp;
+  received_at: Timestamp;
+}
+
+export interface MessageCampaignOptOutsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  campaign_id: string | null;
+  actor_type: MessageCampaignActorType;
+  actor_id: string;
+  category: string;
+  reason: string | null;
+  created_at: Timestamp;
+}
+
+export type FeedbackItemStatus = "open" | "reviewed" | "archived";
+
+export interface FeedbackWidgetSettingsTable {
+  project_id: string;
+  environment_id: string;
+  enabled: DefaultedBoolean;
+  title: string;
+  prompt: string;
+  placeholder: string;
+  button_label: string;
+  accent_color: string;
+  allow_screenshot: DefaultedBoolean;
+  privacy_note: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface FeedbackItemsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  status: ColumnType<FeedbackItemStatus, FeedbackItemStatus | undefined, FeedbackItemStatus>;
+  message: string;
+  category: string | null;
+  page_url: string | null;
+  path: string | null;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  release: string | null;
+  source: string | null;
+  user_agent: string | null;
+  metadata: JsonColumn;
+  submitted_at: Timestamp;
+  received_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface DataGovernancePoliciesTable {
+  project_id: string;
+  environment_id: string;
+  retention_policy: JsonColumn;
+  property_rules: JsonColumn;
+  updated_by_user_id: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export type WarehouseDestinationType = "postgres";
+export type WarehouseExportRunTrigger = "scheduled" | "manual" | "retry";
+export type WarehouseExportRunStatus = "running" | "success" | "failed";
+
+export interface WarehouseDestinationsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  destination_type: WarehouseDestinationType;
+  connection_url: string;
+  datasets: JsonColumn;
+  cursor: JsonColumn;
+  batch_size: DefaultedInteger;
+  enabled: DefaultedBoolean;
+  last_run_at: NullableTimestamp;
+  last_success_at: NullableTimestamp;
+  last_failure_at: NullableTimestamp;
+  last_error_message: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface WarehouseExportRunsTable {
+  id: string;
+  destination_id: string;
+  project_id: string;
+  environment_id: string;
+  trigger: WarehouseExportRunTrigger;
+  status: WarehouseExportRunStatus;
+  started_at: Timestamp;
+  finished_at: NullableTimestamp;
+  cursor_before: JsonColumn;
+  cursor_after: JsonColumn;
+  exported: JsonColumn;
+  error_message: string | null;
+  created_at: Timestamp;
+}
+
 export interface EnvironmentsTable {
   id: string;
   project_id: string;
@@ -104,6 +452,7 @@ export interface EventsTable {
   release: string | null;
   metadata: JsonColumn;
   name: string;
+  replay_id: string | null;
   properties: JsonColumn;
 }
 
@@ -177,9 +526,35 @@ export interface ErrorsTable {
   stack: string | null;
   status: ColumnType<string, string | undefined, string>;
   fingerprint: string | null;
+  replay_id: string | null;
   context: JsonColumn;
   error_group_id: string | null;
   grouping_fingerprint: string | null;
+}
+
+export interface SessionReplaysTable {
+  id: string;
+  replay_id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  route: string | null;
+  error_id: string | null;
+  started_at: Timestamp;
+  ended_at: NullableTimestamp;
+  duration_ms: number | null;
+  event_count: DefaultedInteger;
+  masked: DefaultedBoolean;
+  events: JsonColumn;
+  created_at: Timestamp;
 }
 
 export interface LlmCallsTable {
@@ -253,6 +628,87 @@ export interface SpansTable {
   cost_usd: NullableNumericString;
 }
 
+export interface WebVitalsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  name: string;
+  value: RequiredNumericString;
+  rating: string;
+  route: string | null;
+  navigation_type: string | null;
+}
+
+export interface ClickEventsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  route: string;
+  selector: string;
+  element_tag: string | null;
+  element_role: string | null;
+  x: RequiredNumericString;
+  y: RequiredNumericString;
+  viewport_width: number;
+  viewport_height: number;
+  scroll_x: number | null;
+  scroll_y: number | null;
+  masked: DefaultedBoolean;
+}
+
+export interface ProfilesTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  timestamp: Timestamp;
+  received_at: Timestamp;
+  source: string | null;
+  release: string | null;
+  metadata: JsonColumn;
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service: string | null;
+  route: string | null;
+  started_at: Timestamp;
+  ended_at: NullableTimestamp;
+  duration_ms: number | null;
+  sample_count: DefaultedInteger;
+  sampling_interval_ms: number | null;
+  cpu_usage_percent: NullableNumericString;
+  cpu_user_ms: number | null;
+  cpu_system_ms: number | null;
+  rss_bytes: NullableNumericString;
+  heap_used_bytes: NullableNumericString;
+  heap_total_bytes: NullableNumericString;
+  external_bytes: NullableNumericString;
+  array_buffers_bytes: NullableNumericString;
+  top_functions: JsonColumn;
+  summary: JsonColumn;
+}
+
 export interface DeadLetterJobsTable {
   id: string;
   project_id: string | null;
@@ -287,6 +743,8 @@ export interface RetentionRunsTable {
   deleted_traces: DefaultedInteger;
   deleted_spans: DefaultedInteger;
   deleted_llm_calls: DefaultedInteger;
+  deleted_web_vitals: DefaultedInteger;
+  deleted_profiles: DefaultedInteger;
   deleted_breadcrumbs: DefaultedInteger;
   deleted_dead_letter_jobs: DefaultedInteger;
   source_maps_enabled: DefaultedBoolean;
@@ -299,6 +757,7 @@ export interface RetentionRunsTable {
   traces_days: number;
   spans_days: number;
   llm_calls_days: number;
+  profiles_days: DefaultedInteger;
   breadcrumbs_days: DefaultedInteger;
   dead_letter_jobs_days: DefaultedInteger;
   created_at: Timestamp;
@@ -365,12 +824,14 @@ export interface AlertRulesTable {
   project_id: string;
   environment_id: string;
   notification_channel_id: string | null;
+  escalation_channel_id: string | null;
   name: string;
   type: AlertRuleType;
   severity: AlertSeverity;
   window_minutes: number;
   threshold: RequiredNumericString;
   cooldown_minutes: number;
+  escalation_minutes: number | null;
   route_pattern: string | null;
   minimum_sample_size: number;
   enabled: DefaultedBoolean;
@@ -387,7 +848,7 @@ export interface AlertEventsTable {
   monitor_id: string | null;
   project_id: string;
   environment_id: string;
-  status: "triggered";
+  status: "triggered" | "acknowledged" | "snoozed" | "resolved";
   severity: AlertSeverity;
   triggered_at: Timestamp;
   window_start: Timestamp;
@@ -396,6 +857,16 @@ export interface AlertEventsTable {
   threshold: RequiredNumericString;
   message: string;
   metadata: JsonColumn;
+  acknowledged_at: NullableTimestamp;
+  acknowledged_by_user_id: string | null;
+  acknowledged_by_email: string | null;
+  resolved_at: NullableTimestamp;
+  resolved_by_user_id: string | null;
+  resolved_by_email: string | null;
+  snoozed_until: NullableTimestamp;
+  triage_note: string | null;
+  escalation_due_at: NullableTimestamp;
+  escalated_at: NullableTimestamp;
   created_at: Timestamp;
 }
 
@@ -508,6 +979,26 @@ export interface Database {
   users: UsersTable;
   projects: ProjectsTable;
   project_browser_origins: ProjectBrowserOriginsTable;
+  project_code_integrations: ProjectCodeIntegrationsTable;
+  incident_external_links: IncidentExternalLinksTable;
+  release_metadata: ReleaseMetadataTable;
+  analytics_segments: AnalyticsSegmentsTable;
+  analytics_dashboards: AnalyticsDashboardsTable;
+  experiments: ExperimentsTable;
+  feature_flags: FeatureFlagsTable;
+  feature_flag_audit: FeatureFlagAuditTable;
+  beta_programs: BetaProgramsTable;
+  beta_program_participants: BetaProgramParticipantsTable;
+  surveys: SurveysTable;
+  survey_responses: SurveyResponsesTable;
+  message_campaigns: MessageCampaignsTable;
+  message_campaign_events: MessageCampaignEventsTable;
+  message_campaign_opt_outs: MessageCampaignOptOutsTable;
+  feedback_widget_settings: FeedbackWidgetSettingsTable;
+  feedback_items: FeedbackItemsTable;
+  data_governance_policies: DataGovernancePoliciesTable;
+  warehouse_destinations: WarehouseDestinationsTable;
+  warehouse_export_runs: WarehouseExportRunsTable;
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;
@@ -517,9 +1008,13 @@ export interface Database {
   breadcrumbs: BreadcrumbsTable;
   error_groups: ErrorGroupsTable;
   errors: ErrorsTable;
+  session_replays: SessionReplaysTable;
   llm_calls: LlmCallsTable;
   traces: TracesTable;
   spans: SpansTable;
+  web_vitals: WebVitalsTable;
+  click_events: ClickEventsTable;
+  profiles: ProfilesTable;
   dead_letter_jobs: DeadLetterJobsTable;
   dead_letter_job_actions: DeadLetterJobActionsTable;
   retention_runs: RetentionRunsTable;

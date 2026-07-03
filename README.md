@@ -270,6 +270,8 @@ Docker Compose is the supported production-oriented self-hosted install path for
 
 Docker Compose starts Postgres, Redis, the API, and the telemetry worker. It loads `.env` when present and overrides `DATABASE_URL` and `REDIS_URL` for the internal Compose network.
 
+For the complete operator guide, including support matrix, backup, restore, upgrade, reverse proxy, sizing, and known limits, see [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md).
+
 ```sh
 cp .env.example .env
 # edit .env before first start
@@ -543,14 +545,17 @@ export const GET = withSignalMonitorRoute(async () => {
 });
 ```
 
-Browser global error capture is explicit and opt-in. Install it from a Client Component with a scoped public browser ingestion key, and clean it up on unmount.
+Browser global error capture and Web Vitals capture are explicit and opt-in. Install them from a Client Component with a scoped public browser ingestion key, and clean them up on unmount.
 
 ```tsx
 "use client";
 
 import { useEffect } from "react";
-import { createSignalMonitorClient } from "@sigmon/sdk/browser";
-import { installBrowserErrorCapture } from "@sigmon/sdk/next";
+import {
+  createSignalMonitorClient,
+  installBrowserErrorCapture,
+  installBrowserWebVitals
+} from "@sigmon/sdk/browser";
 
 const sigmonBrowser = createSignalMonitorClient({
   endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT ?? "https://sigmon.example.com",
@@ -563,11 +568,20 @@ const sigmonBrowser = createSignalMonitorClient({
 
 export function SignalMonitorBrowserCapture() {
   useEffect(() => {
-    return installBrowserErrorCapture(sigmonBrowser, {
+    const stopErrors = installBrowserErrorCapture(sigmonBrowser, {
       captureErrors: true,
       captureUnhandledRejections: true,
       flush: true
     });
+    const stopVitals = installBrowserWebVitals(sigmonBrowser, {
+      route: () => window.location.pathname,
+      metadata: { service: "web" },
+      flush: true
+    });
+    return () => {
+      stopVitals();
+      stopErrors();
+    };
   }, []);
 
   return null;

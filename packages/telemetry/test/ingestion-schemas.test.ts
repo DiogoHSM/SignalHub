@@ -4,10 +4,13 @@ import {
   errorPayloadSchema,
   eventPayloadSchema,
   llmCallPayloadSchema,
+  profilePayloadSchema,
+  sessionReplayPayloadSchema,
   spanPayloadSchema,
   tenantIdentifyPayloadSchema,
   tracePayloadSchema,
-  userIdentifyPayloadSchema
+  userIdentifyPayloadSchema,
+  webVitalPayloadSchema
 } from "../src/ingestion-schemas.js";
 
 describe("ingestion schemas", () => {
@@ -19,6 +22,7 @@ describe("ingestion schemas", () => {
       user_id: "user_1",
       session_id: "session_1",
       trace_id: "trace_1",
+      replay_id: "rpl_checkout_1",
       source: "web",
       release: "1.2.3",
       properties: { charts_count: 6 },
@@ -26,6 +30,7 @@ describe("ingestion schemas", () => {
     });
 
     expect(parsed.name).toBe("dashboard_created");
+    expect(parsed.replay_id).toBe("rpl_checkout_1");
     expect(parsed.properties.charts_count).toBe(6);
   });
 
@@ -55,6 +60,69 @@ describe("ingestion schemas", () => {
     });
 
     expect(parsed.parent_span_id).toBe("span_parent");
+  });
+
+  it("accepts web vitals with route and rating context", () => {
+    const parsed = webVitalPayloadSchema.parse({
+      name: "LCP",
+      value: 2450.5,
+      rating: "needs-improvement",
+      route: "/dashboard",
+      navigation_type: "navigate",
+      timestamp: "2026-05-02T12:00:00.000Z",
+      source: "browser",
+      release: "1.2.3",
+      metadata: { browser: "Chrome" }
+    });
+
+    expect(parsed.name).toBe("LCP");
+    expect(parsed.route).toBe("/dashboard");
+    expect(parsed.value).toBe(2450.5);
+  });
+
+  it("accepts bounded runtime profile summaries", () => {
+    const parsed = profilePayloadSchema.parse({
+      name: "POST /api/checkout",
+      kind: "cpu",
+      runtime: "node",
+      service: "api",
+      route: "POST /api/checkout",
+      started_at: "2026-05-02T12:00:00.000Z",
+      ended_at: "2026-05-02T12:00:01.000Z",
+      duration_ms: 1000,
+      sample_count: 3,
+      top_functions: [
+        {
+          function_name: "checkout",
+          url: "file:///app/checkout.ts",
+          line_number: 12,
+          self_time_ms: 38,
+          sample_count: 3
+        }
+      ],
+      metadata: { service: "api" }
+    });
+
+    expect(parsed.kind).toBe("cpu");
+    expect(parsed.top_functions[0]?.function_name).toBe("checkout");
+  });
+
+  it("rejects runtime profiles without matching measurements", () => {
+    expect(() =>
+      profilePayloadSchema.parse({
+        name: "empty cpu",
+        kind: "cpu",
+        started_at: "2026-05-02T12:00:00.000Z"
+      })
+    ).toThrow();
+
+    expect(() =>
+      profilePayloadSchema.parse({
+        name: "empty memory",
+        kind: "memory",
+        started_at: "2026-05-02T12:00:00.000Z"
+      })
+    ).toThrow();
   });
 
   it("rejects direct high-risk strings that exceed schema limits", () => {
@@ -240,6 +308,48 @@ describe("ingestion schemas", () => {
   it("rejects unsupported breadcrumb types and oversized messages", () => {
     expect(() => breadcrumbPayloadSchema.parse({ type: "dom", message: "bad" })).toThrow();
     expect(() => breadcrumbPayloadSchema.parse({ type: "custom", message: "x".repeat(2001) })).toThrow();
+  });
+
+  it("validates privacy-safe session replay payloads", () => {
+    const parsed = sessionReplayPayloadSchema.parse({
+      replay_id: "rpl_session_1",
+      started_at: "2026-05-02T12:00:00.000Z",
+      ended_at: "2026-05-02T12:00:05.000Z",
+      duration_ms: 5000,
+      route: "/checkout",
+      error_id: "err_1",
+      events: [
+        {
+          offset_ms: 250,
+          type: "click",
+          route: "/checkout",
+          selector: '[data-sigmon-id="pay"]',
+          x: 0.5,
+          y: 0.25,
+          data: { masked: true }
+        }
+      ]
+    });
+
+    expect(parsed.masked).toBe(true);
+    expect(parsed.events[0]?.message).toBeUndefined();
+  });
+
+  it("rejects replay events that include raw input values", () => {
+    expect(() =>
+      sessionReplayPayloadSchema.parse({
+        replay_id: "rpl_session_1",
+        started_at: "2026-05-02T12:00:00.000Z",
+        events: [
+          {
+            offset_ms: 0,
+            type: "input",
+            selector: "input[name=email]",
+            value: "person@example.com"
+          }
+        ]
+      })
+    ).toThrow();
   });
 
   it("accepts a user identify payload with traits and envelope fields", () => {

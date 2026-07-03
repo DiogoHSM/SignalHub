@@ -25,6 +25,10 @@ export default defineConfig({
       "@sigmon/telemetry/sanitization": resolve(root, "packages/telemetry/src/sanitization.ts"),
       "@sigmon/db/migrate.js": resolve(root, "packages/db/src/migrate.ts"),
       "@sigmon/db/repositories/admin.js": resolve(root, "packages/db/src/repositories/admin.ts"),
+      "@sigmon/db/repositories/data-governance.js": resolve(
+        root,
+        "packages/db/src/repositories/data-governance.ts"
+      ),
       "@sigmon/db/repositories/entities-query.js": resolve(root, "packages/db/src/repositories/entities-query.ts"),
       "@sigmon/db/repositories/users-query.js": resolve(root, "packages/db/src/repositories/users-query.ts"),
       "@sigmon/db/repositories/telemetry-query.js": resolve(root, "packages/db/src/repositories/telemetry-query.ts"),

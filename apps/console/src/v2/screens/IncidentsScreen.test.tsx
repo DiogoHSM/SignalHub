@@ -26,6 +26,7 @@ const INCIDENTS_VM: IncidentsVM = {
       occurrenceCount: 412,
       affectedUsersCount: 38,
       affectedTenantsCount: 2,
+      trend: [0, 2, 6, 9, 12, 18, 24, 35, 52, 74, 96, 84],
     },
     {
       id: "err_grp_4c1d",
@@ -39,6 +40,7 @@ const INCIDENTS_VM: IncidentsVM = {
       occurrenceCount: 184,
       affectedUsersCount: 22,
       affectedTenantsCount: 1,
+      trend: [0, 1, 1, 2, 5, 8, 13, 21, 18, 10, 6, 2],
     },
     {
       id: "err_grp_2a8c",
@@ -52,6 +54,7 @@ const INCIDENTS_VM: IncidentsVM = {
       occurrenceCount: 28,
       affectedUsersCount: 4,
       affectedTenantsCount: 1,
+      trend: [0, 0, 0, 1, 2, 2, 4, 6, 5, 4, 3, 1],
     },
   ],
 };
@@ -91,7 +94,7 @@ function makeMockCtx(): ScreenCtx {
 }
 
 function mockUseIncidents(vm: IncidentsVM | null, status: "loading" | "ok" | "error" = "ok") {
-  vi.spyOn(useIncidentsModule, "useIncidents").mockReturnValue({
+  return vi.spyOn(useIncidentsModule, "useIncidents").mockReturnValue({
     data: vm,
     status,
     reload: vi.fn(),
@@ -285,17 +288,15 @@ describe("IncidentsScreen", () => {
     });
   });
 
-  describe("no sparkline", () => {
-    it("does not render any chart svg inside a row", () => {
+  describe("trend sparkline", () => {
+    it("renders a compact 12-bucket trend inside each incident row", () => {
       mockUseIncidents(INCIDENTS_VM);
       const { container } = render(<IncidentsScreen ctx={makeMockCtx()} />);
-      // The only svgs allowed in a row are inline Icons (generic avatar, arrow).
-      // A Sparkline would render a <polyline> or <path> chart inside the row body.
       const rows = container.querySelectorAll(".sh-row.sh-stripe");
       rows.forEach((r) => {
-        expect(r.querySelector("polyline")).toBeNull();
+        expect(r.querySelector('[data-testid="incident-trend-sparkline"]')).not.toBeNull();
       });
-      expect(screen.queryByTestId("sparkline")).not.toBeInTheDocument();
+      expect(screen.getAllByTestId("incident-trend-sparkline")).toHaveLength(INCIDENTS_VM.rows.length);
     });
   });
 
@@ -309,20 +310,37 @@ describe("IncidentsScreen", () => {
       expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "err_grp_8a2f" });
     });
 
-    it("pushes a toast when History is clicked", async () => {
-      mockUseIncidents(INCIDENTS_VM);
+    it("toggles between active incidents and history", async () => {
+      const spy = mockUseIncidents(INCIDENTS_VM);
       const ctx = makeMockCtx();
       render(<IncidentsScreen ctx={ctx} />);
       await userEvent.click(screen.getByRole("button", { name: /history/i }));
-      expect(ctx.pushToast).toHaveBeenCalledWith("Incident history is not yet available");
+      expect(ctx.pushToast).not.toHaveBeenCalled();
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ view: "history", statusFilter: "all" })
+      );
+      expect(screen.getByRole("button", { name: /active/i })).toBeInTheDocument();
     });
 
-    it("pushes a toast when Filters is clicked", async () => {
-      mockUseIncidents(INCIDENTS_VM);
+    it("opens real filters and passes priority/status/assignee to the hook", async () => {
+      const spy = mockUseIncidents(INCIDENTS_VM);
       const ctx = makeMockCtx();
       render(<IncidentsScreen ctx={ctx} />);
       await userEvent.click(screen.getByRole("button", { name: /filters/i }));
-      expect(ctx.pushToast).toHaveBeenCalledWith("Incident filtering is not yet available");
+      expect(ctx.pushToast).not.toHaveBeenCalled();
+      expect(screen.getByText("Incident filters")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "P1" }));
+      await userEvent.click(screen.getByRole("button", { name: "investigating" }));
+      await userEvent.click(screen.getByRole("button", { name: "assigned" }));
+
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          priorityFilter: "P1",
+          statusFilter: "investigating",
+          assigneeFilter: "assigned"
+        })
+      );
     });
   });
 

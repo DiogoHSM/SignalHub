@@ -47,7 +47,7 @@ describe("ingestion routes", () => {
     expect(Number(response.headers["x-ratelimit-reset"])).toBeGreaterThan(0);
   });
 
-  it("allows browser preflight requests for configured ingestion origins", async () => {
+  it("allows browser preflight requests for configured browser ingestion origins", async () => {
     app = await buildApp({
       readiness,
       browserCorsOrigins: ["https://app.controledaempresa.com"],
@@ -59,7 +59,61 @@ describe("ingestion routes", () => {
 
     const response = await app.inject({
       method: "OPTIONS",
-      url: "/v1/errors",
+      url: "/v1/web-vitals",
+      headers: {
+        origin: "https://app.controledaempresa.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type"
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.controledaempresa.com");
+    expect(response.headers["access-control-allow-methods"]).toContain("POST");
+    expect(response.headers["access-control-allow-headers"]).toContain("Authorization");
+    expect(response.headers.vary).toContain("Origin");
+  });
+
+  it("allows browser preflight requests for survey response ingestion", async () => {
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.controledaempresa.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/surveys/responses",
+      headers: {
+        origin: "https://app.controledaempresa.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type"
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.controledaempresa.com");
+    expect(response.headers["access-control-allow-methods"]).toContain("POST");
+    expect(response.headers["access-control-allow-headers"]).toContain("Authorization");
+    expect(response.headers.vary).toContain("Origin");
+  });
+
+  it("allows browser preflight requests for feedback ingestion", async () => {
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.controledaempresa.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/feedback",
       headers: {
         origin: "https://app.controledaempresa.com",
         "access-control-request-method": "POST",
@@ -190,6 +244,189 @@ describe("ingestion routes", () => {
     });
   });
 
+  it("accepts a valid survey response payload and enqueues it", async () => {
+    const enqueued: EnqueuedJob[] = [];
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/surveys/responses",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        survey_id: "surv_1",
+        actor_type: "user",
+        actor_id: "user_1",
+        tenant_id: "tenant_1",
+        answers: { satisfaction: 5, comment: "Great" }
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body).toMatchObject({ accepted: true });
+    expect(body.id).toMatch(/^srs_/);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({
+      kind: "survey_response",
+      id: body.id,
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        survey_id: "surv_1",
+        actor_type: "user",
+        actor_id: "user_1",
+        tenant_id: "tenant_1",
+        answers: { satisfaction: 5, comment: "Great" }
+      }
+    });
+  });
+
+  it("accepts a valid feedback payload and enqueues it", async () => {
+    const enqueued: EnqueuedJob[] = [];
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/feedback",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        message: "Export wording is unclear",
+        category: "ux",
+        tenant_id: "tenant_1",
+        user_id: "user_1",
+        page_url: "https://app.example.com/reports",
+        path: "/reports",
+        metadata: { surface: "reports" }
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body).toMatchObject({ accepted: true });
+    expect(body.id).toMatch(/^fbk_/);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({
+      kind: "feedback",
+      id: body.id,
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        message: "Export wording is unclear",
+        category: "ux",
+        tenant_id: "tenant_1",
+        user_id: "user_1",
+        page_url: "https://app.example.com/reports",
+        path: "/reports",
+        metadata: { surface: "reports" }
+      }
+    });
+  });
+
+  it("accepts a valid runtime profile payload and enqueues it", async () => {
+    const enqueued: EnqueuedJob[] = [];
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/profiles",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        name: "worker.tick",
+        kind: "memory",
+        runtime: "node",
+        started_at: "2026-05-11T12:00:00.000Z",
+        heap_used_bytes: 1024
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body.id).toMatch(/^prf_/);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({
+      kind: "profile",
+      id: body.id,
+      payload: {
+        name: "worker.tick",
+        kind: "memory",
+        heap_used_bytes: 1024
+      }
+    });
+  });
+
+  it("accepts a valid session replay payload and enqueues it", async () => {
+    const enqueued: EnqueuedJob[] = [];
+
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.example.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: {
+        authorization: "Bearer sh_valid",
+        origin: "https://app.example.com"
+      },
+      payload: {
+        replay_id: "rpl_1",
+        started_at: "2026-05-11T12:00:00.000Z",
+        route: "/checkout",
+        error_id: "err_1",
+        events: [{ offset_ms: 100, type: "click", selector: '[data-sigmon-id="pay"]' }]
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.example.com");
+    const body = response.json();
+    expect(body.id).toMatch(/^rpl_/);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({
+      kind: "replay",
+      id: body.id,
+      payload: {
+        replay_id: "rpl_1",
+        route: "/checkout",
+        masked: true
+      }
+    });
+  });
+
   it("returns 503 when enqueue fails", async () => {
     app = await buildApp({
       readiness,
@@ -209,7 +446,10 @@ describe("ingestion routes", () => {
     });
 
     expect(response.statusCode).toBe(503);
-    expect(response.json()).toEqual({ error: "ingestion_unavailable" });
+    expect(response.json()).toEqual({
+      error: "ingestion_unavailable",
+      hint: "Sigmon accepted the request path but could not enqueue telemetry. Check Redis connectivity and worker/scheduler health."
+    });
   });
 
   it("returns 401 when the bearer token is missing or invalid", async () => {
@@ -240,9 +480,15 @@ describe("ingestion routes", () => {
     });
 
     expect(missingResponse.statusCode).toBe(401);
-    expect(missingResponse.json()).toEqual({ error: "invalid_api_key" });
+    expect(missingResponse.json()).toEqual({
+      error: "invalid_api_key",
+      hint: "Send a project/environment ingestion key as Authorization: Bearer <key>. Browser calls must use a browser-scoped key for the same environment."
+    });
     expect(invalidResponse.statusCode).toBe(401);
-    expect(invalidResponse.json()).toEqual({ error: "invalid_api_key" });
+    expect(invalidResponse.json()).toEqual({
+      error: "invalid_api_key",
+      hint: "Send a project/environment ingestion key as Authorization: Bearer <key>. Browser calls must use a browser-scoped key for the same environment."
+    });
     expect(verifyCalls).toBe(1);
   });
 
@@ -265,6 +511,7 @@ describe("ingestion routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
       error: "invalid_ingestion_payload",
+      hint: "Check the endpoint payload shape in /docs or /openapi.json. SDK payloads are generated for the correct schema automatically.",
       details: expect.arrayContaining([
         expect.objectContaining({
           path: ["name"]
@@ -311,6 +558,19 @@ describe("ingestion routes", () => {
 
   it.each([
     ["/v1/errors", "error", /^err_/, { message: "Unhandled exception" }],
+    [
+      "/v1/clicks",
+      "click",
+      /^clk_/,
+      {
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        x: 0.5,
+        y: 0.4,
+        viewport_width: 1280,
+        viewport_height: 720
+      }
+    ],
     ["/v1/llm", "llm", /^llm_/, { provider: "openai", model: "gpt-5" }],
     [
       "/v1/traces",

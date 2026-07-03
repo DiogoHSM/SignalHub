@@ -2,6 +2,20 @@
 
 Docker Compose is the only production-supported self-hosted installation path for this release line. Kubernetes, Helm, systemd, and hosted SaaS deployment are out of scope.
 
+The public self-hosting operator guide lives in `docs/SELF-HOSTING.md`. Keep it aligned with this deployment note when install, backup, restore, upgrade, sizing, or support boundaries change.
+
+## Support Boundaries
+
+| Surface | Status |
+| --- | --- |
+| MIT license and public source | Supported |
+| Docker Compose self-host install | Supported |
+| Node.js 22 / pnpm 9.15.x runtime | Supported |
+| Postgres 16 / Redis 7 backing services | Supported |
+| Worker-owned backups, restore, retention, alerts, monitors, and warehouse exports | Supported |
+| HTTPS reverse proxy and certificates | Operator-owned |
+| Kubernetes, Helm, systemd, hosted SaaS, billing, invites, and per-project RBAC | Out of scope for this release line |
+
 ## Deployment Identity
 
 SignalMonitor's intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.
@@ -103,11 +117,15 @@ Before publishing a new SDK release, update `packages/sdk/package.json` version,
 - `redis`: Redis 7 with append-only persistence, bound to `127.0.0.1:${REDIS_PORT:-6379}`.
 - `api`: Fastify API on host port `3000`.
 - `worker`: BullMQ telemetry worker with `WORKER_ROLE=queue`.
-- `scheduler`: scheduled retention, backup, alert, and monitor evaluation worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
+- `scheduler`: scheduled retention, backup, alert, monitor evaluation, and warehouse export worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
 
 `WORKER_ROLE` is only operationally meaningful for processes started with `pnpm start:worker`. In split EasyPanel deployments, set `WORKER_ROLE=queue` on the queue worker service and `WORKER_ROLE=scheduler` on the scheduler service. The scheduler service also needs the same shared runtime env vars as the worker (`DATABASE_URL`, `REDIS_URL`, secrets, SMTP, retention, monitor, alert, and backup settings) because it evaluates background jobs directly.
 
 The API, worker, and scheduler containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. The Dockerfile copies application files with `sigmon` ownership and runs install/build as `sigmon`, avoiding a final recursive ownership rewrite over `/app` during EasyPanel image export. Dependency installation is isolated behind workspace package manifest copies and a BuildKit pnpm-store cache mount, so ordinary source or documentation changes can reuse the install layer. `.dockerignore` excludes local worktrees, `node_modules`, generated `dist` folders, secrets notes, and other non-build artifacts from local Docker contexts. Compose defines healthchecks for all four services.
+
+## Warehouse Sync
+
+Warehouse sync is built into the scheduler role. Set `WAREHOUSE_EXPORTS_ENABLED` and `WAREHOUSE_EXPORTS_INTERVAL_MINUTES` to control scheduled incremental exports. Operators configure destinations in Console -> Project Settings -> Warehouse sync. The scheduler must be able to reach each destination Postgres URL configured in the console.
 
 The console `System` mode reads separate `worker` and `scheduler` heartbeats and shows a non-secret deploy config summary. Use it after deploy to confirm both background services are alive and that API-visible config such as SMTP, alerts, monitors, retention, backups, and public endpoint settings loaded as expected.
 

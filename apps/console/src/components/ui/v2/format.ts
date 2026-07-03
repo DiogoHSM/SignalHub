@@ -2,6 +2,25 @@
 // Shared formatting utilities
 // ---------------------------------------------------------------------------
 
+/** Exact locale-formatted number for KPI values and deltas. */
+export function formatNumber(n: number): string {
+  return new Intl.NumberFormat("en-US").format(n);
+}
+
+/**
+ * Compact number formatter for dense KPI/chart values.
+ *
+ * Unlike `formatCompact`, this compacts from 1K upward for chart legends and
+ * large dashboard cards where horizontal space is constrained.
+ */
+export function formatCompactNumber(n: number): string {
+  const sign = n < 0 ? "-" : "";
+  const absolute = Math.abs(n);
+  if (absolute >= 1_000_000) return `${sign}${(absolute / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (absolute >= 1_000) return `${sign}${(absolute / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return `${sign}${formatNumber(absolute)}`;
+}
+
 /**
  * Compact number formatter for tab badges and counts.
  *

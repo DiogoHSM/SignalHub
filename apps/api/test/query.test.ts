@@ -430,6 +430,101 @@ describe("query routes", () => {
     ]);
   });
 
+  it("returns a session replay with linked product event markers", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSessionReplayDetail: async (filters) => ({
+          id: "rpl_job_1",
+          replayId: filters.replayId,
+          route: "/checkout",
+          startedAt: new Date("2026-05-11T12:00:00.000Z"),
+          endedAt: new Date("2026-05-11T12:00:05.000Z"),
+          durationMs: 5000,
+          eventCount: 1,
+          masked: true,
+          events: [{ offsetMs: 0, type: "navigation", route: "/checkout", data: {} }],
+          productEvents: [
+            {
+              id: "evt_1",
+              name: "checkout.clicked",
+              timestamp: new Date("2026-05-11T12:00:02.250Z"),
+              offsetMs: 2250
+            }
+          ]
+        })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/replays/rpl_checkout?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: {
+        replayId: "rpl_checkout",
+        productEvents: [{ id: "evt_1", name: "checkout.clicked", offsetMs: 2250 }]
+      }
+    });
+  });
+
+  it("lists session replay samples filtered by saved segment and event context", async () => {
+    const receivedFilters: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listSessionReplays: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            data: [
+              {
+                id: "rpl_job_1",
+                replayId: "rpl_checkout",
+                tenantId: "tenant_1",
+                userId: "user_1",
+                sessionId: "sess_1",
+                route: "/checkout",
+                startedAt: new Date("2026-05-11T12:00:00.000Z"),
+                endedAt: null,
+                durationMs: 5000,
+                eventCount: 2,
+                masked: true,
+                linkedEventId: "evt_1",
+                linkedEventName: "checkout.started",
+                linkedErrorId: null,
+                linkedErrorMessage: null
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/replays?project_id=prj_1&environment_id=env_1&segment_id=seg_1&event_name=checkout.started&tenant_id=tenant_1&limit=5"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      data: [{ replayId: "rpl_checkout", linkedEventName: "checkout.started", tenantId: "tenant_1" }]
+    });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        tenantId: "tenant_1",
+        eventName: "checkout.started",
+        segmentId: "seg_1",
+        limit: 5
+      }
+    ]);
+  });
+
   it("returns 401 when query routes are unauthenticated", async () => {
     app = await buildApp({
       readiness,
@@ -1124,6 +1219,39 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards trace endpoint filters for APM drilldown", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listTraces: async (filters) => {
+          received.push(filters);
+          return [{ id: "trc_1", name: "GET /api/orders" }];
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/traces?project_id=prj_1&environment_id=env_1&trace_name=GET+%2Fapi%2Forders&status=success"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: [{ id: "trc_1", name: "GET /api/orders" }] });
+    expect(received).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        traceName: "GET /api/orders",
+        eventName: "GET /api/orders",
+        status: "success",
+        limit: 50
+      }
+    ]);
+  });
+
   it("rejects conflicting trace ids for trace span queries", async () => {
     app = await buildApp({
       readiness,
@@ -1363,6 +1491,147 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards recent activity filters with release and limit", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getRecentActivity: async (filters) => {
+          receivedFilters.push(filters);
+          return { activity: [{ id: "evt_1", type: "event" }] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/recent-activity?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3&limit=15"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { activity: [{ id: "evt_1", type: "event" }] } });
+    expect(receivedFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "7d", release: "web@1.2.3", limit: 15 }
+    ]);
+  });
+
+  it("returns 501 when recent activity query dependency is missing", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {}
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/recent-activity?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(501);
+    expect(response.json()).toEqual({ error: "query_method_unavailable" });
+  });
+
+  it("forwards release filters to overview and exposes release summaries", async () => {
+    const overviewFilters: unknown[] = [];
+    const releaseFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getOverview: async (filters) => {
+          overviewFilters.push(filters);
+          return { ok: true };
+        },
+        listReleases: async (filters) => {
+          releaseFilters.push(filters);
+          return { releases: [{ release: "web@1.2.3" }] };
+        }
+      }
+    });
+
+    const overviewResponse = await app.inject({
+      method: "GET",
+      url: "/query/overview?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3"
+    });
+    const releaseResponse = await app.inject({
+      method: "GET",
+      url: "/query/releases?project_id=prj_1&environment_id=env_1&window=7d&limit=10"
+    });
+
+    expect(overviewResponse.statusCode).toBe(200);
+    expect(releaseResponse.statusCode).toBe(200);
+    expect(overviewFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "7d", release: "web@1.2.3" }
+    ]);
+    expect(releaseFilters).toEqual([
+      { projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 10 }
+    ]);
+  });
+
+  it("renders saved dashboard reports from overview data", async () => {
+    const dashboardCalls: unknown[] = [];
+    const overviewCalls: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getAnalyticsDashboard: async (input) => {
+          dashboardCalls.push(input);
+          return {
+            id: "dash_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            name: "Operations report",
+            description: null,
+            category: "operational",
+            filters: { window: "30d" },
+            widgets: [
+              { id: "wid_1", type: "metric.events", title: "Events", width: "half", options: {} },
+              { id: "wid_2", type: "trend.errors", title: "Errors over time", width: "full", options: {} },
+              { id: "wid_3", type: "top.events", title: "Top events", width: "full", options: {} }
+            ],
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+            archivedAt: null
+          };
+        },
+        getOverview: async (filters) => {
+          overviewCalls.push(filters);
+          return {
+            kpis: { events: 12, errors: 2, openErrors: 1 },
+            trends: {
+              usage: [{ bucketStart: "2026-01-01T00:00:00.000Z", events: 12 }],
+              errors: [{ bucketStart: "2026-01-01T00:00:00.000Z", errors: 2, openErrors: 1 }]
+            },
+            top: { events: [{ name: "checkout.started", total: 8 }] }
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/reports/dashboards/dash_1?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({
+      dashboard: { id: "dash_1", name: "Operations report" },
+      window: "30d",
+      widgets: [
+        { widgetId: "wid_1", type: "metric.events", data: { value: 12, label: "Events" } },
+        { widgetId: "wid_2", type: "trend.errors" },
+        { widgetId: "wid_3", type: "top.events", data: { rows: [{ name: "checkout.started", total: 8 }] } }
+      ]
+    });
+    expect(dashboardCalls).toEqual([{ id: "dash_1", projectId: "prj_1", environmentId: "env_1" }]);
+    expect(overviewCalls).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "30d" }]);
+  });
+
   it("rejects unsupported overview windows", async () => {
     app = await buildApp({
       readiness,
@@ -1432,6 +1701,638 @@ describe("query routes", () => {
       { projectId: "prj_1", environmentId: "env_1", window: "7d" },
       { projectId: "prj_1", environmentId: "env_1", window: "30d" }
     ]);
+  });
+
+  it("forwards APM endpoint query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getApmEndpoints: async (filters) => {
+          receivedFilters.push(filters);
+          return { endpoints: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/apm/endpoints?project_id=prj_1&environment_id=env_1&window=7d&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { endpoints: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 25 }]);
+  });
+
+  it("forwards event property catalog query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventPropertyCatalog: async (filters) => {
+          receivedFilters.push(filters);
+          return { properties: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/properties?project_id=prj_1&environment_id=env_1&window=7d&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { properties: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 25 }]);
+  });
+
+  it("forwards event click map query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventClickMap: async (filters) => {
+          receivedFilters.push(filters);
+          return { totals: { clicks: 0, routes: 0, selectors: 0 }, points: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/events/click-map?project_id=prj_1&environment_id=env_1&window=7d&route=%2Fcheckout" +
+        "&selector=%5Bdata-sigmon-id%3D%22submit%22%5D&tenant_id=tenant_1&user_id=user_1&session_id=sess_1&grid_size=30&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { totals: { clicks: 0, routes: 0, selectors: 0 }, points: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "7d",
+        limit: 25,
+        route: "/checkout",
+        selector: '[data-sigmon-id="submit"]',
+        tenantId: "tenant_1",
+        userId: "user_1",
+        sessionId: "sess_1",
+        gridSize: 30
+      }
+    ]);
+  });
+
+  it("forwards conversion funnel query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async (filters) => {
+          receivedFilters.push(filters);
+          return { steps: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&steps=signup.started,project.created&limit=20"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { steps: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        steps: ["signup.started", "project.created"]
+      }
+    ]);
+  });
+
+  it("rejects conversion funnels with fewer than two steps", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => ({ steps: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&steps=signup.started"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("forwards experiment result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getExperimentResults: async (filters) => {
+          receivedFilters.push(filters);
+          return { totals: { exposures: 0, conversions: 0, variants: 0 }, variants: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/experiments/exp_1/results?project_id=prj_1&environment_id=env_1&window=7d"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { totals: { exposures: 0, conversions: 0, variants: 0 }, variants: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        experimentId: "exp_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "7d",
+        limit: 50
+      }
+    ]);
+  });
+
+  it("forwards survey result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSurveyResults: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            totals: { responses: 0, users: 0, tenants: 0, sessions: 0 },
+            questions: [],
+            recentResponses: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/surveys/surv_1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        totals: { responses: 0, users: 0, tenants: 0, sessions: 0 },
+        questions: [],
+        recentResponses: []
+      }
+    });
+    expect(receivedFilters).toEqual([
+      {
+        surveyId: "surv_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 25
+      }
+    ]);
+  });
+
+  it("forwards NPS result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getNpsResults: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            totals: { responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0, average: 7.3 },
+            trend: [],
+            segments: { tenants: [], releases: [], plans: [] },
+            recentResponses: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/surveys/surv_1/nps?project_id=prj_1&environment_id=env_1&window=30d&limit=25&question_id=nps&tenant_id=tenant_1&release=2026.05.1&plan=pro"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        totals: { responses: 3, promoters: 1, passives: 1, detractors: 1, score: 0, average: 7.3 },
+        trend: [],
+        segments: { tenants: [], releases: [], plans: [] },
+        recentResponses: []
+      }
+    });
+    expect(receivedFilters).toEqual([
+      {
+        surveyId: "surv_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 25,
+        questionId: "nps",
+        tenantId: "tenant_1",
+        release: "2026.05.1",
+        plan: "pro"
+      }
+    ]);
+  });
+
+  it("forwards message campaign result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getMessageCampaignResults: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            totals: {
+              queued: 0,
+              sent: 0,
+              delivered: 1,
+              opened: 1,
+              clicked: 1,
+              converted: 1,
+              failed: 0,
+              optedOut: 0,
+              uniqueActors: 1
+            },
+            rates: { deliveryRate: 100, openRate: 100, clickRate: 100, conversionRate: 100, optOutRate: 0 },
+            recentEvents: [],
+            optOuts: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/message-campaigns/cmp_1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        totals: {
+          queued: 0,
+          sent: 0,
+          delivered: 1,
+          opened: 1,
+          clicked: 1,
+          converted: 1,
+          failed: 0,
+          optedOut: 0,
+          uniqueActors: 1
+        },
+        rates: { deliveryRate: 100, openRate: 100, clickRate: 100, conversionRate: 100, optOutRate: 0 },
+        recentEvents: [],
+        optOuts: []
+      }
+    });
+    expect(receivedFilters).toEqual([
+      {
+        campaignId: "cmp_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 25
+      }
+    ]);
+  });
+
+  it("forwards feedback list and status update filters", async () => {
+    const receivedListFilters: unknown[] = [];
+    const receivedStatusUpdates: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listFeedbackItems: async (filters) => {
+          receivedListFilters.push(filters);
+          return [
+            {
+              id: "fbk_1",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              status: "open",
+              message: "The export button is unclear.",
+              category: "ux",
+              pageUrl: "https://app.example.com/reports",
+              path: "/reports",
+              userAgent: "Vitest",
+              tenantId: "tenant_1",
+              userId: "user_1",
+              sessionId: null,
+              traceId: null,
+              metadata: { surface: "reports" },
+              submittedAt: new Date("2026-01-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-01-01T00:00:00.000Z")
+            }
+          ];
+        },
+        updateFeedbackStatus: async (input) => {
+          receivedStatusUpdates.push(input);
+          return {
+            id: input.id,
+            projectId: input.projectId,
+            environmentId: input.environmentId,
+            status: input.status,
+            message: "The export button is unclear.",
+            category: "ux",
+            pageUrl: "https://app.example.com/reports",
+            path: "/reports",
+            userAgent: "Vitest",
+            tenantId: "tenant_1",
+            userId: "user_1",
+            sessionId: null,
+            traceId: null,
+            metadata: {},
+            submittedAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:05:00.000Z")
+          };
+        }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/query/feedback?project_id=prj_1&environment_id=env_1&status=open&tenant_id=tenant_1&limit=10"
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({
+      feedback: [
+        {
+          id: "fbk_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status: "open",
+          message: "The export button is unclear.",
+          category: "ux",
+          pageUrl: "https://app.example.com/reports",
+          path: "/reports",
+          userAgent: "Vitest",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          sessionId: null,
+          traceId: null,
+          metadata: { surface: "reports" },
+          submittedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    });
+    expect(receivedListFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        status: "open",
+        tenantId: "tenant_1",
+        userId: undefined,
+        limit: 10
+      }
+    ]);
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/query/feedback/fbk_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "reviewed" }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      feedback: {
+        id: "fbk_1",
+        status: "reviewed",
+        updatedAt: "2026-01-01T00:05:00.000Z"
+      }
+    });
+    expect(receivedStatusUpdates).toEqual([
+      {
+        id: "fbk_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        status: "reviewed"
+      }
+    ]);
+  });
+
+  it("forwards event pathfinder query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventPaths: async (filters) => {
+          receivedFilters.push(filters);
+          return { paths: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/paths?project_id=prj_1&environment_id=env_1&window=30d&start_event=signup.started&end_event=key.created&tenant_id=tenant_1&segment_id=seg_1&actor=user&max_depth=4&limit=20&from=2026-05-01T00:00:00.000Z&to=2026-05-08T00:00:00.000Z"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { paths: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        startEvent: "signup.started",
+        endEvent: "key.created",
+        tenantId: "tenant_1",
+        userId: undefined,
+        sessionId: undefined,
+        traceId: undefined,
+        segmentId: "seg_1",
+        actorType: "user",
+        from: new Date("2026-05-01T00:00:00.000Z"),
+        to: new Date("2026-05-08T00:00:00.000Z"),
+        pathLength: 4
+      }
+    ]);
+  });
+
+  it.each([
+    "/query/events/paths?project_id=prj_1&environment_id=env_1",
+    "/query/events/paths?project_id=prj_1&environment_id=env_1&start_event=signup.started&actor=device",
+    "/query/events/paths?project_id=prj_1&environment_id=env_1&start_event=signup.started&max_depth=1",
+    "/query/events/paths?project_id=prj_1&environment_id=env_1&start_event=signup.started&from=2026-05-08T00:00:00.000Z&to=2026-05-01T00:00:00.000Z"
+  ])("rejects invalid event pathfinder query %s", async (url) => {
+    const getEventPaths = vi.fn(async () => ({ paths: [] }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: { getEventPaths }
+    });
+
+    const response = await app.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+    expect(getEventPaths).not.toHaveBeenCalled();
+  });
+
+  it("forwards event retention query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventRetention: async (filters) => {
+          receivedFilters.push(filters);
+          return { cohorts: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/retention?project_id=prj_1&environment_id=env_1&window=30d&entry_event=signup.started&return_event=app.opened&period=daily&intervals=7&limit=20"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { cohorts: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 7
+      }
+    ]);
+  });
+
+  it.each([
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&period=yearly",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=1",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=13"
+  ])("rejects invalid event retention query %s", async (url) => {
+    const getEventRetention = vi.fn(async () => ({ cohorts: [] }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: { getEventRetention }
+    });
+
+    const response = await app.inject({ method: "GET", url });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+    expect(getEventRetention).not.toHaveBeenCalled();
+  });
+
+  it("forwards service map query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getServiceMap: async (filters) => {
+          receivedFilters.push(filters);
+          return { edges: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/apm/service-map?project_id=prj_1&environment_id=env_1&window=30d&limit=15"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { edges: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "30d", limit: 15 }]);
+  });
+
+  it("forwards web vitals query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getWebVitals: async (filters) => {
+          receivedFilters.push(filters);
+          return { metrics: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/apm/web-vitals?project_id=prj_1&environment_id=env_1&window=7d&limit=12"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { metrics: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "7d", limit: 12 }]);
+  });
+
+  it("forwards runtime profile query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getRuntimeProfiles: async (filters) => {
+          receivedFilters.push(filters);
+          return { profiles: [], hotFunctions: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/apm/profiles?project_id=prj_1&environment_id=env_1&window=24h&limit=20"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { profiles: [], hotFunctions: [] } });
+    expect(receivedFilters).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "24h", limit: 20 }]);
   });
 
   it("rejects unsupported operations windows", async () => {
@@ -1957,10 +2858,28 @@ describe("query routes", () => {
   });
 
   it("gets an error group incident by id", async () => {
+    const listIncidentExternalIssues = vi.fn(async () => [
+      {
+        id: "iext_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        errorGroupId: "egrp_1",
+        integrationId: "cint_1",
+        provider: "github" as const,
+        externalKey: "42",
+        title: "Fix checkout",
+        url: "https://github.com/acme/web/issues/42",
+        state: "open",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z")
+      }
+    ]);
+
     app = await buildApp({
       readiness,
       auth: humanAuth,
       query: {
+        listIncidentExternalIssues,
         getErrorGroupIncident: async (id, filters) => ({
           group: { id, projectId: filters.projectId, environmentId: filters.environmentId },
           primaryOccurrence: { id: filters.errorId ?? "err_latest", errorGroupId: id },
@@ -1969,7 +2888,33 @@ describe("query routes", () => {
           sourceMapResolution: { status: "none" },
           stronglyRelated: { items: [], truncated: false },
           nearbyContext: { items: [], truncated: false },
-          related: { traceId: null, sessionId: null, userId: null, tenantId: null, release: null }
+          related: { traceId: null, sessionId: null, userId: null, tenantId: null, release: null },
+          replay: null,
+          incidentNumber: null,
+          assignedTo: null,
+          silencedUntil: null,
+          notes: [],
+          codeContext: {
+            status: "limited" as const,
+            summary: "No code context available.",
+            repository: null,
+            release: {
+              release: null,
+              commitSha: null,
+              commitUrl: null,
+              pullRequestNumber: null,
+              pullRequestUrl: null,
+              deployedBy: null
+            },
+            suspectedFiles: [],
+            evidence: [],
+            suggestedNextSteps: [],
+            privacy: {
+              aiEnabled: false,
+              outboundCodeSharing: false,
+              reason: "Local deterministic analysis only."
+            }
+          }
         })
       }
     });
@@ -1984,8 +2929,98 @@ describe("query routes", () => {
       data: {
         group: { id: "egrp_1" },
         primaryOccurrence: { id: "err_1" },
-        suggestedPriority: "urgent"
+        suggestedPriority: "urgent",
+        externalIssues: [
+          expect.objectContaining({
+            id: "iext_1",
+            url: "https://github.com/acme/web/issues/42"
+          })
+        ]
       }
+    });
+    expect(listIncidentExternalIssues).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorGroupId: "egrp_1"
+    });
+  });
+
+  it("links external issues and creates incident issue drafts", async () => {
+    const linkIncidentExternalIssue = vi.fn(async (input) => ({
+      id: "iext_1",
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      errorGroupId: input.errorGroupId,
+      integrationId: input.integrationId ?? null,
+      provider: input.provider,
+      externalKey: input.externalKey,
+      title: input.title,
+      url: input.url,
+      state: input.state ?? "open",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z")
+    }));
+    const buildIncidentIssueDraft = vi.fn(async (input) => ({
+      provider: "github" as const,
+      integrationId: input.integrationId,
+      title: "[Sigmon] error",
+      body: "Incident body",
+      url: "https://github.com/acme/web/issues/new?title=Sigmon"
+    }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        linkIncidentExternalIssue,
+        buildIncidentIssueDraft
+      }
+    });
+
+    const linkResponse = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/external-issues?project_id=prj_1&environment_id=env_1",
+      payload: {
+        integrationId: "cint_1",
+        provider: "github",
+        externalKey: "42",
+        title: "Fix checkout",
+        url: "https://github.com/acme/web/issues/42"
+      }
+    });
+    expect(linkResponse.statusCode).toBe(201);
+    expect(linkIncidentExternalIssue).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorGroupId: "egrp_1",
+      integrationId: "cint_1",
+      provider: "github",
+      externalKey: "42",
+      title: "Fix checkout",
+      url: "https://github.com/acme/web/issues/42"
+    });
+
+    const draftResponse = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/external-issues/draft?project_id=prj_1&environment_id=env_1",
+      payload: { integrationId: "cint_1", incidentUrl: "https://my.sigmon.app/console/incidents/1" }
+    });
+    expect(draftResponse.statusCode).toBe(201);
+    expect(draftResponse.json()).toEqual({
+      draft: {
+        provider: "github",
+        integrationId: "cint_1",
+        title: "[Sigmon] error",
+        body: "Incident body",
+        url: "https://github.com/acme/web/issues/new?title=Sigmon"
+      }
+    });
+    expect(buildIncidentIssueDraft).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorGroupId: "egrp_1",
+      integrationId: "cint_1",
+      incidentUrl: "https://my.sigmon.app/console/incidents/1"
     });
   });
 

@@ -10,6 +10,8 @@ import {
   PriorityPill,
   StatusPill,
 } from "../../components/ui/v2";
+import { IncidentReplayPanel } from "../../components/IncidentReplayPanel";
+import { IncidentCodeContextPanel } from "../../components/IncidentCodeContextPanel";
 
 // ---------------------------------------------------------------------------
 // RelItem — local subcomponent
@@ -32,6 +34,12 @@ const REL_BG: Record<string, string> = {
   violet: "var(--sev-violet-bg)",
   neutral: "var(--bg-surface-2)",
 };
+
+function sourceMapTone(status: string): "ok" | "warn" | "error" {
+  if (status === "resolved") return "ok";
+  if (status === "partially_resolved") return "warn";
+  return "error";
+}
 
 function RelItem({
   rel,
@@ -89,6 +97,28 @@ function RelItem({
   );
 }
 
+function SummaryCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        minWidth: 118,
+        padding: "10px 12px",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 10,
+        background: "var(--bg-surface-2)",
+      }}
+    >
+      <div className="sh-kpi__label">{label}</div>
+      <div
+        className="sh-kpi__value"
+        style={{ color: "var(--sev-critical)", fontSize: 22, marginTop: 3 }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // IncidentScreen
 // ---------------------------------------------------------------------------
@@ -119,6 +149,7 @@ export function IncidentScreen({
   const [bcOpen, setBcOpen] = useState(true);
   const [noteBody, setNoteBody] = useState("");
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [issueBusy, setIssueBusy] = useState(false);
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (status === "loading" && !vm) {
@@ -146,11 +177,13 @@ export function IncidentScreen({
       </div>
     );
   }
+  const incidentVm = vm;
 
   // ── Silence state ─────────────────────────────────────────────────────────
   const now = Date.now();
   const silencedUntilDate = vm.silencedUntil ? new Date(vm.silencedUntil) : null;
   const isSilenced = silencedUntilDate != null && silencedUntilDate.getTime() > now;
+  const isCrash = vm.severity === "fatal";
 
   // ── Related: only rows that have a meaningful target ─────────────────────
   const renderedRelated = vm.related.filter((r) => r.target != null);
@@ -162,6 +195,63 @@ export function IncidentScreen({
       ctx.navigate(rel.target.section as NavSection);
     } else if (rel.target.kind === "drill") {
       ctx.drill("incident", { groupId: rel.target.groupId });
+    }
+  }
+
+  async function createExternalIssueDraft() {
+    if (!ctx.client.listCodeIntegrations || !ctx.client.createIncidentIssueDraft) {
+      ctx.pushToast("Code integrations are not available in this build");
+      return;
+    }
+    setIssueBusy(true);
+    try {
+      const response = await ctx.client.listCodeIntegrations(projectId);
+      const integration = response.integrations[0];
+      if (!integration) {
+        ctx.pushToast("Connect a GitHub or GitLab repository in Setup first");
+        return;
+      }
+      const draft = await ctx.client.createIncidentIssueDraft(groupId, { projectId, environmentId }, {
+        integrationId: integration.id,
+        incidentUrl: window.location.href
+      });
+      window.open(draft.draft.url, "_blank", "noopener,noreferrer");
+      ctx.pushToast("Issue draft opened");
+    } catch (err) {
+      console.error(err);
+      ctx.pushToast("Could not create issue draft");
+    } finally {
+      setIssueBusy(false);
+    }
+  }
+
+  async function linkExternalIssue() {
+    if (!ctx.client.linkIncidentExternalIssue) {
+      ctx.pushToast("External issue linking is not available in this build");
+      return;
+    }
+    const url = window.prompt("Paste the GitHub or GitLab issue URL");
+    if (!url) return;
+    const provider = url.includes("gitlab") ? "gitlab" : "github";
+    const externalKey = url.match(/\/issues\/(\d+)/)?.[1] ?? url.split("/").filter(Boolean).at(-1) ?? "external";
+    const fallbackTitle = incidentVm.title;
+    const title = window.prompt("Issue title", fallbackTitle) ?? fallbackTitle;
+    setIssueBusy(true);
+    try {
+      await ctx.client.linkIncidentExternalIssue(groupId, { projectId, environmentId }, {
+        provider,
+        externalKey,
+        title,
+        url,
+        state: "open"
+      });
+      ctx.pushToast("External issue linked");
+      reload();
+    } catch (err) {
+      console.error(err);
+      ctx.pushToast("Could not link external issue");
+    } finally {
+      setIssueBusy(false);
     }
   }
 
@@ -230,6 +320,42 @@ export function IncidentScreen({
           </p>
         ) : null}
       </div>
+
+      {isCrash ? (
+        <section
+          aria-label="Crash impact"
+          className="sh-card"
+          style={{
+            borderColor: "var(--sev-critical-border)",
+            background: "linear-gradient(90deg, var(--sev-critical-bg), var(--bg-surface) 68%)",
+          }}
+        >
+          <div
+            className="sh-card__body"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(240px, 1fr) repeat(3, minmax(120px, auto))",
+              gap: 16,
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div className="sh-eyebrow" style={{ color: "var(--sev-critical)" }}>
+                Crash reporting
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
+                Fatal runtime crash detected
+              </div>
+              <div className="sh-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Prioritize this before lower-severity error groups. Review the stack, affected scope, and related trace context.
+              </div>
+            </div>
+            <SummaryCell label="Occurrences" value={String(vm.occurrenceCount)} />
+            <SummaryCell label="Users affected" value={String(vm.affectedUsers)} />
+            <SummaryCell label="Tenants affected" value={String(vm.affectedTenants)} />
+          </div>
+        </section>
+      ) : null}
 
       {/* ── Action bar ────────────────────────────────────────────────────── */}
       <div
@@ -347,17 +473,17 @@ export function IncidentScreen({
           </button>
         )}
 
-        {/* Create issue (stub) */}
         <button
           className="sh-btn"
-          onClick={() =>
-            ctx.pushToast(
-              "GitHub issue creation is not available yet"
-            )
-          }
+          disabled={issueBusy}
+          onClick={() => void createExternalIssueDraft()}
         >
           <Icon name="git" size={14} />
           Create issue
+        </button>
+        <button className="sh-btn ghost" disabled={issueBusy} onClick={() => void linkExternalIssue()}>
+          <Icon name="link" size={14} />
+          Link issue
         </button>
 
         {/* Copy link */}
@@ -423,6 +549,15 @@ export function IncidentScreen({
             </div>
           </div>
 
+          {vm.replay ? (
+            <IncidentReplayPanel
+              breadcrumbs={vm.breadcrumbs}
+              errorTimestamp={vm.errorTimestamp}
+              replay={vm.replay}
+              stack={vm.stack}
+            />
+          ) : null}
+
           {/* Stack trace */}
           <div
             className="sh-card"
@@ -431,12 +566,14 @@ export function IncidentScreen({
             <div className="sh-card__head">
               <h2 className="sh-h2">Stack trace</h2>
               <div style={{ display: "flex", gap: 6 }}>
-                {vm.sourceMapBadge.resolved ? (
-                  <span className="sh-tag ok">
+                <span className={`sh-tag ${sourceMapTone(vm.sourceMapDiagnostic.status)}`}>
+                  {vm.sourceMapDiagnostic.status === "resolved" ? (
                     <Icon name="check" size={11} stroke={2.4} />
-                    source maps resolved · {vm.sourceMapBadge.frameCount} frames
-                  </span>
-                ) : null}
+                  ) : (
+                    <Icon name="alert" size={11} stroke={2.4} />
+                  )}
+                  {vm.sourceMapDiagnostic.label}
+                </span>
                 {vm.release ? (
                   <span className="sh-tag mono">{vm.release}</span>
                 ) : null}
@@ -446,6 +583,31 @@ export function IncidentScreen({
               className="sh-card__body flush"
               style={{ overflow: "auto", flex: 1 }}
             >
+              <div
+                style={{
+                  margin: "12px 16px 0",
+                  padding: "10px 12px",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: 8,
+                  background: "var(--bg-surface-2)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <strong style={{ fontSize: 12.5 }}>{vm.sourceMapDiagnostic.label}</strong>
+                  {vm.sourceMapDiagnostic.release ? (
+                    <span className="sh-tag mono">release {vm.sourceMapDiagnostic.release}</span>
+                  ) : null}
+                  {vm.sourceMapDiagnostic.frameCount > 0 ? (
+                    <span className="sh-tag ok">{vm.sourceMapDiagnostic.frameCount} frames</span>
+                  ) : null}
+                  {vm.sourceMapDiagnostic.unresolvedFrameCount > 0 ? (
+                    <span className="sh-tag warn">{vm.sourceMapDiagnostic.unresolvedFrameCount} unresolved</span>
+                  ) : null}
+                </div>
+                <div className="sh-muted" style={{ fontSize: 12, marginTop: 5 }}>
+                  {vm.sourceMapDiagnostic.detail}
+                </div>
+              </div>
               {vm.stack ? (
                 <pre
                   style={{
@@ -622,6 +784,34 @@ export function IncidentScreen({
                     rel={rel}
                     onClick={rel.target ? () => handleRelClick(rel) : undefined}
                   />
+                ))
+              )}
+            </div>
+          </div>
+
+          <IncidentCodeContextPanel codeContext={vm.codeContext} variant="v2" />
+
+          <div className="sh-card">
+            <div className="sh-card__head">
+              <h2 className="sh-h2">External issues</h2>
+              <span className="sh-tag">{vm.externalIssues.length}</span>
+            </div>
+            <div className="sh-card__body" style={{ display: "grid", gap: 8 }}>
+              {vm.externalIssues.length === 0 ? (
+                <div className="sh-muted" style={{ fontSize: 12 }}>
+                  No GitHub or GitLab issue linked yet.
+                </div>
+              ) : (
+                vm.externalIssues.map((issue) => (
+                  <a key={issue.id} className="sh-row" href={issue.url} target="_blank" rel="noreferrer" style={{ gridTemplateColumns: "1fr auto", textDecoration: "none" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <strong style={{ fontSize: 12.5 }}>{issue.title}</strong>
+                      <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
+                        {issue.provider} · {issue.externalKey}
+                      </div>
+                    </div>
+                    <span className="sh-tag">{issue.state}</span>
+                  </a>
                 ))
               )}
             </div>

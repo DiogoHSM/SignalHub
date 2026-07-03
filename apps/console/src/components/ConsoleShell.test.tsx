@@ -4,7 +4,16 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { CreatedApiKey, Environment, EventRecord, OperationsResponse, OverviewResponse, SystemHealthResponse } from "../api/types";
+import type {
+  CreatedApiKey,
+  Environment,
+  EventRecord,
+  Experiment,
+  ExperimentResultsResponse,
+  OperationsResponse,
+  OverviewResponse,
+  SystemHealthResponse
+} from "../api/types";
 import { ConsoleShell } from "./ConsoleShell";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -52,6 +61,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
@@ -80,6 +90,7 @@ function eventRecord(overrides: Partial<EventRecord>): EventRecord {
     userId: "user_1",
     sessionId: "session_1",
     traceId: "trace_1",
+    replayId: null,
     timestamp: "2026-05-05T12:00:00.000Z",
     receivedAt: "2026-05-05T12:00:01.000Z",
     source: "browser",
@@ -87,6 +98,30 @@ function eventRecord(overrides: Partial<EventRecord>): EventRecord {
     metadata: {},
     name: "checkout.exposed",
     properties: {},
+    ...overrides
+  };
+}
+
+function experimentRecord(overrides: Partial<Experiment> = {}): Experiment {
+  return {
+    id: "exp_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "checkout_copy",
+    name: "Checkout copy",
+    description: null,
+    status: "running",
+    actorType: "user",
+    exposureEvent: "checkout.exposed",
+    conversionEvent: "checkout.completed",
+    variants: [
+      { key: "A", name: "A", weight: 50 },
+      { key: "B", name: "B", weight: 50 }
+    ],
+    primaryMetric: { eventName: "checkout.completed", windowHours: 24 },
+    createdAt: "2026-05-05T12:00:00.000Z",
+    updatedAt: "2026-05-05T12:00:00.000Z",
+    archivedAt: null,
     ...overrides
   };
 }
@@ -147,6 +182,7 @@ function overviewResponse(overrides: Partial<OverviewResponse> = {}): OverviewRe
       errors: [
         {
           id: "err_1",
+          errorGroupId: "egrp_1",
           timestamp: "2026-05-05T12:00:00.000Z",
           message: "Checkout fetch failed",
           type: "TypeError",
@@ -219,6 +255,7 @@ function operationsResponse(overrides: Partial<OperationsResponse> = {}): Operat
     },
     recent: { monitors: [], alerts: [], incidents: [] },
     topLatency: [],
+    anomalies: [],
     setupGaps: []
   };
   return { ...response, ...overrides };
@@ -278,6 +315,7 @@ function systemHealthResponse(overrides: Partial<SystemHealthResponse> = {}): Sy
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -361,6 +399,7 @@ function incidentFixture(input: { groupId: string }) {
     priority: null,
     suggestedPriority: "urgent",
     sourceMapResolution: { status: "none" },
+    replay: null,
     stronglyRelated: { items: [], truncated: false },
     nearbyContext: { items: [], truncated: false },
     related: {
@@ -1444,19 +1483,20 @@ describe("ConsoleShell", () => {
   });
 
   it("renders an event-based experiment readout from project telemetry", async () => {
-    const listEvents = vi.fn().mockResolvedValue({
-      data: [
-        eventRecord({ id: "evt_a1", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "A" } }),
-        eventRecord({ id: "evt_a2", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "A" } }),
-        eventRecord({ id: "evt_b1", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "B" } }),
-        eventRecord({ id: "evt_b2", name: "checkout.exposed", properties: { experiment: "checkout_copy", variant: "B" } }),
-        eventRecord({ id: "evt_ac1", name: "checkout.completed", properties: { experiment: "checkout_copy", variant: "A" } }),
-        eventRecord({ id: "evt_bc1", name: "checkout.completed", properties: { experiment: "checkout_copy", variant: "B" } }),
-        eventRecord({ id: "evt_bc2", name: "checkout.completed", properties: { experiment: "checkout_copy", variant: "B" } })
+    const experiment = experimentRecord();
+    const experimentResults: ExperimentResultsResponse = {
+      experiment,
+      window: "30d",
+      totals: { exposures: 4, conversions: 3, variants: 2 },
+      variants: [
+        { key: "A", name: "A", weight: 50, exposures: 2, conversions: 1, conversionRate: 50, liftPoints: null, sampleActors: ["user_1"] },
+        { key: "B", name: "B", weight: 50, exposures: 2, conversions: 2, conversionRate: 100, liftPoints: 50, sampleActors: ["user_2"] }
       ]
-    });
+    };
+    const getExperimentResults = vi.fn().mockResolvedValue({ data: experimentResults });
     const api = client({
-      listEvents,
+      listExperiments: vi.fn().mockResolvedValue({ experiments: [experiment] }),
+      getExperimentResults,
       listProjects: vi.fn().mockResolvedValue({
         projects: [{ id: "prj_1", name: "Acme App", createdAt: "", updatedAt: "", archivedAt: null }]
       }),
@@ -1471,21 +1511,26 @@ describe("ConsoleShell", () => {
     await clickShellMode("Experiments");
 
     const readout = await screen.findByRole("region", { name: "A/B test readout" });
-    await waitFor(() => expect(listEvents).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", limit: 500 }));
-    expect(screen.getByLabelText("Experiment property")).toHaveValue("experiment");
-    expect(screen.getByLabelText("Variant property")).toHaveValue("variant");
-    expect(screen.getByLabelText("Exposure event")).toHaveValue("checkout.exposed");
-    expect(screen.getByLabelText("Conversion event")).toHaveValue("checkout.completed");
+    await waitFor(() =>
+      expect(getExperimentResults).toHaveBeenCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        experimentId: "exp_1",
+        window: "30d",
+        limit: 500
+      })
+    );
+    expect(screen.getByLabelText("Experiment")).toHaveValue("exp_1");
 
     const variantA = within(readout).getByRole("row", { name: /Variant A/ });
-    expect(variantA).toHaveTextContent("2 exposures");
-    expect(variantA).toHaveTextContent("1 conversions");
+    expect(variantA).toHaveTextContent("Variant A");
+    expect(variantA).toHaveTextContent("50%21");
     expect(variantA).toHaveTextContent("50.0%");
     expect(variantA).toHaveTextContent("Baseline");
 
     const variantB = within(readout).getByRole("row", { name: /Variant B/ });
-    expect(variantB).toHaveTextContent("2 exposures");
-    expect(variantB).toHaveTextContent("2 conversions");
+    expect(variantB).toHaveTextContent("Variant B");
+    expect(variantB).toHaveTextContent("50%22");
     expect(variantB).toHaveTextContent("100.0%");
     expect(variantB).toHaveTextContent("+50.0 pp");
   });

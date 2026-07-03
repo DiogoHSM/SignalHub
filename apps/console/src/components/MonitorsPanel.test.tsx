@@ -96,6 +96,7 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     createNotificationChannel: vi.fn(),
     updateNotificationChannel: vi.fn(),
     archiveNotificationChannel: vi.fn(),
@@ -182,7 +183,7 @@ describe("MonitorsPanel", () => {
 
     const posture = await screen.findByRole("region", { name: "Monitor posture" });
     expect(within(posture).getByText("Total monitors")).toBeInTheDocument();
-    expect(within(posture).getByText("3")).toBeInTheDocument();
+    await waitFor(() => expect(within(posture).getByText("3")).toBeInTheDocument());
     expect(within(posture).getByText("Down")).toBeInTheDocument();
     expect(within(posture).getByText("Degraded")).toBeInTheDocument();
     expect(within(posture).getByText("Without channel")).toBeInTheDocument();

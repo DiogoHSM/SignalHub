@@ -1,8 +1,16 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { EventRecord } from "../api/types";
+import type {
+  EventClickMapResponse,
+  EventFunnelResponse,
+  EventPathsResponse,
+  EventPropertyCatalogResponse,
+  EventRecord,
+  EventRetentionResponse,
+  SessionReplaySample
+} from "../api/types";
 import { EventInvestigationPanel } from "./EventInvestigationPanel";
 
 function event(overrides: Partial<EventRecord>): EventRecord {
@@ -14,6 +22,7 @@ function event(overrides: Partial<EventRecord>): EventRecord {
     userId: "user_1",
     sessionId: "session_1",
     traceId: "trace_1",
+    replayId: null,
     timestamp: "2026-05-04T12:00:00.000Z",
     receivedAt: "2026-05-04T12:00:01.000Z",
     source: "web",
@@ -50,6 +59,18 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     listLlmCalls: vi.fn().mockResolvedValue({ data: [] }),
     getLlmAggregates: vi.fn().mockResolvedValue({ data: { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCostUsd: "0" } }),
     getEventAggregates: vi.fn(),
+    getEventPropertyCatalog: vi.fn().mockResolvedValue({
+      data: emptyPropertyCatalog()
+    }),
+    getEventClickMap: vi.fn().mockResolvedValue({
+      data: emptyClickMap()
+    }),
+    getEventFunnel: vi.fn().mockResolvedValue({
+      data: emptyFunnel()
+    }),
+    getEventRetention: vi.fn().mockResolvedValue({
+      data: emptyRetention()
+    }),
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn(),
     getSystemHealth: vi.fn(),
@@ -70,6 +91,7 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
@@ -80,7 +102,104 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     addTriageNote: vi.fn(),
     silenceIncident: vi.fn(),
     getSessionTimeline: vi.fn().mockResolvedValue({ data: { sessionId: "sess_1", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: null, to: null }, items: [], page: { nextCursor: null, previousCursor: null } } }),
+    listSessionReplays: vi.fn().mockResolvedValue({ data: [] }),
     ...overrides
+  };
+}
+
+function replaySample(overrides: Partial<SessionReplaySample> = {}): SessionReplaySample {
+  return {
+    id: "rpl_job_1",
+    replayId: "rpl_checkout",
+    tenantId: "tenant_1",
+    userId: "user_1",
+    sessionId: "sess_1",
+    route: "/checkout",
+    startedAt: "2026-05-11T12:00:00.000Z",
+    endedAt: null,
+    durationMs: 5000,
+    eventCount: 2,
+    masked: true,
+    linkedEventId: "evt_1",
+    linkedEventName: "checkout.started",
+    linkedErrorId: null,
+    linkedErrorMessage: null,
+    ...overrides
+  };
+}
+
+function emptyFunnel(): EventFunnelResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    totals: { entrants: 0, completed: 0, conversionPercent: 0 },
+    steps: [],
+    sampleActors: []
+  };
+}
+
+function emptyPaths(): EventPathsResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    filters: {
+      startEvent: "signup.started",
+      endEvent: "key.created",
+      tenantId: null,
+      userId: null,
+      sessionId: null,
+      traceId: null,
+      segmentId: null,
+      actorType: "auto",
+      pathLength: 5
+    },
+    totals: { actors: 0, paths: 0, events: 0 },
+    paths: []
+  };
+}
+
+function emptyPropertyCatalog(): EventPropertyCatalogResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    totals: { events: 0, properties: 0, conflictProperties: 0, similarNameGroups: 0 },
+    properties: [],
+    similarNameGroups: []
+  };
+}
+
+function emptyRetention(): EventRetentionResponse {
+  return {
+    window: "30d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-05T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    entryEvent: "signup.started",
+    returnEvent: "app.opened",
+    period: "weekly",
+    intervals: 6,
+    totals: { cohorts: 0, entrants: 0 },
+    cohorts: []
+  };
+}
+
+function emptyClickMap(): EventClickMapResponse {
+  return {
+    window: "7d",
+    generatedAt: "2026-05-05T12:00:00.000Z",
+    scope: { projectId: "prj_1", environmentId: "env_1" },
+    range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+    filters: { route: "/", selector: null, tenantId: null, userId: null, sessionId: null, gridSize: 20 },
+    totals: { clicks: 0, routes: 0, selectors: 0 },
+    routes: [],
+    selectors: [],
+    points: []
   };
 }
 
@@ -155,6 +274,387 @@ describe("EventInvestigationPanel", () => {
     expect(checkoutRows[0]).toHaveTextContent("plan: team");
     expect(screen.getByRole("button", { name: /invoice.paid/ })).toHaveTextContent("anonymous");
     expect(screen.getByRole("button", { name: /invoice.paid/ })).toHaveTextContent("channel: pix");
+  });
+
+  it("shows event property governance with type conflicts and similar property names", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "checkout.started" })] }),
+      getEventPropertyCatalog: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyPropertyCatalog(),
+          totals: { events: 3, properties: 2, conflictProperties: 1, similarNameGroups: 1 },
+          properties: [
+            {
+              eventName: "checkout.started",
+              propertyName: "amount",
+              totalOccurrences: 2,
+              eventCount: 2,
+              coveragePercent: 100,
+              dominantType: "number",
+              typeCounts: { number: 1, string: 1 },
+              hasTypeConflict: true,
+              sampleValues: ["1200"],
+              similarPropertyNames: [],
+              lastSeenAt: "2026-05-04T12:00:00.000Z"
+            },
+            {
+              eventName: "checkout.started",
+              propertyName: "plan",
+              totalOccurrences: 1,
+              eventCount: 2,
+              coveragePercent: 50,
+              dominantType: "string",
+              typeCounts: { string: 1 },
+              hasTypeConflict: false,
+              sampleValues: ["team"],
+              similarPropertyNames: ["Plan"],
+              lastSeenAt: "2026-05-04T12:00:00.000Z"
+            }
+          ],
+          similarNameGroups: [{ normalizedName: "plan", propertyNames: ["Plan", "plan"], eventNames: ["checkout.started"] }]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    expect(await screen.findByRole("region", { name: "Event property governance" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("Type conflicts1");
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("amount");
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("number 1 / string 1");
+    expect(screen.getByRole("region", { name: "Event property governance" })).toHaveTextContent("Similar: Plan");
+    expect(api.getEventPropertyCatalog).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 50
+    });
+  });
+
+  it("loads click map density and selector drilldowns", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "checkout.started" })] }),
+      getEventClickMap: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyClickMap(),
+          filters: { route: "/checkout", selector: null, tenantId: null, userId: null, sessionId: null, gridSize: 20 },
+          totals: { clicks: 3, routes: 1, selectors: 1 },
+          routes: [{ route: "/checkout", clicks: 3, selectors: 1, lastSeenAt: "2026-05-05T12:00:00.000Z" }],
+          selectors: [
+            {
+              selector: '[data-sigmon-id="submit"]',
+              clicks: 3,
+              route: "/checkout",
+              elementTag: "button",
+              elementRole: "button",
+              lastSeenAt: "2026-05-05T12:00:00.000Z"
+            }
+          ],
+          points: [{ xBucket: 10, yBucket: 8, clicks: 3, selectors: 1, lastSeenAt: "2026-05-05T12:00:00.000Z" }]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("Route"));
+    await userEvent.type(screen.getByLabelText("Route"), "/checkout");
+    await userEvent.click(screen.getByRole("button", { name: "Load click map" }));
+
+    expect(await screen.findByRole("region", { name: "Click map" })).toHaveTextContent("Clicks3");
+    expect(screen.getByRole("img", { name: "Click density for /checkout" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Click map" })).toHaveTextContent('[data-sigmon-id="submit"]');
+    expect(api.getEventClickMap).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      route: "/checkout",
+      tenantId: undefined,
+      userId: undefined,
+      sessionId: undefined,
+      gridSize: 20,
+      limit: 80
+    });
+  });
+
+  it("runs user journey paths and drills into sample events", async () => {
+    const listEvents = vi
+      .fn()
+      .mockResolvedValueOnce({ data: [event({ id: "evt_1", name: "signup.started", tenantId: "tenant_1" })] })
+      .mockResolvedValue({ data: [event({ id: "evt_path_2", name: "project.created" })] });
+    const api = client({
+      listEvents,
+      getEventPaths: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyPaths(),
+          totals: { actors: 2, paths: 1, events: 6 },
+          paths: [
+            {
+              path: ["signup.started", "project.created", "key.created"],
+              actors: 2,
+              occurrences: 2,
+              firstSeenAt: "2026-05-04T12:00:00.000Z",
+              lastSeenAt: "2026-05-04T12:02:00.000Z",
+              sampleEvents: [
+                {
+                  id: "evt_path_1",
+                  name: "signup.started",
+                  timestamp: "2026-05-04T12:00:00.000Z",
+                  actorId: "user_1",
+                  actorType: "user"
+                },
+                {
+                  id: "evt_path_2",
+                  name: "project.created",
+                  timestamp: "2026-05-04T12:01:00.000Z",
+                  actorId: "user_1",
+                  actorType: "user"
+                }
+              ]
+            }
+          ]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("End event"));
+    await userEvent.type(screen.getByLabelText("End event"), "key.created");
+    await userEvent.click(screen.getByRole("button", { name: "Find paths" }));
+
+    expect(await screen.findByRole("region", { name: "User journey paths" })).toHaveTextContent(
+      "signup.started -> project.created -> key.created"
+    );
+    expect(api.getEventPaths).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      startEvent: "signup.started",
+      endEvent: "key.created",
+      tenantId: undefined,
+      userId: undefined,
+      sessionId: undefined,
+      traceId: undefined,
+      from: undefined,
+      to: undefined,
+      segmentId: undefined,
+      actorType: "auto",
+      pathLength: 5,
+      limit: 20
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "project.created" }));
+    await waitFor(() => {
+      expect(listEvents).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        eventId: "evt_path_2",
+        limit: 1
+      });
+    });
+  });
+
+  it("runs a conversion funnel from two or more event steps", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "signup.started" })] }),
+      getEventFunnel: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyFunnel(),
+          totals: { entrants: 4, completed: 1, conversionPercent: 25 },
+          steps: [
+            { index: 0, name: "signup.started", actors: 4, conversionPercent: 100, dropOffFromPreviousPercent: 0 },
+            { index: 1, name: "project.created", actors: 2, conversionPercent: 50, dropOffFromPreviousPercent: 50 },
+            { index: 2, name: "key.created", actors: 1, conversionPercent: 25, dropOffFromPreviousPercent: 50 }
+          ],
+          sampleActors: [
+            {
+              actorId: "user_1",
+              actorType: "user",
+              reachedStepIndex: 2,
+              reachedStepName: "key.created",
+              lastSeenAt: "2026-05-04T12:02:00.000Z"
+            }
+          ]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("Funnel steps"));
+    await userEvent.type(screen.getByLabelText("Funnel steps"), "signup.started\nproject.created\nkey.created");
+    await userEvent.click(screen.getByRole("button", { name: "Run funnel" }));
+
+    expect(await screen.findByRole("region", { name: "Conversion funnel" })).toHaveTextContent("25%");
+    expect(screen.getByRole("region", { name: "Conversion funnel" })).toHaveTextContent("signup.started");
+    expect(screen.getByRole("region", { name: "Conversion funnel" })).toHaveTextContent("project.created");
+    expect(screen.getByRole("region", { name: "Conversion funnel" })).toHaveTextContent("Drop-off 50%");
+    expect(api.getEventFunnel).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      steps: ["signup.started", "project.created", "key.created"],
+      limit: 20
+    });
+  });
+
+  it("creates a saved segment and applies it as an event filter", async () => {
+    const savedSegments = [
+      {
+        id: "seg_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Team creators",
+        description: null,
+        actorType: "user" as const,
+        definition: { window: "30d" as const, eventName: "project.created", propertyName: "plan", propertyValue: "team" },
+        createdAt: "2026-05-04T12:00:00.000Z",
+        updatedAt: "2026-05-04T12:00:00.000Z",
+        archivedAt: null
+      }
+    ];
+    const listAnalyticsSegments = vi
+      .fn()
+      .mockResolvedValueOnce({ segments: [] })
+      .mockResolvedValue({ segments: savedSegments });
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "project.created" })] }),
+      listAnalyticsSegments,
+      createAnalyticsSegment: vi.fn().mockResolvedValue({ segment: { id: "seg_1" } }),
+      previewAnalyticsSegment: vi.fn().mockResolvedValue({
+        preview: {
+          segmentId: "seg_1",
+          actorType: "user",
+          window: "30d",
+          actors: 1,
+          samples: [{ actorId: "user_1", lastSeenAt: "2026-05-04T12:00:00.000Z" }]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const segmentRegion = await screen.findByRole("region", { name: "Saved segments" });
+    await userEvent.type(within(segmentRegion).getByLabelText("Segment name"), "Team creators");
+    await userEvent.type(within(segmentRegion).getByLabelText("Event name"), "project.created");
+    await userEvent.type(within(segmentRegion).getByLabelText("Property name"), "plan");
+    await userEvent.type(within(segmentRegion).getByLabelText("Property value"), "team");
+    await userEvent.click(within(segmentRegion).getByRole("button", { name: "Create segment" }));
+
+    expect(api.createAnalyticsSegment).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Team creators",
+      actorType: "user",
+      definition: { window: "30d", eventName: "project.created", propertyName: "plan", propertyValue: "team" }
+    });
+    expect(await screen.findByText("Team creators")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Use as filter" }));
+    expect(api.listEvents).toHaveBeenLastCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      limit: 50,
+      segmentId: "seg_1"
+    });
+  });
+
+  it("shows replay samples scoped by the active saved segment", async () => {
+    const savedSegments = [
+      {
+        id: "seg_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Team creators",
+        description: null,
+        actorType: "user" as const,
+        definition: { window: "30d" as const, eventName: "project.created" },
+        createdAt: "2026-05-04T12:00:00.000Z",
+        updatedAt: "2026-05-04T12:00:00.000Z",
+        archivedAt: null
+      }
+    ];
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "project.created" })] }),
+      listAnalyticsSegments: vi.fn().mockResolvedValue({ segments: savedSegments }),
+      listSessionReplays: vi.fn().mockResolvedValue({
+        data: [
+          replaySample({
+            replayId: "rpl_team",
+            tenantId: "tenant_team",
+            userId: "user_team",
+            linkedEventName: "checkout.started",
+            linkedErrorMessage: "Checkout crashed"
+          })
+        ]
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Use as filter" }));
+
+    expect(await screen.findByRole("region", { name: "Replay samples" })).toHaveTextContent("rpl_team");
+    expect(screen.getByRole("region", { name: "Replay samples" })).toHaveTextContent("tenant_team");
+    expect(screen.getByRole("region", { name: "Replay samples" })).toHaveTextContent("checkout.started");
+    expect(screen.getByRole("region", { name: "Replay samples" })).toHaveTextContent("Checkout crashed");
+    await waitFor(() =>
+      expect(api.listSessionReplays).toHaveBeenLastCalledWith({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        segmentId: "seg_1",
+        limit: 10
+      })
+    );
+  });
+
+  it("runs retention curves for entry and return events", async () => {
+    const api = client({
+      listEvents: vi.fn().mockResolvedValue({ data: [event({ id: "evt_1", name: "signup.started" })] }),
+      getEventRetention: vi.fn().mockResolvedValue({
+        data: {
+          ...emptyRetention(),
+          totals: { cohorts: 1, entrants: 4 },
+          cohorts: [
+            {
+              cohortStart: "2026-05-04T00:00:00.000Z",
+              cohortLabel: "2026-05-04",
+              entrants: 4,
+              intervals: [
+                { index: 0, label: "W0", retainedActors: 3, retentionPercent: 75 },
+                { index: 1, label: "W1", retainedActors: 2, retentionPercent: 50 },
+                { index: 2, label: "W2", retainedActors: 1, retentionPercent: 25 },
+                { index: 3, label: "W3", retainedActors: 0, retentionPercent: 0 },
+                { index: 4, label: "W4", retainedActors: 0, retentionPercent: 0 },
+                { index: 5, label: "W5", retainedActors: 0, retentionPercent: 0 }
+              ]
+            }
+          ]
+        }
+      })
+    });
+
+    render(<EventInvestigationPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    await userEvent.clear(await screen.findByLabelText("Entry event"));
+    await userEvent.type(screen.getByLabelText("Entry event"), "signup.started");
+    await userEvent.clear(screen.getByLabelText("Return event"));
+    await userEvent.type(screen.getByLabelText("Return event"), "app.opened");
+    await userEvent.click(screen.getByRole("button", { name: "Run retention" }));
+
+    expect(await screen.findByRole("region", { name: "Retention curves" })).toHaveTextContent("2026-05-04");
+    expect(screen.getByRole("region", { name: "Retention curves" })).toHaveTextContent("75%");
+    expect(screen.getByRole("region", { name: "Retention curves" })).toHaveTextContent("W1");
+    expect(api.getEventRetention).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      entryEvent: "signup.started",
+      returnEvent: "app.opened",
+      period: "weekly",
+      intervals: 6
+    });
   });
 
   it("applies initial filters and updates them when they change", async () => {

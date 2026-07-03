@@ -1,7 +1,19 @@
 import { Queue } from "bullmq";
 import type { RedisOptions } from "ioredis";
 
-export type TelemetryJobKind = "event" | "error" | "llm" | "trace" | "span" | "breadcrumb";
+export type TelemetryJobKind =
+  | "event"
+  | "error"
+  | "llm"
+  | "trace"
+  | "span"
+  | "breadcrumb"
+  | "web_vital"
+  | "click"
+  | "replay"
+  | "profile"
+  | "survey_response"
+  | "feedback";
 
 export type TelemetryJobPayload = {
   kind: TelemetryJobKind;

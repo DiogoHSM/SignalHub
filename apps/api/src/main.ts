@@ -22,6 +22,63 @@ import {
   updateProject
 } from "@sigmon/db/repositories/admin.js";
 import {
+  archiveAnalyticsSegment,
+  createAnalyticsSegment,
+  getAnalyticsSegment,
+  listAnalyticsSegments,
+  previewAnalyticsSegment,
+  updateAnalyticsSegment
+} from "@sigmon/db/repositories/analytics-segments.js";
+import {
+  archiveAnalyticsDashboard,
+  createAnalyticsDashboard,
+  getAnalyticsDashboard,
+  listAnalyticsDashboards,
+  updateAnalyticsDashboard
+} from "@sigmon/db/repositories/analytics-dashboards.js";
+import {
+  archiveExperiment,
+  createExperiment,
+  getExperimentResults,
+  listExperiments,
+  updateExperiment
+} from "@sigmon/db/repositories/experiments.js";
+import {
+  archiveFeatureFlag,
+  createFeatureFlag,
+  evaluateFeatureFlagById,
+  listFeatureFlagAudit,
+  listFeatureFlags,
+  updateFeatureFlag
+} from "@sigmon/db/repositories/feature-flags.js";
+import {
+  addBetaProgramParticipant,
+  archiveBetaProgram,
+  createBetaProgram,
+  getBetaProgramAdoption,
+  listBetaProgramParticipants,
+  listBetaPrograms,
+  removeBetaProgramParticipant,
+  updateBetaProgram
+} from "@sigmon/db/repositories/beta-programs.js";
+import {
+  applyDataGovernanceRules,
+  getDataGovernancePolicy,
+  upsertDataGovernancePolicy
+} from "@sigmon/db/repositories/data-governance.js";
+import {
+  archiveWarehouseDestination,
+  createWarehouseDestination,
+  getWarehouseDestination,
+  listWarehouseDestinations,
+  listWarehouseExportRuns,
+  recordWarehouseExportRun,
+  selectWarehouseExportBatch,
+  updateWarehouseDestination,
+  updateWarehouseDestinationCursor,
+  withWarehouseExportLock
+} from "@sigmon/db/repositories/warehouse-exports.js";
+import {
   archiveAlertRule,
   archiveNotificationChannel,
   buildAlertSuggestions,
@@ -33,6 +90,7 @@ import {
   listAlertRules,
   listNotificationChannels,
   updateAlertRule,
+  updateAlertEventTriage,
   updateNotificationChannel
 } from "@sigmon/db/repositories/alerts.js";
 import {
@@ -90,16 +148,29 @@ import {
   updateSourceMapUploadTokenLastUsed
 } from "@sigmon/db/repositories/source-map-upload-tokens.js";
 import {
+  getApmEndpoints,
+  getRuntimeProfiles,
+  getServiceMap,
+  getWebVitals,
   getErrorAggregates,
   getErrorForSourceMapResolution,
   getEventAggregates,
+  getEventClickMap,
+  getEventFunnel,
+  getEventPaths,
+  getEventPropertyCatalog,
+  getEventRetention,
   getLlmAggregates,
   getLlmSummary,
   getLlmByTenant,
   getLlmByPrompt,
   getLlmCostByModel,
   getOverview,
+  getRecentActivity,
+  getSessionReplayDetail,
   getTraceAggregates,
+  listReleases,
+  listSessionReplays,
   listErrors,
   listEvents,
   listLlmCalls,
@@ -115,6 +186,36 @@ import {
   updateErrorGroupTriage
 } from "@sigmon/db/repositories/error-groups.js";
 import { getErrorGroupIncident } from "@sigmon/db/repositories/incidents.js";
+import {
+  buildIncidentIssueDraft,
+  createCodeIntegration,
+  linkIncidentExternalIssue,
+  listCodeIntegrations,
+  listIncidentExternalIssues,
+  revokeCodeIntegration,
+  upsertReleaseMetadata
+} from "@sigmon/db/repositories/code-integrations.js";
+import {
+  archiveSurvey,
+  createSurvey,
+  getNpsResults,
+  getSurveyResults,
+  listSurveys,
+  updateSurvey
+} from "@sigmon/db/repositories/surveys.js";
+import {
+  archiveMessageCampaign,
+  createMessageCampaign,
+  getMessageCampaignResults,
+  listMessageCampaigns,
+  updateMessageCampaign
+} from "@sigmon/db/repositories/message-campaigns.js";
+import {
+  getFeedbackWidgetSettings,
+  listFeedbackItems,
+  updateFeedbackItemStatus,
+  upsertFeedbackWidgetSettings
+} from "@sigmon/db/repositories/feedback-widget.js";
 import {
   assignIncident,
   addTriageNote,
@@ -155,6 +256,7 @@ import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
 import { runBackupOnce } from "../../worker/src/backups.js";
+import { runWarehouseExportOnce, writePostgresWarehouseBatch } from "../../worker/src/warehouse-exports.js";
 import { runRetentionOnce } from "../../worker/src/retention.js";
 import { deleteExpiredSourceMapArtifacts } from "../../worker/src/source-map-retention.js";
 
@@ -252,6 +354,7 @@ const retentionPolicy = {
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
+  profilesDays: config.retention.profilesDays,
   breadcrumbsDays: config.retention.breadcrumbsDays,
   deadLetterJobsDays: config.retention.deadLetterJobsDays,
   sourceMapsEnabled: config.sourceMaps.retention.enabled,
@@ -572,6 +675,100 @@ const app = await buildApp({
       list: (projectId) => listProjectBrowserOrigins(db, projectId),
       create: (input) => createProjectBrowserOrigin(db, input),
       archive: (id) => archiveProjectBrowserOrigin(db, id)
+    },
+    codeIntegrations: {
+      list: (projectId) => listCodeIntegrations(db, projectId),
+      create: (input) => createCodeIntegration(db, input),
+      revoke: (input) => revokeCodeIntegration(db, input),
+      upsertReleaseMetadata: (input) => upsertReleaseMetadata(db, input)
+    },
+    analyticsSegments: {
+      list: (filters) => listAnalyticsSegments(db, filters),
+      create: (input) => createAnalyticsSegment(db, input),
+      update: (id, input) => updateAnalyticsSegment(db, id, input),
+      archive: (id) => archiveAnalyticsSegment(db, id),
+      get: (input) => getAnalyticsSegment(db, input),
+      preview: (segment, input) => previewAnalyticsSegment(db, segment, input)
+    },
+    analyticsDashboards: {
+      list: (filters) => listAnalyticsDashboards(db, filters),
+      create: (input) => createAnalyticsDashboard(db, input),
+      update: (input) => updateAnalyticsDashboard(db, input),
+      archive: (input) => archiveAnalyticsDashboard(db, input)
+    },
+    experiments: {
+      list: (filters) => listExperiments(db, filters),
+      create: (input) => createExperiment(db, input),
+      update: (input) => updateExperiment(db, input),
+      archive: (input) => archiveExperiment(db, input)
+    },
+    surveys: {
+      list: (filters) => listSurveys(db, filters),
+      create: (input) => createSurvey(db, input),
+      update: (input) => updateSurvey(db, input),
+      archive: (input) => archiveSurvey(db, input)
+    },
+    messageCampaigns: {
+      list: (filters) => listMessageCampaigns(db, filters),
+      create: (input) => createMessageCampaign(db, input),
+      update: (input) => updateMessageCampaign(db, input),
+      archive: (input) => archiveMessageCampaign(db, input)
+    },
+    feedbackWidget: {
+      getSettings: (input) => getFeedbackWidgetSettings(db, input),
+      upsertSettings: (input) => upsertFeedbackWidgetSettings(db, input)
+    },
+    featureFlags: {
+      list: (filters) => listFeatureFlags(db, filters),
+      create: (input) => createFeatureFlag(db, input),
+      update: (input) => updateFeatureFlag(db, input),
+      archive: (input) => archiveFeatureFlag(db, input),
+      listAudit: (input) => listFeatureFlagAudit(db, input),
+      evaluate: (input) => evaluateFeatureFlagById(db, input)
+    },
+    betaPrograms: {
+      list: (filters) => listBetaPrograms(db, filters),
+      create: (input) => createBetaProgram(db, input),
+      update: (input) => updateBetaProgram(db, input),
+      archive: (input) => archiveBetaProgram(db, input),
+      listParticipants: (input) => listBetaProgramParticipants(db, input),
+      addParticipant: (input) => addBetaProgramParticipant(db, input),
+      removeParticipant: (input) => removeBetaProgramParticipant(db, input),
+      getAdoption: (input) => getBetaProgramAdoption(db, input)
+    },
+    dataGovernance: {
+      get: (input) => getDataGovernancePolicy(db, input),
+      upsert: (input) => upsertDataGovernancePolicy(db, input)
+    },
+    warehouseExports: {
+      listDestinations: (input) => listWarehouseDestinations(db, { ...input, includeDisabled: true }),
+      createDestination: (input) => createWarehouseDestination(db, input),
+      updateDestination: (input) => updateWarehouseDestination(db, input),
+      archiveDestination: (input) => archiveWarehouseDestination(db, input),
+      listRuns: (input) => listWarehouseExportRuns(db, input),
+      runDestination: async (input) => {
+        const destination = await getWarehouseDestination(db, {
+          id: input.destinationId,
+          projectId: input.projectId,
+          environmentId: input.environmentId,
+          includeSecret: true
+        });
+        if (!destination) {
+          return { ran: true, skipped: false, exported: 0, failed: 1 };
+        }
+        return runWarehouseExportOnce(
+          {
+            now: () => new Date(),
+            withLock: (run) => withWarehouseExportLock(db, run),
+            listActiveDestinations: async () => [destination],
+            selectBatch: (selectedDestination, batchInput) => selectWarehouseExportBatch(db, selectedDestination, batchInput),
+            writeBatch: (writeInput) => writePostgresWarehouseBatch(writeInput),
+            updateCursor: (cursorInput) => updateWarehouseDestinationCursor(db, cursorInput),
+            recordRun: (runInput) => recordWarehouseExportRun(db, runInput)
+          },
+          input.trigger
+        );
+      }
     }
   },
   ingestion: {
@@ -582,8 +779,20 @@ const app = await buildApp({
   },
   identify: {
     verifyApiKey: verifyIngestionApiKey,
-    identifyUser: (input) => identifyUserProfile(db, input),
-    identifyTenant: (input) => identifyTenantProfile(db, input)
+    identifyUser: async (input) => {
+      const policy = await getDataGovernancePolicy(db, input);
+      await identifyUserProfile(db, {
+        ...input,
+        traits: applyDataGovernanceRules(input.traits, policy, "identity.traits")
+      });
+    },
+    identifyTenant: async (input) => {
+      const policy = await getDataGovernancePolicy(db, input);
+      await identifyTenantProfile(db, {
+        ...input,
+        traits: applyDataGovernanceRules(input.traits, policy, "identity.traits")
+      });
+    }
   },
   query: {
     listEvents: (filters) => listEvents(db, filters),
@@ -591,6 +800,9 @@ const app = await buildApp({
     listErrorGroups: (filters) => listErrorGroupsPage(db, filters),
     getErrorGroup: (id, filters) => getErrorGroup(db, { id, ...filters }),
     getErrorGroupIncident: (id, filters) => getErrorGroupIncident(db, { groupId: id, ...filters }),
+    listIncidentExternalIssues: (input) => listIncidentExternalIssues(db, input),
+    linkIncidentExternalIssue: (input) => linkIncidentExternalIssue(db, input),
+    buildIncidentIssueDraft: (input) => buildIncidentIssueDraft(db, input),
     updateErrorGroupTriage: (id, input) => updateErrorGroupTriage(db, { id, ...input }),
     updateErrorGroupStatus: (id, input) => updateErrorGroupStatus(db, { id, ...input }),
     listLlmCalls: (filters) => listLlmCalls(db, filters),
@@ -604,13 +816,33 @@ const app = await buildApp({
     getLlmByPrompt: (filters) => getLlmByPrompt(db, filters),
     getLlmCostByModel: (filters) => getLlmCostByModel(db, filters),
     getOverview: (filters) => getOverview(db, filters),
+    getRecentActivity: (filters) => getRecentActivity(db, filters),
+    listReleases: (filters) => listReleases(db, filters),
     getOperations: (filters) => getOperations(db, filters),
+    getEventPropertyCatalog: (filters) => getEventPropertyCatalog(db, filters),
+    getEventClickMap: (filters) => getEventClickMap(db, filters),
+    getEventFunnel: (filters) => getEventFunnel(db, filters),
+    getExperimentResults: (filters) => getExperimentResults(db, filters),
+    getSurveyResults: (filters) => getSurveyResults(db, filters),
+    getMessageCampaignResults: (filters) => getMessageCampaignResults(db, filters),
+    getNpsResults: (filters) => getNpsResults(db, filters),
+    listFeedbackItems: (filters) => listFeedbackItems(db, filters),
+    updateFeedbackStatus: (input) => updateFeedbackItemStatus(db, input),
+    getEventPaths: (filters) => getEventPaths(db, filters),
+    getEventRetention: (filters) => getEventRetention(db, filters),
+    getApmEndpoints: (filters) => getApmEndpoints(db, filters),
+    getServiceMap: (filters) => getServiceMap(db, filters),
+    getWebVitals: (filters) => getWebVitals(db, filters),
+    getRuntimeProfiles: (filters) => getRuntimeProfiles(db, filters),
+    getAnalyticsDashboard: (input) => getAnalyticsDashboard(db, input),
     getTraceAggregates: (filters) => getTraceAggregates(db, filters),
     listEntityTenants: (filters) => listEntityTenants(db, filters),
     getEntityTenantDetail: (tenantId, filters) => getEntityTenantDetail(db, tenantId, filters),
     listUsersActivity: (filters) => listUsersActivity(db, filters),
     getUserDetail: (userId, filters) => getUserDetail(db, userId, filters),
     getSessionTimeline: (filters) => getSessionTimeline(db, filters),
+    getSessionReplayDetail: (filters) => getSessionReplayDetail(db, filters),
+    listSessionReplays: (filters) => listSessionReplays(db, filters),
     resolveErrorStack: (input) =>
       resolveErrorStackWithSourceMaps({
         ...input,
@@ -661,6 +893,7 @@ const app = await buildApp({
     archiveAlertRule: (id) => archiveAlertRule(db, id),
     listAlertEvents: (filters) => listAlertEvents(db, filters),
     getAlertEvent: (id) => getAlertEvent(db, id),
+    updateAlertEventTriage: (id, input) => updateAlertEventTriage(db, id, input),
     listAlertSuggestions: (filters) =>
       buildAlertSuggestions(db, { ...filters, now: new Date() })
   },

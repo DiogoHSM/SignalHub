@@ -2,11 +2,13 @@ import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
-import type { ErrorsTable, EventsTable, LlmCallsTable, SpansTable, TracesTable } from "../schema.js";
+import type { ErrorsTable, EventsTable, LlmCallsTable, SessionReplaysTable, SpansTable, TracesTable } from "../schema.js";
+import { getAnalyticsSegment, getAnalyticsSegmentActorIds } from "./analytics-segments.js";
 
 type EventRow = Selectable<EventsTable>;
 type ErrorRow = Selectable<ErrorsTable>;
 type LlmCallRow = Selectable<LlmCallsTable>;
+type SessionReplayRow = Selectable<SessionReplaysTable>;
 type TraceRow = Selectable<TracesTable>;
 type SpanRow = Selectable<SpansTable>;
 
@@ -20,6 +22,8 @@ export interface TelemetryFilters {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  traceName?: string;
+  eventId?: string;
   eventName?: string;
   provider?: string;
   model?: string;
@@ -28,6 +32,7 @@ export interface TelemetryFilters {
   status?: string;
   fingerprint?: string;
   errorGroupId?: string;
+  segmentId?: string;
   from?: Date;
   to?: Date;
   limit?: number;
@@ -53,7 +58,312 @@ export interface EventRecord {
   release: string | null;
   metadata: unknown;
   name: string;
+  replayId: string | null;
   properties: unknown;
+}
+
+export interface SessionReplayTimelineEvent {
+  offsetMs: number;
+  type: string;
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data: unknown;
+}
+
+export interface SessionReplayProductEvent {
+  id: string;
+  name: string;
+  timestamp: Date;
+  offsetMs: number;
+}
+
+export interface SessionReplayDetail {
+  id: string;
+  replayId: string;
+  route: string | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  events: SessionReplayTimelineEvent[];
+  productEvents: SessionReplayProductEvent[];
+}
+
+export interface SessionReplayListFilters {
+  projectId: string;
+  environmentId: string;
+  tenantId?: string;
+  userId?: string;
+  eventName?: string;
+  segmentId?: string;
+  to?: Date;
+  limit?: number;
+}
+
+export interface SessionReplaySummary {
+  id: string;
+  replayId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  route: string | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  linkedEventId: string | null;
+  linkedEventName: string | null;
+  linkedErrorId: string | null;
+  linkedErrorMessage: string | null;
+}
+
+export interface EventPropertyCatalogItem {
+  eventName: string;
+  propertyName: string;
+  totalOccurrences: number;
+  eventCount: number;
+  coveragePercent: number;
+  dominantType: string;
+  typeCounts: Record<string, number>;
+  hasTypeConflict: boolean;
+  sampleValues: string[];
+  similarPropertyNames: string[];
+  lastSeenAt: string | null;
+}
+
+export interface EventPropertySimilarNameGroup {
+  normalizedName: string;
+  propertyNames: string[];
+  eventNames: string[];
+}
+
+export interface EventPropertyCatalogResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    events: number;
+    properties: number;
+    conflictProperties: number;
+    similarNameGroups: number;
+  };
+  properties: EventPropertyCatalogItem[];
+  similarNameGroups: EventPropertySimilarNameGroup[];
+}
+
+export interface EventClickMapFilters extends ApmFilters {
+  route: string;
+  selector?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  gridSize?: number;
+}
+
+export interface EventClickMapPoint {
+  xBucket: number;
+  yBucket: number;
+  clicks: number;
+  percent: number;
+}
+
+export interface EventClickMapRoute {
+  route: string;
+  clicks: number;
+}
+
+export interface EventClickMapSelector {
+  selector: string;
+  elementTag: string | null;
+  elementRole: string | null;
+  clicks: number;
+}
+
+export interface EventClickMapResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    route: string;
+    selector: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    gridSize: number;
+  };
+  totals: {
+    clicks: number;
+    routes: number;
+    selectors: number;
+  };
+  routes: EventClickMapRoute[];
+  selectors: EventClickMapSelector[];
+  points: EventClickMapPoint[];
+}
+
+export interface EventFunnelFilters extends ApmFilters {
+  steps: string[];
+}
+
+export interface EventFunnelStep {
+  index: number;
+  name: string;
+  actors: number;
+  conversionPercent: number;
+  dropOffFromPreviousPercent: number;
+}
+
+export interface EventFunnelActor {
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+  reachedStepIndex: number;
+  reachedStepName: string;
+  lastSeenAt: string;
+}
+
+export interface EventFunnelResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
+  sampleActors: EventFunnelActor[];
+}
+
+export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
+
+export interface EventRetentionFilters extends ApmFilters {
+  entryEvent: string;
+  returnEvent: string;
+  period?: EventRetentionPeriod;
+  intervals?: number;
+}
+
+export interface EventRetentionInterval {
+  index: number;
+  label: string;
+  retainedActors: number;
+  retentionPercent: number;
+}
+
+export interface EventRetentionCohort {
+  cohortStart: string;
+  cohortLabel: string;
+  entrants: number;
+  intervals: EventRetentionInterval[];
+}
+
+export interface EventRetentionResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  entryEvent: string;
+  returnEvent: string;
+  period: EventRetentionPeriod;
+  intervals: number;
+  totals: {
+    cohorts: number;
+    entrants: number;
+  };
+  cohorts: EventRetentionCohort[];
+}
+
+export interface EventPathFilters extends ApmFilters {
+  startEvent?: string;
+  endEvent?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  traceId?: string;
+  segmentId?: string;
+  actorType?: "auto" | "user" | "tenant" | "session" | "trace";
+  from?: Date;
+  to?: Date;
+  pathLength?: number;
+}
+
+export interface EventPathSampleEvent {
+  id: string;
+  name: string;
+  timestamp: string;
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+}
+
+export interface EventPathRow {
+  path: string[];
+  actors: number;
+  occurrences: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sampleEvents: EventPathSampleEvent[];
+}
+
+export interface EventPathsResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    startEvent: string | null;
+    endEvent: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    traceId: string | null;
+    segmentId: string | null;
+    actorType: "auto" | "user" | "tenant" | "session" | "trace";
+    pathLength: number;
+  };
+  totals: {
+    actors: number;
+    paths: number;
+    events: number;
+  };
+  paths: EventPathRow[];
 }
 
 export interface LlmAggregates {
@@ -114,15 +424,192 @@ export interface TraceAggregates extends CountAggregate {
 export type OverviewWindow = "24h" | "7d" | "30d";
 export type OverviewTrendBucket = "hour" | "day";
 
+export type ApmWindow = OverviewWindow;
+
+export interface ApmFilters {
+  projectId: string;
+  environmentId: string;
+  window: ApmWindow;
+  now?: Date;
+  limit?: number;
+}
+
+export interface ApmEndpointRow {
+  name: string;
+  requests: number;
+  errors: number;
+  errorRatePercent: number | null;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+  p99DurationMs: number | null;
+  averageDurationMs: number | null;
+  apdex: number | null;
+  lastSeenAt: string | null;
+}
+
+export interface ApmEndpointsResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    endpoints: number;
+    requests: number;
+    errors: number;
+    errorRatePercent: number | null;
+    p95DurationMs: number | null;
+    apdex: number | null;
+  };
+  endpoints: ApmEndpointRow[];
+}
+
+export interface ServiceMapEdge {
+  source: string;
+  target: string;
+  dependencyType: string;
+  spans: number;
+  traces: number;
+  errors: number;
+  errorRatePercent: number | null;
+  averageDurationMs: number | null;
+  p95DurationMs: number | null;
+  lastSeenAt: string | null;
+}
+
+export interface ServiceMapResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    services: number;
+    edges: number;
+    spans: number;
+    errors: number;
+    errorRatePercent: number | null;
+  };
+  edges: ServiceMapEdge[];
+}
+
+export interface WebVitalMetricRow {
+  name: "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+  route: string;
+  samples: number;
+  good: number;
+  needsImprovement: number;
+  poor: number;
+  averageValue: number | null;
+  p75Value: number | null;
+  latestRelease: string | null;
+  latestReleaseP75Value: number | null;
+  previousRelease: string | null;
+  previousReleaseP75Value: number | null;
+  regressionPercent: number | null;
+  lastSeenAt: string | null;
+}
+
+export interface WebVitalsResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    samples: number;
+    routes: number;
+    releases: number;
+    poorSamples: number;
+    p75LcpMs: number | null;
+    p75InpMs: number | null;
+    p75Cls: number | null;
+  };
+  metrics: WebVitalMetricRow[];
+}
+
+export interface RuntimeProfileRow {
+  id: string;
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service: string | null;
+  route: string | null;
+  traceId: string | null;
+  source: string | null;
+  release: string | null;
+  startedAt: string;
+  durationMs: number | null;
+  sampleCount: number;
+  cpuUsagePercent: number | null;
+  heapUsedBytes: number | null;
+  rssBytes: number | null;
+  topFunction: string | null;
+  topFunctionSelfTimeMs: number | null;
+}
+
+export interface RuntimeProfileHotFunctionRow {
+  functionName: string;
+  url: string | null;
+  lineNumber: number | null;
+  columnNumber: number | null;
+  selfTimeMs: number;
+  totalTimeMs: number | null;
+  sampleCount: number;
+  profileCount: number;
+  lastSeenAt: string | null;
+}
+
+export interface RuntimeProfilesResponse {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    profiles: number;
+    cpuProfiles: number;
+    memoryProfiles: number;
+    samples: number;
+    avgCpuUsagePercent: number | null;
+    maxHeapUsedBytes: number | null;
+    p95DurationMs: number | null;
+  };
+  profiles: RuntimeProfileRow[];
+  hotFunctions: RuntimeProfileHotFunctionRow[];
+}
+
 export interface OverviewFilters {
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
+  release?: string;
   now?: Date;
 }
 
 export type OverviewRecentError = {
   id: string;
+  errorGroupId: string | null;
   timestamp: string;
   message: string;
   type: string | null;
@@ -156,6 +643,48 @@ export type OverviewRecentLlmCall = {
   traceId: string | null;
 };
 
+export type RecentActivityType = "event" | "error" | "trace" | "llm";
+
+export type RecentActivityItem = {
+  id: string;
+  type: RecentActivityType;
+  timestamp: string;
+  title: string;
+  status: string;
+  severity: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  durationMs: number | null;
+  costUsd: string | null;
+};
+
+export type RecentActivityFilters = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  release?: string;
+  limit?: number;
+  now?: Date;
+};
+
+export type OverviewKpiDelta = {
+  current: number;
+  previous: number | null;
+  absolute: number | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
+export type OverviewMoneyDelta = {
+  current: string;
+  previous: string | null;
+  absolute: string | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
 export type OverviewResponse = {
   window: OverviewWindow;
   generatedAt: string;
@@ -184,6 +713,22 @@ export type OverviewResponse = {
     llmOutputTokens: number;
     llmCostUsd: string;
   };
+  deltas: {
+    events: OverviewKpiDelta;
+    activeUsers: OverviewKpiDelta;
+    activeTenants: OverviewKpiDelta;
+    errors: OverviewKpiDelta;
+    openErrors: OverviewKpiDelta;
+    traces: OverviewKpiDelta;
+    failedTraces: OverviewKpiDelta;
+    averageTraceDurationMs: OverviewKpiDelta;
+    p95TraceDurationMs: OverviewKpiDelta;
+    llmCalls: OverviewKpiDelta;
+    failedLlmCalls: OverviewKpiDelta;
+    llmInputTokens: OverviewKpiDelta;
+    llmOutputTokens: OverviewKpiDelta;
+    llmCostUsd: OverviewMoneyDelta;
+  };
   trends: {
     usage: Array<{ bucketStart: string; events: number; traces: number; llmCalls: number }>;
     errors: Array<{ bucketStart: string; errors: number; openErrors: number; severeErrors: number }>;
@@ -203,11 +748,56 @@ export type OverviewResponse = {
     errorStatus: Array<{ status: string; total: number }>;
   };
   recent: {
+    activity: RecentActivityItem[];
     errors: OverviewRecentError[];
     failedTraces: OverviewRecentTrace[];
     failedLlmCalls: OverviewRecentLlmCall[];
   };
+  releases: {
+    selected: string | null;
+    recent: ReleaseSummary[];
+  };
 };
+
+export interface ReleaseSummary {
+  release: string;
+  events: number;
+  errors: number;
+  traces: number;
+  failedTraces: number;
+  llmCalls: number;
+  code: {
+    commitSha: string | null;
+    commitUrl: string | null;
+    pullRequestNumber: number | null;
+    pullRequestUrl: string | null;
+    deployedBy: string | null;
+  } | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface ReleaseListFilters {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  limit?: number;
+  now?: Date;
+}
+
+export interface ReleaseListResponse {
+  window: OverviewWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  releases: ReleaseSummary[];
+}
 
 function toEvent(row: EventRow): EventRecord {
   return {
@@ -224,7 +814,63 @@ function toEvent(row: EventRow): EventRecord {
     release: row.release,
     metadata: row.metadata,
     name: row.name,
+    replayId: row.replay_id,
     properties: row.properties
+  };
+}
+
+function toReplayTimelineEvents(value: unknown): SessionReplayTimelineEvent[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      offsetMs: typeof item.offsetMs === "number" ? item.offsetMs : 0,
+      type: typeof item.type === "string" ? item.type : "custom",
+      ...(typeof item.route === "string" ? { route: item.route } : {}),
+      ...(typeof item.selector === "string" ? { selector: item.selector } : {}),
+      ...(typeof item.message === "string" ? { message: item.message } : {}),
+      ...(typeof item.x === "number" ? { x: item.x } : {}),
+      ...(typeof item.y === "number" ? { y: item.y } : {}),
+      data: item.data ?? {}
+    }));
+}
+
+function toSessionReplayDetail(row: SessionReplayRow, productEvents: SessionReplayProductEvent[]): SessionReplayDetail {
+  return {
+    id: row.id,
+    replayId: row.replay_id,
+    route: row.route,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    durationMs: row.duration_ms,
+    eventCount: row.event_count,
+    masked: row.masked,
+    events: toReplayTimelineEvents(row.events),
+    productEvents
+  };
+}
+
+function toSessionReplaySummary(
+  row: SessionReplayRow,
+  event: Pick<EventRow, "id" | "name"> | undefined,
+  error: Pick<ErrorRow, "id" | "message"> | undefined
+): SessionReplaySummary {
+  return {
+    id: row.id,
+    replayId: row.replay_id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    sessionId: row.session_id,
+    route: row.route,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    durationMs: row.duration_ms,
+    eventCount: row.event_count,
+    masked: row.masked,
+    linkedEventId: event?.id ?? null,
+    linkedEventName: event?.name ?? null,
+    linkedErrorId: error?.id ?? null,
+    linkedErrorMessage: error?.message ?? null
   };
 }
 
@@ -247,6 +893,7 @@ export interface ErrorRecord {
   stack: string | null;
   status: string;
   fingerprint: string | null;
+  replayId: string | null;
   errorGroupId: string | null;
   groupingFingerprint: string | null;
   context: unknown;
@@ -280,6 +927,7 @@ function toError(row: ErrorRow): ErrorRecord {
     stack: row.stack,
     status: row.status,
     fingerprint: row.fingerprint,
+    replayId: row.replay_id,
     errorGroupId: row.error_group_id,
     groupingFingerprint: row.grouping_fingerprint,
     context: row.context
@@ -484,6 +1132,10 @@ function toRoundedOrNull(value: unknown): number | null {
   return n === null ? null : Math.round(n);
 }
 
+function toNullableNumber(value: unknown): number | null {
+  return toFiniteSafeNumber(value);
+}
+
 export function buildBucketAxis(from: Date, to: Date, bucket: OverviewTrendBucket): string[] {
   const stepHours = bucket === "hour" ? 1 : 24;
   const start = new Date(from);
@@ -527,6 +1179,14 @@ function resolveOverviewRange(window: OverviewWindow, now = new Date()) {
   return { from, to, bucket: "day" as const };
 }
 
+function clampSmallLimit(limit: number | undefined, fallback: number, max: number): number {
+  if (limit === undefined || !Number.isFinite(limit)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(Math.floor(limit), 1), max);
+}
+
 function bucketStep(bucket: OverviewTrendBucket): number {
   return bucket === "hour" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
 }
@@ -549,6 +1209,263 @@ function makeBucketStarts(from: Date, to: Date, bucket: OverviewTrendBucket): st
     current = new Date(current.getTime() + step);
   }
   return starts;
+}
+
+export async function getRecentActivity(db: Db, filters: RecentActivityFilters): Promise<{ activity: RecentActivityItem[] }> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const releaseFilter = filters.release ?? null;
+  const limit = Math.max(1, Math.min(Math.floor(filters.limit ?? 20), 100));
+
+  const rows = await sql<{
+    id: string;
+    type: RecentActivityType;
+    timestamp: Date | string;
+    title: string;
+    status: string;
+    severity: string | null;
+    tenant_id: string | null;
+    user_id: string | null;
+    session_id: string | null;
+    trace_id: string | null;
+    duration_ms: number | null;
+    cost_usd: string | null;
+  }>`
+    with recent_activity as (
+      select
+        id,
+        'event'::text as type,
+        timestamp,
+        name as title,
+        'accepted'::text as status,
+        null::text as severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        null::integer as duration_ms,
+        null::text as cost_usd
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+
+      union all
+
+      select
+        id,
+        'error'::text as type,
+        timestamp,
+        message as title,
+        status,
+        severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        null::integer as duration_ms,
+        null::text as cost_usd
+      from errors
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+
+      union all
+
+      select
+        id,
+        'trace'::text as type,
+        timestamp,
+        name as title,
+        status,
+        null::text as severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        duration_ms,
+        null::text as cost_usd
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+
+      union all
+
+      select
+        id,
+        'llm'::text as type,
+        timestamp,
+        provider || ' / ' || model as title,
+        status,
+        null::text as severity,
+        tenant_id,
+        user_id,
+        session_id,
+        trace_id,
+        latency_ms as duration_ms,
+        cost_usd::text as cost_usd
+      from llm_calls
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
+    )
+    select id, type, timestamp, title, status, severity, tenant_id, user_id, session_id, trace_id, duration_ms, cost_usd
+    from recent_activity
+    order by timestamp desc, type asc, id asc
+    limit ${limit}
+  `.execute(db);
+
+  return {
+    activity: rows.rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      timestamp: toIso(row.timestamp),
+      title: row.title,
+      status: row.status,
+      severity: row.severity,
+      tenantId: row.tenant_id,
+      userId: row.user_id,
+      sessionId: row.session_id,
+      traceId: row.trace_id,
+      durationMs: row.duration_ms,
+      costUsd: row.cost_usd
+    }))
+  };
+}
+
+type OverviewKpiSqlRow = {
+  events: unknown;
+  active_users: unknown;
+  active_tenants: unknown;
+  errors: unknown;
+  open_errors: unknown;
+  traces: unknown;
+  failed_traces: unknown;
+  average_trace_duration_ms: unknown;
+  p95_trace_duration_ms: unknown;
+  llm_calls: unknown;
+  failed_llm_calls: unknown;
+  llm_input_tokens: unknown;
+  llm_output_tokens: unknown;
+  llm_cost_usd: string;
+};
+
+async function queryOverviewKpis(
+  db: Db,
+  input: { projectId: string; environmentId: string; from: Date; to: Date; release: string | null }
+) {
+  return sql<OverviewKpiSqlRow>`
+    with scoped_events as (
+      select user_id, tenant_id
+      from events
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    scoped_errors as (
+      select user_id, tenant_id, status
+      from errors
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    scoped_traces as (
+      select user_id, tenant_id, status, duration_ms
+      from traces
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    scoped_llm_calls as (
+      select user_id, tenant_id, status, input_tokens, output_tokens, cost_usd
+      from llm_calls
+      where project_id = ${input.projectId}
+        and environment_id = ${input.environmentId}
+        and timestamp >= ${input.from}
+        and timestamp <= ${input.to}
+        and (${input.release}::text is null or release = ${input.release})
+    ),
+    identities as (
+      select user_id, tenant_id from scoped_events
+      union all select user_id, tenant_id from scoped_errors
+      union all select user_id, tenant_id from scoped_traces
+      union all select user_id, tenant_id from scoped_llm_calls
+    )
+    select
+      (select count(*) from scoped_events) as events,
+      (select count(distinct user_id) from identities where user_id is not null) as active_users,
+      (select count(distinct tenant_id) from identities where tenant_id is not null) as active_tenants,
+      (select count(*) from scoped_errors) as errors,
+      (select count(*) from scoped_errors where status = 'open') as open_errors,
+      (select count(*) from scoped_traces) as traces,
+      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
+      (select coalesce(avg(duration_ms), 0) from scoped_traces) as average_trace_duration_ms,
+      (select percentile_cont(0.95) within group (order by duration_ms) from scoped_traces where duration_ms is not null) as p95_trace_duration_ms,
+      (select count(*) from scoped_llm_calls) as llm_calls,
+      (select count(*) from scoped_llm_calls where status <> 'success') as failed_llm_calls,
+      (select coalesce(sum(input_tokens), 0) from scoped_llm_calls) as llm_input_tokens,
+      (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
+      (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
+  `.execute(db);
+}
+
+function previousOverviewRange(from: Date, to: Date): { from: Date; to: Date } {
+  const duration = to.getTime() - from.getTime();
+  return {
+    from: new Date(from.getTime() - duration),
+    to: new Date(to.getTime() - duration)
+  };
+}
+
+function overviewDelta(current: number | null, previous: number | null): OverviewKpiDelta {
+  const currentValue = current ?? 0;
+  if (previous === null) {
+    return { current: currentValue, previous: null, absolute: null, percent: null, direction: "none" };
+  }
+
+  const absolute = currentValue - previous;
+  return {
+    current: currentValue,
+    previous,
+    absolute,
+    percent: previous === 0 ? null : Number(((absolute / previous) * 100).toFixed(2)),
+    direction: absolute > 0 ? "up" : absolute < 0 ? "down" : "flat"
+  };
+}
+
+function overviewMoneyDelta(current: string, previous: string | null): OverviewMoneyDelta {
+  if (previous === null) {
+    return { current, previous: null, absolute: null, percent: null, direction: "none" };
+  }
+
+  const currentNumber = Number(current);
+  const previousNumber = Number(previous);
+  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) {
+    return { current, previous, absolute: null, percent: null, direction: "none" };
+  }
+
+  const absolute = currentNumber - previousNumber;
+  return {
+    current,
+    previous,
+    absolute: absolute.toFixed(6),
+    percent: previousNumber === 0 ? null : Number(((absolute / previousNumber) * 100).toFixed(2)),
+    direction: absolute > 0 ? "up" : absolute < 0 ? "down" : "flat"
+  };
 }
 
 function bucketExpression(bucket: OverviewTrendBucket, column = "timestamp") {
@@ -576,6 +1493,7 @@ function telemetryCursorFilterKey(filters: TelemetryFilters): string {
     userId: filters.userId ?? null,
     sessionId: filters.sessionId ?? null,
     traceId: filters.traceId ?? null,
+    eventId: filters.eventId ?? null,
     eventName: filters.eventName ?? null,
     provider: filters.provider ?? null,
     model: filters.model ?? null,
@@ -665,9 +1583,26 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
-  if (filters.eventName) query = query.where("name", "=", filters.eventName);
+  if (filters.eventId) query = query.where("id", "=", filters.eventId);
+  const traceName = filters.traceName ?? filters.eventName;
+  if (traceName) query = query.where("name", "=", traceName);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) {
+      return { data: [] };
+    }
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
+    if (actorIds.length === 0) {
+      return { data: [] };
+    }
+    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+  }
   if (cursor) {
     query = query.where(({ and, eb, or }) =>
       or([eb("timestamp", "<", cursor.timestamp), and([eb("timestamp", "=", cursor.timestamp), eb("id", "<", cursor.id)])])
@@ -676,6 +1611,991 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
 
   const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
   return listResult(filters, rows, toEvent);
+}
+
+export async function getSessionReplayDetail(
+  db: Db,
+  filters: { projectId: string; environmentId: string; replayId: string }
+): Promise<SessionReplayDetail | null> {
+  const replay = await db
+    .selectFrom("session_replays")
+    .selectAll()
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "=", filters.replayId)
+    .executeTakeFirst();
+
+  if (!replay) return null;
+
+  const events = await db
+    .selectFrom("events")
+    .select(["id", "name", "timestamp"])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "=", filters.replayId)
+    .orderBy("timestamp", "asc")
+    .orderBy("id", "asc")
+    .execute();
+
+  const startedAtMs = replay.started_at.getTime();
+  const productEvents = events.map((event) => ({
+    id: event.id,
+    name: event.name,
+    timestamp: event.timestamp,
+    offsetMs: Math.max(0, event.timestamp.getTime() - startedAtMs)
+  }));
+
+  return toSessionReplayDetail(replay, productEvents);
+}
+
+export async function listSessionReplays(
+  db: Db,
+  filters: SessionReplayListFilters
+): Promise<TelemetryListResult<SessionReplaySummary>> {
+  const limit = resolveLimit(filters.limit);
+  let query = db
+    .selectFrom("session_replays")
+    .selectAll()
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId);
+
+  if (filters.tenantId) query = query.where("tenant_id", "=", filters.tenantId);
+  if (filters.userId) query = query.where("user_id", "=", filters.userId);
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) return { data: [] };
+
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
+    if (actorIds.length === 0) return { data: [] };
+
+    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+  }
+  if (filters.eventName) {
+    query = query.where(({ exists, selectFrom }) =>
+      exists(
+        selectFrom("events")
+          .select(sql`1`.as("one"))
+          .whereRef("events.project_id", "=", "session_replays.project_id")
+          .whereRef("events.environment_id", "=", "session_replays.environment_id")
+          .whereRef("events.replay_id", "=", "session_replays.replay_id")
+          .where("events.name", "=", filters.eventName!)
+      )
+    );
+  }
+
+  const rows = await query.orderBy("started_at", "desc").orderBy("id", "desc").limit(limit).execute();
+  const replayIds = rows.map((row) => row.replay_id);
+  if (replayIds.length === 0) return { data: [] };
+
+  const events = await db
+    .selectFrom("events")
+    .select(["id", "name", "replay_id"])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "in", replayIds)
+    .orderBy("timestamp", "desc")
+    .orderBy("id", "desc")
+    .execute();
+  const errors = await db
+    .selectFrom("errors")
+    .select(["id", "message", "replay_id"])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("replay_id", "in", replayIds)
+    .orderBy("timestamp", "desc")
+    .orderBy("id", "desc")
+    .execute();
+
+  const eventByReplay = new Map<string, Pick<EventRow, "id" | "name">>();
+  const errorByReplay = new Map<string, Pick<ErrorRow, "id" | "message">>();
+  for (const event of events) {
+    if (event.replay_id && !eventByReplay.has(event.replay_id)) {
+      eventByReplay.set(event.replay_id, event);
+    }
+  }
+  for (const error of errors) {
+    if (error.replay_id && !errorByReplay.has(error.replay_id)) {
+      errorByReplay.set(error.replay_id, error);
+    }
+  }
+
+  return {
+    data: rows.map((row) => toSessionReplaySummary(row, eventByReplay.get(row.replay_id), errorByReplay.get(row.replay_id)))
+  };
+}
+
+function normalizePropertyName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function toTypeCounts(value: unknown): Record<string, number> {
+  if (!value) {
+    return {};
+  }
+  const parsed = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(parsed).map(([key, count]) => [key, toNumber(count)])
+  );
+}
+
+function dominantType(typeCounts: Record<string, number>): string {
+  const [first] = Object.entries(typeCounts).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  return first?.[0] ?? "unknown";
+}
+
+export async function getEventPropertyCatalog(db: Db, filters: ApmFilters): Promise<EventPropertyCatalogResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const propertiesResult = await sql<{
+    event_name: string;
+    property_name: string;
+    total_occurrences: unknown;
+    event_count: unknown;
+    type_counts: unknown;
+    sample_values: string[] | null;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped_events as (
+      select id, name, timestamp, properties
+      from events
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    event_totals as (
+      select name as event_name, count(*) as event_count
+      from scoped_events
+      group by name
+    ),
+    exploded as (
+      select
+        e.id,
+        e.name as event_name,
+        e.timestamp,
+        property.key as property_name,
+        coalesce(jsonb_typeof(property.value), 'unknown') as value_type,
+        left(
+          case
+            when jsonb_typeof(property.value) = 'string' then property.value #>> '{}'
+            else property.value::text
+          end,
+          160
+        ) as sample_value
+      from scoped_events e
+      cross join lateral jsonb_each(
+        case
+          when jsonb_typeof(e.properties) = 'object' then e.properties
+          else '{}'::jsonb
+        end
+      ) as property(key, value)
+    ),
+    property_counts as (
+      select
+        event_name,
+        property_name,
+        count(*) as total_occurrences,
+        max(timestamp) as last_seen_at
+      from exploded
+      group by event_name, property_name
+    ),
+    type_counts as (
+      select
+        event_name,
+        property_name,
+        jsonb_object_agg(value_type, total order by value_type) as type_counts
+      from (
+        select event_name, property_name, value_type, count(*) as total
+        from exploded
+        group by event_name, property_name, value_type
+      ) grouped_types
+      group by event_name, property_name
+    ),
+    samples as (
+      select
+        event_name,
+        property_name,
+        array_agg(sample_value order by sample_value) as sample_values
+      from (
+        select distinct event_name, property_name, sample_value
+        from exploded
+        where sample_value is not null and sample_value <> ''
+      ) distinct_samples
+      group by event_name, property_name
+    )
+    select
+      pc.event_name,
+      pc.property_name,
+      pc.total_occurrences,
+      et.event_count,
+      tc.type_counts,
+      coalesce(samples.sample_values, '{}') as sample_values,
+      pc.last_seen_at
+    from property_counts pc
+    join event_totals et on et.event_name = pc.event_name
+    join type_counts tc on tc.event_name = pc.event_name and tc.property_name = pc.property_name
+    left join samples on samples.event_name = pc.event_name and samples.property_name = pc.property_name
+    order by pc.total_occurrences desc, pc.event_name asc, pc.property_name asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{ events: unknown }>`
+    select count(*) as events
+    from events
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+  `.execute(db);
+
+  const rows = propertiesResult.rows.map((row) => {
+    const typeCounts = toTypeCounts(row.type_counts);
+    const eventCount = toNumber(row.event_count);
+    const totalOccurrences = toNumber(row.total_occurrences);
+    return {
+      eventName: row.event_name,
+      propertyName: row.property_name,
+      totalOccurrences,
+      eventCount,
+      coveragePercent: eventCount === 0 ? 0 : Math.round((totalOccurrences / eventCount) * 100),
+      dominantType: dominantType(typeCounts),
+      typeCounts,
+      hasTypeConflict: Object.keys(typeCounts).length > 1,
+      sampleValues: (row.sample_values ?? []).slice(0, 5),
+      similarPropertyNames: [],
+      lastSeenAt: row.last_seen_at ? toIso(row.last_seen_at) : null
+    };
+  });
+
+  const similarGroups = new Map<string, EventPropertyCatalogItem[]>();
+  for (const row of rows) {
+    const normalizedName = normalizePropertyName(row.propertyName);
+    if (!normalizedName) continue;
+    const current = similarGroups.get(normalizedName) ?? [];
+    current.push(row);
+    similarGroups.set(normalizedName, current);
+  }
+
+  const similarNameGroups = Array.from(similarGroups, ([normalizedName, groupRows]) => {
+    const propertyNames = Array.from(new Set(groupRows.map((row) => row.propertyName))).sort();
+    if (propertyNames.length < 2) {
+      return null;
+    }
+    const eventNames = Array.from(new Set(groupRows.map((row) => row.eventName))).sort((left, right) => left.localeCompare(right));
+    for (const row of groupRows) {
+      row.similarPropertyNames = propertyNames.filter((name) => name !== row.propertyName);
+    }
+    return { normalizedName, propertyNames, eventNames };
+  }).filter((group): group is EventPropertySimilarNameGroup => Boolean(group));
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    totals: {
+      events: toNumber(totalsResult.rows[0]?.events),
+      properties: rows.length,
+      conflictProperties: rows.filter((row) => row.hasTypeConflict).length,
+      similarNameGroups: similarNameGroups.length
+    },
+    properties: rows,
+    similarNameGroups
+  };
+}
+
+function percentage(part: number, whole: number): number {
+  if (whole <= 0) {
+    return 0;
+  }
+  return Math.round((part / whole) * 100);
+}
+
+export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+  const steps = filters.steps.map((step) => step.trim()).filter(Boolean);
+
+  if (steps.length < 2) {
+    throw new Error("event_funnel_requires_two_steps");
+  }
+
+  const rows = await db
+    .selectFrom("events")
+    .select([
+      "name",
+      "timestamp",
+      sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`.as("actor_id"),
+      sql<"user" | "tenant" | "session" | "trace">`
+        case
+          when user_id is not null then 'user'
+          when tenant_id is not null then 'tenant'
+          when session_id is not null then 'session'
+          else 'trace'
+        end
+      `.as("actor_type")
+    ])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("timestamp", ">=", from)
+    .where("timestamp", "<", to)
+    .where("name", "in", steps)
+    .where(sql<boolean>`coalesce(user_id, tenant_id, session_id, trace_id) is not null`)
+    .orderBy("actor_id", "asc")
+    .orderBy("timestamp", "asc")
+    .execute();
+
+  const actors = new Map<
+    string,
+    {
+      actorId: string;
+      actorType: "user" | "tenant" | "session" | "trace";
+      nextStepIndex: number;
+      reachedStepIndex: number;
+      reachedStepName: string;
+      lastSeenAt: Date | string;
+    }
+  >();
+
+  for (const row of rows) {
+    const actorId = row.actor_id;
+    if (!actorId) continue;
+    const actor = actors.get(actorId) ?? {
+      actorId,
+      actorType: row.actor_type,
+      nextStepIndex: 0,
+      reachedStepIndex: -1,
+      reachedStepName: "",
+      lastSeenAt: row.timestamp
+    };
+
+    if (row.name === steps[actor.nextStepIndex]) {
+      actor.reachedStepIndex = actor.nextStepIndex;
+      actor.reachedStepName = row.name;
+      actor.nextStepIndex += 1;
+      actor.lastSeenAt = row.timestamp;
+    }
+
+    actors.set(actorId, actor);
+  }
+
+  const reachedActors = Array.from(actors.values()).filter((actor) => actor.reachedStepIndex >= 0);
+  const entrantCount = reachedActors.length;
+  const funnelSteps = steps.map((name, index) => {
+    const actorsAtStep = reachedActors.filter((actor) => actor.reachedStepIndex >= index).length;
+    const previousActors = index === 0 ? actorsAtStep : reachedActors.filter((actor) => actor.reachedStepIndex >= index - 1).length;
+    return {
+      index,
+      name,
+      actors: actorsAtStep,
+      conversionPercent: percentage(actorsAtStep, entrantCount),
+      dropOffFromPreviousPercent: index === 0 ? 0 : percentage(previousActors - actorsAtStep, previousActors)
+    };
+  });
+  const completed = funnelSteps[funnelSteps.length - 1]?.actors ?? 0;
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    totals: {
+      entrants: entrantCount,
+      completed,
+      conversionPercent: percentage(completed, entrantCount)
+    },
+    steps: funnelSteps,
+    sampleActors: reachedActors
+      .sort((left, right) => left.actorId.localeCompare(right.actorId))
+      .slice(0, limit)
+      .map((actor) => ({
+        actorId: actor.actorId,
+        actorType: actor.actorType,
+        reachedStepIndex: actor.reachedStepIndex,
+        reachedStepName: actor.reachedStepName,
+        lastSeenAt: toIso(actor.lastSeenAt)
+      }))
+  };
+}
+
+function dateValue(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function startOfUtcDay(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function startOfUtcWeek(value: Date): Date {
+  const day = startOfUtcDay(value);
+  const dayOfWeek = day.getUTCDay();
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  day.setUTCDate(day.getUTCDate() + mondayOffset);
+  return day;
+}
+
+function startOfUtcMonth(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1));
+}
+
+function startOfRetentionPeriod(value: Date, period: EventRetentionPeriod): Date {
+  if (period === "weekly") return startOfUtcWeek(value);
+  if (period === "monthly") return startOfUtcMonth(value);
+  return startOfUtcDay(value);
+}
+
+function retentionPeriodIndex(cohortStart: Date, value: Date, period: EventRetentionPeriod): number {
+  if (period === "monthly") {
+    return (value.getUTCFullYear() - cohortStart.getUTCFullYear()) * 12 + value.getUTCMonth() - cohortStart.getUTCMonth();
+  }
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const elapsedDays = Math.floor((startOfUtcDay(value).getTime() - startOfUtcDay(cohortStart).getTime()) / msPerDay);
+  return period === "weekly" ? Math.floor(elapsedDays / 7) : elapsedDays;
+}
+
+function retentionPeriodLabel(index: number, period: EventRetentionPeriod): string {
+  if (index === 0) return period === "daily" ? "D0" : period === "weekly" ? "W0" : "M0";
+  if (period === "weekly") return `W${index}`;
+  if (period === "monthly") return `M${index}`;
+  return `D${index}`;
+}
+
+function cohortLabel(value: Date, period: EventRetentionPeriod): string {
+  const year = value.getUTCFullYear();
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  if (period === "monthly") return `${year}-${month}`;
+  return `${year}-${month}-${day}`;
+}
+
+export async function getEventRetention(db: Db, filters: EventRetentionFilters): Promise<EventRetentionResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const period = filters.period ?? "weekly";
+  const intervals = Math.min(12, Math.max(2, Math.trunc(filters.intervals ?? 6)));
+  const entryEvent = filters.entryEvent.trim();
+  const returnEvent = filters.returnEvent.trim();
+
+  if (!entryEvent || !returnEvent) {
+    throw new Error("event_retention_requires_events");
+  }
+
+  const rows = await db
+    .selectFrom("events")
+    .select([
+      "name",
+      "timestamp",
+      sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`.as("actor_id")
+    ])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("timestamp", ">=", from)
+    .where("timestamp", "<", to)
+    .where("name", "in", [entryEvent, returnEvent])
+    .where(sql<boolean>`coalesce(user_id, tenant_id, session_id, trace_id) is not null`)
+    .orderBy("actor_id", "asc")
+    .orderBy("timestamp", "asc")
+    .execute();
+
+  const actors = new Map<
+    string,
+    {
+      entryAt?: Date;
+      returnAts: Date[];
+    }
+  >();
+
+  for (const row of rows) {
+    const actorId = row.actor_id;
+    if (!actorId) continue;
+    const timestamp = dateValue(row.timestamp);
+    const actor = actors.get(actorId) ?? { returnAts: [] };
+    if (row.name === entryEvent && (!actor.entryAt || timestamp < actor.entryAt)) {
+      actor.entryAt = timestamp;
+    }
+    if (row.name === returnEvent) {
+      actor.returnAts.push(timestamp);
+    }
+    actors.set(actorId, actor);
+  }
+
+  const cohorts = new Map<
+    string,
+    {
+      cohortStart: Date;
+      entrants: Set<string>;
+      retained: Array<Set<string>>;
+    }
+  >();
+
+  for (const [actorId, actor] of actors) {
+    if (!actor.entryAt) continue;
+    const start = startOfRetentionPeriod(actor.entryAt, period);
+    const key = toIso(start);
+    const cohort = cohorts.get(key) ?? {
+      cohortStart: start,
+      entrants: new Set<string>(),
+      retained: Array.from({ length: intervals }, () => new Set<string>())
+    };
+    cohort.entrants.add(actorId);
+
+    for (const returnAt of actor.returnAts) {
+      if (returnAt < actor.entryAt) continue;
+      const interval = retentionPeriodIndex(start, returnAt, period);
+      if (interval >= 0 && interval < intervals) {
+        cohort.retained[interval]?.add(actorId);
+      }
+    }
+
+    cohorts.set(key, cohort);
+  }
+
+  const cohortRows = Array.from(cohorts.values())
+    .sort((left, right) => left.cohortStart.getTime() - right.cohortStart.getTime())
+    .map((cohort) => {
+      const entrants = cohort.entrants.size;
+      return {
+        cohortStart: toIso(cohort.cohortStart),
+        cohortLabel: cohortLabel(cohort.cohortStart, period),
+        entrants,
+        intervals: cohort.retained.map((retained, index) => ({
+          index,
+          label: retentionPeriodLabel(index, period),
+          retainedActors: retained.size,
+          retentionPercent: percentage(retained.size, entrants)
+        }))
+      };
+    });
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    entryEvent,
+    returnEvent,
+    period,
+    intervals,
+    totals: {
+      cohorts: cohortRows.length,
+      entrants: cohortRows.reduce((sum, cohort) => sum + cohort.entrants, 0)
+    },
+    cohorts: cohortRows
+  };
+}
+
+export async function getEventClickMap(db: Db, filters: EventClickMapFilters): Promise<EventClickMapResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+  const gridSize = Math.min(100, Math.max(10, Math.trunc(filters.gridSize ?? 20)));
+  const route = filters.route.trim();
+  const selector = filters.selector?.trim() || undefined;
+
+  let baseWhere = sql`
+    project_id = ${filters.projectId}
+    and environment_id = ${filters.environmentId}
+    and timestamp >= ${from}
+    and timestamp < ${to}
+  `;
+  baseWhere = sql`${baseWhere} and route = ${route}`;
+  if (selector) baseWhere = sql`${baseWhere} and selector = ${selector}`;
+  if (filters.tenantId) baseWhere = sql`${baseWhere} and tenant_id = ${filters.tenantId}`;
+  if (filters.userId) baseWhere = sql`${baseWhere} and user_id = ${filters.userId}`;
+  if (filters.sessionId) baseWhere = sql`${baseWhere} and session_id = ${filters.sessionId}`;
+
+  const totals = await sql<{
+    clicks: unknown;
+    routes: unknown;
+    selectors: unknown;
+  }>`
+    select
+      count(*) as clicks,
+      count(distinct route) as routes,
+      count(distinct selector) as selectors
+    from click_events
+    where ${baseWhere}
+  `.execute(db);
+
+  const totalClicks = toNumber(totals.rows[0]?.clicks);
+
+  const pointsResult = await sql<{
+    x_bucket: unknown;
+    y_bucket: unknown;
+    clicks: unknown;
+  }>`
+    select
+      least(${gridSize - 1}, greatest(0, floor(x * ${gridSize})::int)) as x_bucket,
+      least(${gridSize - 1}, greatest(0, floor(y * ${gridSize})::int)) as y_bucket,
+      count(*) as clicks
+    from click_events
+    where ${baseWhere}
+    group by x_bucket, y_bucket
+    order by clicks desc, y_bucket asc, x_bucket asc
+    limit ${limit}
+  `.execute(db);
+
+  const routesResult = await sql<{
+    route: string;
+    clicks: unknown;
+  }>`
+    select route, count(*) as clicks
+    from click_events
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+    group by route
+    order by clicks desc, route asc
+    limit ${limit}
+  `.execute(db);
+
+  const selectorsResult = await sql<{
+    selector: string;
+    element_tag: string | null;
+    element_role: string | null;
+    clicks: unknown;
+  }>`
+    select selector, min(element_tag) as element_tag, min(element_role) as element_role, count(*) as clicks
+    from click_events
+    where ${baseWhere}
+    group by selector
+    order by clicks desc, selector asc
+    limit ${limit}
+  `.execute(db);
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    filters: {
+      route,
+      selector: selector ?? null,
+      tenantId: filters.tenantId ?? null,
+      userId: filters.userId ?? null,
+      sessionId: filters.sessionId ?? null,
+      gridSize
+    },
+    totals: {
+      clicks: totalClicks,
+      routes: toNumber(totals.rows[0]?.routes),
+      selectors: toNumber(totals.rows[0]?.selectors)
+    },
+    routes: routesResult.rows.map((row) => ({
+      route: row.route,
+      clicks: toNumber(row.clicks)
+    })),
+    selectors: selectorsResult.rows.map((row) => ({
+      selector: row.selector,
+      elementTag: row.element_tag,
+      elementRole: row.element_role,
+      clicks: toNumber(row.clicks)
+    })),
+    points: pointsResult.rows.map((row) => {
+      const clicks = toNumber(row.clicks);
+      return {
+        xBucket: toNumber(row.x_bucket),
+        yBucket: toNumber(row.y_bucket),
+        clicks,
+        percent: percentage(clicks, totalClicks)
+      };
+    })
+  };
+}
+
+function eventPathActorExpressions(actorType: EventPathFilters["actorType"] | undefined) {
+  if (actorType === "user") {
+    return {
+      actorId: sql<string>`user_id`,
+      actorType: sql<"user">`'user'`
+    };
+  }
+  if (actorType === "tenant") {
+    return {
+      actorId: sql<string>`tenant_id`,
+      actorType: sql<"tenant">`'tenant'`
+    };
+  }
+  if (actorType === "session") {
+    return {
+      actorId: sql<string>`session_id`,
+      actorType: sql<"session">`'session'`
+    };
+  }
+  if (actorType === "trace") {
+    return {
+      actorId: sql<string>`trace_id`,
+      actorType: sql<"trace">`'trace'`
+    };
+  }
+
+  return {
+    actorId: sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`,
+    actorType: sql<"user" | "tenant" | "session" | "trace">`
+      case
+        when user_id is not null then 'user'
+        when tenant_id is not null then 'tenant'
+        when session_id is not null then 'session'
+        else 'trace'
+      end
+    `
+  };
+}
+
+function compactPathEvents<T extends { name: string }>(events: T[]): T[] {
+  const compact: T[] = [];
+  for (const event of events) {
+    if (compact[compact.length - 1]?.name !== event.name) {
+      compact.push(event);
+    }
+  }
+  return compact;
+}
+
+export async function getEventPaths(db: Db, filters: EventPathFilters): Promise<EventPathsResponse> {
+  const resolvedRange = resolveOverviewRange(filters.window, filters.now);
+  const from = filters.from ?? resolvedRange.from;
+  const to = filters.to ?? resolvedRange.to;
+  const limit = resolveLimit(filters.limit);
+  const pathLength = Math.min(8, Math.max(2, Math.trunc(filters.pathLength ?? 5)));
+  const actorMode = filters.actorType ?? "auto";
+  const startEvent = filters.startEvent?.trim() || undefined;
+  const endEvent = filters.endEvent?.trim() || undefined;
+
+  if (!startEvent && !endEvent) {
+    throw new Error("event_paths_requires_start_or_end_event");
+  }
+
+  const actorExpressions = eventPathActorExpressions(actorMode);
+  let query = db
+    .selectFrom("events")
+    .select([
+      "id",
+      "name",
+      "timestamp",
+      actorExpressions.actorId.as("actor_id"),
+      actorExpressions.actorType.as("actor_type")
+    ])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("timestamp", ">=", from)
+    .where("timestamp", "<", to)
+    .where(actorExpressions.actorId, "is not", null)
+    .orderBy("actor_id", "asc")
+    .orderBy("timestamp", "asc")
+    .orderBy("id", "asc")
+    .limit(10000);
+
+  if (filters.tenantId) query = query.where("tenant_id", "=", filters.tenantId);
+  if (filters.userId) query = query.where("user_id", "=", filters.userId);
+  if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
+  if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) {
+      return {
+        window: filters.window,
+        generatedAt: toIso(filters.now ?? new Date()),
+        scope: { projectId: filters.projectId, environmentId: filters.environmentId },
+        range: { from: toIso(from), to: toIso(to) },
+        filters: {
+          startEvent: startEvent ?? null,
+          endEvent: endEvent ?? null,
+          tenantId: filters.tenantId ?? null,
+          userId: filters.userId ?? null,
+          sessionId: filters.sessionId ?? null,
+          traceId: filters.traceId ?? null,
+          segmentId: filters.segmentId,
+          actorType: actorMode,
+          pathLength
+        },
+        totals: { actors: 0, paths: 0, events: 0 },
+        paths: []
+      };
+    }
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, to);
+    if (actorIds.length === 0) {
+      return {
+        window: filters.window,
+        generatedAt: toIso(filters.now ?? new Date()),
+        scope: { projectId: filters.projectId, environmentId: filters.environmentId },
+        range: { from: toIso(from), to: toIso(to) },
+        filters: {
+          startEvent: startEvent ?? null,
+          endEvent: endEvent ?? null,
+          tenantId: filters.tenantId ?? null,
+          userId: filters.userId ?? null,
+          sessionId: filters.sessionId ?? null,
+          traceId: filters.traceId ?? null,
+          segmentId: filters.segmentId,
+          actorType: actorMode,
+          pathLength
+        },
+        totals: { actors: 0, paths: 0, events: 0 },
+        paths: []
+      };
+    }
+    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+  }
+
+  const rows = await query.execute();
+  const actors = new Map<string, typeof rows>();
+  for (const row of rows) {
+    if (!row.actor_id) continue;
+    const actorRows = actors.get(row.actor_id) ?? [];
+    actorRows.push(row);
+    actors.set(row.actor_id, actorRows);
+  }
+
+  const groups = new Map<
+    string,
+    {
+      path: string[];
+      actors: Set<string>;
+      occurrences: number;
+      firstSeenAt: Date | string;
+      lastSeenAt: Date | string;
+      sampleEvents: EventPathSampleEvent[];
+    }
+  >();
+
+  for (const [actorId, actorRows] of actors) {
+    const compactRows = compactPathEvents(actorRows);
+    let startIndex = 0;
+    let endIndex = compactRows.length - 1;
+
+    if (startEvent) {
+      startIndex = compactRows.findIndex((row) => row.name === startEvent);
+      if (startIndex < 0) continue;
+    }
+
+    if (endEvent) {
+      const relativeEndIndex = compactRows.slice(startIndex).findIndex((row) => row.name === endEvent);
+      if (relativeEndIndex < 0) continue;
+      endIndex = startIndex + relativeEndIndex;
+      if (!startEvent) {
+        startIndex = Math.max(0, endIndex - pathLength + 1);
+      }
+    } else {
+      endIndex = Math.min(compactRows.length - 1, startIndex + pathLength - 1);
+    }
+
+    const selectedRows = compactRows.slice(startIndex, endIndex + 1).slice(0, pathLength);
+    if (selectedRows.length < 2) continue;
+
+    const path = selectedRows.map((row) => row.name);
+    const key = path.join("\u001f");
+    const firstSeenAt = selectedRows[0]!.timestamp;
+    const lastSeenAt = selectedRows[selectedRows.length - 1]!.timestamp;
+    const group =
+      groups.get(key) ??
+      {
+        path,
+        actors: new Set<string>(),
+        occurrences: 0,
+        firstSeenAt,
+        lastSeenAt,
+        sampleEvents: selectedRows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          timestamp: toIso(row.timestamp),
+          actorId,
+          actorType: row.actor_type
+        }))
+      };
+
+    group.actors.add(actorId);
+    group.occurrences += 1;
+    if (dateValue(firstSeenAt) < dateValue(group.firstSeenAt)) group.firstSeenAt = firstSeenAt;
+    if (dateValue(lastSeenAt) > dateValue(group.lastSeenAt)) group.lastSeenAt = lastSeenAt;
+    groups.set(key, group);
+  }
+
+  const paths = Array.from(groups.values())
+    .sort(
+      (left, right) =>
+        right.actors.size - left.actors.size ||
+        right.occurrences - left.occurrences ||
+        toIso(right.lastSeenAt).localeCompare(toIso(left.lastSeenAt)) ||
+        left.path.join(" > ").localeCompare(right.path.join(" > "))
+    )
+    .slice(0, limit)
+    .map((path) => ({
+      path: path.path,
+      actors: path.actors.size,
+      occurrences: path.occurrences,
+      firstSeenAt: toIso(path.firstSeenAt),
+      lastSeenAt: toIso(path.lastSeenAt),
+      sampleEvents: path.sampleEvents
+    }));
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    filters: {
+      startEvent: startEvent ?? null,
+      endEvent: endEvent ?? null,
+      tenantId: filters.tenantId ?? null,
+      userId: filters.userId ?? null,
+      sessionId: filters.sessionId ?? null,
+      traceId: filters.traceId ?? null,
+      segmentId: filters.segmentId ?? null,
+      actorType: actorMode,
+      pathLength
+    },
+    totals: {
+      actors: actors.size,
+      paths: groups.size,
+      events: rows.length
+    },
+    paths
+  };
 }
 
 export async function listErrors(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<ErrorRecord>> {
@@ -749,6 +2669,8 @@ export async function listTraces(db: Db, filters: TelemetryFilters): Promise<Tel
   if (filters.userId) query = query.where("user_id", "=", filters.userId);
   if (filters.sessionId) query = query.where("session_id", "=", filters.sessionId);
   if (filters.traceId) query = query.where("trace_id", "=", filters.traceId);
+  if (filters.eventName) query = query.where("name", "=", filters.eventName);
+  if (filters.status) query = query.where("status", "=", filters.status);
   if (filters.from) query = query.where("timestamp", ">=", filters.from);
   if (filters.to) query = query.where("timestamp", "<", filters.to);
   if (cursor) {
@@ -759,6 +2681,642 @@ export async function listTraces(db: Db, filters: TelemetryFilters): Promise<Tel
 
   const rows = await query.orderBy("timestamp", "desc").orderBy("id", "desc").limit(limit + 1).execute();
   return listResult(filters, rows, toTrace);
+}
+
+export async function getApmEndpoints(db: Db, filters: ApmFilters): Promise<ApmEndpointsResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const endpointsResult = await sql<{
+    name: string;
+    requests: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+    p50_duration_ms: unknown;
+    p95_duration_ms: unknown;
+    p99_duration_ms: unknown;
+    average_duration_ms: unknown;
+    apdex: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(name, ''), '(unnamed trace)') as name,
+        status,
+        duration_ms,
+        timestamp
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    grouped as (
+      select
+        name,
+        count(*) as requests,
+        count(*) filter (where status <> 'success') as errors,
+        case
+          when count(*) = 0 then null
+          else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+        end as error_rate_percent,
+        percentile_cont(0.50) within group (order by duration_ms) filter (where duration_ms is not null) as p50_duration_ms,
+        percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
+        percentile_cont(0.99) within group (order by duration_ms) filter (where duration_ms is not null) as p99_duration_ms,
+        avg(duration_ms) filter (where duration_ms is not null) as average_duration_ms,
+        case
+          when count(*) filter (where duration_ms is not null) = 0 then null
+          else (
+            (
+              (count(*) filter (where duration_ms <= 500))::numeric +
+              ((count(*) filter (where duration_ms > 500 and duration_ms <= 2000))::numeric / 2)
+            ) / (count(*) filter (where duration_ms is not null))::numeric
+          )
+        end as apdex,
+        max(timestamp) as last_seen_at
+      from scoped
+      group by name
+    )
+    select *
+    from grouped
+    order by p95_duration_ms desc nulls last, requests desc, name asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    endpoints: unknown;
+    requests: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+    p95_duration_ms: unknown;
+    apdex: unknown;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(name, ''), '(unnamed trace)') as name,
+        status,
+        duration_ms
+      from traces
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    )
+    select
+      count(distinct name) as endpoints,
+      count(*) as requests,
+      count(*) filter (where status <> 'success') as errors,
+      case
+        when count(*) = 0 then null
+        else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+      end as error_rate_percent,
+      percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
+      case
+        when count(*) filter (where duration_ms is not null) = 0 then null
+        else (
+          (
+            (count(*) filter (where duration_ms <= 500))::numeric +
+            ((count(*) filter (where duration_ms > 500 and duration_ms <= 2000))::numeric / 2)
+          ) / (count(*) filter (where duration_ms is not null))::numeric
+        )
+      end as apdex
+    from scoped
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      endpoints: toNumber(totals?.endpoints),
+      requests: toNumber(totals?.requests),
+      errors: toNumber(totals?.errors),
+      errorRatePercent: toRoundedOrNull(totals?.error_rate_percent),
+      p95DurationMs: toRoundedOrNull(totals?.p95_duration_ms),
+      apdex: toNullableNumber(totals?.apdex)
+    },
+    endpoints: endpointsResult.rows.map((row) => ({
+      name: row.name,
+      requests: toNumber(row.requests),
+      errors: toNumber(row.errors),
+      errorRatePercent: toRoundedOrNull(row.error_rate_percent),
+      p50DurationMs: toRoundedOrNull(row.p50_duration_ms),
+      p95DurationMs: toRoundedOrNull(row.p95_duration_ms),
+      p99DurationMs: toRoundedOrNull(row.p99_duration_ms),
+      averageDurationMs: toRoundedOrNull(row.average_duration_ms),
+      apdex: toNullableNumber(row.apdex),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
+}
+
+export async function getWebVitals(db: Db, filters: ApmFilters): Promise<WebVitalsResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const metricsResult = await sql<{
+    name: WebVitalMetricRow["name"];
+    route: string | null;
+    samples: unknown;
+    good: unknown;
+    needs_improvement: unknown;
+    poor: unknown;
+    average_value: unknown;
+    p75_value: unknown;
+    latest_release: string | null;
+    latest_release_p75_value: unknown;
+    previous_release: string | null;
+    previous_release_p75_value: unknown;
+    regression_percent: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select
+        name,
+        coalesce(nullif(route, ''), '(unknown route)') as route,
+        value,
+        rating,
+        release,
+        timestamp
+      from web_vitals
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    grouped as (
+      select
+        name,
+        route,
+        count(*) as samples,
+        count(*) filter (where rating = 'good') as good,
+        count(*) filter (where rating = 'needs-improvement') as needs_improvement,
+        count(*) filter (where rating = 'poor') as poor,
+        avg(value) as average_value,
+        percentile_cont(0.75) within group (order by value) as p75_value,
+        max(timestamp) as last_seen_at
+      from scoped
+      group by name, route
+    ),
+    release_ranked as (
+      select
+        name,
+        route,
+        release,
+        percentile_cont(0.75) within group (order by value) as p75_value,
+        max(timestamp) as last_seen_at,
+        row_number() over (partition by name, route order by max(timestamp) desc) as release_rank
+      from scoped
+      where release is not null
+      group by name, route, release
+    )
+    select
+      grouped.*,
+      latest.release as latest_release,
+      latest.p75_value as latest_release_p75_value,
+      previous.release as previous_release,
+      previous.p75_value as previous_release_p75_value,
+      case
+        when previous.p75_value is null or previous.p75_value = 0 or latest.p75_value is null then null
+        else ((latest.p75_value - previous.p75_value) / previous.p75_value) * 100
+      end as regression_percent
+    from grouped
+    left join release_ranked latest
+      on latest.name = grouped.name
+      and latest.route = grouped.route
+      and latest.release_rank = 1
+    left join release_ranked previous
+      on previous.name = grouped.name
+      and previous.route = grouped.route
+      and previous.release_rank = 2
+    order by poor desc, p75_value desc nulls last, samples desc, name asc, route asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    samples: unknown;
+    routes: unknown;
+    releases: unknown;
+    poor_samples: unknown;
+    p75_lcp_ms: unknown;
+    p75_inp_ms: unknown;
+    p75_cls: unknown;
+  }>`
+    with scoped as (
+      select name, route, release, rating, value
+      from web_vitals
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    )
+    select
+      count(*) as samples,
+      count(distinct coalesce(nullif(route, ''), '(unknown route)')) as routes,
+      count(distinct release) filter (where release is not null) as releases,
+      count(*) filter (where rating = 'poor') as poor_samples,
+      percentile_cont(0.75) within group (order by value) filter (where name = 'LCP') as p75_lcp_ms,
+      percentile_cont(0.75) within group (order by value) filter (where name = 'INP') as p75_inp_ms,
+      percentile_cont(0.75) within group (order by value) filter (where name = 'CLS') as p75_cls
+    from scoped
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      samples: toNumber(totals?.samples),
+      routes: toNumber(totals?.routes),
+      releases: toNumber(totals?.releases),
+      poorSamples: toNumber(totals?.poor_samples),
+      p75LcpMs: toRoundedOrNull(totals?.p75_lcp_ms),
+      p75InpMs: toRoundedOrNull(totals?.p75_inp_ms),
+      p75Cls: toRoundedOrNull(totals?.p75_cls)
+    },
+    metrics: metricsResult.rows.map((row) => ({
+      name: row.name,
+      route: row.route ?? "(unknown route)",
+      samples: toNumber(row.samples),
+      good: toNumber(row.good),
+      needsImprovement: toNumber(row.needs_improvement),
+      poor: toNumber(row.poor),
+      averageValue: toRoundedOrNull(row.average_value),
+      p75Value: toRoundedOrNull(row.p75_value),
+      latestRelease: row.latest_release,
+      latestReleaseP75Value: toRoundedOrNull(row.latest_release_p75_value),
+      previousRelease: row.previous_release,
+      previousReleaseP75Value: toRoundedOrNull(row.previous_release_p75_value),
+      regressionPercent: toRoundedOrNull(row.regression_percent),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
+}
+
+export async function getRuntimeProfiles(db: Db, filters: ApmFilters): Promise<RuntimeProfilesResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const profilesResult = await sql<{
+    id: string;
+    name: string;
+    kind: "cpu" | "memory";
+    runtime: string;
+    service: string | null;
+    route: string | null;
+    trace_id: string | null;
+    source: string | null;
+    release: string | null;
+    started_at: Date | string;
+    duration_ms: number | null;
+    sample_count: unknown;
+    cpu_usage_percent: unknown;
+    heap_used_bytes: unknown;
+    rss_bytes: unknown;
+    top_function: string | null;
+    top_function_self_time_ms: unknown;
+  }>`
+    select
+      id,
+      name,
+      kind,
+      runtime,
+      service,
+      route,
+      trace_id,
+      source,
+      release,
+      started_at,
+      duration_ms,
+      sample_count,
+      cpu_usage_percent,
+      heap_used_bytes,
+      rss_bytes,
+      (
+        select frame ->> 'functionName'
+        from jsonb_array_elements(top_functions) frame
+        order by coalesce((frame ->> 'selfTimeMs')::numeric, 0) desc, coalesce((frame ->> 'sampleCount')::integer, 0) desc
+        limit 1
+      ) as top_function,
+      (
+        select coalesce((frame ->> 'selfTimeMs')::numeric, 0)
+        from jsonb_array_elements(top_functions) frame
+        order by coalesce((frame ->> 'selfTimeMs')::numeric, 0) desc, coalesce((frame ->> 'sampleCount')::integer, 0) desc
+        limit 1
+      ) as top_function_self_time_ms
+    from profiles
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+    order by timestamp desc, id desc
+    limit ${limit}
+  `.execute(db);
+
+  const hotFunctionsResult = await sql<{
+    function_name: string | null;
+    url: string | null;
+    line_number: unknown;
+    column_number: unknown;
+    self_time_ms: unknown;
+    total_time_ms: unknown;
+    sample_count: unknown;
+    profile_count: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select timestamp, top_functions
+      from profiles
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+        and kind = 'cpu'
+    ),
+    frames as (
+      select
+        frame ->> 'functionName' as function_name,
+        nullif(frame ->> 'url', '') as url,
+        nullif(frame ->> 'lineNumber', '')::integer as line_number,
+        nullif(frame ->> 'columnNumber', '')::integer as column_number,
+        coalesce((frame ->> 'selfTimeMs')::numeric, 0) as self_time_ms,
+        nullif(frame ->> 'totalTimeMs', '')::numeric as total_time_ms,
+        coalesce((frame ->> 'sampleCount')::integer, 0) as sample_count,
+        timestamp
+      from scoped
+      cross join lateral jsonb_array_elements(top_functions) frame
+      where frame ->> 'functionName' is not null
+    )
+    select
+      function_name,
+      url,
+      line_number,
+      column_number,
+      sum(self_time_ms) as self_time_ms,
+      sum(total_time_ms) as total_time_ms,
+      sum(sample_count) as sample_count,
+      count(*) as profile_count,
+      max(timestamp) as last_seen_at
+    from frames
+    group by function_name, url, line_number, column_number
+    order by self_time_ms desc, sample_count desc, profile_count desc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    profiles: unknown;
+    cpu_profiles: unknown;
+    memory_profiles: unknown;
+    samples: unknown;
+    avg_cpu_usage_percent: unknown;
+    max_heap_used_bytes: unknown;
+    p95_duration_ms: unknown;
+  }>`
+    select
+      count(*) as profiles,
+      count(*) filter (where kind = 'cpu') as cpu_profiles,
+      count(*) filter (where kind = 'memory') as memory_profiles,
+      coalesce(sum(sample_count), 0) as samples,
+      avg(cpu_usage_percent) filter (where cpu_usage_percent is not null) as avg_cpu_usage_percent,
+      max(heap_used_bytes) as max_heap_used_bytes,
+      percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms
+    from profiles
+    where project_id = ${filters.projectId}
+      and environment_id = ${filters.environmentId}
+      and timestamp >= ${from}
+      and timestamp < ${to}
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      profiles: toNumber(totals?.profiles),
+      cpuProfiles: toNumber(totals?.cpu_profiles),
+      memoryProfiles: toNumber(totals?.memory_profiles),
+      samples: toNumber(totals?.samples),
+      avgCpuUsagePercent: toRoundedOrNull(totals?.avg_cpu_usage_percent),
+      maxHeapUsedBytes: toNullableNumber(totals?.max_heap_used_bytes),
+      p95DurationMs: toRoundedOrNull(totals?.p95_duration_ms)
+    },
+    profiles: profilesResult.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      runtime: row.runtime,
+      service: row.service,
+      route: row.route,
+      traceId: row.trace_id,
+      source: row.source,
+      release: row.release,
+      startedAt: toIso(row.started_at),
+      durationMs: row.duration_ms,
+      sampleCount: toNumber(row.sample_count),
+      cpuUsagePercent: toNullableNumber(row.cpu_usage_percent),
+      heapUsedBytes: toNullableNumber(row.heap_used_bytes),
+      rssBytes: toNullableNumber(row.rss_bytes),
+      topFunction: row.top_function,
+      topFunctionSelfTimeMs: toNullableNumber(row.top_function_self_time_ms)
+    })),
+    hotFunctions: hotFunctionsResult.rows.map((row) => ({
+      functionName: row.function_name ?? "(anonymous)",
+      url: row.url,
+      lineNumber: toFiniteSafeNumber(row.line_number),
+      columnNumber: toFiniteSafeNumber(row.column_number),
+      selfTimeMs: toNumber(row.self_time_ms),
+      totalTimeMs: toNullableNumber(row.total_time_ms),
+      sampleCount: toNumber(row.sample_count),
+      profileCount: toNumber(row.profile_count),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
+}
+
+export async function getServiceMap(db: Db, filters: ApmFilters): Promise<ServiceMapResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+
+  const edgesResult = await sql<{
+    source: string;
+    target: string;
+    dependency_type: string;
+    spans: unknown;
+    traces: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+    average_duration_ms: unknown;
+    p95_duration_ms: unknown;
+    last_seen_at: Date | string | null;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(metadata->>'service', ''), nullif(source, ''), '(unknown service)') as source,
+        coalesce(
+          nullif(metadata->>'target_service', ''),
+          nullif(metadata->>'peer_service', ''),
+          nullif(metadata->>'peer', ''),
+          nullif(metadata->>'db.system', ''),
+          case
+            when lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+            when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+            when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'external-http'
+            when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm-provider'
+            else '(internal)'
+          end
+        ) as target,
+        case
+          when metadata ? 'db.system' or lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+          when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+          when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm'
+          when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'http'
+          else 'internal'
+        end as dependency_type,
+        trace_id,
+        status,
+        duration_ms,
+        timestamp
+      from spans
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    )
+    select
+      source,
+      target,
+      dependency_type,
+      count(*) as spans,
+      count(distinct trace_id) as traces,
+      count(*) filter (where status <> 'success') as errors,
+      case
+        when count(*) = 0 then null
+        else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+      end as error_rate_percent,
+      avg(duration_ms) filter (where duration_ms is not null) as average_duration_ms,
+      percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
+      max(timestamp) as last_seen_at
+    from scoped
+    group by source, target, dependency_type
+    order by errors desc, p95_duration_ms desc nulls last, spans desc, source asc, target asc
+    limit ${limit}
+  `.execute(db);
+
+  const totalsResult = await sql<{
+    services: unknown;
+    edges: unknown;
+    spans: unknown;
+    errors: unknown;
+    error_rate_percent: unknown;
+  }>`
+    with scoped as (
+      select
+        coalesce(nullif(metadata->>'service', ''), nullif(source, ''), '(unknown service)') as source,
+        coalesce(
+          nullif(metadata->>'target_service', ''),
+          nullif(metadata->>'peer_service', ''),
+          nullif(metadata->>'peer', ''),
+          nullif(metadata->>'db.system', ''),
+          case
+            when lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+            when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+            when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'external-http'
+            when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm-provider'
+            else '(internal)'
+          end
+        ) as target,
+        case
+          when metadata ? 'db.system' or lower(name) like '%postgres%' or lower(name) like '%sql%' or lower(name) like '%db%' then 'database'
+          when lower(name) like '%redis%' or lower(name) like '%cache%' then 'cache'
+          when lower(name) like '%llm%' or lower(name) like '%openai%' or lower(name) like '%anthropic%' then 'llm'
+          when lower(name) like 'http %' or lower(name) like '%fetch%' or lower(name) like '%request%' then 'http'
+          else 'internal'
+        end as dependency_type,
+        status
+      from spans
+      where project_id = ${filters.projectId}
+        and environment_id = ${filters.environmentId}
+        and timestamp >= ${from}
+        and timestamp < ${to}
+    ),
+    grouped as (
+      select source, target, dependency_type, count(*) as spans, count(*) filter (where status <> 'success') as errors
+      from scoped
+      group by source, target, dependency_type
+    ),
+    service_nodes as (
+      select source as service from grouped
+      union
+      select target as service from grouped
+    )
+    select
+      (select count(*) from service_nodes) as services,
+      count(*) as edges,
+      coalesce(sum(spans), 0) as spans,
+      coalesce(sum(errors), 0) as errors,
+      case
+        when coalesce(sum(spans), 0) = 0 then null
+        else (coalesce(sum(errors), 0)::numeric / sum(spans)::numeric) * 100
+      end as error_rate_percent
+    from grouped
+  `.execute(db);
+
+  const totals = totalsResult.rows[0];
+  return {
+    window: filters.window,
+    generatedAt: to.toISOString(),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: from.toISOString(),
+      to: to.toISOString()
+    },
+    totals: {
+      services: toNumber(totals?.services),
+      edges: toNumber(totals?.edges),
+      spans: toNumber(totals?.spans),
+      errors: toNumber(totals?.errors),
+      errorRatePercent: toRoundedOrNull(totals?.error_rate_percent)
+    },
+    edges: edgesResult.rows.map((row) => ({
+      source: row.source,
+      target: row.target,
+      dependencyType: row.dependency_type,
+      spans: toNumber(row.spans),
+      traces: toNumber(row.traces),
+      errors: toNumber(row.errors),
+      errorRatePercent: toRoundedOrNull(row.error_rate_percent),
+      averageDurationMs: toRoundedOrNull(row.average_duration_ms),
+      p95DurationMs: toRoundedOrNull(row.p95_duration_ms),
+      lastSeenAt: row.last_seen_at === null ? null : toIso(row.last_seen_at)
+    }))
+  };
 }
 
 export async function listTraceSpans(db: Db, filters: TelemetryFilters): Promise<TelemetryListResult<SpanRecord>> {
@@ -1098,81 +3656,152 @@ export async function getTraceAggregates(db: Db, filters: TelemetryFilters): Pro
   };
 }
 
-export async function getOverview(db: Db, filters: OverviewFilters): Promise<OverviewResponse> {
-  const { from, to, bucket } = resolveOverviewRange(filters.window, filters.now);
-  const bucketExpr = bucketExpression(bucket);
-  const bucketStarts = makeBucketStarts(from, to, bucket);
+export async function listReleases(db: Db, filters: ReleaseListFilters): Promise<ReleaseListResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = clampSmallLimit(filters.limit, 5, 50);
 
-  const kpiRowsPromise = sql<{
+  const rows = await sql<{
+    release: string;
     events: unknown;
-    active_users: unknown;
-    active_tenants: unknown;
     errors: unknown;
-    open_errors: unknown;
     traces: unknown;
     failed_traces: unknown;
-    average_trace_duration_ms: unknown;
-    p95_trace_duration_ms: unknown;
     llm_calls: unknown;
-    failed_llm_calls: unknown;
-    llm_input_tokens: unknown;
-    llm_output_tokens: unknown;
-    llm_cost_usd: string;
+    commit_sha: string | null;
+    commit_url: string | null;
+    pull_request_number: number | null;
+    pull_request_url: string | null;
+    deployed_by: string | null;
+    first_seen_at: Date | string;
+    last_seen_at: Date | string;
   }>`
-    with scoped_events as (
-      select user_id, tenant_id
+    with release_signals as (
+      select release, timestamp, 'event'::text as kind, null::text as status
       from events
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
-    ),
-    scoped_errors as (
-      select user_id, tenant_id, status
+        and release is not null
+      union all
+      select release, timestamp, 'error'::text as kind, status
       from errors
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
-    ),
-    scoped_traces as (
-      select user_id, tenant_id, status, duration_ms
+        and release is not null
+      union all
+      select release, timestamp, 'trace'::text as kind, status
       from traces
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
-    ),
-    scoped_llm_calls as (
-      select user_id, tenant_id, status, input_tokens, output_tokens, cost_usd
+        and release is not null
+      union all
+      select release, timestamp, 'llm'::text as kind, status
       from llm_calls
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
-    ),
-    identities as (
-      select user_id, tenant_id from scoped_events
-      union all select user_id, tenant_id from scoped_errors
-      union all select user_id, tenant_id from scoped_traces
-      union all select user_id, tenant_id from scoped_llm_calls
+        and release is not null
     )
     select
-      (select count(*) from scoped_events) as events,
-      (select count(distinct user_id) from identities where user_id is not null) as active_users,
-      (select count(distinct tenant_id) from identities where tenant_id is not null) as active_tenants,
-      (select count(*) from scoped_errors) as errors,
-      (select count(*) from scoped_errors where status = 'open') as open_errors,
-      (select count(*) from scoped_traces) as traces,
-      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
-      (select coalesce(avg(duration_ms), 0) from scoped_traces) as average_trace_duration_ms,
-      (select percentile_cont(0.95) within group (order by duration_ms) from scoped_traces where duration_ms is not null) as p95_trace_duration_ms,
-      (select count(*) from scoped_llm_calls) as llm_calls,
-      (select count(*) from scoped_llm_calls where status <> 'success') as failed_llm_calls,
-      (select coalesce(sum(input_tokens), 0) from scoped_llm_calls) as llm_input_tokens,
-      (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
-      (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
+      release_signals.release as release,
+      count(*) filter (where kind = 'event') as events,
+      count(*) filter (where kind = 'error') as errors,
+      count(*) filter (where kind = 'trace') as traces,
+      count(*) filter (where kind = 'trace' and status <> 'success') as failed_traces,
+      count(*) filter (where kind = 'llm') as llm_calls,
+      release_metadata.commit_sha,
+      release_metadata.commit_url,
+      release_metadata.pull_request_number,
+      release_metadata.pull_request_url,
+      release_metadata.deployed_by,
+      min(timestamp) as first_seen_at,
+      max(timestamp) as last_seen_at
+    from release_signals
+    left join release_metadata
+      on release_metadata.project_id = ${filters.projectId}
+      and release_metadata.environment_id = ${filters.environmentId}
+      and release_metadata.release = release_signals.release
+    group by release_signals.release, release_metadata.commit_sha, release_metadata.commit_url, release_metadata.pull_request_number, release_metadata.pull_request_url, release_metadata.deployed_by
+    order by last_seen_at desc, release_signals.release asc
+    limit ${limit}
   `.execute(db);
+
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    releases: rows.rows.map((row) => ({
+      release: row.release,
+      events: toNumber(row.events),
+      errors: toNumber(row.errors),
+      traces: toNumber(row.traces),
+      failedTraces: toNumber(row.failed_traces),
+      llmCalls: toNumber(row.llm_calls),
+      code:
+        row.commit_sha || row.commit_url || row.pull_request_url || row.deployed_by
+          ? {
+              commitSha: row.commit_sha,
+              commitUrl: row.commit_url,
+              pullRequestNumber: row.pull_request_number,
+              pullRequestUrl: row.pull_request_url,
+              deployedBy: row.deployed_by
+            }
+          : null,
+      firstSeenAt: toIso(row.first_seen_at),
+      lastSeenAt: toIso(row.last_seen_at)
+    }))
+  };
+}
+
+export async function getOverview(db: Db, filters: OverviewFilters): Promise<OverviewResponse> {
+  const { from, to, bucket } = resolveOverviewRange(filters.window, filters.now);
+  const bucketExpr = bucketExpression(bucket);
+  const bucketStarts = makeBucketStarts(from, to, bucket);
+  const releaseFilter = filters.release ?? null;
+  const recentReleasesPromise = listReleases(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    window: filters.window,
+    limit: 5,
+    now: filters.now
+  });
+  const recentActivityPromise = getRecentActivity(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    window: filters.window,
+    release: filters.release,
+    limit: 10,
+    now: filters.now
+  });
+
+  const previousRange = previousOverviewRange(from, to);
+  const kpiRowsPromise = queryOverviewKpis(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    from,
+    to,
+    release: releaseFilter
+  });
+  const previousKpiRowsPromise = queryOverviewKpis(db, {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    from: previousRange.from,
+    to: previousRange.to,
+    release: releaseFilter
+  });
 
   const usageTrendRowsPromise = sql<{
     bucket_start: Date | string;
@@ -1187,6 +3816,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       group by bucket_start
       union all
       select ${bucketExpr} as bucket_start, 0::bigint as events, count(*) as traces, 0::bigint as llm_calls
@@ -1195,6 +3825,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       group by bucket_start
       union all
       select ${bucketExpr} as bucket_start, 0::bigint as events, 0::bigint as traces, count(*) as llm_calls
@@ -1203,6 +3834,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       group by bucket_start
     )
     select bucket_start, sum(events) as events, sum(traces) as traces, sum(llm_calls) as llm_calls
@@ -1226,6 +3858,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by bucket_start
   `.execute(db);
 
@@ -1243,6 +3876,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by bucket_start
   `.execute(db);
 
@@ -1260,6 +3894,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by bucket_start
   `.execute(db);
 
@@ -1270,6 +3905,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by name
     order by total desc, name asc
     limit 5
@@ -1282,24 +3918,28 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       union all
       select tenant_id from errors
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       union all
       select tenant_id from traces
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
       union all
       select tenant_id from llm_calls
       where project_id = ${filters.projectId}
         and environment_id = ${filters.environmentId}
         and timestamp >= ${from}
         and timestamp <= ${to}
+        and (${releaseFilter}::text is null or release = ${releaseFilter})
     )
     select tenant_id, count(*) as total
     from usage_rows
@@ -1316,6 +3956,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and tenant_id is not null
     group by tenant_id
     order by total desc, tenant_id asc
@@ -1329,6 +3970,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and tenant_id is not null
     group by tenant_id
     order by total desc, tenant_id asc
@@ -1342,6 +3984,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and tenant_id is not null
     group by tenant_id
     order by sum(cost_usd) desc, tenant_id asc
@@ -1355,6 +3998,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by provider
     order by total desc, sum(cost_usd) desc, provider asc
     limit 5
@@ -1367,6 +4011,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by model
     order by total desc, sum(cost_usd) desc, model asc
     limit 5
@@ -1379,6 +4024,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by coalesce(prompt_name, 'Unspecified')
     order by total desc, prompt_name asc
     limit 5
@@ -1391,6 +4037,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by severity
     order by total desc, severity asc
     limit 5
@@ -1403,6 +4050,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     group by status
     order by total desc, status asc
     limit 5
@@ -1410,6 +4058,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
 
   const recentErrorRowsPromise = sql<{
     id: string;
+    error_group_id: string | null;
     timestamp: Date | string;
     message: string;
     type: string | null;
@@ -1419,12 +4068,13 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     user_id: string | null;
     trace_id: string | null;
   }>`
-    select id, timestamp, message, type, severity, status, tenant_id, user_id, trace_id
+    select id, error_group_id, timestamp, message, type, severity, status, tenant_id, user_id, trace_id
     from errors
     where project_id = ${filters.projectId}
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
     order by timestamp desc, id asc
     limit 5
   `.execute(db);
@@ -1444,6 +4094,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and status <> 'success'
     order by timestamp desc, id asc
     limit 5
@@ -1467,6 +4118,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and environment_id = ${filters.environmentId}
       and timestamp >= ${from}
       and timestamp <= ${to}
+      and (${releaseFilter}::text is null or release = ${releaseFilter})
       and status <> 'success'
     order by timestamp desc, id asc
     limit 5
@@ -1474,6 +4126,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
 
   const [
     kpiRows,
+    previousKpiRows,
     usageTrendRows,
     errorTrendRows,
     latencyTrendRows,
@@ -1490,9 +4143,12 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     errorStatusRows,
     recentErrorRows,
     recentFailedTraceRows,
-    recentFailedLlmCallRows
+    recentFailedLlmCallRows,
+    recentActivity,
+    recentReleases
   ] = await Promise.all([
     kpiRowsPromise,
+    previousKpiRowsPromise,
     usageTrendRowsPromise,
     errorTrendRowsPromise,
     latencyTrendRowsPromise,
@@ -1509,9 +4165,12 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     errorStatusRowsPromise,
     recentErrorRowsPromise,
     recentFailedTraceRowsPromise,
-    recentFailedLlmCallRowsPromise
+    recentFailedLlmCallRowsPromise,
+    recentActivityPromise,
+    recentReleasesPromise
   ]);
   const kpiRow = kpiRows.rows[0];
+  const previousKpiRow = previousKpiRows.rows[0];
 
   const usageByBucket = new Map(usageTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
   const errorsByBucket = new Map(errorTrendRows.rows.map((row) => [toIso(row.bucket_start), row]));
@@ -1555,6 +4214,64 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
     })
   };
 
+  const kpis: OverviewResponse["kpis"] = {
+    events: toNumber(kpiRow.events),
+    activeUsers: toNumber(kpiRow.active_users),
+    activeTenants: toNumber(kpiRow.active_tenants),
+    errors: toNumber(kpiRow.errors),
+    openErrors: toNumber(kpiRow.open_errors),
+    traces: toNumber(kpiRow.traces),
+    failedTraces: toNumber(kpiRow.failed_traces),
+    averageTraceDurationMs: toNumber(kpiRow.average_trace_duration_ms),
+    p95TraceDurationMs: kpiRow.p95_trace_duration_ms == null ? null : toNumber(kpiRow.p95_trace_duration_ms),
+    llmCalls: toNumber(kpiRow.llm_calls),
+    failedLlmCalls: toNumber(kpiRow.failed_llm_calls),
+    llmInputTokens: toNumber(kpiRow.llm_input_tokens),
+    llmOutputTokens: toNumber(kpiRow.llm_output_tokens),
+    llmCostUsd: kpiRow.llm_cost_usd
+  };
+
+  const previousKpis: OverviewResponse["kpis"] = {
+    events: toNumber(previousKpiRow.events),
+    activeUsers: toNumber(previousKpiRow.active_users),
+    activeTenants: toNumber(previousKpiRow.active_tenants),
+    errors: toNumber(previousKpiRow.errors),
+    openErrors: toNumber(previousKpiRow.open_errors),
+    traces: toNumber(previousKpiRow.traces),
+    failedTraces: toNumber(previousKpiRow.failed_traces),
+    averageTraceDurationMs: toNumber(previousKpiRow.average_trace_duration_ms),
+    p95TraceDurationMs:
+      previousKpiRow.p95_trace_duration_ms == null ? null : toNumber(previousKpiRow.p95_trace_duration_ms),
+    llmCalls: toNumber(previousKpiRow.llm_calls),
+    failedLlmCalls: toNumber(previousKpiRow.failed_llm_calls),
+    llmInputTokens: toNumber(previousKpiRow.llm_input_tokens),
+    llmOutputTokens: toNumber(previousKpiRow.llm_output_tokens),
+    llmCostUsd: previousKpiRow.llm_cost_usd
+  };
+
+  const previousHasData =
+    previousKpis.events + previousKpis.errors + previousKpis.traces + previousKpis.llmCalls > 0;
+
+  const previousNumber = (value: number | null) => (previousHasData ? value : null);
+  const previousMoney = (value: string) => (previousHasData ? value : null);
+
+  const deltas: OverviewResponse["deltas"] = {
+    events: overviewDelta(kpis.events, previousNumber(previousKpis.events)),
+    activeUsers: overviewDelta(kpis.activeUsers, previousNumber(previousKpis.activeUsers)),
+    activeTenants: overviewDelta(kpis.activeTenants, previousNumber(previousKpis.activeTenants)),
+    errors: overviewDelta(kpis.errors, previousNumber(previousKpis.errors)),
+    openErrors: overviewDelta(kpis.openErrors, previousNumber(previousKpis.openErrors)),
+    traces: overviewDelta(kpis.traces, previousNumber(previousKpis.traces)),
+    failedTraces: overviewDelta(kpis.failedTraces, previousNumber(previousKpis.failedTraces)),
+    averageTraceDurationMs: overviewDelta(kpis.averageTraceDurationMs, previousNumber(previousKpis.averageTraceDurationMs)),
+    p95TraceDurationMs: overviewDelta(kpis.p95TraceDurationMs, previousNumber(previousKpis.p95TraceDurationMs)),
+    llmCalls: overviewDelta(kpis.llmCalls, previousNumber(previousKpis.llmCalls)),
+    failedLlmCalls: overviewDelta(kpis.failedLlmCalls, previousNumber(previousKpis.failedLlmCalls)),
+    llmInputTokens: overviewDelta(kpis.llmInputTokens, previousNumber(previousKpis.llmInputTokens)),
+    llmOutputTokens: overviewDelta(kpis.llmOutputTokens, previousNumber(previousKpis.llmOutputTokens)),
+    llmCostUsd: overviewMoneyDelta(kpis.llmCostUsd, previousMoney(previousKpis.llmCostUsd))
+  };
+
   return {
     window: filters.window,
     generatedAt: to.toISOString(),
@@ -1567,22 +4284,8 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       to: to.toISOString(),
       bucket
     },
-    kpis: {
-      events: toNumber(kpiRow.events),
-      activeUsers: toNumber(kpiRow.active_users),
-      activeTenants: toNumber(kpiRow.active_tenants),
-      errors: toNumber(kpiRow.errors),
-      openErrors: toNumber(kpiRow.open_errors),
-      traces: toNumber(kpiRow.traces),
-      failedTraces: toNumber(kpiRow.failed_traces),
-      averageTraceDurationMs: toNumber(kpiRow.average_trace_duration_ms),
-      p95TraceDurationMs: kpiRow.p95_trace_duration_ms == null ? null : toNumber(kpiRow.p95_trace_duration_ms),
-      llmCalls: toNumber(kpiRow.llm_calls),
-      failedLlmCalls: toNumber(kpiRow.failed_llm_calls),
-      llmInputTokens: toNumber(kpiRow.llm_input_tokens),
-      llmOutputTokens: toNumber(kpiRow.llm_output_tokens),
-      llmCostUsd: kpiRow.llm_cost_usd
-    },
+    kpis,
+    deltas,
     trends,
     top: {
       events: topEventsRows.rows.map((row) => ({ name: row.name, total: toNumber(row.total) })),
@@ -1612,8 +4315,10 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       errorStatus: errorStatusRows.rows.map((row) => ({ status: row.status, total: toNumber(row.total) }))
     },
     recent: {
+      activity: recentActivity.activity,
       errors: recentErrorRows.rows.map((row) => ({
         id: row.id,
+        errorGroupId: row.error_group_id,
         timestamp: toIso(row.timestamp),
         message: row.message,
         type: row.type,
@@ -1644,6 +4349,10 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
         userId: row.user_id,
         traceId: row.trace_id
       }))
+    },
+    releases: {
+      selected: releaseFilter,
+      recent: recentReleases.releases
     }
   };
 }

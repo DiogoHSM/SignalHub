@@ -27,10 +27,10 @@ function health(over: Partial<SystemHealthResponse> = {}): SystemHealthResponse 
       intervalMinutes: 60,
       lastRun: {
         id: "r1", status: "success", startedAt: "2026-06-23T11:48:00.000Z", finishedAt: "2026-06-23T11:48:00.000Z",
-        deleted: { events: 120, errors: 4, traces: 50, spans: 200, llmCalls: 9, breadcrumbs: 300, deadLetterJobs: 2, sourceMapArtifacts: 0, sourceMapFiles: 0 },
+        deleted: { events: 120, errors: 4, traces: 50, spans: 200, llmCalls: 9, webVitals: 0, profiles: 0, breadcrumbs: 300, deadLetterJobs: 2, sourceMapArtifacts: 0, sourceMapFiles: 0 },
         errorMessage: null,
       },
-      policy: { eventsDays: 30, errorsDays: 90, tracesDays: 14, spansDays: 14, llmCallsDays: 60, breadcrumbsDays: 7, deadLetterJobsDays: 30, sourceMapsEnabled: true, sourceMapsDays: 30, sourceMapsBatchSize: 100 },
+      policy: { eventsDays: 30, errorsDays: 90, tracesDays: 14, spansDays: 14, llmCallsDays: 60, profilesDays: 30, breadcrumbsDays: 7, deadLetterJobsDays: 30, sourceMapsEnabled: true, sourceMapsDays: 30, sourceMapsBatchSize: 100 },
     },
     backups: {
       enabled: true, intervalHours: 24, retentionDays: 14, s3Enabled: true, stale: false,

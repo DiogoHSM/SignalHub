@@ -11,7 +11,7 @@
     "dev": "tsx watch src/main.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
     "start": "tsx src/main.ts",
-    "test": "vitest run --root ../.. apps/worker/test/telemetry-worker.test.ts apps/worker/test/backups.test.ts apps/worker/test/system-health-samples.test.ts"
+    "test": "vitest run --root ../.. apps/worker/test/telemetry-worker.test.ts apps/worker/test/backups.test.ts apps/worker/test/system-health-samples.test.ts apps/worker/test/warehouse-exports.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1044.0",
@@ -22,10 +22,12 @@
     "bullmq": "^5.76.4",
     "ioredis": "^5.10.1",
     "kysely": "^0.28.16",
-    "nodemailer": "^8.0.8"
+    "nodemailer": "^8.0.8",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.0",
+    "@types/pg": "^8.20.0",
     "vitest": "^2.1.8"
   }
 }

@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-07-02: Keep messaging campaigns native but measurement-first
+
+Decision: SignalMonitor adds native message campaign definitions, campaign event measurement, and opt-out visibility, but does not yet send messages automatically from the scheduler/worker.
+
+Rationale: Operators need one place to correlate product messaging with delivery, engagement, conversion, and privacy outcomes. Keeping the first native slice measurement-first avoids early lock-in to a specific ESP, webhook workflow, or in-app delivery runtime while still making campaigns observable and governable inside Sigmon.
+
+## 2026-07-02: Scope data governance to project environments first
+
+Decision: Data governance starts as a project/environment policy that stores per-category retention windows and JSON property mask/block rules. The worker applies property rules before persistence and retention applies scoped windows after the installation-level retention pass.
+
+Rationale: SignalMonitor is self-hosted, so installation-level environment variables remain the hard maximum retention boundary. Project policies let operators shorten retention and suppress sensitive properties for individual monitored products without introducing a SaaS organization model or a full data catalog service.
+
 ## 2026-05-25: Publish the SDK on public npm
 
 Decision: The JavaScript/TypeScript SDK is prepared for public npm publication as `@sigmon/sdk`, with GitHub Packages deferred as an optional mirror rather than the primary distribution channel.

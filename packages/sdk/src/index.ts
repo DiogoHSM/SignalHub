@@ -8,16 +8,31 @@ export type {
   BreadcrumbInput,
   BreadcrumbLevel,
   BreadcrumbType,
+  ClickInput,
   EndTraceInput,
   ErrorInput,
   ErrorSeverity,
   EventInput,
+  ExperimentAssignment,
+  ExperimentAssignmentInput,
+  ExperimentVariantInput,
+  FeatureFlagEvaluation,
+  FeatureFlagEvaluationInput,
+  FeatureFlagRuleInput,
+  FeatureFlagRuleMatch,
+  FeatureFlagValue,
+  FeatureFlagVariantInput,
+  FeedbackInput,
   FlushOptions,
   FlushResult,
   IdentifyTenantInput,
   IdentifyUserInput,
   JsonValue,
   LlmInput,
+  ProfileKind,
+  RuntimeProfileFunction,
+  RuntimeProfileInput,
+  ReplayEventType,
   SignalContext,
   SignalMonitorClient,
   SignalMonitorClientOptions,
@@ -25,9 +40,16 @@ export type {
   SignalMonitorErrorCode,
   SignalMetadata,
   SignalStatus,
+  SessionReplayEventInput,
+  SessionReplayInput,
   SpanInput,
   StartTraceInput,
-  TraceInput
+  SurveyResponseActorType,
+  SurveyResponseInput,
+  TraceInput,
+  WebVitalInput,
+  WebVitalName,
+  WebVitalRating
 } from "./types.js";
 
 export {
@@ -35,14 +57,28 @@ export {
 } from "./client.js";
 
 export {
+  createTraceContext,
+  parseTraceparent,
+  traceContextHeaders
+} from "./trace-context.js";
+
+export type { TraceContext } from "./trace-context.js";
+
+export {
   createBreadcrumbSignal,
+  createClickSignal,
   createErrorSignal,
   createEventSignal,
+  createFeedbackSignal,
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
+  createRuntimeProfileSignal,
+  createSessionReplaySignal,
   createSpanSignal,
+  createSurveyResponseSignal,
   createTraceSignal,
+  createWebVitalSignal,
   mergeContext,
   serializeDate
 } from "./mapping.js";
@@ -51,3 +87,25 @@ export {
   createBrowserBreadcrumbs,
   sanitizeBreadcrumbUrl
 } from "./browser-breadcrumbs.js";
+export type {
+  BrowserClickCaptureOptions,
+  StopBrowserClickCapture
+} from "./browser-clicks.js";
+export {
+  installBrowserClickCapture
+} from "./browser-clicks.js";
+export type {
+  FeedbackWidgetOptions,
+  FeedbackWidgetPosition,
+  StopFeedbackWidget
+} from "./browser-feedback-widget.js";
+export {
+  installFeedbackWidget
+} from "./browser-feedback-widget.js";
+export type {
+  BrowserReplayRecorder,
+  BrowserReplayRecorderOptions
+} from "./browser-replay.js";
+export {
+  createBrowserReplayRecorder
+} from "./browser-replay.js";

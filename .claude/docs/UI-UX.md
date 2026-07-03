@@ -14,7 +14,7 @@ SignalMonitor includes an admin-only Integration Console.
 - `Traces` owns route grouping, p50/p95/p99, trace waterfall, span attributes, related errors/events, and release comparison.
 - `Errors` owns issue inbox, error groups, raw occurrences, Incident view, source-map state, triage, resolve/ignore, and reopen workflows.
 - `Experiments` is the home for event-based A/B readouts, feature flags, prompt variants, model comparison, and quality/cost/latency analysis.
-- `Configure` owns project-specific settings: environments, API keys, browser origins/CORS allowlist, SDK setup, source maps, alert rules/channels, and future project retention overrides.
+- `Configure` owns project-specific settings: environments, API keys, browser origins/CORS allowlist, SDK setup, source maps, data governance, alert rules/channels, and project retention overrides.
 - `Sigmon Admin` remains separate from project workspaces and is reserved for the SignalMonitor installation itself: system health, notifications, storage, security, deploy readiness, docs, SDK, and configuration health.
 - The approved design spec for this architecture lives at `docs/superpowers/specs/2026-06-06-product-console-architecture-design.md`.
 
@@ -29,9 +29,9 @@ SignalMonitor includes an admin-only Integration Console.
 - The visual style should remain compact, quiet, and optimized for repeated operational work.
 - Use a dark-first console shell with a 64px icon rail, dense topbar context, restrained green signal accents, and no marketing-style hero sections.
 - The active project is selectable from the global header in every console mode. Setup keeps the fuller project creation/sidebar workflow, but operators should not need to return to Setup just to switch context.
-- The active environment is also selectable from the global header once environments are loaded, so operators can switch monitored environments without returning to Onboarding.
+- The active environment is also selectable from the global header once environments are loaded, so operators can switch monitored environments without returning to Onboarding. Persisted environment selection must use immutable environment ids, not display names, because different projects or archived/recreated environments can share names such as `production`.
 - The sigmon mark is a simple mono heartbeat SVG and should remain single-color so it can inherit the surrounding foreground/accent color.
-- Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings.
+- Overview KPIs are grouped by operational domain: Signal intake, Reliability, Latency, and AI spend. Monetary values should use compact USD formatting instead of raw decimal strings. When available, KPI cards show a compact comparison against the immediately prior window; omit the delta line when the prior window has no telemetry.
 - Operational pages should use dark native surfaces consistently: no white form islands inside the dark console, readable secondary values, compact status pills, and grid spans chosen by workflow density rather than filling space indiscriminately.
 - The console shell uses viewport-bounded scrolling: the icon rail and topbar stay anchored to the browser height while the workspace content owns its own vertical scroll.
 - Console scrollbars should be dark-themed inside the shell and scoped to internal workspace/list panes so browser-default light scrollbars do not appear in project views.
@@ -46,7 +46,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Keep `Monitors` as a separate operational mode for HTTP uptime monitors, heartbeat monitors, recent checks, and one-time heartbeat secrets.
 - Keep `Artifacts` as a compact admin mode for source-map upload, filtering, deletion, and CI upload token management for the active project/environment.
 - Browser origins are configured inside Project Settings for the selected project. Operators can add exact app origins and archive old origins; saved origins enable direct browser SDK ingestion CORS for public `/v1/*` endpoints.
-- Keep `Project Settings` as a project-scoped configuration mode for the selected project, environments, API keys, browser origins, SDK snippets, source maps, and the current console user administration surface.
+- Keep `Project Settings` as a project-scoped configuration mode for the selected project, environments, API keys, browser origins, data governance, SDK snippets, source maps, and the current console user administration surface.
 - Project Settings opens on the `Project` section, where operators can rename or archive the selected project. Archive is a destructive action with confirmation and should stay visually separated from routine setup fields.
 - Project Settings environment rows expose compact edit and archive actions. Onboarding keeps the lighter create/select flow, while recurring configuration lives in Project Settings.
 - Project Settings starts with a compact setup checklist for the selected project/environment so operators can see whether project scope, environment, endpoint, one-time API key setup, SDK installation, SDK initialization, and first telemetry ping are ready before handing integration details to another developer. Pending integration steps expose compact command/code hints inline.
@@ -58,15 +58,24 @@ SignalMonitor includes an admin-only Integration Console.
 - Overview is the first operational summary surface for the selected project/environment.
 - Overview loads only while active and preserves its layout shape while loading.
 - Overview window controls support `24h`, `7d`, and `30d`.
+- Overview KPI cards show first-class prior-window deltas from the API instead of deriving comparisons from sparse chart buckets.
 - Overview trend panels stay lightweight with in-app SVG/CSS, not a chart dependency. Trend charts should include grid context, metric-unit axis labels, stable empty states, color-consistent series, and legend values so sparse data does not read as broken.
 - Overview shows a critical incident banner above KPIs when the selected environment has an open severe error, with a direct drilldown into the grouped Errors incident queue.
-- Overview top-list rows can drill into Investigate with seeded exact filters; recent signals stay read-only.
+- Overview top-list rows can drill into Investigate with seeded exact filters; recent activity stays read-only and uses one mixed timeline across successful and failed events, errors, traces, and LLM calls.
 - Investigation views are operational, dense, and read-only by default.
 - Events use a list/detail layout with filters above the list and a detail drawer for selected records.
 - Events should include an analytics header for the current result set: total events, unique event names, observed tenants, known users, and top event names before the raw rows, so the tab works as an initial product analytics explorer rather than only a log table.
+- Events should surface property governance before raw rows: observed custom property count, type conflicts, similar names, coverage, and safe samples. This keeps product analytics trustworthy without forcing strict schemas during ingestion.
+- Events should let operators run an ad hoc conversion funnel from ordered event names in the active project/environment. Show total conversion, completed/entrant counts, per-step actors, conversion, and drop-off before returning to raw rows.
+- Events should let operators run ad hoc retention curves from entry and return event names in the active project/environment. Show cohort labels, entrant counts, interval labels, retained actor counts, and percentages in a compact matrix.
+- Events should let operators save reusable user or tenant segments from safe event/property conditions, preview matching actors, edit/archive old segments, and apply an active segment back to raw event investigation without writing SQL.
+- Events should show Replay samples near Saved segments when privacy-safe replays exist. The panel should inherit the active segment and current filters, then show compact user, tenant, route, timestamp, linked event, and linked error context without implying video playback.
+- Events should let operators run ad hoc user journey paths from a start or end event, choose the actor context, see the most common compact paths, and drill from path samples back into the exact raw event.
+- Investigate should include a Dashboards workspace for saved project/environment reports. Operators can create bounded dashboards, choose a report window, archive stale dashboards, and read metric, trend, and top-list widgets derived from existing overview aggregates without writing SQL.
 - Event rows should prioritize event name, immutable id, timestamp, source, user, tenant, trace/session context, and compact property chips for quick scanning.
 - Investigation detail drawers, event rows, filters, and aggregate strips should share the dark console surface language so raw telemetry inspection feels like one professional workspace.
 - Filters apply only when the operator clicks `Apply`; typing does not auto-query.
+- Events investigation includes a click map panel for opt-in browser click density. Operators enter a route, optionally filter by safe selector, and inspect an aggregated heat grid plus top selectors/routes. The panel must explain that Sigmon stores normalized coordinates and safe selectors only, not text, values, DOM snapshots, or screenshots.
 - Missing project/environment state should point operators back to Setup.
 - Keep Events and Errors as peer tabs inside `Investigate`.
 - Errors default to grouped triage when opened from the top-level Investigate tab, making the error workspace an incident-response entry point before raw log inspection.
@@ -74,6 +83,11 @@ SignalMonitor includes an admin-only Integration Console.
 - Grouped and raw error rows expose `Open incident` actions that navigate to a shareable incident URL for the selected error group and, when opened from a raw occurrence, preserve the raw error id as context.
 - Incident view starts with a hero triage summary containing severity/status/priority, group, release, observed duration, assignee state, impact metrics, and only backend-supported primary actions such as resolve, ignore, and copy link.
 - Incident view uses a split investigation layout: technical primary occurrence details, stack, source-map status, context, and metadata on the left; operational triage, related identifiers, strongly related activity, and nearby context on the right. It stacks before the console layout becomes cramped.
+- Incident view includes a Replay panel when an error links to a privacy-safe `replay_id`. The panel shows route, masked state, duration, event count, and a compact masked event timeline; it should not imply video/screenshot playback or expose raw DOM, text, HTML, or input values.
+- Incident view includes code-hosting actions when a project has a GitHub or GitLab repository configured. Operators can open a prefilled external issue draft, paste an already-created issue URL, and see linked external issues from the incident side panel. The MVP is tokenless and never implies SignalMonitor can create repository issues directly.
+- Incident view includes a Code context panel that summarizes probable source files, release metadata, repository links, evidence, and next steps from stack traces, source maps, release metadata, trace context, breadcrumbs, and replay linkage. The panel must cite evidence and explicitly state the privacy posture; it should avoid opaque "AI says so" copy or code snippets until an operator-configurable AI provider exists.
+- Incident replay highlights the primary error moment in the masked timeline and keeps the stack-at-error plus preceding breadcrumbs visible in the same workspace, so operators can connect the user action path to the crash without leaving the incident.
+- Event detail includes a Replay panel when the selected event links to a privacy-safe `replay_id`. It should show masked replay events and product-event markers in timestamp order so operators can see what happened around a product action without leaving investigation context.
 - Incident view uses the same dark operational surface system as the console shell; it should not introduce light cards or browser-default controls inside the dark app.
 - Priority badges show saved priority when present and suggested priority otherwise. Severity, status, and priority badges should remain compact and scannable in both the error lists and Incident view.
 - Nearby context is explicitly labeled as supporting activity around the primary occurrence, separate from strongly related signals, so operators do not read it as guaranteed causality.
@@ -108,12 +122,30 @@ SignalMonitor includes an admin-only Integration Console.
 
 ## Experiments UX
 
-- Experiments starts with an event-based A/B test readout using existing event telemetry instead of requiring a separate experiment backend.
-- The readout lets operators map experiment, variant, exposure event, and conversion event fields so teams can adapt existing event naming conventions.
-- When multiple experiments are detected in the sample, operators select one experiment before reading variant metrics so unrelated variants are not mixed.
-- Variant rows should show exposures, conversions, conversion rate, and lift against the first sorted variant as a lightweight baseline.
+- Experiments uses saved project/environment experiment definitions backed by existing event telemetry. Definitions store a stable experiment key, weighted variants, actor scope, exposure event, conversion event, and primary metric metadata.
+- Operators can create a lightweight running A/B test from the console, then hand the SDK assignment snippet to product code so browser/server events emit consistent exposure and conversion properties.
+- Experiment result panels load one saved experiment at a time and query conversion outcomes from the selected environment, so unrelated variants and ad hoc event names are not mixed.
+- Variant rows should show configured weight, exposures, conversions, conversion rate, and lift against the first configured variant as a lightweight baseline.
 - Variant interpretation should stay directional: baseline, needs sample, directional lead/lag, or flat. Do not imply statistical significance until the backend supports it.
+- The empty state should tell operators whether they need to create an experiment, emit `sigmon.experiment.exposed`, or track the configured conversion event.
+- Experiments also includes the first Feature Flags surface. Operators can create a boolean-style flag with an off fallback, inspect active definitions, pause/activate, and archive flags without leaving the project/environment workspace.
+- Feature flag rows should make the safe default, current status, variant keys, rule count, gradual rollout percentage, and row actions visible. Audit history stays backend-supported even if the compact console only exposes the current definition in this slice.
+- Gradual rollout controls should label units explicitly as percentages and explain that rollout is deterministic by user, tenant, or session stickiness rather than random on each request.
+- Beta Programs live in the same Experiments workspace. Operators can create an early-access program, link it to a flag variant, add user or tenant participants, and inspect adoption from normal event telemetry without leaving the project/environment context.
+- Beta program controls should make the linked flag, actor scope, participant count, active actor count, adoption percentage, and participant removal actions visible. Runtime setup should be explained as feature-flag evaluation, not as a separate beta SDK path.
+- In-app Surveys live in the same Experiments workspace for now. Operators can create rating-style prompts with optional trigger event and tenant targeting, pause/activate/archive definitions, and read response totals, per-question summaries, and recent answers without leaving the selected project/environment.
+- Survey controls should make units and linkage explicit: answers are keyed by question id, browser submission uses the project browser-origin allowlist, and response reports are derived from `POST /v1/surveys/responses` / SDK `submitSurvey`.
+- NPS tracking lives beside Surveys as a standard campaign shortcut. Operators can create a 0-10 NPS campaign and read score, promoter/passive/detractor counts, trend buckets, and tenant/release/plan segments without leaving Experiments.
+- Message Campaigns live beside Surveys in Experiments. Operators can define an in-app, email, or webhook campaign, link it to an optional analytics segment and notification channel, pause/activate/archive it, and inspect delivery, open, click, conversion, opt-out, and recent event metrics.
+- Campaign UI copy must make the current product decision clear: Sigmon stores definitions and measures campaign events, while automated outbound sending is deferred. Email and webhook campaigns must ask for an existing notification channel id; in-app campaigns can be definition-only.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
+
+## Feedback UX
+
+- Feedback Widget configuration lives in Project Settings for the selected project/environment because it is runtime setup, not analysis.
+- Operators can enable/disable the browser feedback widget, edit button/panel copy, choose an accent color, and inspect recent submissions without leaving Project Settings.
+- Recent feedback rows expose compact triage actions for reviewed and archived states. The workflow is intentionally lightweight and should not imply a full support inbox.
+- Feedback copy should make privacy posture clear: the current widget accepts textual feedback and browser-safe context only. Screenshot capture remains disabled until masking and explicit consent controls are designed.
 
 ## Operations UX
 
@@ -129,8 +161,28 @@ SignalMonitor includes an admin-only Integration Console.
 - `System Health` remains global Sigmon install health: API, Postgres, Redis, queue worker, scheduler, SMTP, retention, and backups.
 - `Sigmon Admin` uses explicit installation-level destinations: System Health, Deploy, Notifications, Storage, Security, and Docs & SDK. System Health starts with an installation readiness strip for public endpoint, queue worker, scheduler, SMTP, backups, and retention.
 - Operations is read-only in this slice. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views for action.
-- Operations opens with recommended next actions ranked from incidents, monitor gaps, alert delivery, slow traces, and error-rate outliers so the operator has an immediate response path.
+- Operations opens with recommended next actions ranked from incidents, monitor gaps, alert delivery, detected anomalies, slow traces, and error-rate outliers so the operator has an immediate response path.
+- The anomaly detection section must stay explainable: show observed value, previous-window baseline, percent change, sample sizes, threshold, and the suggested alert rule when applicable. Avoid opaque "AI says so" language.
+- The predictive risk section must stay explainable and operational. Show probability, risk score, severity, confidence, current-vs-baseline validation, sample sizes, and the top weighted factors with plain-language reasons. High and critical predictions should feed the recommended actions area and route to the most relevant drilldown.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
+- The command palette is a shared shell component across legacy and v2 console paths so navigation search, empty states, keyboard affordances, and destination copy remain consistent while both shells coexist.
+- Overview number formatting uses shared exact and compact helpers so KPI cards, deltas, chart legends, and Console v2 summaries do not drift in thresholds or separators.
+- Console v2 Overview should drill directly into real detail screens when identifiers are available: top tenant rows open Tenant detail, incident banners open Incident detail, and recent error activity opens Incident detail with a fallback to the incident list when grouping is unavailable.
+- Error group lists should expose compact 12-bucket occurrence trends. The S2 Errors table uses a dedicated Trend column, and S4 Incidents cards keep a small inline sparkline beside occurrence/user/tenant counts so operators can spot rising incidents before opening detail.
+- S4 Incidents keeps active triage and resolved/ignored history in one screen: the History action toggles the fetched status set, and the Filters panel applies priority, status, and assignee filters without leaving the selected project/environment.
+- S4 Incidents renders assignee initials from the error-group list payload (`assignedTo.id/email`) so non-admin viewers still see assigned ownership; the admin-only user list remains limited to reassignment workflows in Incident detail.
+- S4 Incidents KPI tiles should prefer server-side Operations incident summary counts for Active and P1 so totals remain accurate even when the visible incident list is paginated or filtered.
+
+## Traces / APM UX
+
+- Traces now starts with an APM endpoint table before raw recent traces so operators can find slow or noisy routes first.
+- Endpoint rows should prioritize operation name, request volume, errors, error rate, p50, p95, p99, and Apdex in a dense table.
+- Clicking an endpoint filters the recent trace list to that route; opening a trace then continues into the existing waterfall/span detail view.
+- The Service map panel sits near APM endpoints and shows inferred dependency edges from span metadata so operators can spot slow or failing service, database, cache, HTTP, or LLM dependencies before opening individual traces.
+- The Web Vitals panel sits with APM endpoints and service map in Traces. It summarizes LCP p75, INP p75, CLS p75, poor samples, route-level p75, sample counts, rating counts, latest release, and regression against the previous release.
+- The Runtime profiles panel sits with APM endpoints, Web Vitals, and Service map in Traces. It summarizes CPU and memory profile counts, average profile duration, latest memory usage, recent bounded captures, and hot functions so operators can decide whether to inspect a route/job, add a targeted profiler window, or correlate with traces.
+- APM cards should remain compact and dark, with no white table rows or detached chart-only surfaces.
+- The default APM window is 24h for day-to-day operational debugging; broader historical analytics can add window controls later.
 
 ## Alerts UX
 
@@ -141,6 +193,8 @@ SignalMonitor includes an admin-only Integration Console.
 - Alert rule fields should expose units in labels or nearby help: windows and cooldowns are minutes, error-rate thresholds are percentages, trace p95 thresholds are milliseconds, critical/error count thresholds are counts, and LLM cost thresholds are USD.
 - Alert rule rows expose compact edit actions. Editing reuses the rule form, preserves project/environment scope, and should update the row after saving without forcing a full page refresh.
 - Alert rule rows expose compact destructive actions; archiving requires confirmation and removes the rule from the active rule list.
+- Alerts include an on-call queue for triggered alert events. Operators can acknowledge, snooze for a short interval, or resolve events directly from the queue, and the queue should make escalation state visible without requiring a separate incident page.
+- Escalation controls belong in the alert rule form near the primary channel: primary channel, escalation delay in minutes, and optional escalation channel. Empty escalation means no escalation delivery.
 - Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
 - Notification channel rows expose compact edit actions. Editing reuses the channel form, keeps saved webhook secrets write-only, and should update the channel row without forcing a full page refresh.
@@ -162,6 +216,19 @@ SignalMonitor includes an admin-only Integration Console.
 ## Project Settings UX
 
 - API key rows expose edit actions for renaming keys without rotating secrets; one-time key secrets remain visible only immediately after creation.
+- Data Governance is a Project Settings section for the selected project/environment. It shows collected telemetry categories, per-category retention days, and sensitive property rules.
+- Data governance retention copy must explain that project/environment windows can shorten installation-level retention; installation-level retention remains the maximum retention boundary.
+- Sensitive property rules use dot paths and explicit actions: `mask` keeps the key with `[REDACTED]`; `block` removes the key before persistence. The UI should keep this distinction visible beside the rule list and add form.
+- Warehouse Sync is a Project Settings section for the selected project/environment. It shows destination health, redacted connection details, selected datasets, batch size, pause/resume, archive, manual run, and recent export runs so operators can verify external analytics exports without leaving the console.
+- Code Hosting is a Project Settings section for the selected project. It stores tokenless GitHub/GitLab repository references used for issue-draft links and incident external issue linkage. Rows should expose provider, owner/group, repository, repository URL, and a compact disconnect action.
+
+## Releases UX
+
+- Overview includes a compact Releases panel that lists recently observed deploy versions for the selected project/environment.
+- Selecting a release filters Overview KPIs and trend context to that exact release while keeping the release list available for comparison.
+- Release rows should show release id, event count, error count, trace count, and failed trace count in a dark operational row, not a white table.
+- Release rows can show optional deployment metadata supplied by automation: commit SHA/link, pull request link, and deployed-by label. These hints should be compact and secondary to operational signal counts.
+- The empty state should explain that release values come from SDK/server telemetry and are useful for deploy-scoped incident and source-map workflows.
 
 ## Artifacts UX
 

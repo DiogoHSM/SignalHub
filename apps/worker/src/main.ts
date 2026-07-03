@@ -9,12 +9,17 @@ import { recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups
 import { backfillErrorGroups } from "@sigmon/db/repositories/error-groups.js";
 import {
   insertBreadcrumb,
+  insertClickEvent,
   insertError,
   insertEvent,
   insertLlmCall,
+  insertProfile,
+  insertSessionReplay,
   insertSpan,
-  insertTrace
+  insertTrace,
+  insertWebVital
 } from "@sigmon/db/repositories/telemetry-writes.js";
+import { getDataGovernancePolicy } from "@sigmon/db/repositories/data-governance.js";
 import { deleteExpiredDeadLetterJobs, insertDeadLetterJob } from "@sigmon/db/repositories/dead-letter.js";
 import {
   deleteExpiredTelemetry,
@@ -29,7 +34,10 @@ import {
 import {
   evaluateAlertRule,
   getNotificationChannel,
+  isErrorGroupSilenced,
+  listAlertEscalationsDue,
   listActiveAlertRules,
+  markAlertEventEscalated,
   recordAlertEvent,
   recordNotificationDelivery,
   updateAlertRuleEvaluation,
@@ -42,6 +50,13 @@ import {
   recordMonitorCheck,
   withMonitorEvaluationLock
 } from "@sigmon/db/repositories/monitors.js";
+import {
+  listActiveWarehouseDestinations,
+  recordWarehouseExportRun,
+  selectWarehouseExportBatch,
+  updateWarehouseDestinationCursor,
+  withWarehouseExportLock
+} from "@sigmon/db/repositories/warehouse-exports.js";
 import { deliverNotification, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";
@@ -65,6 +80,13 @@ import {
   recordSystemHealthSample
 } from "@sigmon/db/repositories/system-health-samples.js";
 import { collectHealthSample, runHealthSampleOnce, startHealthSampleScheduler } from "./system-health-samples.js";
+import {
+  runWarehouseExportOnce,
+  startWarehouseExportScheduler,
+  writePostgresWarehouseBatch
+} from "./warehouse-exports.js";
+import { recordSurveyResponse } from "@sigmon/db/repositories/surveys.js";
+import { recordFeedbackItem } from "@sigmon/db/repositories/feedback-widget.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
@@ -78,11 +100,18 @@ const connection = runsQueue
   : null;
 
 const writer: TelemetryWriter = {
+  getDataGovernancePolicy: (input) => getDataGovernancePolicy(db, input),
   insertEvent: (input) => insertEvent(db, input),
   insertError: (input) => insertError(db, input),
   insertLlmCall: (input) => insertLlmCall(db, input),
   insertTrace: (input) => insertTrace(db, input),
   insertSpan: (input) => insertSpan(db, input),
+  insertWebVital: (input) => insertWebVital(db, input),
+  insertClickEvent: (input) => insertClickEvent(db, input),
+  insertSessionReplay: (input) => insertSessionReplay(db, input),
+  insertProfile: (input) => insertProfile(db, input),
+  insertSurveyResponse: (input) => recordSurveyResponse(db, input).then(() => undefined),
+  insertFeedbackItem: (input) => recordFeedbackItem(db, input).then(() => undefined),
   insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 };
 
@@ -108,6 +137,7 @@ const heartbeatMetadata = {
   scheduler: runsScheduler,
   alerts: runsScheduler && config.alerts.enabled,
   monitors: runsScheduler && config.monitors.enabled,
+  warehouseExports: runsScheduler && config.warehouseExports.enabled,
   retention: runsScheduler && config.retention.enabled,
   backups: runsScheduler && config.backups.enabled
 };
@@ -138,6 +168,7 @@ const retentionPolicy = {
   tracesDays: config.retention.tracesDays,
   spansDays: config.retention.spansDays,
   llmCallsDays: config.retention.llmCallsDays,
+  profilesDays: config.retention.profilesDays,
   breadcrumbsDays: config.retention.breadcrumbsDays,
   deadLetterJobsDays: config.retention.deadLetterJobsDays,
   sourceMapsEnabled: config.sourceMaps.retention.enabled,
@@ -203,6 +234,9 @@ const stopAlerts = runsScheduler && config.alerts.enabled
             }),
           recordAlertEvent: (input) => recordAlertEvent(db, input),
           updateRuleEvaluation: (input) => updateAlertRuleEvaluation(db, input),
+          isErrorGroupSilenced: (input) => isErrorGroupSilenced(db, input),
+          listEscalationsDue: (input) => listAlertEscalationsDue(db, input),
+          markEscalated: (id, escalatedAt) => markAlertEventEscalated(db, id, escalatedAt),
           deliver: (channel, payload) =>
             deliverNotification({
               channel,
@@ -242,6 +276,22 @@ const stopMonitors = runsScheduler && config.monitors.enabled
               nodeEnv: config.nodeEnv
             }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
+        })
+    })
+  : async () => {};
+
+const stopWarehouseExports = runsScheduler && config.warehouseExports.enabled
+  ? startWarehouseExportScheduler({
+      intervalMinutes: config.warehouseExports.intervalMinutes,
+      runOnce: () =>
+        runWarehouseExportOnce({
+          now: () => new Date(),
+          withLock: (run) => withWarehouseExportLock(db, run),
+          listActiveDestinations: () => listActiveWarehouseDestinations(db),
+          selectBatch: (destination, input) => selectWarehouseExportBatch(db, destination, input),
+          writeBatch: (input) => writePostgresWarehouseBatch(input),
+          updateCursor: (input) => updateWarehouseDestinationCursor(db, input),
+          recordRun: (input) => recordWarehouseExportRun(db, input)
         })
     })
   : async () => {};
@@ -346,6 +396,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     [
       { name: "stopHealthSamples", run: () => stopHealthSamples() },
       { name: "stopBackups", run: () => stopBackups() },
+      { name: "stopWarehouseExports", run: () => stopWarehouseExports() },
       { name: "stopMonitors", run: () => stopMonitors() },
       { name: "stopAlerts", run: () => stopAlerts() },
       { name: "stopRetention", run: () => stopRetention() },

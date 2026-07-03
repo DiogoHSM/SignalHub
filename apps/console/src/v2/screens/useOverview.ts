@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { OperationsResponse, OverviewWindow } from "../../api/types";
+import type { OperationsResponse, OverviewWindow, ReleaseSummary } from "../../api/types";
 
 // ---------------------------------------------------------------------------
 // OverviewVM — the view-model the Overview screen consumes
@@ -9,7 +9,7 @@ import type { OperationsResponse, OverviewWindow } from "../../api/types";
 export type BannerVM = {
   incidents: number;
   alerts: number;
-  top: { message: string; severity: string; path?: string } | null;
+  top: { message: string; severity: string; groupId: string; errorId: string | null; path?: string } | null;
 };
 
 export type KpisVM = {
@@ -54,6 +54,9 @@ export type ActivityItemVM = {
   title: string;
   sub: string | null;
   timestamp: string;
+  errorId?: string;
+  groupId?: string;
+  tenantId?: string | null;
 };
 
 export type OverviewVM = {
@@ -61,6 +64,9 @@ export type OverviewVM = {
   kpis: KpisVM;
   topTenants: TenantVM[];
   llmByModel: LlmByModelVM[];
+  releases: ReleaseSummary[];
+  selectedRelease: string | null;
+  selectRelease: (release: string | null) => void;
   activity: ActivityItemVM[];
 };
 
@@ -71,6 +77,7 @@ export type OverviewVM = {
 type UseOverviewOptions = {
   client: Pick<ApiClient, "getOverview" | "listEntityTenants"> & {
     getOperations?: ApiClient["getOperations"];
+    listReleases?: ApiClient["listReleases"];
   };
   projectId: string;
   environmentId: string;
@@ -81,10 +88,13 @@ export type UseOverviewResult = {
   data: OverviewVM | null;
   status: "loading" | "ok" | "error";
   reload: () => void;
+  selectedRelease: string | null;
+  selectRelease: (release: string | null) => void;
 };
 
 const SPARKLINE_BUCKETS = 12;
 const TOP_TENANTS_LIMIT = 5;
+const TOP_RELEASES_LIMIT = 5;
 
 function buildBanner(ops: OperationsResponse | null): BannerVM {
   if (!ops) {
@@ -99,7 +109,7 @@ function buildBanner(ops: OperationsResponse | null): BannerVM {
     incidents,
     alerts,
     top: topIncident
-      ? { message: topIncident.message, severity: topIncident.severity }
+      ? { message: topIncident.message, severity: topIncident.severity, groupId: topIncident.id, errorId: topIncident.latestErrorId }
       : null
   };
 }
@@ -117,6 +127,7 @@ export function useOverview({
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<OverviewVM | null>(null);
   const [tick, setTick] = useState(0);
+  const [selectedRelease, setSelectedRelease] = useState<string | null>(null);
   const genRef = useRef(0);
 
   const reload = useCallback(() => {
@@ -128,20 +139,34 @@ export function useOverview({
     const gen = ++genRef.current;
     setStatus("loading");
 
-    const query = { projectId, environmentId, window: timeWindow };
+    const query = selectedRelease
+      ? { projectId, environmentId, window: timeWindow, release: selectedRelease }
+      : { projectId, environmentId, window: timeWindow };
 
     const opsPromise: Promise<OperationsResponse | null> = client.getOperations
       ? client.getOperations(query).then((r) => r.data)
       : Promise.resolve(null);
+    const releasesPromise = client.listReleases
+      ? client
+          .listReleases({ projectId, environmentId, window: timeWindow, limit: TOP_RELEASES_LIMIT })
+          .then((r) => r.data)
+      : Promise.resolve({
+          window: timeWindow,
+          generatedAt: "",
+          scope: { projectId, environmentId },
+          range: { from: "", to: "" },
+          releases: []
+        });
 
     Promise.all([
       client.getOverview(query).then((r) => r.data),
       opsPromise,
       client
         .listEntityTenants({ ...query, limit: TOP_TENANTS_LIMIT })
-        .then((r) => r.data)
+        .then((r) => r.data),
+      releasesPromise
     ])
-      .then(([overview, ops, tenantList]) => {
+      .then(([overview, ops, tenantList, releaseList]) => {
         if (gen !== genRef.current) return;
 
         // banner
@@ -203,7 +228,10 @@ export function useOverview({
             kind: "error" as const,
             title: e.message,
             sub: e.type,
-            timestamp: e.timestamp
+            timestamp: e.timestamp,
+            errorId: e.id,
+            groupId: e.errorGroupId ?? undefined,
+            tenantId: e.tenantId
           })),
           ...overview.recent.failedTraces.map((t) => ({
             kind: "trace" as const,
@@ -219,7 +247,16 @@ export function useOverview({
           }))
         ].sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
 
-        setData({ banner, kpis: kpisVM, topTenants, llmByModel, activity });
+        setData({
+          banner,
+          kpis: kpisVM,
+          topTenants,
+          llmByModel,
+          releases: releaseList.releases,
+          selectedRelease,
+          selectRelease: setSelectedRelease,
+          activity
+        });
         setStatus("ok");
       })
       .catch((err) => {
@@ -233,7 +270,7 @@ export function useOverview({
       ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, environmentId, timeWindow, tick]);
+  }, [projectId, environmentId, timeWindow, selectedRelease, tick]);
 
-  return { data, status, reload };
+  return { data, status, reload, selectedRelease, selectRelease: setSelectedRelease };
 }

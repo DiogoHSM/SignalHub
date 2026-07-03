@@ -20,9 +20,13 @@ import {
   insertError,
   insertEvent,
   insertBreadcrumb,
+  insertClickEvent,
   insertLlmCall,
+  insertProfile,
+  insertSessionReplay,
   insertSpan,
-  insertTrace
+  insertTrace,
+  insertWebVital
 } from "@sigmon/db/repositories/telemetry-writes.js";
 import { createTelemetryQueue, enqueueTelemetryJob } from "@sigmon/queues";
 
@@ -39,6 +43,10 @@ function telemetryWriter(db: Db): TelemetryWriter {
     insertLlmCall: (input) => insertLlmCall(db, input),
     insertTrace: (input) => insertTrace(db, input),
     insertSpan: (input) => insertSpan(db, input),
+    insertWebVital: (input) => insertWebVital(db, input),
+    insertClickEvent: (input) => insertClickEvent(db, input),
+    insertSessionReplay: (input) => insertSessionReplay(db, input),
+    insertProfile: (input) => insertProfile(db, input),
     insertBreadcrumb: (input) => insertBreadcrumb(db, input)
   };
 }
@@ -168,7 +176,10 @@ describe("telemetry core e2e", () => {
         }
       });
       expect(archivedResponse.statusCode).toBe(401);
-      expect(archivedResponse.json()).toEqual({ error: "invalid_api_key" });
+      expect(archivedResponse.json()).toMatchObject({
+        error: "invalid_api_key",
+        hint: expect.any(String)
+      });
 
       const eventPayload = {
         timestamp: "2026-05-02T12:00:00.000Z",
@@ -251,6 +262,14 @@ describe("telemetry core e2e", () => {
         output: { credit_card: "4111111111111111" },
         error: { cookie: "session=secret" }
       });
+      const webVitalId = await ingest("/v1/web-vitals", {
+        ...eventPayload,
+        name: "LCP",
+        value: 1820.5,
+        rating: "good",
+        route: "/checkout",
+        navigation_type: "navigate"
+      });
       const breadcrumbId = await ingest("/v1/breadcrumbs", {
         ...eventPayload,
         type: "custom",
@@ -271,7 +290,7 @@ describe("telemetry core e2e", () => {
       );
 
       const remainingJobs = await queue.getWaiting();
-      expect(remainingJobs).toHaveLength(6);
+      expect(remainingJobs).toHaveLength(7);
       for (const job of remainingJobs) {
         await processTelemetryJob(job.data, telemetryWriter(db));
         await processTelemetryJob(job.data, telemetryWriter(db));
@@ -335,6 +354,7 @@ describe("telemetry core e2e", () => {
       await expect(db.selectFrom("llm_calls").select(["id"]).where("id", "=", llmId).execute()).resolves.toHaveLength(1);
       await expect(db.selectFrom("traces").select(["id"]).where("id", "=", traceId).execute()).resolves.toHaveLength(1);
       await expect(db.selectFrom("spans").select(["id"]).where("id", "=", spanId).execute()).resolves.toHaveLength(1);
+      await expect(db.selectFrom("web_vitals").select(["id"]).where("id", "=", webVitalId).execute()).resolves.toHaveLength(1);
       await expect(db.selectFrom("breadcrumbs").select(["id"]).where("id", "=", breadcrumbId).execute()).resolves.toHaveLength(1);
 
       const errorRow = await db
@@ -389,6 +409,23 @@ describe("telemetry core e2e", () => {
         input: { cpf: "[REDACTED]" },
         output: { credit_card: "[REDACTED]" },
         error: { cookie: "[REDACTED]" }
+      });
+
+      const webVitalRow = await db
+        .selectFrom("web_vitals")
+        .select(["project_id", "environment_id", "name", "route", "navigation_type", "metadata"])
+        .where("id", "=", webVitalId)
+        .executeTakeFirstOrThrow();
+      expect(webVitalRow).toMatchObject({
+        project_id: project.id,
+        environment_id: environment.id,
+        name: "LCP",
+        route: "/checkout",
+        navigation_type: "navigate",
+        metadata: {
+          authorization: "[REDACTED]",
+          region: "us-east-1"
+        }
       });
 
       const breadcrumbRow = await db

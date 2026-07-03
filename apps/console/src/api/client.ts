@@ -1,8 +1,19 @@
 import type {
   AddTriageNoteInput,
   AggregateResponse,
+  AnalyticsDashboard,
+  AnalyticsSegment,
+  AnalyticsSegmentPreview,
+  ApmEndpointsResponse,
+  ApmQuery,
   ApiKey,
+  AddBetaProgramParticipantInput,
+  BetaProgram,
+  BetaProgramAdoption,
+  BetaProgramParticipant,
   BrowserOrigin,
+  CodeIntegration,
+  CodeIntegrationProvider,
   AlertEventListQuery,
   AlertEventResponse,
   AlertRuleListQuery,
@@ -10,25 +21,62 @@ import type {
   AlertSuggestionResponse,
   ConsoleConfig,
   CreateAlertRuleInput,
+  CreateAnalyticsDashboardInput,
+  CreateAnalyticsSegmentInput,
+  CreateBetaProgramInput,
+  CreateExperimentInput,
+  CreateFeatureFlagInput,
+  CreateMessageCampaignInput,
+  CreateSurveyInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
+  CreateWarehouseDestinationInput,
   CreatedApiKey,
   CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
+  DashboardReportResponse,
+  DataGovernancePolicy,
   Environment,
+  Experiment,
+  ExperimentResultsQuery,
+  ExperimentResultsResponse,
+  FeatureFlag,
+  FeatureFlagAudit,
+  FeatureFlagEvaluation,
+  FeedbackItem,
+  FeedbackListQuery,
+  FeedbackStatus,
+  FeedbackWidgetSettings,
   ErrorGroupIncident,
   ErrorGroupIncidentQuery,
   ErrorGroupQuery,
   ErrorGroupRecord,
   IncidentMttrQuery,
   IncidentMttrResult,
+  IncidentExternalLink,
+  IncidentIssueDraft,
+  IncidentReplay,
   ErrorRecord,
+  EventClickMapQuery,
+  EventClickMapResponse,
+  EventFunnelQuery,
+  EventFunnelResponse,
+  EventPathsQuery,
+  EventPathsResponse,
+  EventPropertyCatalogResponse,
   EventRecord,
+  EventRetentionQuery,
+  EventRetentionResponse,
   LlmAggregates,
   LlmCallRecord,
+  MessageCampaign,
+  MessageCampaignResultsQuery,
+  MessageCampaignResultsResponse,
   MonitorCheckResponse,
   MonitorListQuery,
   MonitorResponse,
+  NpsResultsQuery,
+  NpsResultsResponse,
   NotificationChannelResponse,
   OverviewQuery,
   OverviewResponse,
@@ -37,14 +85,25 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  RecentActivityQuery,
+  RecentActivityResponse,
+  ReleaseListQuery,
+  ReleaseListResponse,
+  RuntimeProfilesResponse,
   SessionTimelineQuery,
   SessionTimelineResponse,
+  SessionReplaySample,
+  SessionReplaySampleQuery,
   SilenceIncidentInput,
+  ServiceMapResponse,
   SourceMapArtifact,
   SourceMapArtifactQuery,
   SourceMapResolution,
   SourceMapUploadToken,
   SpanRecord,
+  Survey,
+  SurveyResultsQuery,
+  SurveyResultsResponse,
   SystemActionResponse,
   SystemHealthResponse,
   SystemHealthSampleResponse,
@@ -54,15 +113,28 @@ import type {
   TenantListResponse,
   TraceRecord,
   TriageNoteRecord,
+  UpdateAlertEventTriageInput,
   User,
   UserDetailQuery,
   UserDetailResponse,
   UserListQuery,
   UserListResponse,
   UpdateAlertRuleInput,
+  UpdateAnalyticsDashboardInput,
+  UpdateAnalyticsSegmentInput,
+  UpdateBetaProgramInput,
+  UpdateExperimentInput,
+  UpdateFeatureFlagInput,
+  UpdateFeedbackWidgetSettingsInput,
+  UpdateMessageCampaignInput,
+  UpdateSurveyInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput,
+  UpdateWarehouseDestinationInput,
+  WarehouseDestination,
+  WarehouseExportRun,
+  WebVitalsResponse,
   LlmAggregateQuery,
   LlmSummary,
   LlmTenantRow,
@@ -145,6 +217,7 @@ export type AlertApiClient = {
   archiveAlertRule: (id: string) => Promise<void>;
   listAlertEvents: (query: AlertEventListQuery) => Promise<QueryListResponse<AlertEventResponse>>;
   getAlertEvent: (id: string) => Promise<AggregateResponse<AlertEventResponse>>;
+  updateAlertEventTriage: (id: string, input: UpdateAlertEventTriageInput) => Promise<AggregateResponse<AlertEventResponse>>;
 };
 
 export type AlertSuggestionApiClient = {
@@ -177,6 +250,23 @@ export type ErrorGroupApiClient = {
   updateErrorGroupTriage: (id: string, input: UpdateErrorGroupTriageInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
   addTriageNote: (id: string, input: AddTriageNoteInput) => Promise<AggregateResponse<TriageNoteRecord>>;
   silenceIncident: (id: string, input: SilenceIncidentInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
+  linkIncidentExternalIssue?: (
+    id: string,
+    query: Pick<ErrorGroupIncidentQuery, "projectId" | "environmentId">,
+    input: {
+      integrationId?: string | null;
+      provider: CodeIntegrationProvider;
+      externalKey: string;
+      title: string;
+      url: string;
+      state?: string;
+    }
+  ) => Promise<{ link: IncidentExternalLink }>;
+  createIncidentIssueDraft?: (
+    id: string,
+    query: Pick<ErrorGroupIncidentQuery, "projectId" | "environmentId">,
+    input: { integrationId: string; incidentUrl?: string }
+  ) => Promise<{ draft: IncidentIssueDraft }>;
 };
 
 export type SourceMapUploadInput = Pick<SourceMapArtifactQuery, "projectId" | "environmentId"> & {
@@ -220,6 +310,11 @@ export type SourceMapApiClient = {
 
 export type SessionTimelineApiClient = {
   getSessionTimeline: (sessionId: string, query: SessionTimelineQuery) => Promise<AggregateResponse<SessionTimelineResponse>>;
+  getSessionReplayDetail?: (
+    replayId: string,
+    query: Pick<SessionTimelineQuery, "projectId" | "environmentId">
+  ) => Promise<AggregateResponse<IncidentReplay>>;
+  listSessionReplays?: (query: SessionReplaySampleQuery) => Promise<QueryListResponse<SessionReplaySample>>;
 };
 
 export type ApiClient = {
@@ -235,6 +330,98 @@ export type ApiClient = {
   createEnvironment: (projectId: string, input: { name: string }) => Promise<{ environment: Environment }>;
   updateEnvironment: (id: string, input: { name?: string }) => Promise<{ environment: Environment }>;
   archiveEnvironment: (id: string) => Promise<void>;
+  listAnalyticsSegments?: (query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId">) => Promise<{ segments: AnalyticsSegment[] }>;
+  createAnalyticsSegment?: (input: CreateAnalyticsSegmentInput) => Promise<{ segment: AnalyticsSegment }>;
+  updateAnalyticsSegment?: (id: string, input: UpdateAnalyticsSegmentInput) => Promise<{ segment: AnalyticsSegment }>;
+  archiveAnalyticsSegment?: (id: string) => Promise<void>;
+  previewAnalyticsSegment?: (
+    id: string,
+    query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId"> & { limit?: number }
+  ) => Promise<{ preview: AnalyticsSegmentPreview }>;
+  listAnalyticsDashboards?: (query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">) => Promise<{ dashboards: AnalyticsDashboard[] }>;
+  createAnalyticsDashboard?: (input: CreateAnalyticsDashboardInput) => Promise<{ dashboard: AnalyticsDashboard }>;
+  updateAnalyticsDashboard?: (
+    id: string,
+    query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">,
+    input: UpdateAnalyticsDashboardInput
+  ) => Promise<{ dashboard: AnalyticsDashboard }>;
+  archiveAnalyticsDashboard?: (id: string, query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">) => Promise<void>;
+  getDashboardReport?: (
+    id: string,
+    query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+  ) => Promise<AggregateResponse<DashboardReportResponse>>;
+  listExperiments?: (query: Pick<CreateExperimentInput, "projectId" | "environmentId">) => Promise<{ experiments: Experiment[] }>;
+  createExperiment?: (input: CreateExperimentInput) => Promise<{ experiment: Experiment }>;
+  updateExperiment?: (
+    id: string,
+    query: Pick<CreateExperimentInput, "projectId" | "environmentId">,
+    input: UpdateExperimentInput
+  ) => Promise<{ experiment: Experiment }>;
+  archiveExperiment?: (id: string, query: Pick<CreateExperimentInput, "projectId" | "environmentId">) => Promise<void>;
+  getExperimentResults?: (query: ExperimentResultsQuery) => Promise<AggregateResponse<ExperimentResultsResponse>>;
+  listSurveys?: (query: Pick<CreateSurveyInput, "projectId" | "environmentId">) => Promise<{ surveys: Survey[] }>;
+  createSurvey?: (input: CreateSurveyInput) => Promise<{ survey: Survey }>;
+  updateSurvey?: (
+    id: string,
+    query: Pick<CreateSurveyInput, "projectId" | "environmentId">,
+    input: UpdateSurveyInput
+  ) => Promise<{ survey: Survey }>;
+  archiveSurvey?: (id: string, query: Pick<CreateSurveyInput, "projectId" | "environmentId">) => Promise<void>;
+  getSurveyResults?: (query: SurveyResultsQuery) => Promise<AggregateResponse<SurveyResultsResponse>>;
+  getNpsResults?: (query: NpsResultsQuery) => Promise<AggregateResponse<NpsResultsResponse>>;
+  listMessageCampaigns?: (query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">) => Promise<{ campaigns: MessageCampaign[] }>;
+  createMessageCampaign?: (input: CreateMessageCampaignInput) => Promise<{ campaign: MessageCampaign }>;
+  updateMessageCampaign?: (
+    id: string,
+    query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">,
+    input: UpdateMessageCampaignInput
+  ) => Promise<{ campaign: MessageCampaign }>;
+  archiveMessageCampaign?: (id: string, query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">) => Promise<void>;
+  getMessageCampaignResults?: (query: MessageCampaignResultsQuery) => Promise<AggregateResponse<MessageCampaignResultsResponse>>;
+  getFeedbackWidgetSettings?: (query: Pick<UpdateFeedbackWidgetSettingsInput, "projectId" | "environmentId">) => Promise<{ settings: FeedbackWidgetSettings }>;
+  updateFeedbackWidgetSettings?: (input: UpdateFeedbackWidgetSettingsInput) => Promise<{ settings: FeedbackWidgetSettings }>;
+  listFeedbackItems?: (query: FeedbackListQuery) => Promise<{ feedback: FeedbackItem[] }>;
+  updateFeedbackStatus?: (
+    id: string,
+    query: Pick<FeedbackListQuery, "projectId" | "environmentId">,
+    status: FeedbackStatus
+  ) => Promise<{ feedback: FeedbackItem }>;
+  listFeatureFlags?: (query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<{ flags: FeatureFlag[] }>;
+  createFeatureFlag?: (input: CreateFeatureFlagInput) => Promise<{ flag: FeatureFlag }>;
+  updateFeatureFlag?: (
+    id: string,
+    query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">,
+    input: UpdateFeatureFlagInput
+  ) => Promise<{ flag: FeatureFlag }>;
+  archiveFeatureFlag?: (id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<void>;
+  listFeatureFlagAudit?: (id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<{ audit: FeatureFlagAudit[] }>;
+  evaluateFeatureFlag?: (
+    id: string,
+    query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">,
+    input: { fallbackVariant?: string; subject?: { userId?: string; tenantId?: string; sessionId?: string; traits?: Record<string, string | number | boolean | null> } }
+  ) => Promise<{ evaluation: FeatureFlagEvaluation }>;
+  listBetaPrograms?: (query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">) => Promise<{ programs: BetaProgram[] }>;
+  createBetaProgram?: (input: CreateBetaProgramInput) => Promise<{ program: BetaProgram }>;
+  updateBetaProgram?: (
+    id: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">,
+    input: UpdateBetaProgramInput
+  ) => Promise<{ program: BetaProgram }>;
+  archiveBetaProgram?: (id: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">) => Promise<void>;
+  listBetaProgramParticipants?: (
+    id: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">
+  ) => Promise<{ participants: BetaProgramParticipant[] }>;
+  addBetaProgramParticipant?: (id: string, input: AddBetaProgramParticipantInput) => Promise<{ participant: BetaProgramParticipant }>;
+  removeBetaProgramParticipant?: (
+    id: string,
+    participantId: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">
+  ) => Promise<void>;
+  getBetaProgramAdoption?: (
+    id: string,
+    query: Pick<CreateBetaProgramInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+  ) => Promise<{ adoption: BetaProgramAdoption }>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
   createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
@@ -242,6 +429,25 @@ export type ApiClient = {
   listBrowserOrigins?: (projectId: string) => Promise<{ origins: BrowserOrigin[] }>;
   createBrowserOrigin?: (projectId: string, input: { origin: string }) => Promise<{ origin: BrowserOrigin }>;
   archiveBrowserOrigin?: (id: string) => Promise<void>;
+  listCodeIntegrations?: (projectId: string) => Promise<{ integrations: CodeIntegration[] }>;
+  createCodeIntegration?: (
+    projectId: string,
+    input: { provider: CodeIntegrationProvider; name: string; owner: string; repo: string }
+  ) => Promise<{ integration: CodeIntegration }>;
+  revokeCodeIntegration?: (projectId: string, id: string) => Promise<void>;
+  upsertReleaseMetadata?: (
+    projectId: string,
+    input: {
+      environmentId: string;
+      release: string;
+      integrationId?: string | null;
+      commitSha?: string | null;
+      commitUrl?: string | null;
+      pullRequestNumber?: number | null;
+      pullRequestUrl?: string | null;
+      deployedBy?: string | null;
+    }
+  ) => Promise<{ metadata: unknown }>;
   listEvents: (filters: QueryFilters) => Promise<QueryListResponse<EventRecord>>;
   listErrors: (filters: QueryFilters) => Promise<QueryListResponse<ErrorRecord>>;
   listTraces: (filters: QueryFilters) => Promise<QueryListResponse<TraceRecord>>;
@@ -250,8 +456,24 @@ export type ApiClient = {
   getLlmAggregates: (filters: QueryFilters) => Promise<AggregateResponse<LlmAggregates>>;
   getEventAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
   getErrorAggregates: (filters: QueryFilters) => Promise<AggregateResponse<unknown>>;
+  getSessionReplayDetail?: (
+    replayId: string,
+    query: Pick<SessionTimelineQuery, "projectId" | "environmentId">
+  ) => Promise<AggregateResponse<IncidentReplay>>;
+  listSessionReplays?: (query: SessionReplaySampleQuery) => Promise<QueryListResponse<SessionReplaySample>>;
   getOverview: (query: OverviewQuery) => Promise<AggregateResponse<OverviewResponse>>;
+  getRecentActivity?: (query: RecentActivityQuery) => Promise<AggregateResponse<RecentActivityResponse>>;
+  listReleases?: (query: ReleaseListQuery) => Promise<AggregateResponse<ReleaseListResponse>>;
   getOperations?: (query: OperationsQuery) => Promise<AggregateResponse<OperationsResponse>>;
+  getEventPropertyCatalog?: (query: ApmQuery) => Promise<AggregateResponse<EventPropertyCatalogResponse>>;
+  getEventClickMap?: (query: EventClickMapQuery) => Promise<AggregateResponse<EventClickMapResponse>>;
+  getEventFunnel?: (query: EventFunnelQuery) => Promise<AggregateResponse<EventFunnelResponse>>;
+  getEventPaths?: (query: EventPathsQuery) => Promise<AggregateResponse<EventPathsResponse>>;
+  getEventRetention?: (query: EventRetentionQuery) => Promise<AggregateResponse<EventRetentionResponse>>;
+  getApmEndpoints?: (query: ApmQuery) => Promise<AggregateResponse<ApmEndpointsResponse>>;
+  getServiceMap?: (query: ApmQuery) => Promise<AggregateResponse<ServiceMapResponse>>;
+  getWebVitals?: (query: ApmQuery) => Promise<AggregateResponse<WebVitalsResponse>>;
+  getRuntimeProfiles?: (query: ApmQuery) => Promise<AggregateResponse<RuntimeProfilesResponse>>;
   getIncidentMttr?: (query: IncidentMttrQuery) => Promise<AggregateResponse<IncidentMttrResult>>;
   getLlmSummary?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmSummary>>;
   getLlmByTenant?: (query: LlmAggregateQuery) => Promise<AggregateResponse<LlmTenantRow[]>>;
@@ -271,6 +493,25 @@ export type ApiClient = {
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
   fetchFleet: () => Promise<FleetResponse>;
+  getDataGovernancePolicy?: (query: { projectId: string; environmentId: string }) => Promise<{ policy: DataGovernancePolicy }>;
+  updateDataGovernancePolicy?: (input: {
+    projectId: string;
+    environmentId: string;
+    retentionPolicy: DataGovernancePolicy["retentionPolicy"];
+    propertyRules: DataGovernancePolicy["propertyRules"];
+  }) => Promise<{ policy: DataGovernancePolicy }>;
+  listWarehouseDestinations?: (query: { projectId: string; environmentId: string }) => Promise<{ destinations: WarehouseDestination[] }>;
+  createWarehouseDestination?: (input: CreateWarehouseDestinationInput) => Promise<{ destination: WarehouseDestination }>;
+  updateWarehouseDestination?: (id: string, input: UpdateWarehouseDestinationInput) => Promise<{ destination: WarehouseDestination }>;
+  archiveWarehouseDestination?: (id: string, query: { projectId: string; environmentId: string }) => Promise<void>;
+  listWarehouseExportRuns?: (
+    id: string,
+    query: { projectId: string; environmentId: string; limit?: number }
+  ) => Promise<{ runs: WarehouseExportRun[] }>;
+  runWarehouseExport?: (
+    id: string,
+    input: { projectId: string; environmentId: string }
+  ) => Promise<{ result: { ran: boolean; skipped: boolean; exported: number; failed: number } }>;
 } & AlertApiClient &
   ErrorGroupApiClient &
   SessionTimelineApiClient &
@@ -279,7 +520,7 @@ export type ApiClient = {
   Partial<AlertSuggestionApiClient>;
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
 };
 
@@ -378,7 +619,13 @@ function encodePathSegment(value: string): string {
 function queryPath(
   route: string,
   filters: QueryFilters,
-  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeLimit?: boolean } = {}
+  options: {
+    includeEventName?: boolean;
+    includeErrorFilters?: boolean;
+    includeLlmFilters?: boolean;
+    includeTraceFilters?: boolean;
+    includeLimit?: boolean;
+  } = {}
 ): string {
   const params = new URLSearchParams();
   params.set("project_id", filters.projectId);
@@ -388,7 +635,13 @@ function queryPath(
   if (filters.userId) params.set("user_id", filters.userId);
   if (filters.sessionId) params.set("session_id", filters.sessionId);
   if (filters.traceId) params.set("trace_id", filters.traceId);
+  if (options.includeTraceFilters) {
+    if (filters.traceName) params.set("trace_name", filters.traceName);
+    if (filters.status) params.set("status", filters.status);
+  }
   if (options.includeEventName && filters.eventName) params.set("event_name", filters.eventName);
+  if (options.includeEventName && filters.eventId) params.set("event_id", filters.eventId);
+  if (options.includeEventName && filters.segmentId) params.set("segment_id", filters.segmentId);
   if (options.includeErrorFilters) {
     if (filters.severity) params.set("severity", filters.severity);
     if (filters.status) params.set("status", filters.status);
@@ -452,6 +705,14 @@ function silenceIncidentPath(id: string, scope: Pick<ErrorGroupQuery, "projectId
   return `/query/incidents/error-groups/${encodePathSegment(id)}/silence?${errorGroupScopeParams(scope).toString()}`;
 }
 
+function incidentExternalIssuesPath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
+  return `/query/incidents/error-groups/${encodePathSegment(id)}/external-issues?${errorGroupScopeParams(scope).toString()}`;
+}
+
+function incidentExternalIssueDraftPath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
+  return `/query/incidents/error-groups/${encodePathSegment(id)}/external-issues/draft?${errorGroupScopeParams(scope).toString()}`;
+}
+
 function sourceMapScopeParams(query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): URLSearchParams {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -511,8 +772,30 @@ function overviewPath(query: OverviewQuery): string {
   params.set("project_id", query.projectId);
   params.set("environment_id", query.environmentId);
   params.set("window", query.window);
+  if (query.release) params.set("release", query.release);
 
   return `/query/overview?${params.toString()}`;
+}
+
+function recentActivityPath(query: RecentActivityQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.release) params.set("release", query.release);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/recent-activity?${params.toString()}`;
+}
+
+function releaseListPath(query: ReleaseListQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/releases?${params.toString()}`;
 }
 
 function operationsPath(query: OperationsQuery): string {
@@ -522,6 +805,362 @@ function operationsPath(query: OperationsQuery): string {
   params.set("window", query.window);
 
   return `/query/operations?${params.toString()}`;
+}
+
+function apmEndpointsPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/apm/endpoints?${params.toString()}`;
+}
+
+function eventPropertyCatalogPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/events/properties?${params.toString()}`;
+}
+
+function eventClickMapPath(query: EventClickMapQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  params.set("route", query.route);
+  if (query.selector) params.set("selector", query.selector);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.sessionId) params.set("session_id", query.sessionId);
+  if (query.gridSize !== undefined) params.set("grid_size", String(query.gridSize));
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/events/click-map?${params.toString()}`;
+}
+
+function eventFunnelPath(query: EventFunnelQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  params.set("steps", query.steps.join(","));
+
+  return `/query/events/funnel?${params.toString()}`;
+}
+
+function eventPathsPath(query: EventPathsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.startEvent) params.set("start_event", query.startEvent);
+  if (query.endEvent) params.set("end_event", query.endEvent);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.sessionId) params.set("session_id", query.sessionId);
+  if (query.traceId) params.set("trace_id", query.traceId);
+  if (query.segmentId) params.set("segment_id", query.segmentId);
+  if (query.actorType) params.set("actor", query.actorType);
+  if (query.from) params.set("from", query.from instanceof Date ? query.from.toISOString() : query.from);
+  if (query.to) params.set("to", query.to instanceof Date ? query.to.toISOString() : query.to);
+  if (query.pathLength !== undefined) params.set("max_depth", String(query.pathLength));
+
+  return `/query/events/paths?${params.toString()}`;
+}
+
+function eventRetentionPath(query: EventRetentionQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  params.set("entry_event", query.entryEvent);
+  params.set("return_event", query.returnEvent);
+  if (query.period !== undefined) params.set("period", query.period);
+  if (query.intervals !== undefined) params.set("intervals", String(query.intervals));
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/events/retention?${params.toString()}`;
+}
+
+function analyticsSegmentsPath(query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/analytics-segments?${params.toString()}`;
+}
+
+function analyticsSegmentPreviewPath(
+  id: string,
+  query: Pick<CreateAnalyticsSegmentInput, "projectId" | "environmentId"> & { limit?: number }
+): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/admin/analytics-segments/${encodePathSegment(id)}/preview?${params.toString()}`;
+}
+
+function analyticsDashboardsPath(query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/analytics-dashboards?${params.toString()}`;
+}
+
+function analyticsDashboardScopedPath(id: string, query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/analytics-dashboards/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function dashboardReportPath(
+  id: string,
+  query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.window) params.set("window", query.window);
+
+  return `/query/reports/dashboards/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function experimentsPath(query: Pick<CreateExperimentInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/experiments?${params.toString()}`;
+}
+
+function experimentScopedPath(id: string, query: Pick<CreateExperimentInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/experiments/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function experimentResultsPath(query: ExperimentResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/experiments/${encodePathSegment(query.experimentId)}/results?${params.toString()}`;
+}
+
+function surveysPath(query: Pick<CreateSurveyInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/surveys?${params.toString()}`;
+}
+
+function surveyScopedPath(id: string, query: Pick<CreateSurveyInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/surveys/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function surveyResultsPath(query: SurveyResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/surveys/${encodePathSegment(query.surveyId)}/results?${params.toString()}`;
+}
+
+function messageCampaignsPath(query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/message-campaigns?${params.toString()}`;
+}
+
+function messageCampaignScopedPath(id: string, query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/message-campaigns/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function messageCampaignResultsPath(query: MessageCampaignResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/message-campaigns/${encodePathSegment(query.campaignId)}/results?${params.toString()}`;
+}
+
+function npsResultsPath(query: NpsResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.questionId) params.set("question_id", query.questionId);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.release) params.set("release", query.release);
+  if (query.plan) params.set("plan", query.plan);
+
+  return `/query/surveys/${encodePathSegment(query.surveyId)}/nps?${params.toString()}`;
+}
+
+function feedbackWidgetPath(query: Pick<UpdateFeedbackWidgetSettingsInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feedback-widget?${params.toString()}`;
+}
+
+function feedbackItemsPath(query: FeedbackListQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.status) params.set("status", query.status);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/feedback?${params.toString()}`;
+}
+
+function feedbackItemPath(id: string, query: Pick<FeedbackListQuery, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/query/feedback/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function featureFlagsPath(query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags?${params.toString()}`;
+}
+
+function featureFlagScopedPath(id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function featureFlagAuditPath(id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags/${encodePathSegment(id)}/audit?${params.toString()}`;
+}
+
+function featureFlagEvaluatePath(id: string, query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feature-flags/${encodePathSegment(id)}/evaluate?${params.toString()}`;
+}
+
+function betaProgramsPath(query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs?${params.toString()}`;
+}
+
+function betaProgramScopedPath(id: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function betaProgramParticipantsPath(id: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}/participants?${params.toString()}`;
+}
+
+function betaProgramParticipantPath(id: string, participantId: string, query: Pick<CreateBetaProgramInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}/participants/${encodePathSegment(participantId)}?${params.toString()}`;
+}
+
+function betaProgramAdoptionPath(
+  id: string,
+  query: Pick<CreateBetaProgramInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
+): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.window) params.set("window", query.window);
+
+  return `/admin/beta-programs/${encodePathSegment(id)}/adoption?${params.toString()}`;
+}
+
+function serviceMapPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/apm/service-map?${params.toString()}`;
+}
+
+function webVitalsPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/apm/web-vitals?${params.toString()}`;
+}
+
+function runtimeProfilesPath(query: ApmQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/apm/profiles?${params.toString()}`;
 }
 
 function incidentMttrPath(query: IncidentMttrQuery): string {
@@ -608,6 +1247,14 @@ function sessionTimelinePath(sessionId: string, query: SessionTimelineQuery): st
   return `/query/sessions/${encodePathSegment(sessionId)}/timeline?${params.toString()}`;
 }
 
+function sessionReplayPath(replayId: string, query: Pick<SessionTimelineQuery, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/query/replays/${encodePathSegment(replayId)}?${params.toString()}`;
+}
+
 function alertRuleListPath(query: AlertRuleListQuery = {}): string {
   const params = new URLSearchParams();
   if (query.projectId) params.set("project_id", query.projectId);
@@ -685,6 +1332,124 @@ export function createApiClient(
       }),
     archiveEnvironment: (id) =>
       request<void>(path(apiBasePath, `/admin/environments/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listAnalyticsSegments: (query) =>
+      request<{ segments: AnalyticsSegment[] }>(path(apiBasePath, analyticsSegmentsPath(query))),
+    createAnalyticsSegment: (input) =>
+      request<{ segment: AnalyticsSegment }>(path(apiBasePath, "/admin/analytics-segments"), { method: "POST", body: input }),
+    updateAnalyticsSegment: (id, input) =>
+      request<{ segment: AnalyticsSegment }>(path(apiBasePath, `/admin/analytics-segments/${encodePathSegment(id)}`), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveAnalyticsSegment: (id) =>
+      request<void>(path(apiBasePath, `/admin/analytics-segments/${encodePathSegment(id)}`), { method: "DELETE" }),
+    previewAnalyticsSegment: (id, query) =>
+      request<{ preview: AnalyticsSegmentPreview }>(path(apiBasePath, analyticsSegmentPreviewPath(id, query))),
+    listAnalyticsDashboards: (query) =>
+      request<{ dashboards: AnalyticsDashboard[] }>(path(apiBasePath, analyticsDashboardsPath(query))),
+    createAnalyticsDashboard: (input) =>
+      request<{ dashboard: AnalyticsDashboard }>(path(apiBasePath, "/admin/analytics-dashboards"), { method: "POST", body: input }),
+    updateAnalyticsDashboard: (id, query, input) =>
+      request<{ dashboard: AnalyticsDashboard }>(path(apiBasePath, analyticsDashboardScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveAnalyticsDashboard: (id, query) =>
+      request<void>(path(apiBasePath, analyticsDashboardScopedPath(id, query)), { method: "DELETE" }),
+    getDashboardReport: (id, query) =>
+      request<AggregateResponse<DashboardReportResponse>>(path(apiBasePath, dashboardReportPath(id, query))),
+    listExperiments: (query) =>
+      request<{ experiments: Experiment[] }>(path(apiBasePath, experimentsPath(query))),
+    createExperiment: (input) =>
+      request<{ experiment: Experiment }>(path(apiBasePath, "/admin/experiments"), { method: "POST", body: input }),
+    updateExperiment: (id, query, input) =>
+      request<{ experiment: Experiment }>(path(apiBasePath, experimentScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveExperiment: (id, query) =>
+      request<void>(path(apiBasePath, experimentScopedPath(id, query)), { method: "DELETE" }),
+    getExperimentResults: (query) =>
+      request<AggregateResponse<ExperimentResultsResponse>>(path(apiBasePath, experimentResultsPath(query))),
+    listSurveys: (query) =>
+      request<{ surveys: Survey[] }>(path(apiBasePath, surveysPath(query))),
+    createSurvey: (input) =>
+      request<{ survey: Survey }>(path(apiBasePath, "/admin/surveys"), { method: "POST", body: input }),
+    updateSurvey: (id, query, input) =>
+      request<{ survey: Survey }>(path(apiBasePath, surveyScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveSurvey: (id, query) =>
+      request<void>(path(apiBasePath, surveyScopedPath(id, query)), { method: "DELETE" }),
+    getSurveyResults: (query) =>
+      request<AggregateResponse<SurveyResultsResponse>>(path(apiBasePath, surveyResultsPath(query))),
+    getNpsResults: (query) =>
+      request<AggregateResponse<NpsResultsResponse>>(path(apiBasePath, npsResultsPath(query))),
+    listMessageCampaigns: (query) =>
+      request<{ campaigns: MessageCampaign[] }>(path(apiBasePath, messageCampaignsPath(query))),
+    createMessageCampaign: (input) =>
+      request<{ campaign: MessageCampaign }>(path(apiBasePath, "/admin/message-campaigns"), { method: "POST", body: input }),
+    updateMessageCampaign: (id, query, input) =>
+      request<{ campaign: MessageCampaign }>(path(apiBasePath, messageCampaignScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveMessageCampaign: (id, query) =>
+      request<void>(path(apiBasePath, messageCampaignScopedPath(id, query)), { method: "DELETE" }),
+    getMessageCampaignResults: (query) =>
+      request<AggregateResponse<MessageCampaignResultsResponse>>(path(apiBasePath, messageCampaignResultsPath(query))),
+    getFeedbackWidgetSettings: (query) =>
+      request<{ settings: FeedbackWidgetSettings }>(path(apiBasePath, feedbackWidgetPath(query))),
+    updateFeedbackWidgetSettings: (input) =>
+      request<{ settings: FeedbackWidgetSettings }>(path(apiBasePath, "/admin/feedback-widget"), { method: "PUT", body: input }),
+    listFeedbackItems: (query) =>
+      request<{ feedback: FeedbackItem[] }>(path(apiBasePath, feedbackItemsPath(query))),
+    updateFeedbackStatus: (id, query, status) =>
+      request<{ feedback: FeedbackItem }>(path(apiBasePath, feedbackItemPath(id, query)), {
+        method: "PATCH",
+        body: { status }
+      }),
+    listFeatureFlags: (query) =>
+      request<{ flags: FeatureFlag[] }>(path(apiBasePath, featureFlagsPath(query))),
+    createFeatureFlag: (input) =>
+      request<{ flag: FeatureFlag }>(path(apiBasePath, "/admin/feature-flags"), { method: "POST", body: input }),
+    updateFeatureFlag: (id, query, input) =>
+      request<{ flag: FeatureFlag }>(path(apiBasePath, featureFlagScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveFeatureFlag: (id, query) =>
+      request<void>(path(apiBasePath, featureFlagScopedPath(id, query)), { method: "DELETE" }),
+    listFeatureFlagAudit: (id, query) =>
+      request<{ audit: FeatureFlagAudit[] }>(path(apiBasePath, featureFlagAuditPath(id, query))),
+    evaluateFeatureFlag: (id, query, input) =>
+      request<{ evaluation: FeatureFlagEvaluation }>(path(apiBasePath, featureFlagEvaluatePath(id, query)), {
+        method: "POST",
+        body: input
+      }),
+    listBetaPrograms: (query) =>
+      request<{ programs: BetaProgram[] }>(path(apiBasePath, betaProgramsPath(query))),
+    createBetaProgram: (input) =>
+      request<{ program: BetaProgram }>(path(apiBasePath, "/admin/beta-programs"), { method: "POST", body: input }),
+    updateBetaProgram: (id, query, input) =>
+      request<{ program: BetaProgram }>(path(apiBasePath, betaProgramScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveBetaProgram: (id, query) =>
+      request<void>(path(apiBasePath, betaProgramScopedPath(id, query)), { method: "DELETE" }),
+    listBetaProgramParticipants: (id, query) =>
+      request<{ participants: BetaProgramParticipant[] }>(path(apiBasePath, betaProgramParticipantsPath(id, query))),
+    addBetaProgramParticipant: (id, input) =>
+      request<{ participant: BetaProgramParticipant }>(path(apiBasePath, `/admin/beta-programs/${encodePathSegment(id)}/participants`), {
+        method: "POST",
+        body: input
+      }),
+    removeBetaProgramParticipant: (id, participantId, query) =>
+      request<void>(path(apiBasePath, betaProgramParticipantPath(id, participantId, query)), { method: "DELETE" }),
+    getBetaProgramAdoption: (id, query) =>
+      request<{ adoption: BetaProgramAdoption }>(path(apiBasePath, betaProgramAdoptionPath(id, query))),
     listApiKeys: (projectId) =>
       request<{ apiKeys: ApiKey[] }>(path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/api-keys`)),
     createApiKey: (projectId, input) =>
@@ -707,6 +1472,25 @@ export function createApiClient(
       }),
     archiveBrowserOrigin: (id) =>
       request<void>(path(apiBasePath, `/admin/browser-origins/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listCodeIntegrations: (projectId) =>
+      request<{ integrations: CodeIntegration[] }>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/code-integrations`)
+      ),
+    createCodeIntegration: (projectId, input) =>
+      request<{ integration: CodeIntegration }>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/code-integrations`),
+        { method: "POST", body: input }
+      ),
+    revokeCodeIntegration: (projectId, id) =>
+      request<void>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/code-integrations/${encodePathSegment(id)}`),
+        { method: "DELETE" }
+      ),
+    upsertReleaseMetadata: (projectId, input) =>
+      request<{ metadata: unknown }>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/release-metadata`),
+        { method: "POST", body: input }
+      ),
     listEvents: (filters) =>
       request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters, { includeEventName: true }))),
     listErrors: (filters) =>
@@ -739,6 +1523,16 @@ export function createApiClient(
       request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, silenceIncidentPath(id, input)), {
         method: "POST",
         body: { minutes: input.minutes }
+      }),
+    linkIncidentExternalIssue: (id, query, input) =>
+      request<{ link: IncidentExternalLink }>(path(apiBasePath, incidentExternalIssuesPath(id, query)), {
+        method: "POST",
+        body: input
+      }),
+    createIncidentIssueDraft: (id, query, input) =>
+      request<{ draft: IncidentIssueDraft }>(path(apiBasePath, incidentExternalIssueDraftPath(id, query)), {
+        method: "POST",
+        body: input
       }),
     listSourceMapArtifacts: async (query) => {
       const response = await request<{ artifacts: SourceMapArtifact[] }>(path(apiBasePath, sourceMapArtifactsPath(query)));
@@ -780,7 +1574,8 @@ export function createApiClient(
       );
       return response.data;
     },
-    listTraces: (filters) => request<QueryListResponse<TraceRecord>>(path(apiBasePath, queryPath("/query/traces", filters))),
+    listTraces: (filters) =>
+      request<QueryListResponse<TraceRecord>>(path(apiBasePath, queryPath("/query/traces", filters, { includeTraceFilters: true }))),
     listTraceSpans: (traceId, filters) =>
       request<QueryListResponse<SpanRecord>>(
         path(apiBasePath, queryPath(`/query/traces/${encodePathSegment(traceId)}/spans`, filters))
@@ -797,8 +1592,26 @@ export function createApiClient(
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
     getSessionTimeline: (sessionId, query) =>
       request<AggregateResponse<SessionTimelineResponse>>(path(apiBasePath, sessionTimelinePath(sessionId, query))),
+    getSessionReplayDetail: (replayId, query) =>
+      request<AggregateResponse<IncidentReplay>>(path(apiBasePath, sessionReplayPath(replayId, query))),
+    listSessionReplays: (query) =>
+      request<QueryListResponse<SessionReplaySample>>(path(apiBasePath, queryPath("/query/replays", query, { includeEventName: true }))),
     getOverview: (query) => request<AggregateResponse<OverviewResponse>>(path(apiBasePath, overviewPath(query))),
+    getRecentActivity: (query) => request<AggregateResponse<RecentActivityResponse>>(path(apiBasePath, recentActivityPath(query))),
+    listReleases: (query) => request<AggregateResponse<ReleaseListResponse>>(path(apiBasePath, releaseListPath(query))),
     getOperations: (query) => request<AggregateResponse<OperationsResponse>>(path(apiBasePath, operationsPath(query))),
+    getEventPropertyCatalog: (query) =>
+      request<AggregateResponse<EventPropertyCatalogResponse>>(path(apiBasePath, eventPropertyCatalogPath(query))),
+    getEventClickMap: (query) =>
+      request<AggregateResponse<EventClickMapResponse>>(path(apiBasePath, eventClickMapPath(query))),
+    getEventFunnel: (query) => request<AggregateResponse<EventFunnelResponse>>(path(apiBasePath, eventFunnelPath(query))),
+    getEventPaths: (query) => request<AggregateResponse<EventPathsResponse>>(path(apiBasePath, eventPathsPath(query))),
+    getEventRetention: (query) => request<AggregateResponse<EventRetentionResponse>>(path(apiBasePath, eventRetentionPath(query))),
+    getApmEndpoints: (query) => request<AggregateResponse<ApmEndpointsResponse>>(path(apiBasePath, apmEndpointsPath(query))),
+    getServiceMap: (query) => request<AggregateResponse<ServiceMapResponse>>(path(apiBasePath, serviceMapPath(query))),
+    getWebVitals: (query) => request<AggregateResponse<WebVitalsResponse>>(path(apiBasePath, webVitalsPath(query))),
+    getRuntimeProfiles: (query) =>
+      request<AggregateResponse<RuntimeProfilesResponse>>(path(apiBasePath, runtimeProfilesPath(query))),
     getIncidentMttr: (query) => request<AggregateResponse<IncidentMttrResult>>(path(apiBasePath, incidentMttrPath(query))),
     getLlmSummary: (query) =>
       request<AggregateResponse<LlmSummary>>(path(apiBasePath, llmAggregatePath("summary", query))),
@@ -837,6 +1650,50 @@ export function createApiClient(
     updateUser: (id, input) =>
       request<{ user: User }>(path(apiBasePath, `/admin/users/${encodePathSegment(id)}`), { method: "PATCH", body: input }),
     archiveUser: (id) => request<void>(path(apiBasePath, `/admin/users/${encodePathSegment(id)}`), { method: "DELETE" }),
+    getDataGovernancePolicy: (query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      return request<{ policy: DataGovernancePolicy }>(path(apiBasePath, `/admin/data-governance?${search.toString()}`));
+    },
+    updateDataGovernancePolicy: (input) =>
+      request<{ policy: DataGovernancePolicy }>(path(apiBasePath, "/admin/data-governance"), {
+        method: "PUT",
+        body: input
+      }),
+    listWarehouseDestinations: (query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      return request<{ destinations: WarehouseDestination[] }>(
+        path(apiBasePath, `/admin/warehouse-destinations?${search.toString()}`)
+      );
+    },
+    createWarehouseDestination: (input) =>
+      request<{ destination: WarehouseDestination }>(path(apiBasePath, "/admin/warehouse-destinations"), {
+        method: "POST",
+        body: input
+      }),
+    updateWarehouseDestination: (id, input) =>
+      request<{ destination: WarehouseDestination }>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}`),
+        { method: "PATCH", body: input }
+      ),
+    archiveWarehouseDestination: (id, query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      return request<void>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}?${search.toString()}`),
+        { method: "DELETE" }
+      );
+    },
+    listWarehouseExportRuns: (id, query) => {
+      const search = new URLSearchParams({ project_id: query.projectId, environment_id: query.environmentId });
+      if (query.limit !== undefined) search.set("limit", String(query.limit));
+      return request<{ runs: WarehouseExportRun[] }>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}/runs?${search.toString()}`)
+      );
+    },
+    runWarehouseExport: (id, input) =>
+      request<{ result: { ran: boolean; skipped: boolean; exported: number; failed: number } }>(
+        path(apiBasePath, `/admin/warehouse-destinations/${encodePathSegment(id)}/runs`),
+        { method: "POST", body: input }
+      ),
     listNotificationChannels: () =>
       request<{ channels: NotificationChannelResponse[] }>(path(apiBasePath, "/admin/notification-channels")),
     createNotificationChannel: (input) =>
@@ -882,6 +1739,11 @@ export function createApiClient(
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>
       request<AggregateResponse<AlertEventResponse>>(path(apiBasePath, `/alerts/events/${encodePathSegment(id)}`)),
+    updateAlertEventTriage: (id, input) =>
+      request<AggregateResponse<AlertEventResponse>>(
+        path(apiBasePath, `/alerts/events/${encodePathSegment(id)}/triage`),
+        { method: "PATCH", body: input }
+      ),
     listAlertSuggestions: (query) =>
       request<{ suggestions: AlertSuggestionResponse[] }>(path(apiBasePath, alertSuggestionsPath(query))),
     fetchFleet: () => request<FleetResponse>(path(apiBasePath, "/query/fleet"))

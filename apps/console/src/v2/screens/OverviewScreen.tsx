@@ -3,7 +3,7 @@ import type { NavSection } from "../nav";
 import type { ScreenCtx } from "./registry";
 import { useOverview } from "./useOverview";
 import type { ActivityItemVM, KpisVM, LlmByModelVM, TenantVM } from "./useOverview";
-import type { OverviewWindow } from "../../api/types";
+import type { OverviewWindow, ReleaseSummary } from "../../api/types";
 import {
   Card,
   EmptyHint,
@@ -12,6 +12,7 @@ import {
   Segmented,
   Sparkline,
 } from "../../components/ui/v2";
+import { formatCompactNumber } from "../../components/ui/v2/format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,12 +91,14 @@ function IncidentBanner({
   alerts,
   topMessage,
   topSeverity,
+  onOpenIncident,
   onViewIncidents,
 }: {
   incidents: number;
   alerts: number;
   topMessage: string | null;
   topSeverity: string | null;
+  onOpenIncident?: () => void;
   onViewIncidents: () => void;
 }) {
   const isCritical = topSeverity === "critical";
@@ -134,8 +137,8 @@ function IncidentBanner({
             ) : null}
           </div>
         </div>
-        <button className="sh-btn primary" onClick={onViewIncidents}>
-          View incidents <Icon name="arrow" size={12} />
+        <button className="sh-btn primary" onClick={onOpenIncident ?? onViewIncidents}>
+          {onOpenIncident ? "Open incident" : "View incidents"} <Icon name="arrow" size={12} />
         </button>
       </div>
     </div>
@@ -190,17 +193,11 @@ function AllClearBanner({
 // KPI helpers
 // ---------------------------------------------------------------------------
 
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
 function buildHealthItems(kpis: KpisVM, openIncidents: number): KpiItem[] {
   return [
     {
       label: "Errors (24h)",
-      value: fmtNum(kpis.errors),
+      value: formatCompactNumber(kpis.errors),
       spark: kpis.errorsSparkline.length > 0 ? kpis.errorsSparkline : undefined,
       color: "var(--sev-critical)",
     },
@@ -219,13 +216,13 @@ function buildUsageItems(kpis: KpisVM): KpiItem[] {
   return [
     {
       label: "Events",
-      value: fmtNum(kpis.events),
+      value: formatCompactNumber(kpis.events),
       spark: kpis.usageSparkline.length > 0 ? kpis.usageSparkline : undefined,
       color: "var(--accent)",
     },
     { label: "Active users", value: String(kpis.activeUsers) },
     { label: "Active tenants", value: String(kpis.activeTenants) },
-    { label: "Traces", value: fmtNum(kpis.traces) },
+    { label: "Traces", value: formatCompactNumber(kpis.traces) },
     {
       label: "p95 trace",
       value: kpis.p95TraceDurationMs != null ? `${kpis.p95TraceDurationMs} ms` : "—",
@@ -243,7 +240,7 @@ function buildAiItems(kpis: KpisVM): KpiItem[] {
   return [
     {
       label: "LLM calls",
-      value: fmtNum(kpis.llmCalls),
+      value: formatCompactNumber(kpis.llmCalls),
       spark: kpis.aiCostSparkline.length > 0 ? kpis.aiCostSparkline : undefined,
       color: "var(--sev-violet)",
     },
@@ -264,7 +261,7 @@ function buildAiItems(kpis: KpisVM): KpiItem[] {
 // Top tenants panel
 // ---------------------------------------------------------------------------
 
-function TopTenantsPanel({ tenants, navigate }: { tenants: TenantVM[]; navigate: NavigateFn }) {
+function TopTenantsPanel({ tenants, onOpenTenant }: { tenants: TenantVM[]; onOpenTenant: (tenantId: string) => void }) {
   return (
     <Card
       title="Top tenants — activity"
@@ -300,7 +297,7 @@ function TopTenantsPanel({ tenants, navigate }: { tenants: TenantVM[]; navigate:
                 border: "none",
                 borderBottom: "1px solid var(--border-subtle)",
               }}
-              onClick={() => navigate("investigate")}
+              onClick={() => onOpenTenant(t.id)}
             >
               <span className="sh-muted sh-mono">{String(i + 1).padStart(2, "0")}</span>
               <div>
@@ -396,6 +393,96 @@ function LlmByModelPanel({ models, window: timeWindow }: { models: LlmByModelVM[
 }
 
 // ---------------------------------------------------------------------------
+// Releases panel
+// ---------------------------------------------------------------------------
+
+function ReleasesPanel({
+  releases,
+  selectedRelease,
+  onSelectRelease,
+}: {
+  releases: ReleaseSummary[];
+  selectedRelease: string | null;
+  onSelectRelease: (release: string | null) => void;
+}) {
+  return (
+    <Card
+      title="Releases"
+      actions={
+        selectedRelease ? (
+          <button className="sh-btn compact" onClick={() => onSelectRelease(null)}>
+            Clear filter
+          </button>
+        ) : (
+          <span className="sh-tag">latest deploys</span>
+        )
+      }
+      flush
+    >
+      {releases.length === 0 ? (
+        <EmptyHint icon="flag" title="No releases yet" sub="Send a release value from the SDK to compare deploys." />
+      ) : (
+        releases.map((release) => {
+          const selected = release.release === selectedRelease;
+          const shortCommit = release.code?.commitSha ? release.code.commitSha.slice(0, 7) : null;
+          return (
+            <div
+              key={release.release}
+              className="sh-row sh-row--btn"
+              role="button"
+              tabIndex={0}
+              aria-label={`${release.release} release`}
+              style={{
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                width: "100%",
+                textAlign: "left",
+                background: selected ? "var(--accent-bg-subtle)" : "transparent",
+                border: "none",
+                borderBottom: "1px solid var(--border-subtle)",
+                cursor: "pointer",
+              }}
+              onClick={() => onSelectRelease(release.release)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") onSelectRelease(release.release);
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <strong className="sh-mono" style={{ fontSize: 12 }}>
+                  {release.release}
+                </strong>
+                <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+                  {release.events} events · {release.errors} errors · {release.traces} traces
+                </div>
+                {release.code ? (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 5 }}>
+                    {release.code.commitUrl && shortCommit ? (
+                      <a className="sh-tag mono" href={release.code.commitUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                        commit {shortCommit}
+                      </a>
+                    ) : shortCommit ? (
+                      <span className="sh-tag mono">commit {shortCommit}</span>
+                    ) : null}
+                    {release.code.pullRequestUrl ? (
+                      <a className="sh-tag mono" href={release.code.pullRequestUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                        PR {release.code.pullRequestNumber ? `#${release.code.pullRequestNumber}` : ""}
+                      </a>
+                    ) : null}
+                    {release.code.deployedBy ? <span className="sh-tag">by {release.code.deployedBy}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+              <span className={release.failedTraces > 0 || release.errors > 0 ? "sh-tag warn" : "sh-tag ok"}>
+                {release.failedTraces} failed
+              </span>
+            </div>
+          );
+        })
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Recent activity panel
 // ---------------------------------------------------------------------------
 
@@ -419,9 +506,11 @@ const ACTIVITY_COLOR: Record<ActivityItemVM["kind"], string> = {
 
 function RecentActivityPanel({
   items,
+  onOpenIncident,
   navigate,
 }: {
   items: ActivityItemVM[];
+  onOpenIncident: (groupId: string, errorId?: string) => void;
   navigate: NavigateFn;
 }) {
   return (
@@ -460,7 +549,13 @@ function RecentActivityPanel({
                 borderBottomWidth: 1,
                 cursor: "pointer",
               }}
-              onClick={() => navigate(dest)}
+              onClick={() => {
+                if (item.kind === "error" && item.groupId) {
+                  onOpenIncident(item.groupId, item.errorId);
+                  return;
+                }
+                navigate(dest);
+              }}
             >
               <span style={{ color }}>
                 <Icon name={iconName} size={14} />
@@ -531,7 +626,7 @@ export function OverviewScreen({
     );
   }
 
-  const { banner, kpis, topTenants, llmByModel, activity } = data;
+  const { banner, kpis, topTenants, llmByModel, releases, selectedRelease, selectRelease, activity } = data;
 
   return (
     <>
@@ -561,6 +656,11 @@ export function OverviewScreen({
           alerts={banner.alerts}
           topMessage={banner.top?.message ?? null}
           topSeverity={banner.top?.severity ?? null}
+          onOpenIncident={
+            banner.top
+              ? () => ctx.drill("incident", { groupId: banner.top!.groupId, errorId: banner.top!.errorId ?? undefined })
+              : undefined
+          }
           onViewIncidents={() => navigate("incidents")}
         />
       ) : (
@@ -583,15 +683,20 @@ export function OverviewScreen({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1.2fr 1fr 1fr",
+          gridTemplateColumns: "1.2fr 1fr 1fr 1.1fr",
           gap: 16,
           flex: 1,
           minHeight: 0,
         }}
       >
-        <TopTenantsPanel tenants={topTenants} navigate={navigate} />
+        <TopTenantsPanel tenants={topTenants} onOpenTenant={(tenantId) => ctx.drill("tenant", { tenantId })} />
         <LlmByModelPanel models={llmByModel} window={window} />
-        <RecentActivityPanel items={activity} navigate={navigate} />
+        <ReleasesPanel releases={releases} selectedRelease={selectedRelease} onSelectRelease={selectRelease} />
+        <RecentActivityPanel
+          items={activity}
+          navigate={navigate}
+          onOpenIncident={(groupId, errorId) => ctx.drill("incident", { groupId, errorId })}
+        />
       </div>
     </>
   );

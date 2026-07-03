@@ -47,14 +47,17 @@ const vm: AlertsVM = {
       severityTag: "critical",
       enabled: true,
       channelLabel: "Slack · #incidents",
+      escalationLabel: "15m -> Email · finance",
       fires7d: 4,
       type: "critical_errors",
       threshold: "1",
       windowMinutes: 5,
       cooldownMinutes: 60,
+      escalationMinutes: 15,
       routePattern: null,
       minimumSampleSize: 0,
       notificationChannelId: "c1",
+      escalationChannelId: "c2",
     },
     {
       id: "r2",
@@ -64,14 +67,31 @@ const vm: AlertsVM = {
       severityTag: "warn",
       enabled: false,
       channelLabel: "Discord · #ops",
+      escalationLabel: "No escalation",
       fires7d: 0,
       type: "error_count",
       threshold: "5",
       windowMinutes: 30,
       cooldownMinutes: 60,
+      escalationMinutes: null,
       routePattern: null,
       minimumSampleSize: 0,
       notificationChannelId: null,
+      escalationChannelId: null,
+    },
+  ],
+  events: [
+    {
+      id: "ale_1",
+      message: "Critical errors threshold reached",
+      status: "triggered",
+      severity: "critical",
+      sourceLabel: "Critical errors in production",
+      observedLabel: "4 / 1",
+      deliveryLabel: "Delivered",
+      escalationLabel: "Escalates 6/23/2026, 9:15:00 AM",
+      triggeredAtLabel: "6/23/2026, 9:00:00 AM",
+      snoozedUntil: null,
     },
   ],
   channels: [
@@ -99,6 +119,7 @@ function mockUseAlerts(data: AlertsVM | null, status: "loading" | "ok" | "error"
     createRule: vi.fn().mockResolvedValue(true),
     updateRule: vi.fn().mockResolvedValue(true),
     archiveRule: vi.fn().mockResolvedValue(true),
+    updateAlertEventTriage: vi.fn().mockResolvedValue(true),
     createChannel: vi.fn().mockResolvedValue(true),
     updateChannel: vi.fn().mockResolvedValue(true),
     archiveChannel: vi.fn().mockResolvedValue(true),
@@ -138,7 +159,7 @@ describe("AlertsScreen", () => {
     expect(screen.getByText("Critical errors in production")).toBeInTheDocument();
     expect(screen.getByText("critical_errors · 1 · 5m")).toBeInTheDocument();
     // severity DOM text is lowercase (uppercased only via CSS)
-    expect(screen.getByText("critical")).toBeInTheDocument();
+    expect(screen.getAllByText("critical").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("● active")).toBeInTheDocument();
     expect(screen.getByText("paused")).toBeInTheDocument();
   });
@@ -199,6 +220,7 @@ function mockUseAlertsWithActions(data: AlertsVM | null, status: "loading" | "ok
     createRule: vi.fn().mockResolvedValue(true),
     updateRule: vi.fn().mockResolvedValue(true),
     archiveRule: vi.fn().mockResolvedValue(true),
+    updateAlertEventTriage: vi.fn().mockResolvedValue(true),
     createChannel: vi.fn().mockResolvedValue(true),
     updateChannel: vi.fn().mockResolvedValue(true),
     archiveChannel: vi.fn().mockResolvedValue(true),
@@ -225,6 +247,7 @@ describe("AlertsScreen — Suggestions card", () => {
       createRule: vi.fn().mockResolvedValue(true),
       updateRule: vi.fn().mockResolvedValue(true),
       archiveRule: vi.fn().mockResolvedValue(true),
+    updateAlertEventTriage: vi.fn().mockResolvedValue(true),
       createChannel: vi.fn().mockResolvedValue(true),
       updateChannel: vi.fn().mockResolvedValue(true),
       archiveChannel: vi.fn().mockResolvedValue(true),
@@ -255,6 +278,7 @@ describe("AlertsScreen — pause/resume and archive", () => {
       createRule: vi.fn().mockResolvedValue(true),
       updateRule,
       archiveRule: vi.fn().mockResolvedValue(true),
+    updateAlertEventTriage: vi.fn().mockResolvedValue(true),
       createChannel: vi.fn().mockResolvedValue(true),
       updateChannel: vi.fn().mockResolvedValue(true),
       archiveChannel: vi.fn().mockResolvedValue(true),
@@ -302,6 +326,7 @@ describe("AlertsScreen — channels panel", () => {
       createRule: vi.fn().mockResolvedValue(true),
       updateRule: vi.fn().mockResolvedValue(true),
       archiveRule: vi.fn().mockResolvedValue(true),
+    updateAlertEventTriage: vi.fn().mockResolvedValue(true),
       createChannel: vi.fn().mockResolvedValue(true),
       updateChannel: vi.fn().mockResolvedValue(true),
       archiveChannel,

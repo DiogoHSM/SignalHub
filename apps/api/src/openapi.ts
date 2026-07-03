@@ -94,7 +94,7 @@ const identifyOperation = (
   }
 });
 
-const apiDescription = `Self-hosted telemetry API for product events, errors, breadcrumbs, LLM calls, traces, spans, source maps, and operator workflows.
+const apiDescription = `Self-hosted telemetry API for product events, errors, breadcrumbs, browser click maps, privacy-safe session replays, LLM calls, traces, spans, Web Vitals, source maps, and operator workflows.
 
 ## Integration guide
 
@@ -109,7 +109,7 @@ Raw HTTP remains the stable contract for other languages, automation, and direct
 3. Use server-only variables such as \`SIGMON_ENDPOINT\` and \`SIGMON_API_KEY\` for API routes, workers, server actions, and scheduled jobs.
 4. Use browser variables such as \`NEXT_PUBLIC_SIGMON_ENDPOINT\` and \`NEXT_PUBLIC_SIGMON_BROWSER_KEY\` only with a browser-scoped ingestion key.
 5. Send \`identifyUser\` / \`POST /v1/identify/user\` after login or session load, and \`identifyTenant\` / \`POST /v1/identify/tenant\` after tenant/workspace selection.
-6. Send events, errors, breadcrumbs, traces, spans, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
+6. Send events, errors, breadcrumbs, click maps, privacy-safe session replays, traces, spans, Web Vitals, experiment exposures, and LLM calls with stable \`tenant_id\`, \`user_id\`, \`session_id\`, \`trace_id\`, \`source\`, and \`release\` fields when available.
 7. Upload source maps from CI for minified browser bundles so production stacks can be resolved.
 
 ## Key model
@@ -215,7 +215,661 @@ export const openApiDocument = {
         type: "object",
         required: ["error"],
         properties: {
-          error: { type: "string" }
+          error: { type: "string" },
+          hint: {
+            type: "string",
+            description: "Optional actionable setup guidance returned by ingestion endpoints for common integration failures."
+          }
+        }
+      },
+      SurveyQuestion: {
+        type: "object",
+        required: ["id", "type", "label", "required"],
+        properties: {
+          id: { type: "string", examples: ["satisfaction"] },
+          type: { type: "string", enum: ["rating", "choice", "text"] },
+          label: { type: "string", examples: ["How satisfied are you with this workflow?"] },
+          required: { type: "boolean", default: true },
+          scale: {
+            type: "object",
+            properties: {
+              min: { type: "integer", examples: [1] },
+              max: { type: "integer", examples: [5] },
+              minLabel: { type: "string", examples: ["Hard"] },
+              maxLabel: { type: "string", examples: ["Great"] }
+            }
+          },
+          options: { type: "array", items: { type: "string" } }
+        }
+      },
+      Survey: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "actorType", "questions", "targeting"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["activation_pulse"] },
+          name: { type: "string", examples: ["Activation pulse"] },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          actorType: { type: "string", enum: ["user", "tenant", "session"] },
+          triggerEvent: { type: ["string", "null"], examples: ["checkout.completed"] },
+          questions: { type: "array", items: { $ref: "#/components/schemas/SurveyQuestion" } },
+          targeting: {
+            type: "object",
+            properties: {
+              segmentId: { type: "string" },
+              userId: { type: "string" },
+              tenantId: { type: "string" },
+              eventName: { type: "string" },
+              sampleRate: { type: "number", minimum: 0, maximum: 1 }
+            }
+          },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      SurveyResponsePayload: {
+        type: "object",
+        required: ["survey_id", "answers"],
+        properties: {
+          survey_id: { type: "string", examples: ["srv_123"] },
+          actor_type: { type: "string", enum: ["user", "tenant", "session", "anonymous"], default: "user" },
+          actor_id: { type: "string" },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["web"] },
+          release: { type: "string", examples: ["2026.06.01"] },
+          answers: {
+            type: "object",
+            description: "Question id to answer value map. Secrets should not be sent.",
+            additionalProperties: true,
+            examples: [{ satisfaction: 5, comment: "Great" }]
+          },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      FeedbackPayload: {
+        type: "object",
+        required: ["message"],
+        properties: {
+          message: { type: "string", examples: ["The export button is confusing."] },
+          category: { type: "string", examples: ["ux"] },
+          page_url: { type: "string", format: "uri", examples: ["https://app.example.com/reports"] },
+          path: { type: "string", examples: ["/reports?tab=exports"] },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["browser"] },
+          release: { type: "string", examples: ["2026.06.01"] },
+          user_agent: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      FeedbackWidgetSettings: {
+        type: "object",
+        required: ["projectId", "environmentId", "enabled", "title", "prompt", "placeholder", "buttonLabel", "accentColor", "allowScreenshot"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          enabled: { type: "boolean" },
+          title: { type: "string" },
+          prompt: { type: "string" },
+          placeholder: { type: "string" },
+          buttonLabel: { type: "string" },
+          accentColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+          allowScreenshot: { type: "boolean", description: "Reserved for a future privacy-safe screenshot flow." },
+          privacyNote: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      FeedbackItem: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "status", "message", "metadata", "submittedAt", "receivedAt", "updatedAt"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          status: { type: "string", enum: ["open", "reviewed", "archived"] },
+          message: { type: "string" },
+          category: { type: ["string", "null"] },
+          pageUrl: { type: ["string", "null"] },
+          path: { type: ["string", "null"] },
+          tenantId: { type: ["string", "null"] },
+          userId: { type: ["string", "null"] },
+          sessionId: { type: ["string", "null"] },
+          traceId: { type: ["string", "null"] },
+          release: { type: ["string", "null"] },
+          source: { type: ["string", "null"] },
+          userAgent: { type: ["string", "null"] },
+          metadata: { type: "object", additionalProperties: true },
+          submittedAt: { type: "string", format: "date-time" },
+          receivedAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      SurveyResults: {
+        type: "object",
+        required: ["survey", "window", "totals", "questions", "recentResponses"],
+        properties: {
+          survey: { $ref: "#/components/schemas/Survey" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          totals: {
+            type: "object",
+            required: ["responses", "users", "tenants", "sessions"],
+            properties: {
+              responses: { type: "integer" },
+              users: { type: "integer" },
+              tenants: { type: "integer" },
+              sessions: { type: "integer" }
+            }
+          },
+          questions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                label: { type: "string" },
+                type: { type: "string", enum: ["rating", "choice", "text"] },
+                responses: { type: "integer" },
+                average: { type: "number" },
+                choices: { type: "array", items: { type: "object", properties: { value: { type: "string" }, count: { type: "integer" } } } }
+              }
+            }
+          },
+          recentResponses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                surveyId: { type: "string" },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: ["string", "null"] },
+                tenantId: { type: ["string", "null"] },
+                userId: { type: ["string", "null"] },
+                sessionId: { type: ["string", "null"] },
+                answers: { type: "object", additionalProperties: true },
+                submittedAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
+      MessageCampaign: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "channelType", "body", "consentCategory"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["invoice_activation"] },
+          name: { type: "string", examples: ["Invoice activation"] },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          channelType: { type: "string", enum: ["email", "webhook", "in_app"] },
+          notificationChannelId: { type: ["string", "null"], description: "Required for email and webhook campaigns." },
+          segmentId: { type: ["string", "null"], description: "Optional analytics segment id for the target audience." },
+          conversionEvent: { type: ["string", "null"], examples: ["invoice.paid"] },
+          subject: { type: ["string", "null"] },
+          body: { type: "string" },
+          ctaUrl: { type: ["string", "null"], format: "uri" },
+          consentCategory: { type: "string", examples: ["product"] },
+          privacyNote: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      MessageCampaignResults: {
+        type: "object",
+        required: ["campaign", "window", "totals", "rates", "recentEvents", "optOuts"],
+        properties: {
+          campaign: { $ref: "#/components/schemas/MessageCampaign" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          totals: {
+            type: "object",
+            required: ["queued", "sent", "delivered", "opened", "clicked", "converted", "failed", "optedOut", "uniqueActors"],
+            properties: {
+              queued: { type: "integer" },
+              sent: { type: "integer" },
+              delivered: { type: "integer" },
+              opened: { type: "integer" },
+              clicked: { type: "integer" },
+              converted: { type: "integer" },
+              failed: { type: "integer" },
+              optedOut: { type: "integer" },
+              uniqueActors: { type: "integer" }
+            }
+          },
+          rates: {
+            type: "object",
+            required: ["deliveryRate", "openRate", "clickRate", "conversionRate", "optOutRate"],
+            properties: {
+              deliveryRate: { type: "number" },
+              openRate: { type: "number" },
+              clickRate: { type: "number" },
+              conversionRate: { type: "number" },
+              optOutRate: { type: "number" }
+            }
+          },
+          recentEvents: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                campaignId: { type: "string" },
+                type: { type: "string", enum: ["queued", "sent", "delivered", "opened", "clicked", "converted", "failed", "opted_out"] },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: ["string", "null"] },
+                tenantId: { type: ["string", "null"] },
+                userId: { type: ["string", "null"] },
+                occurredAt: { type: "string", format: "date-time" }
+              }
+            }
+          },
+          optOuts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: "string" },
+                category: { type: "string" },
+                reason: { type: ["string", "null"] },
+                createdAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
+      NpsSegmentSummary: {
+        type: "object",
+        required: ["key", "label", "responses", "score", "promoters", "passives", "detractors"],
+        properties: {
+          key: { type: "string" },
+          label: { type: "string" },
+          responses: { type: "integer" },
+          score: { type: "integer", minimum: -100, maximum: 100 },
+          promoters: { type: "integer" },
+          passives: { type: "integer" },
+          detractors: { type: "integer" }
+        }
+      },
+      NpsResults: {
+        type: "object",
+        required: ["survey", "window", "questionId", "totals", "trend", "segments", "recentResponses"],
+        properties: {
+          survey: { $ref: "#/components/schemas/Survey" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          questionId: { type: "string" },
+          totals: {
+            type: "object",
+            required: ["responses", "promoters", "passives", "detractors", "score", "average"],
+            properties: {
+              responses: { type: "integer" },
+              promoters: { type: "integer" },
+              passives: { type: "integer" },
+              detractors: { type: "integer" },
+              score: { type: "integer", minimum: -100, maximum: 100 },
+              average: { type: ["number", "null"] }
+            }
+          },
+          trend: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["bucket", "responses", "score", "promoters", "passives", "detractors"],
+              properties: {
+                bucket: { type: "string", examples: ["2026-05-01"] },
+                responses: { type: "integer" },
+                score: { type: "integer", minimum: -100, maximum: 100 },
+                promoters: { type: "integer" },
+                passives: { type: "integer" },
+                detractors: { type: "integer" }
+              }
+            }
+          },
+          segments: {
+            type: "object",
+            required: ["tenants", "releases", "plans"],
+            properties: {
+              tenants: { type: "array", items: { $ref: "#/components/schemas/NpsSegmentSummary" } },
+              releases: { type: "array", items: { $ref: "#/components/schemas/NpsSegmentSummary" } },
+              plans: { type: "array", items: { $ref: "#/components/schemas/NpsSegmentSummary" } }
+            }
+          },
+          recentResponses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                surveyId: { type: "string" },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: ["string", "null"] },
+                tenantId: { type: ["string", "null"] },
+                userId: { type: ["string", "null"] },
+                sessionId: { type: ["string", "null"] },
+                answers: { type: "object", additionalProperties: true },
+                submittedAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
+      FeatureFlagVariant: {
+        type: "object",
+        required: ["key", "value"],
+        properties: {
+          key: { type: "string", examples: ["off", "on"] },
+          value: { oneOf: [{ type: "boolean" }, { type: "string" }, { type: "number" }, { type: "null" }] }
+        }
+      },
+      FeatureFlagRule: {
+        type: "object",
+        required: ["variant"],
+        properties: {
+          id: { type: "string" },
+          description: { type: "string" },
+          variant: { type: "string", examples: ["on"] },
+          match: {
+            type: "object",
+            properties: {
+              userId: { type: "string" },
+              tenantId: { type: "string" },
+              sessionId: { type: "string" },
+              traits: { type: "object", additionalProperties: true }
+            }
+          },
+          rollout: {
+            type: "object",
+            description: "Optional deterministic percentage rollout applied after match conditions pass.",
+            required: ["percentage", "stickiness"],
+            properties: {
+              percentage: { type: "number", minimum: 0, maximum: 100, examples: [10] },
+              stickiness: { type: "string", enum: ["user", "tenant", "session"], examples: ["user"] },
+              salt: { type: "string" }
+            }
+          }
+        }
+      },
+      FeatureFlag: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "defaultVariant", "variants", "rules"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["new_checkout"] },
+          name: { type: "string" },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          defaultVariant: { type: "string", examples: ["off"] },
+          variants: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagVariant" } },
+          rules: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagRule" } },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      FeatureFlagAudit: {
+        type: "object",
+        required: ["id", "featureFlagId", "projectId", "environmentId", "action", "changes", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          featureFlagId: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          action: { type: "string", enum: ["created", "updated", "archived"] },
+          actorId: { type: ["string", "null"] },
+          changes: { type: "object", additionalProperties: true },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
+      FeatureFlagEvaluation: {
+        type: "object",
+        required: ["key", "variant", "value", "reason", "matched"],
+        properties: {
+          key: { type: "string", examples: ["new_checkout"] },
+          variant: { type: "string", examples: ["on"] },
+          value: { oneOf: [{ type: "boolean" }, { type: "string" }, { type: "number" }, { type: "null" }] },
+          reason: { type: "string", enum: ["rule_match", "default", "missing", "inactive"] },
+          matched: { type: "boolean" },
+          ruleId: { type: "string" }
+        }
+      },
+      BetaProgram: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "actorType", "featureFlagVariant"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["checkout_beta"] },
+          name: { type: "string", examples: ["Checkout beta"] },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          actorType: { type: "string", enum: ["user", "tenant"] },
+          featureFlagId: { type: ["string", "null"], description: "Optional linked flag. Active participants are synced as targeting rules." },
+          featureFlagVariant: { type: "string", examples: ["on"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      BetaProgramParticipant: {
+        type: "object",
+        required: ["id", "programId", "projectId", "environmentId", "actorType", "actorId", "status"],
+        properties: {
+          id: { type: "string" },
+          programId: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          actorType: { type: "string", enum: ["user", "tenant"] },
+          actorId: { type: "string" },
+          status: { type: "string", enum: ["invited", "active", "opted_out", "removed"] },
+          notes: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          removedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      BetaProgramAdoption: {
+        type: "object",
+        required: ["programId", "window", "participants", "activeParticipants", "activeActorsWithEvents", "events", "adoptionRate", "samples"],
+        properties: {
+          programId: { type: "string" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          participants: { type: "integer" },
+          activeParticipants: { type: "integer" },
+          activeActorsWithEvents: { type: "integer" },
+          events: { type: "integer" },
+          adoptionRate: { type: "number" },
+          samples: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                actorId: { type: "string" },
+                events: { type: "integer" },
+                lastSeenAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
+      DataGovernancePropertyRule: {
+        type: "object",
+        required: ["target", "path", "action"],
+        properties: {
+          target: {
+            type: "string",
+            enum: [
+              "metadata",
+              "event.properties",
+              "error.context",
+              "span.input",
+              "span.output",
+              "span.error",
+              "breadcrumb.data",
+              "replay.event.data",
+              "identity.traits"
+            ]
+          },
+          path: { type: "string", examples: ["user.email", "headers.authorization"] },
+          action: { type: "string", enum: ["mask", "block"] }
+        }
+      },
+      DataGovernancePolicy: {
+        type: "object",
+        required: ["projectId", "environmentId", "retentionPolicy", "propertyRules"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          retentionPolicy: {
+            type: "object",
+            description: "Optional per-project retention windows in days. Scoped windows can shorten installation-level retention.",
+            additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+            examples: [{ events: 90, errors: 180, traces: 30 }]
+          },
+          propertyRules: {
+            type: "array",
+            items: { $ref: "#/components/schemas/DataGovernancePropertyRule" }
+          },
+          updatedByUserId: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      CodeIntegration: {
+        type: "object",
+        required: ["id", "projectId", "provider", "name", "owner", "repo", "webBaseUrl"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          provider: { type: "string", enum: ["github", "gitlab"] },
+          name: { type: "string", examples: ["Web app"] },
+          owner: { type: "string", examples: ["acme"] },
+          repo: { type: "string", examples: ["web"] },
+          webBaseUrl: { type: "string", format: "uri" },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          revokedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      IncidentExternalLink: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "errorGroupId", "provider", "externalKey", "title", "url", "state"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          errorGroupId: { type: "string" },
+          integrationId: { type: ["string", "null"] },
+          provider: { type: "string", enum: ["github", "gitlab"] },
+          externalKey: { type: "string", examples: ["42"] },
+          title: { type: "string" },
+          url: { type: "string", format: "uri" },
+          state: { type: "string", examples: ["open"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      IncidentIssueDraft: {
+        type: "object",
+        required: ["provider", "integrationId", "title", "body", "url"],
+        properties: {
+          provider: { type: "string", enum: ["github", "gitlab"] },
+          integrationId: { type: "string" },
+          title: { type: "string" },
+          body: { type: "string" },
+          url: { type: "string", format: "uri" }
+        }
+      },
+      ReleaseMetadata: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "release"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          release: { type: "string", examples: ["web@1.2.3"] },
+          integrationId: { type: ["string", "null"] },
+          commitSha: { type: ["string", "null"] },
+          commitUrl: { type: ["string", "null"], format: "uri" },
+          pullRequestNumber: { type: ["integer", "null"] },
+          pullRequestUrl: { type: ["string", "null"], format: "uri" },
+          deployedBy: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      WarehouseDestination: {
+        type: "object",
+        required: [
+          "id",
+          "projectId",
+          "environmentId",
+          "name",
+          "destinationType",
+          "connectionUrlPreview",
+          "datasets",
+          "cursor",
+          "batchSize",
+          "enabled"
+        ],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string" },
+          destinationType: { type: "string", enum: ["postgres"] },
+          connectionUrlPreview: {
+            type: "string",
+            description: "Redacted connection URL. The raw URL is write-only and never returned."
+          },
+          datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+          cursor: { type: "object", additionalProperties: true },
+          batchSize: { type: "integer", minimum: 1, maximum: 5000 },
+          enabled: { type: "boolean" },
+          lastRunAt: { type: ["string", "null"], format: "date-time" },
+          lastSuccessAt: { type: ["string", "null"], format: "date-time" },
+          lastFailureAt: { type: ["string", "null"], format: "date-time" },
+          lastErrorMessage: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      WarehouseExportRun: {
+        type: "object",
+        required: ["id", "destinationId", "projectId", "environmentId", "trigger", "status", "startedAt", "exported"],
+        properties: {
+          id: { type: "string" },
+          destinationId: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          trigger: { type: "string", enum: ["scheduled", "manual", "retry"] },
+          status: { type: "string", enum: ["running", "success", "failed"] },
+          startedAt: { type: "string", format: "date-time" },
+          finishedAt: { type: ["string", "null"], format: "date-time" },
+          cursorBefore: { type: "object", additionalProperties: true },
+          cursorAfter: { type: "object", additionalProperties: true },
+          exported: { type: "object", additionalProperties: { type: "integer", minimum: 0 } },
+          errorMessage: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" }
         }
       },
       EventPayload: {
@@ -228,6 +882,11 @@ export const openApiDocument = {
           user_id: { type: "string", description: "Stable authenticated user id." },
           session_id: { type: "string", description: "Client or server session id used to connect related activity." },
           trace_id: { type: "string", description: "Trace id when this event belongs to a larger workflow." },
+          replay_id: {
+            type: "string",
+            description:
+              "Optional privacy-safe replay id. Send the same id to /v1/replays to show product event markers in the replay timeline."
+          },
           source: { type: "string", description: "Emitter or service name.", examples: ["web"] },
           release: { type: "string", description: "Application version or deploy id.", examples: ["2026.05.24"] },
           properties: { type: "object", description: "Event-specific attributes. Avoid secrets, tokens, cookies, and full request/response bodies.", additionalProperties: true },
@@ -248,6 +907,10 @@ export const openApiDocument = {
             description: "Severity used by filters and alerting. Defaults to error."
           },
           fingerprint: { type: "string", description: "Optional grouping key. Events with the same fingerprint are grouped together." },
+          replay_id: {
+            type: "string",
+            description: "Optional privacy-safe replay id. Send the same id to /v1/replays so incident detail can show the masked timeline around this error."
+          },
           stack: { type: "string", description: "Raw stack trace. Source maps can resolve minified browser frames when uploaded for the matching release." },
           tenant_id: { type: "string" },
           user_id: { type: "string" },
@@ -279,6 +942,78 @@ export const openApiDocument = {
           timestamp: { type: "string", format: "date-time" }
         }
       },
+      ClickEventPayload: {
+        type: "object",
+        required: ["route", "selector", "x", "y", "viewport_width", "viewport_height"],
+        description:
+          "Opt-in browser click map sample. Stores normalized viewport coordinates and privacy-safe selectors only; do not send text content, form values, DOM snapshots, or screenshots.",
+        properties: {
+          route: { type: "string", description: "Browser route or path where the click occurred.", examples: ["/checkout"] },
+          selector: {
+            type: "string",
+            description: "Stable safe selector. Prefer a deliberate data-sigmon-id value instead of generated DOM paths.",
+            examples: ['[data-sigmon-id="checkout-submit"]']
+          },
+          element_tag: { type: "string", description: "Optional lower-case element tag, for example button or a." },
+          element_role: { type: "string", description: "Optional ARIA role when available." },
+          x: { type: "number", minimum: 0, maximum: 1, description: "Normalized viewport x coordinate from 0 to 1." },
+          y: { type: "number", minimum: 0, maximum: 1, description: "Normalized viewport y coordinate from 0 to 1." },
+          viewport_width: { type: "integer", minimum: 1 },
+          viewport_height: { type: "integer", minimum: 1 },
+          scroll_x: { type: "integer" },
+          scroll_y: { type: "integer" },
+          masked: { type: "boolean", default: true, description: "True when the SDK captured the click through the privacy-safe browser helper." },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["web"] },
+          release: { type: "string", description: "Application version or deploy id." },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      SessionReplayPayload: {
+        type: "object",
+        required: ["replay_id", "started_at"],
+        description:
+          "Privacy-safe browser session timeline linked to errors through replay_id. This is not video replay and must not include screenshots, DOM snapshots, raw text, input values, passwords, cookies, or HTML.",
+        properties: {
+          replay_id: { type: "string", description: "Stable id generated by the browser SDK for this replay buffer." },
+          started_at: { type: "string", format: "date-time" },
+          ended_at: { type: "string", format: "date-time" },
+          duration_ms: { type: "integer", minimum: 0 },
+          route: { type: "string", description: "Browser route or path where the replay started." },
+          error_id: { type: "string", description: "Optional error id when available after capture." },
+          masked: { type: "boolean", default: true },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["web"] },
+          release: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          events: {
+            type: "array",
+            maxItems: 300,
+            items: {
+              type: "object",
+              required: ["offset_ms", "type"],
+              properties: {
+                offset_ms: { type: "integer", minimum: 0 },
+                type: { type: "string", enum: ["navigation", "click", "submit", "error", "custom"] },
+                route: { type: "string" },
+                selector: { type: "string", description: "Stable safe selector, preferably based on data-sigmon-id." },
+                message: { type: "string", description: "Short sanitized message." },
+                x: { type: "number", minimum: 0, maximum: 1 },
+                y: { type: "number", minimum: 0, maximum: 1 },
+                data: { type: "object", additionalProperties: true }
+              }
+            }
+          },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
       LlmPayload: {
         type: "object",
         required: ["provider", "model"],
@@ -296,6 +1031,79 @@ export const openApiDocument = {
           tenant_id: { type: "string" },
           user_id: { type: "string" },
           trace_id: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      WebVitalPayload: {
+        type: "object",
+        required: ["name", "value"],
+        description:
+          "Browser Web Vital sample. Use the browser SDK helper when possible so metric names, ratings, route, navigation type, release, and context are normalized consistently.",
+        properties: {
+          name: { type: "string", enum: ["CLS", "FCP", "FID", "INP", "LCP", "TTFB"] },
+          value: { type: "number", minimum: 0, description: "Metric value. CLS is unitless; timing metrics are milliseconds." },
+          rating: { type: "string", enum: ["good", "needs-improvement", "poor"], default: "good" },
+          route: { type: "string", description: "Browser route or path where the metric was observed." },
+          navigation_type: { type: "string", description: "Browser navigation type such as navigate, reload, back-forward, or prerender." },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["web"] },
+          release: { type: "string", description: "Application version or deploy id used for regression comparison." },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      ProfilePayload: {
+        type: "object",
+        required: ["name", "kind", "started_at"],
+        description:
+          "Bounded runtime profile summary. Use @sigmon/sdk/node helpers for targeted CPU windows and memory snapshots; do not upload raw heap dumps or full profiler files.",
+        properties: {
+          name: { type: "string", description: "Route, job, worker task, or operation being profiled." },
+          kind: { type: "string", enum: ["cpu", "memory"] },
+          runtime: { type: "string", default: "node" },
+          service: { type: "string", description: "Service or process name, for example api, worker, scheduler." },
+          route: { type: "string", description: "HTTP route or job name when applicable." },
+          started_at: { type: "string", format: "date-time" },
+          ended_at: { type: "string", format: "date-time" },
+          duration_ms: { type: "integer", minimum: 0 },
+          sample_count: { type: "integer", minimum: 0 },
+          sampling_interval_ms: { type: "integer", minimum: 1 },
+          cpu_usage_percent: { type: "number", minimum: 0, maximum: 100 },
+          cpu_user_ms: { type: "integer", minimum: 0 },
+          cpu_system_ms: { type: "integer", minimum: 0 },
+          rss_bytes: { type: "integer", minimum: 0 },
+          heap_used_bytes: { type: "integer", minimum: 0 },
+          heap_total_bytes: { type: "integer", minimum: 0 },
+          external_bytes: { type: "integer", minimum: 0 },
+          array_buffers_bytes: { type: "integer", minimum: 0 },
+          top_functions: {
+            type: "array",
+            maxItems: 100,
+            items: {
+              type: "object",
+              required: ["function_name"],
+              properties: {
+                function_name: { type: "string" },
+                url: { type: "string" },
+                line_number: { type: "integer", minimum: 0 },
+                column_number: { type: "integer", minimum: 0 },
+                self_time_ms: { type: "number", minimum: 0 },
+                total_time_ms: { type: "number", minimum: 0 },
+                sample_count: { type: "integer", minimum: 0 }
+              }
+            }
+          },
+          summary: { type: "object", additionalProperties: true },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["node"] },
+          release: { type: "string" },
           metadata: { type: "object", additionalProperties: true },
           timestamp: { type: "string", format: "date-time" }
         }
@@ -345,7 +1153,7 @@ export const openApiDocument = {
         type: "object",
         required: ["user_id", "traits"],
         description:
-          "Upserts a project/environment-scoped user profile. Telemetry with matching user_id updates last_seen_at, but only identify calls update stored traits.",
+          "Upserts a project/environment-scoped user profile. Identify traits shallow-merge into existing stored traits. Telemetry with matching user_id updates last_seen_at, but only identify calls update stored traits.",
         properties: {
           user_id: { type: "string", description: "Stable authenticated user id from the monitored product." },
           tenant_id: { type: "string", description: "Optional current tenant/workspace/account id for this user." },
@@ -363,7 +1171,7 @@ export const openApiDocument = {
         type: "object",
         required: ["tenant_id", "traits"],
         description:
-          "Upserts a project/environment-scoped tenant profile used by Entities investigation views and tenant-level filters.",
+          "Upserts a project/environment-scoped tenant profile used by Entities investigation views and tenant-level filters. Identify traits shallow-merge into existing stored traits.",
         properties: {
           tenant_id: { type: "string", description: "Stable tenant/workspace/account id from the monitored product." },
           traits: {
@@ -574,11 +1382,50 @@ export const openApiDocument = {
         tenant_id: "tenant_123",
         user_id: "user_456",
         session_id: "sess_789",
+        replay_id: "rpl_browser_123",
         source: "web",
         release: "2026.05.24",
         properties: { plan: "team", checkout_id: "chk_123" },
         metadata: { request_id: "req_abc" }
       })
+    },
+    "/v1/surveys/responses": {
+      post: ingestionOperation(
+        "Ingest an in-app survey response",
+        "Track lightweight survey answers collected by browser widgets, SDK calls, or server-side product flows. Responses are scoped to a configured survey and can be linked to user, tenant, session, trace, source, and release context.",
+        "SurveyResponsePayload",
+        {
+          survey_id: "srv_activation_pulse",
+          actor_type: "user",
+          actor_id: "user_456",
+          tenant_id: "tenant_123",
+          user_id: "user_456",
+          session_id: "sess_789",
+          source: "web",
+          release: "2026.06.01",
+          answers: { satisfaction: 5, comment: "Great" },
+          metadata: { placement: "checkout_success" }
+        }
+      )
+    },
+    "/v1/feedback": {
+      post: ingestionOperation(
+        "Ingest product feedback",
+        "Track text feedback collected by the Sigmon browser feedback widget or a custom product flow. Feedback is scoped to the ingestion key and can include page, actor, release, and metadata context.",
+        "FeedbackPayload",
+        {
+          message: "The export button is confusing.",
+          category: "ux",
+          tenant_id: "tenant_123",
+          user_id: "user_456",
+          session_id: "sess_789",
+          source: "browser",
+          release: "2026.06.01",
+          page_url: "https://app.example.com/reports",
+          path: "/reports?tab=exports",
+          metadata: { surface: "reports" }
+        }
+      )
     },
     "/v1/errors": {
       post: ingestionOperation("Ingest an error", "Track exceptions, crashes, and grouped error occurrences. Include stack, release, source, and identity fields to unlock issue detail, source-map resolution, and tenant/user drilldowns.", "ErrorPayload", {
@@ -602,12 +1449,82 @@ export const openApiDocument = {
         message: "Selected shipping method"
       })
     },
+    "/v1/clicks": {
+      post: ingestionOperation(
+        "Ingest a browser click map sample",
+        "Track opt-in click density by route using normalized coordinates and privacy-safe selectors. Prefer the browser SDK helper so text, values, DOM, and screenshots are never collected.",
+        "ClickEventPayload",
+        {
+          route: "/checkout",
+          selector: '[data-sigmon-id="checkout-submit"]',
+          element_tag: "button",
+          element_role: "button",
+          x: 0.72,
+          y: 0.61,
+          viewport_width: 1440,
+          viewport_height: 900,
+          scroll_x: 0,
+          scroll_y: 320,
+          masked: true,
+          source: "web",
+          release: "2026.05.24"
+        }
+      )
+    },
+    "/v1/replays": {
+      post: ingestionOperation(
+        "Ingest a privacy-safe session replay",
+        "Track a masked browser interaction timeline and link it to errors through replay_id. The payload stores events such as navigation and safe selectors, not screenshots, DOM snapshots, raw text, input values, or HTML.",
+        "SessionReplayPayload",
+        {
+          replay_id: "rpl_browser_123",
+          started_at: "2026-06-01T12:00:00.000Z",
+          ended_at: "2026-06-01T12:00:02.000Z",
+          duration_ms: 2000,
+          route: "/checkout",
+          masked: true,
+          session_id: "sess_789",
+          source: "web",
+          release: "2026.05.24",
+          events: [
+            { offset_ms: 0, type: "navigation", route: "/checkout", data: {} },
+            { offset_ms: 750, type: "click", selector: "[data-sigmon-id=\"pay\"]", x: 0.52, y: 0.61, data: {} }
+          ]
+        }
+      )
+    },
     "/v1/llm": {
       post: ingestionOperation("Ingest an LLM call", "Track AI provider calls, latency, status, tokens, and cost.", "LlmPayload", {
         provider: "openai",
         model: "gpt-5-mini",
         prompt_name: "dashboard_summary",
         status: "success"
+      })
+    },
+    "/v1/web-vitals": {
+      post: ingestionOperation("Ingest Web Vitals", "Track browser UX metrics such as LCP, INP, CLS, FCP, FID, and TTFB by route and release.", "WebVitalPayload", {
+        name: "LCP",
+        value: 2420,
+        rating: "needs-improvement",
+        route: "/dashboard",
+        navigation_type: "navigate",
+        source: "web",
+        release: "2026.05.24",
+        metadata: { effective_type: "4g" }
+      })
+    },
+    "/v1/profiles": {
+      post: ingestionOperation("Ingest a runtime profile", "Track bounded CPU and memory profile summaries for Node.js routes, workers, jobs, and other runtime tasks.", "ProfilePayload", {
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        service: "worker",
+        started_at: "2026-05-24T12:00:00.000Z",
+        duration_ms: 1000,
+        sample_count: 5,
+        top_functions: [{ function_name: "tick", self_time_ms: 25, sample_count: 5 }],
+        source: "node",
+        release: "2026.05.24"
       })
     },
     "/v1/traces": {
@@ -625,14 +1542,14 @@ export const openApiDocument = {
       })
     },
     "/v1/identify/user": {
-      post: identifyOperation("Identify a user", "Upsert user profile traits scoped to the ingestion API key. Call this after login/session load or whenever durable user traits change.", "UserIdentifyPayload", {
+      post: identifyOperation("Identify a user", "Upsert user profile traits scoped to the ingestion API key. Traits shallow-merge into the existing profile. Call this after login/session load or whenever durable user traits change.", "UserIdentifyPayload", {
         user_id: "user_456",
         tenant_id: "tenant_123",
         traits: { name: "Ana Souza", email: "ana@example.com", role: "admin", plan: "pro" }
       })
     },
     "/v1/identify/tenant": {
-      post: identifyOperation("Identify a tenant", "Upsert tenant profile traits scoped to the ingestion API key. Call this after tenant/workspace selection or whenever durable tenant traits change.", "TenantIdentifyPayload", {
+      post: identifyOperation("Identify a tenant", "Upsert tenant profile traits scoped to the ingestion API key. Traits shallow-merge into the existing profile. Call this after tenant/workspace selection or whenever durable tenant traits change.", "TenantIdentifyPayload", {
         tenant_id: "tenant_123",
         traits: { name: "MicroERP", plan: "pro", operation_mode: "production" }
       })
@@ -703,6 +1620,1085 @@ export const openApiDocument = {
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "404": { description: "Heartbeat monitor not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/surveys": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List in-app surveys",
+        description: "List active survey definitions for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Survey definitions",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { surveys: { type: "array", items: { $ref: "#/components/schemas/Survey" } } } }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create an in-app survey",
+        description: "Create a project/environment-scoped survey with targeting, optional trigger event, and one or more questions.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name", "questions"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  actorType: { type: "string", enum: ["user", "tenant", "session"], default: "user" },
+                  triggerEvent: { type: ["string", "null"] },
+                  questions: { type: "array", items: { $ref: "#/components/schemas/SurveyQuestion" } },
+                  targeting: { type: "object", additionalProperties: true }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "activation_pulse",
+                    name: "Activation pulse",
+                    status: "active",
+                    actorType: "user",
+                    triggerEvent: "checkout.completed",
+                    questions: [{ id: "satisfaction", type: "rating", label: "How satisfied are you?", required: true, scale: { min: 1, max: 5 } }],
+                    targeting: { sampleRate: 0.25 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Survey created",
+            content: { "application/json": { schema: { type: "object", properties: { survey: { $ref: "#/components/schemas/Survey" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/surveys/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update an in-app survey",
+        description: "Update mutable survey metadata, status, actor type, questions, trigger event, or targeting.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", additionalProperties: true } } }
+        },
+        responses: {
+          "200": {
+            description: "Survey updated",
+            content: { "application/json": { schema: { type: "object", properties: { survey: { $ref: "#/components/schemas/Survey" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive an in-app survey",
+        description: "Soft-archive a survey definition so it no longer appears in active lists.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Survey archived" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/message-campaigns": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List message campaigns",
+        description: "List active product messaging campaign definitions for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Message campaign definitions",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { campaigns: { type: "array", items: { $ref: "#/components/schemas/MessageCampaign" } } } }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create a message campaign",
+        description: "Create a scoped campaign definition for in-app, email, or webhook delivery. Email and webhook campaigns require an existing notification channel id. Campaigns are measured from campaign events and respect opt-out records.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name", "body"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  channelType: { type: "string", enum: ["email", "webhook", "in_app"], default: "email" },
+                  notificationChannelId: { type: ["string", "null"] },
+                  segmentId: { type: ["string", "null"] },
+                  conversionEvent: { type: ["string", "null"] },
+                  subject: { type: ["string", "null"] },
+                  body: { type: "string" },
+                  ctaUrl: { type: ["string", "null"], format: "uri" },
+                  consentCategory: { type: "string", default: "product" },
+                  privacyNote: { type: ["string", "null"] }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "invoice_activation",
+                    name: "Invoice activation",
+                    status: "active",
+                    channelType: "in_app",
+                    segmentId: "seg_123",
+                    conversionEvent: "invoice.paid",
+                    body: "Create your first invoice to finish onboarding.",
+                    consentCategory: "product"
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Campaign created",
+            content: { "application/json": { schema: { type: "object", properties: { campaign: { $ref: "#/components/schemas/MessageCampaign" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/message-campaigns/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update a message campaign",
+        description: "Update mutable campaign metadata, status, channel linkage, target segment, copy, conversion event, consent category, or privacy note.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", additionalProperties: true } } }
+        },
+        responses: {
+          "200": {
+            description: "Campaign updated",
+            content: { "application/json": { schema: { type: "object", properties: { campaign: { $ref: "#/components/schemas/MessageCampaign" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Campaign not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive a message campaign",
+        description: "Soft-archive a campaign definition so it no longer appears in active lists.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Campaign archived" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feedback-widget": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "Get feedback widget settings",
+        description: "Read project/environment feedback widget settings used by browser SDK installations.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Feedback widget settings",
+            content: { "application/json": { schema: { type: "object", properties: { settings: { $ref: "#/components/schemas/FeedbackWidgetSettings" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      put: {
+        tags: ["Session authenticated"],
+        summary: "Update feedback widget settings",
+        description: "Enable/disable the browser feedback widget and update its copy and privacy note for one project environment.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "enabled"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  enabled: { type: "boolean" },
+                  title: { type: "string" },
+                  prompt: { type: "string" },
+                  placeholder: { type: "string" },
+                  buttonLabel: { type: "string" },
+                  accentColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+                  allowScreenshot: { type: "boolean", description: "Reserved for a future privacy-safe screenshot flow." },
+                  privacyNote: { type: ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Feedback widget settings",
+            content: { "application/json": { schema: { type: "object", properties: { settings: { $ref: "#/components/schemas/FeedbackWidgetSettings" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List feature flags",
+        description: "List active feature flag definitions for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Feature flags",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { flags: { type: "array", items: { $ref: "#/components/schemas/FeatureFlag" } } }
+                }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create feature flag",
+        description: "Create a project/environment-scoped feature flag with a safe default variant and ordered targeting rules.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name", "defaultVariant", "variants"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  defaultVariant: { type: "string" },
+                  variants: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagVariant" } },
+                  rules: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagRule" } }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "new_checkout",
+                    name: "New checkout",
+                    status: "active",
+                    defaultVariant: "off",
+                    variants: [{ key: "off", value: false }, { key: "on", value: true }],
+                    rules: [{ variant: "on", match: { userId: "user_123" } }]
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Feature flag created",
+            content: { "application/json": { schema: { type: "object", properties: { flag: { $ref: "#/components/schemas/FeatureFlag" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update feature flag",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+        responses: {
+          "200": {
+            description: "Feature flag updated",
+            content: { "application/json": { schema: { type: "object", properties: { flag: { $ref: "#/components/schemas/FeatureFlag" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Feature flag not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive feature flag",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Feature flag archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags/{id}/audit": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List feature flag audit history",
+        description: "Returns created, updated, and archived audit entries for a feature flag.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Feature flag audit entries",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { audit: { type: "array", items: { $ref: "#/components/schemas/FeatureFlagAudit" } } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feature-flags/{id}/evaluate": {
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Preview feature flag evaluation",
+        description: "Evaluates a feature flag for a sample user, tenant, session, or trait context.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  fallbackVariant: { type: "string" },
+                  subject: {
+                    type: "object",
+                    properties: {
+                      userId: { type: "string" },
+                      tenantId: { type: "string" },
+                      sessionId: { type: "string" },
+                      traits: { type: "object", additionalProperties: true }
+                    }
+                  }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    fallbackVariant: "off",
+                    subject: { userId: "user_123", traits: { plan: "beta" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Feature flag evaluation",
+            content: { "application/json": { schema: { type: "object", properties: { evaluation: { $ref: "#/components/schemas/FeatureFlagEvaluation" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List beta programs",
+        description: "List early-access/beta programs for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Beta programs",
+            content: { "application/json": { schema: { type: "object", properties: { programs: { type: "array", items: { $ref: "#/components/schemas/BetaProgram" } } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create beta program",
+        description: "Create an early-access cohort. When featureFlagId is set, active participants are synced into that flag as targeting rules.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  actorType: { type: "string", enum: ["user", "tenant"], default: "user" },
+                  featureFlagId: { type: ["string", "null"] },
+                  featureFlagVariant: { type: "string", default: "on" }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "checkout_beta",
+                    name: "Checkout beta",
+                    status: "active",
+                    actorType: "user",
+                    featureFlagId: "flg_123",
+                    featureFlagVariant: "on"
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Beta program created",
+            content: { "application/json": { schema: { type: "object", properties: { program: { $ref: "#/components/schemas/BetaProgram" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update beta program",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+        responses: {
+          "200": { description: "Beta program updated", content: { "application/json": { schema: { type: "object", properties: { program: { $ref: "#/components/schemas/BetaProgram" } } } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Beta program not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive beta program",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Beta program archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}/participants": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List beta program participants",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Participants",
+            content: { "application/json": { schema: { type: "object", properties: { participants: { type: "array", items: { $ref: "#/components/schemas/BetaProgramParticipant" } } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Add beta program participant",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "actorId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  actorType: { type: "string", enum: ["user", "tenant"], default: "user" },
+                  actorId: { type: "string" },
+                  status: { type: "string", enum: ["invited", "active", "opted_out", "removed"], default: "active" },
+                  notes: { type: ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Participant added",
+            content: { "application/json": { schema: { type: "object", properties: { participant: { $ref: "#/components/schemas/BetaProgramParticipant" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}/participants/{participantId}": {
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Remove beta program participant",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "participantId", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Participant removed" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/beta-programs/{id}/adoption": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "Read beta program adoption",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"] } }
+        ],
+        responses: {
+          "200": {
+            description: "Adoption summary",
+            content: { "application/json": { schema: { type: "object", properties: { adoption: { $ref: "#/components/schemas/BetaProgramAdoption" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/data-governance": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "Read data governance policy",
+        description: "Read retention windows and sensitive property rules for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Data governance policy",
+            content: { "application/json": { schema: { type: "object", properties: { policy: { $ref: "#/components/schemas/DataGovernancePolicy" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      put: {
+        tags: ["Session authenticated"],
+        summary: "Update data governance policy",
+        description: "Configure project/environment retention windows and property mask/block rules.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  retentionPolicy: {
+                    type: "object",
+                    additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+                    examples: [{ events: 90, errors: 180, traces: 30 }]
+                  },
+                  propertyRules: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/DataGovernancePropertyRule" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Data governance policy updated",
+            content: { "application/json": { schema: { type: "object", properties: { policy: { $ref: "#/components/schemas/DataGovernancePolicy" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/projects/{projectId}/code-integrations": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List code hosting integrations",
+        description: "List GitHub/GitLab repository links configured for a project. No provider token is stored by this MVP.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "Code integrations",
+            content: { "application/json": { schema: { type: "object", properties: { integrations: { type: "array", items: { $ref: "#/components/schemas/CodeIntegration" } } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Connect a GitHub/GitLab repository",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["provider", "name", "owner", "repo"],
+                properties: {
+                  provider: { type: "string", enum: ["github", "gitlab"] },
+                  name: { type: "string" },
+                  owner: { type: "string", examples: ["acme", "platform/team"] },
+                  repo: { type: "string", examples: ["web"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Code integration created",
+            content: { "application/json": { schema: { type: "object", properties: { integration: { $ref: "#/components/schemas/CodeIntegration" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/projects/{projectId}/code-integrations/{id}": {
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Disconnect a code hosting integration",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "projectId", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Code integration disconnected" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Code integration not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/projects/{projectId}/release-metadata": {
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Upsert release code metadata",
+        description: "Attach commit/PR/deployer metadata to a release so Overview can show deploy context.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["environmentId", "release"],
+                properties: {
+                  environmentId: { type: "string" },
+                  release: { type: "string" },
+                  integrationId: { type: ["string", "null"] },
+                  commitSha: { type: ["string", "null"] },
+                  commitUrl: { type: ["string", "null"], format: "uri" },
+                  pullRequestNumber: { type: ["integer", "null"] },
+                  pullRequestUrl: { type: ["string", "null"], format: "uri" },
+                  deployedBy: { type: ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Release metadata saved",
+            content: { "application/json": { schema: { type: "object", properties: { metadata: { $ref: "#/components/schemas/ReleaseMetadata" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/warehouse-destinations": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List warehouse export destinations",
+        description: "List project/environment destinations for incremental warehouse export. Raw connection URLs are never returned.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Warehouse destinations",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { destinations: { type: "array", items: { $ref: "#/components/schemas/WarehouseDestination" } } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create warehouse export destination",
+        description: "Create a Postgres destination. The connection URL is write-only and stored for the scheduler.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "name", "connectionUrl", "datasets"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  name: { type: "string" },
+                  destinationType: { type: "string", enum: ["postgres"], default: "postgres" },
+                  connectionUrl: { type: "string", format: "uri" },
+                  datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+                  batchSize: { type: "integer", minimum: 1, maximum: 5000, default: 500 },
+                  enabled: { type: "boolean", default: true }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Warehouse destination created",
+            content: { "application/json": { schema: { type: "object", properties: { destination: { $ref: "#/components/schemas/WarehouseDestination" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/warehouse-destinations/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update warehouse export destination",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  name: { type: "string" },
+                  connectionUrl: { type: "string", format: "uri" },
+                  datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+                  batchSize: { type: "integer", minimum: 1, maximum: 5000 },
+                  enabled: { type: "boolean" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Warehouse destination updated",
+            content: { "application/json": { schema: { type: "object", properties: { destination: { $ref: "#/components/schemas/WarehouseDestination" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Warehouse destination not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive warehouse export destination",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Warehouse destination archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/warehouse-destinations/{id}/runs": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List warehouse export runs",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } }
+        ],
+        responses: {
+          "200": {
+            description: "Warehouse export runs",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { runs: { type: "array", items: { $ref: "#/components/schemas/WarehouseExportRun" } } } }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Run warehouse export now",
+        description: "Trigger a manual incremental export for one destination.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "202": { description: "Warehouse export accepted" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }
@@ -991,14 +2987,312 @@ export const openApiDocument = {
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")
     },
+    "/query/overview": {
+      get: sessionRoute(
+        "Query project overview",
+        "Read operational overview rollups for one project environment. Query with project_id, environment_id, window=24h|7d|30d, and optional release for exact deploy-version filtering."
+      )
+    },
+    "/query/recent-activity": {
+      get: sessionRoute(
+        "Query recent activity",
+        "Read one mixed, time-ordered activity feed across events, errors, traces, and LLM calls for one project environment. Query with project_id, environment_id, window=24h|7d|30d, optional release, and optional limit."
+      )
+    },
+    "/query/releases": {
+      get: sessionRoute(
+        "Query releases",
+        "List recently observed release values for one project environment, derived from events, errors, traces, and LLM calls. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
+    "/query/events/properties": {
+      get: sessionRoute(
+        "Query event property catalog",
+        "Read observed custom event properties for a project environment, including frequency, event coverage, inferred JSON types, safe sample values, type conflicts, and similar property-name groups. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
+    "/query/events/funnel": {
+      get: sessionRoute(
+        "Query event conversion funnel",
+        "Analyze ordered event-step conversion for a project environment. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2+ event names, and optional limit for sample actors."
+      )
+    },
+    "/query/experiments/{id}/results": {
+      get: sessionRoute(
+        "Query experiment results",
+        "Read A/B experiment conversion results by variant. Query with project_id, environment_id, window=24h|7d|30d, and optional limit. Results are derived from exposure and conversion events that include experiment_key and variant properties."
+      )
+    },
+    "/query/surveys/{id}/results": {
+      get: {
+        ...sessionRoute(
+          "Query survey results",
+          "Read in-app survey response totals, per-question summaries, and recent responses. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } }
+        ],
+        responses: {
+          "200": {
+            description: "Survey results",
+            content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/SurveyResults" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/surveys/{id}/nps": {
+      get: {
+        ...sessionRoute(
+          "Query NPS results",
+          "Read Net Promoter Score totals, daily trend, tenant/release/plan segments, and recent responses for a 0-10 survey question. Query with project_id, environment_id, window=24h|7d|30d, and optional question_id, tenant_id, release, plan, and limit."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } },
+          { name: "question_id", in: "query", required: false, schema: { type: "string", default: "nps" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "release", in: "query", required: false, schema: { type: "string" } },
+          { name: "plan", in: "query", required: false, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "NPS results",
+            content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/NpsResults" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/message-campaigns/{id}/results": {
+      get: {
+        ...sessionRoute(
+          "Query message campaign results",
+          "Read campaign delivery, engagement, conversion, recent event, and opt-out metrics. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } }
+        ],
+        responses: {
+          "200": {
+            description: "Message campaign results",
+            content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/MessageCampaignResults" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Campaign not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/feedback": {
+      get: {
+        ...sessionRoute(
+          "List feedback submissions",
+          "Read recent product feedback submissions for a project environment. Query with project_id, environment_id, optional status=open|reviewed|archived, tenant_id, user_id, and optional limit."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", required: false, schema: { type: "string", enum: ["open", "reviewed", "archived"] } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 200, default: 50 } }
+        ],
+        responses: {
+          "200": {
+            description: "Feedback submissions",
+            content: { "application/json": { schema: { type: "object", properties: { feedback: { type: "array", items: { $ref: "#/components/schemas/FeedbackItem" } } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/feedback/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update feedback status",
+        description: "Mark a feedback submission as open, reviewed, or archived.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", required: ["status"], properties: { status: { type: "string", enum: ["open", "reviewed", "archived"] } } } } }
+        },
+        responses: {
+          "200": {
+            description: "Feedback updated",
+            content: { "application/json": { schema: { type: "object", properties: { feedback: { $ref: "#/components/schemas/FeedbackItem" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Feedback not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/events/retention": {
+      get: sessionRoute(
+        "Query event retention curves",
+        "Analyze retention cohorts for a project environment. Query with project_id, environment_id, window=24h|7d|30d, entry_event, return_event, optional period=daily|weekly|monthly, and optional intervals=2..12."
+      )
+    },
+    "/query/events/click-map": {
+      get: sessionRoute(
+        "Query event click maps",
+        "Aggregate opt-in browser click samples by route, safe selector, and grid bucket. Query with project_id, environment_id, route, window=24h|7d|30d, optional selector, tenant_id, user_id, session_id, grid_size=10..100, and limit."
+      )
+    },
+    "/query/replays": {
+      get: sessionRoute(
+        "Query session replay samples",
+        "List privacy-safe replay samples for a project environment. Supports saved segment filtering with segment_id plus tenant_id, user_id, event_name, and limit. Results include user, tenant, route, timestamp, and linked event/error context for cohort replay investigation."
+      )
+    },
+    "/query/replays/{replayId}": {
+      get: sessionRoute(
+        "Query session replay detail",
+        "Read one privacy-safe replay timeline and its linked product event markers. Query with project_id and environment_id; replayId is the path parameter from event or error detail."
+      )
+    },
     "/query/errors": {
       get: sessionRoute("Query errors", "Read project/environment scoped raw error telemetry.")
+    },
+    "/query/incidents/error-groups/{id}/external-issues": {
+      post: {
+        ...sessionRoute(
+          "Link an external issue to an incident",
+          "Attach a GitHub/GitLab issue URL to a Sigmon error-group incident. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["provider", "externalKey", "title", "url"],
+                properties: {
+                  integrationId: { type: ["string", "null"] },
+                  provider: { type: "string", enum: ["github", "gitlab"] },
+                  externalKey: { type: "string" },
+                  title: { type: "string" },
+                  url: { type: "string", format: "uri" },
+                  state: { type: "string", default: "open" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "External issue linked",
+            content: { "application/json": { schema: { type: "object", properties: { link: { $ref: "#/components/schemas/IncidentExternalLink" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/incidents/error-groups/{id}/external-issues/draft": {
+      post: {
+        ...sessionRoute(
+          "Create an external issue draft URL",
+          "Build a prefilled GitHub/GitLab new-issue URL from a Sigmon incident. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["integrationId"],
+                properties: {
+                  integrationId: { type: "string" },
+                  incidentUrl: { type: "string", format: "uri" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Issue draft URL",
+            content: { "application/json": { schema: { type: "object", properties: { draft: { $ref: "#/components/schemas/IncidentIssueDraft" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Code integration not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/query/llm-calls": {
       get: sessionRoute("Query LLM calls", "Read project/environment scoped LLM call telemetry.")
     },
     "/query/traces": {
-      get: sessionRoute("Query traces", "Read project/environment scoped trace telemetry.")
+      get: sessionRoute(
+        "Query traces",
+        "Read project/environment scoped trace telemetry. Supports trace drilldown filters such as trace_id, trace_name, status, tenant_id, user_id, session_id, from, to, limit, and cursor."
+      )
+    },
+    "/query/apm/endpoints": {
+      get: sessionRoute(
+        "Query APM endpoints",
+        "Read endpoint-level APM rollups for a project environment, including throughput, errors, error rate, p50/p95/p99 latency, average latency, Apdex, and last seen timestamp. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
+    "/query/apm/service-map": {
+      get: sessionRoute(
+        "Query APM service map",
+        "Read span-derived service dependency edges for a project environment, including source, target, dependency type, span count, distinct trace count, errors, error rate, average latency, p95 latency, and last seen timestamp. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
+    "/query/apm/web-vitals": {
+      get: sessionRoute(
+        "Query APM Web Vitals",
+        "Read browser Web Vital rollups for a project environment, including p75 by metric and route, sample counts, rating counts, latest release p75, previous release p75, and regression percent. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
+    },
+    "/query/apm/profiles": {
+      get: sessionRoute(
+        "Query APM runtime profiles",
+        "Read runtime CPU and memory profile rollups for a project environment, including profile counts, CPU/memory totals, recent profiles, and hot functions. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+      )
     },
     "/system/health": {
       get: sessionRoute("Read system health", "Read API, worker, Postgres, Redis, queue, freshness, retention, and backup status.")

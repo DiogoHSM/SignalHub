@@ -68,6 +68,362 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("assignExperiment returns a deterministic variant and records exposure", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        tenantId: "tenant_1",
+        userId: "user_1"
+      }
+    });
+
+    const first = client.assignExperiment({
+      experimentKey: "checkout_copy",
+      subjectId: "user_1",
+      variants: [
+        { key: "control", weight: 50 },
+        { key: "treatment", weight: 50 }
+      ],
+      properties: { surface: "pricing" }
+    });
+    const second = client.assignExperiment({
+      experimentKey: "checkout_copy",
+      subjectId: "user_1",
+      variants: [
+        { key: "control", weight: 50 },
+        { key: "treatment", weight: 50 }
+      ],
+      trackExposure: false
+    });
+
+    expect(second.variant).toBe(first.variant);
+    expect(first).toMatchObject({ experimentKey: "checkout_copy", subjectId: "user_1" });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/events", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      name: "sigmon.experiment.exposed",
+      properties: {
+        experiment_key: "checkout_copy",
+        variant: first.variant,
+        subject_id: "user_1",
+        surface: "pricing"
+      },
+      tenant_id: "tenant_1",
+      user_id: "user_1",
+      metadata: {}
+    });
+  });
+
+  it("evaluateFlag applies local rules with a safe fallback and records evaluation", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        tenantId: "tenant_1",
+        userId: "user_1"
+      }
+    });
+
+    const evaluation = client.evaluateFlag({
+      key: "new_checkout",
+      fallbackVariant: "off",
+      variants: [
+        { key: "off", value: false },
+        { key: "on", value: true }
+      ],
+      rules: [{ variant: "on", match: { userId: "user_1", traits: { plan: "team" } } }],
+      subject: { userId: "user_1", traits: { plan: "team" } }
+    });
+
+    expect(evaluation).toEqual({
+      key: "new_checkout",
+      variant: "on",
+      value: true,
+      matched: true,
+      reason: "rule_match"
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      name: "sigmon.feature_flag.evaluated",
+      properties: {
+        flag_key: "new_checkout",
+        variant: "on",
+        value: true,
+        reason: "rule_match",
+        matched: true
+      },
+      tenant_id: "tenant_1",
+      user_id: "user_1",
+      metadata: {}
+    });
+
+    expect(
+      client.evaluateFlag({
+        key: "new_checkout",
+        fallbackVariant: "off",
+        variants: [{ key: "off", value: false }],
+        rules: [],
+        subject: { userId: "user_2" },
+        trackExposure: false
+      })
+    ).toEqual({
+      key: "new_checkout",
+      variant: "off",
+      value: false,
+      matched: false,
+        reason: "default"
+      });
+
+    expect(
+      client.evaluateFlag({
+        key: "New Checkout",
+        fallbackVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [{ id: "Rollout 10", variant: "on", rollout: { percentage: 10, stickiness: "user" } }],
+        subject: { userId: "user_2" },
+        trackExposure: false
+      })
+    ).toEqual({
+      key: "New Checkout",
+      variant: "on",
+      value: true,
+      matched: true,
+      reason: "rule_match"
+    });
+
+    expect(
+      client.evaluateFlag({
+        key: "new_checkout",
+        fallbackVariant: "off",
+        variants: [
+          { key: "off", value: false },
+          { key: "on", value: true }
+        ],
+        rules: [{ id: "rollout_10", variant: "on", match: {}, rollout: { percentage: 10, stickiness: "user" } }],
+        subject: { userId: "user_1" },
+        trackExposure: false
+      })
+    ).toEqual({
+      key: "new_checkout",
+      variant: "off",
+      value: false,
+      matched: false,
+      reason: "default"
+    });
+  });
+
+  it("webVital enqueues a browser performance metric", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        source: "browser",
+        release: "1.2.3"
+      }
+    });
+
+    client.webVital({ name: "LCP", value: 2200, rating: "good", route: "/dashboard" });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/web-vitals", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      name: "LCP",
+      value: 2200,
+      rating: "good",
+      route: "/dashboard",
+      source: "browser",
+      release: "1.2.3",
+      metadata: {}
+    });
+  });
+
+  it("click enqueues a privacy-safe click map sample", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.click({
+      route: "/checkout",
+      selector: '[data-sigmon-id="submit"]',
+      x: 0.5,
+      y: 0.4,
+      viewportWidth: 1280,
+      viewportHeight: 720
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/clicks", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      route: "/checkout",
+      selector: '[data-sigmon-id="submit"]',
+      x: 0.5,
+      y: 0.4,
+      viewport_width: 1280,
+      viewport_height: 720,
+      masked: true,
+      session_id: "sess_1",
+      source: "browser",
+      metadata: {}
+    });
+  });
+
+  it("replay enqueues a masked session timeline", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.replay({
+      replayId: "rpl_1",
+      startedAt: "2026-05-02T12:00:00.000Z",
+      route: "/checkout",
+      errorId: "err_1",
+      events: [{ offsetMs: 100, type: "navigation", route: "/checkout" }]
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/replays", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      replay_id: "rpl_1",
+      started_at: "2026-05-02T12:00:00.000Z",
+      route: "/checkout",
+      error_id: "err_1",
+      events: [
+        {
+          offset_ms: 100,
+          type: "navigation",
+          route: "/checkout",
+          selector: undefined,
+          message: undefined,
+          x: undefined,
+          y: undefined,
+          data: {}
+        }
+      ],
+      masked: true,
+      session_id: "sess_1",
+      source: "browser",
+      metadata: {}
+    });
+  });
+
+  it("submitSurvey enqueues a survey response", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        userId: "usr_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.submitSurvey({
+      surveyId: "srv_1",
+      actorType: "user",
+      actorId: "usr_1",
+      answers: {
+        satisfaction: 5,
+        comment: "Great"
+      },
+      timestamp: "2026-05-02T12:00:00.000Z"
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/surveys/responses", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      survey_id: "srv_1",
+      actor_type: "user",
+      actor_id: "usr_1",
+      answers: {
+        satisfaction: 5,
+        comment: "Great"
+      },
+      timestamp: "2026-05-02T12:00:00.000Z",
+      user_id: "usr_1",
+      tenant_id: "tenant_1",
+      session_id: "sess_1",
+      source: "browser",
+      metadata: {}
+    });
+  });
+
+  it("feedback enqueues browser feedback with context", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        userId: "usr_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.feedback({
+      message: "The export button is confusing",
+      category: "ux",
+      pageUrl: "https://app.example.com/reports",
+      path: "/reports",
+      userAgent: "Vitest",
+      metadata: { component: "exports" },
+      timestamp: "2026-05-02T12:30:00.000Z"
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/feedback", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      message: "The export button is confusing",
+      category: "ux",
+      page_url: "https://app.example.com/reports",
+      path: "/reports",
+      user_agent: "Vitest",
+      timestamp: "2026-05-02T12:30:00.000Z",
+      user_id: "usr_1",
+      tenant_id: "tenant_1",
+      session_id: "sess_1",
+      source: "browser",
+      metadata: { component: "exports" }
+    });
+  });
+
   it("retains retryable failures by default and discards them when requested", async () => {
     const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));
@@ -319,6 +675,8 @@ describe("createSignalMonitorClient", () => {
     await client.flush();
 
     expect(activeTrace.traceId).toBe("trace_supplied");
+    expect(activeTrace.traceparent).toBeUndefined();
+    expect(activeTrace.headers()).toEqual({});
     expect(activeTrace.startedAt).toEqual(new Date("2026-05-02T12:00:00.000Z"));
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://api.sigmon.test/v1/traces",
@@ -331,6 +689,28 @@ describe("createSignalMonitorClient", () => {
       ended_at: "2026-05-02T12:00:02.500Z",
       duration_ms: 2500,
       trace_id: "trace_supplied"
+    });
+  });
+
+  it("startTrace creates W3C-compatible trace context when no trace id is supplied", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0
+    });
+
+    const activeTrace = client.startTrace("POST /api/orders");
+    activeTrace.end();
+    await client.flush();
+
+    expect(activeTrace.traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(activeTrace.spanId).toMatch(/^[0-9a-f]{16}$/);
+    expect(activeTrace.traceparent).toBe(`00-${activeTrace.traceId}-${activeTrace.spanId}-01`);
+    expect(decodeBody(fetchImpl.mock.calls[0])).toMatchObject({
+      name: "POST /api/orders",
+      trace_id: activeTrace.traceId
     });
   });
 

@@ -19,8 +19,9 @@ export type ErrorTabsVM = {
 export type ErrorSummaryVM = {
   errors24h: number;
   openGroups: number;
+  crashes: number;
   critical: number;
-  mttr: null;
+  mttr: number | null;
   topRelease: string | null;
 };
 
@@ -28,12 +29,14 @@ export type ErrorRowVM = {
   id: string;
   message: string;
   severity: string;
+  isCrash: boolean;
   status: string;
   priority: "P1" | "P2" | "P3" | "P4" | null;
   events: number;
   users: number | null;
   tenants: number | null;
   last: string;
+  trend: number[];
 };
 
 export type ErrorsVM = {
@@ -48,7 +51,9 @@ export type ErrorsVM = {
 // ---------------------------------------------------------------------------
 
 type UseErrorsOptions = {
-  client: Pick<ApiClient, "getOverview"> & Pick<ErrorGroupApiClient, "listErrorGroups">;
+  client: Pick<ApiClient, "getOverview"> & Pick<ErrorGroupApiClient, "listErrorGroups"> & {
+    getIncidentMttr?: ApiClient["getIncidentMttr"];
+  };
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
@@ -83,7 +88,7 @@ function topRelease(rows: ErrorGroupRecord[]): string | null {
 
   for (const row of rows) {
     if (row.latestRelease == null) continue;
-    counts.set(row.latestRelease, (counts.get(row.latestRelease) ?? 0) + 1);
+    counts.set(row.latestRelease, (counts.get(row.latestRelease) ?? 0) + row.occurrenceCount);
   }
 
   if (counts.size === 0) return null;
@@ -136,9 +141,15 @@ export function useErrors({
 
     Promise.all([
       client.listErrorGroups(groupsQuery),
-      client.getOverview(overviewQuery).then((r) => r.data)
+      client.getOverview(overviewQuery).then((r) => r.data),
+      client.getIncidentMttr
+        ? client
+            .getIncidentMttr({ projectId, environmentId, window: "7d" })
+            .then((r) => r.data)
+            .catch(() => ({ mttrMs: null, resolvedCount: 0, windowDays: 7 }))
+        : Promise.resolve({ mttrMs: null, resolvedCount: 0, windowDays: 7 })
     ])
-      .then(([groupsRes, overview]) => {
+      .then(([groupsRes, overview, mttr]) => {
         if (gen !== genRef.current) return;
 
         const groups = groupsRes.data;
@@ -162,6 +173,9 @@ export function useErrors({
         const critical = overview.top.errorSeverity
           .filter((e) => criticalSeverities.has(e.severity))
           .reduce((sum, e) => sum + e.total, 0);
+        const crashes = overview.top.errorSeverity
+          .filter((e) => e.severity === "fatal")
+          .reduce((sum, e) => sum + e.total, 0);
 
         const openStatuses = new Set<string>(["open", "investigating"]);
         const openGroups = groups.filter((g) => openStatuses.has(g.status)).length;
@@ -169,8 +183,9 @@ export function useErrors({
         const summary: ErrorSummaryVM = {
           errors24h: kpis.errors,
           openGroups,
+          crashes,
           critical,
-          mttr: null,
+          mttr: mttr.mttrMs,
           topRelease: topRelease(groups)
         };
 
@@ -179,12 +194,14 @@ export function useErrors({
           id: g.id,
           message: g.message,
           severity: g.severity,
+          isCrash: g.severity === "fatal",
           status: g.status,
           priority: mapPriority(g.priority),
           events: g.occurrenceCount,
           users: g.affectedUsersCount,
           tenants: g.affectedTenantsCount,
-          last: relativeTime(g.lastSeenAt)
+          last: relativeTime(g.lastSeenAt),
+          trend: g.trend ?? []
         }));
 
         setData({ tabs, summary, volume, rows });

@@ -131,6 +131,38 @@ describe("TopBar", () => {
     expect(onSelectProject).toHaveBeenCalledWith("p2");
   });
 
+  it("selecting an environment from the menu calls onSelectEnv with its id", async () => {
+    const onSelectEnv = vi.fn();
+    const user = userEvent.setup();
+    const environments: Environment[] = [
+      { id: "e1", projectId: "p1", name: "production", createdAt: "", updatedAt: "", archivedAt: null },
+      { id: "e2", projectId: "p1", name: "production", createdAt: "", updatedAt: "", archivedAt: null },
+    ];
+    const { container } = render(
+      <TopBar
+        projects={PROJECTS}
+        project={PROJECT}
+        environments={environments}
+        env={environments[0]}
+        onSelectProject={() => {}}
+        onSelectEnv={onSelectEnv}
+        crumb={CRUMB}
+        railCollapsed={false}
+        onToggleRail={() => {}}
+        onRefresh={() => {}}
+        onOpenSearch={() => {}}
+      />
+    );
+
+    const pills = container.querySelectorAll(".sw-pill");
+    await user.click(pills[1]);
+
+    const opts = container.querySelectorAll(".sw-opt");
+    await user.click(opts[1] as HTMLElement);
+
+    expect(onSelectEnv).toHaveBeenCalledWith("e2");
+  });
+
   it("breadcrumb renders crumb labels", () => {
     const { container } = render(
       <TopBar

@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createBreadcrumbSignal,
+  createClickSignal,
   createErrorSignal,
   createEventSignal,
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
+  createRuntimeProfileSignal,
+  createSessionReplaySignal,
   createSpanSignal,
   createTraceSignal,
+  createWebVitalSignal,
   mergeContext,
   serializeDate
 } from "../src/mapping.js";
@@ -66,6 +70,7 @@ describe("payload mapping", () => {
           userId: "user_1",
           sessionId: "session_1",
           traceId: "trace_1",
+          replayId: "rpl_checkout_1",
           timestamp: new Date("2026-05-02T12:00:00.000Z")
         }
       )
@@ -80,7 +85,173 @@ describe("payload mapping", () => {
         user_id: "user_1",
         session_id: "session_1",
         trace_id: "trace_1",
+        replay_id: "rpl_checkout_1",
         metadata: {}
+      }
+    });
+  });
+
+  it("maps click samples to /v1/clicks without unsafe DOM data", () => {
+    expect(
+      createClickSignal(
+        {
+          route: "/checkout?token=secret",
+          selector: '[data-sigmon-id="submit"]',
+          elementTag: "button",
+          elementRole: "button",
+          x: 0.72,
+          y: 0.61,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          scrollX: 0,
+          scrollY: 320
+        },
+        { source: "browser", release: "1.2.3" }
+      )
+    ).toEqual({
+      kind: "click",
+      endpointPath: "/v1/clicks",
+      payload: {
+        route: "/checkout?token=secret",
+        selector: '[data-sigmon-id="submit"]',
+        element_tag: "button",
+        element_role: "button",
+        x: 0.72,
+        y: 0.61,
+        viewport_width: 1440,
+        viewport_height: 900,
+        scroll_x: 0,
+        scroll_y: 320,
+        masked: true,
+        source: "browser",
+        release: "1.2.3",
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps session replays to /v1/replays with masked timeline events", () => {
+    expect(
+      createSessionReplaySignal(
+        {
+          replayId: "rpl_1",
+          startedAt: new Date("2026-05-02T12:00:00.000Z"),
+          endedAt: new Date("2026-05-02T12:00:03.000Z"),
+          route: "/checkout",
+          errorId: "err_1",
+          events: [
+            {
+              offsetMs: 200,
+              type: "click",
+              route: "/checkout",
+              selector: '[data-sigmon-id="pay"]',
+              x: 0.5,
+              y: 0.25,
+              data: { masked: true }
+            }
+          ]
+        },
+        { sessionId: "sess_1", source: "browser" }
+      )
+    ).toEqual({
+      kind: "replay",
+      endpointPath: "/v1/replays",
+      payload: {
+        replay_id: "rpl_1",
+        started_at: "2026-05-02T12:00:00.000Z",
+        ended_at: "2026-05-02T12:00:03.000Z",
+        duration_ms: 3000,
+        route: "/checkout",
+        error_id: "err_1",
+        events: [
+          {
+            offset_ms: 200,
+            type: "click",
+            route: "/checkout",
+            selector: '[data-sigmon-id="pay"]',
+            message: undefined,
+            x: 0.5,
+            y: 0.25,
+            data: { masked: true }
+          }
+        ],
+        masked: true,
+        session_id: "sess_1",
+        source: "browser",
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps web vitals to /v1/web-vitals with route and rating fields", () => {
+    expect(
+      createWebVitalSignal(
+        {
+          name: "INP",
+          value: 180,
+          rating: "good",
+          route: "/checkout",
+          navigationType: "reload",
+          timestamp: new Date("2026-05-02T12:00:00.000Z")
+        },
+        { source: "browser", release: "1.2.3" }
+      )
+    ).toEqual({
+      kind: "web_vital",
+      endpointPath: "/v1/web-vitals",
+      payload: {
+        name: "INP",
+        value: 180,
+        rating: "good",
+        route: "/checkout",
+        navigation_type: "reload",
+        timestamp: "2026-05-02T12:00:00.000Z",
+        source: "browser",
+        release: "1.2.3",
+        metadata: {}
+      }
+    });
+  });
+
+  it("maps runtime profiles to /v1/profiles with top functions", () => {
+    expect(
+      createRuntimeProfileSignal(
+        {
+          name: "worker.tick",
+          kind: "cpu",
+          startedAt: new Date("2026-05-02T12:00:00.000Z"),
+          endedAt: new Date("2026-05-02T12:00:01.000Z"),
+          sampleCount: 2,
+          topFunctions: [{ functionName: "tick", selfTimeMs: 25, sampleCount: 2 }],
+          metadata: { worker: "queue" }
+        },
+        { source: "node" }
+      )
+    ).toEqual({
+      kind: "profile",
+      endpointPath: "/v1/profiles",
+      payload: {
+        metadata: { worker: "queue" },
+        source: "node",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        started_at: "2026-05-02T12:00:00.000Z",
+        ended_at: "2026-05-02T12:00:01.000Z",
+        duration_ms: 1000,
+        sample_count: 2,
+        top_functions: [
+          {
+            function_name: "tick",
+            url: undefined,
+            line_number: undefined,
+            column_number: undefined,
+            self_time_ms: 25,
+            total_time_ms: undefined,
+            sample_count: 2
+          }
+        ],
+        summary: {}
       }
     });
   });
@@ -160,6 +331,7 @@ describe("payload mapping", () => {
       createErrorSignal(error, {
         severity: "critical",
         fingerprint: "db-connection",
+        replayId: "rpl_1",
         context: { pool: "primary" },
         tenantId: "tenant_1",
         metadata: { component: "db" }
@@ -173,6 +345,7 @@ describe("payload mapping", () => {
         stack: "TypeError: Database connection failed\n    at test",
         severity: "critical",
         fingerprint: "db-connection",
+        replay_id: "rpl_1",
         context: { pool: "primary" },
         tenant_id: "tenant_1",
         metadata: { component: "db" }

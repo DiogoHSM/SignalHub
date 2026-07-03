@@ -1,3 +1,5 @@
+import { sql } from "kysely";
+
 import type { Db } from "../client.js";
 import { refreshErrorGroupStats, upsertErrorGroupForOccurrence } from "./error-groups.js";
 import { touchTenantProfileLastSeen, touchUserProfileLastSeen } from "./identity-profiles.js";
@@ -19,6 +21,7 @@ interface TelemetryBaseInput {
 
 export interface InsertEventInput extends TelemetryBaseInput {
   name: string;
+  replayId?: string;
   properties?: unknown;
 }
 
@@ -29,6 +32,7 @@ export interface InsertErrorInput extends TelemetryBaseInput {
   stack?: string;
   status?: string;
   fingerprint?: string;
+  replayId?: string;
   context?: unknown;
 }
 
@@ -68,6 +72,83 @@ export interface InsertSpanInput extends TelemetryBaseInput {
   costUsd?: string;
 }
 
+export interface InsertWebVitalInput extends TelemetryBaseInput {
+  name: "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+  value: number;
+  rating: "good" | "needs-improvement" | "poor";
+  route?: string;
+  navigationType?: string;
+}
+
+export interface InsertClickEventInput extends TelemetryBaseInput {
+  route: string;
+  selector: string;
+  elementTag?: string;
+  elementRole?: string;
+  x: number;
+  y: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  scrollX?: number;
+  scrollY?: number;
+  masked?: boolean;
+}
+
+export interface InsertSessionReplayEventInput {
+  offsetMs: number;
+  type: "navigation" | "click" | "input" | "console" | "network" | "error" | "custom";
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data?: unknown;
+}
+
+export interface InsertSessionReplayInput extends TelemetryBaseInput {
+  replayId: string;
+  route?: string;
+  errorId?: string;
+  startedAt: Date;
+  endedAt?: Date;
+  durationMs?: number;
+  masked?: boolean;
+  events?: InsertSessionReplayEventInput[];
+}
+
+export interface InsertProfileFunctionInput {
+  functionName: string;
+  url?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  selfTimeMs?: number;
+  totalTimeMs?: number;
+  sampleCount?: number;
+}
+
+export interface InsertProfileInput extends TelemetryBaseInput {
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service?: string;
+  route?: string;
+  startedAt: Date;
+  endedAt?: Date;
+  durationMs?: number;
+  sampleCount?: number;
+  samplingIntervalMs?: number;
+  cpuUsagePercent?: string;
+  cpuUserMs?: number;
+  cpuSystemMs?: number;
+  rssBytes?: string;
+  heapUsedBytes?: string;
+  heapTotalBytes?: string;
+  externalBytes?: string;
+  arrayBuffersBytes?: string;
+  topFunctions?: InsertProfileFunctionInput[];
+  summary?: unknown;
+}
+
 export interface InsertBreadcrumbInput extends TelemetryBaseInput {
   type: "navigation" | "click" | "console" | "network" | "custom";
   category?: string;
@@ -99,6 +180,10 @@ function baseColumns(input: TelemetryBaseInput) {
 
 function inserted(result: { id: string }[]): boolean {
   return result.length > 0;
+}
+
+function jsonb(value: unknown) {
+  return sql<unknown>`${JSON.stringify(value)}::jsonb`;
 }
 
 async function assertActiveTelemetryScope(db: Db, input: TelemetryBaseInput): Promise<void> {
@@ -149,6 +234,7 @@ export async function insertEvent(db: Db, input: InsertEventInput): Promise<void
       .values({
         ...baseColumns(input),
         name: input.name,
+        replay_id: nullable(input.replayId),
         properties: input.properties ?? {}
       })
       .onConflict((oc) => oc.column("id").doNothing())
@@ -193,6 +279,7 @@ export async function insertError(db: Db, input: InsertErrorInput): Promise<void
         stack: nullable(input.stack),
         status: input.status ?? "open",
         fingerprint: nullable(input.fingerprint),
+        replay_id: nullable(input.replayId),
         context: input.context ?? {},
         error_group_id: grouping.groupId,
         grouping_fingerprint: grouping.fingerprint
@@ -290,6 +377,182 @@ export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> 
         output: nullable(input.output),
         error: nullable(input.error),
         cost_usd: nullable(input.costUsd)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertWebVital(db: Db, input: InsertWebVitalInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("web_vitals").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const result = await trx
+      .insertInto("web_vitals")
+      .values({
+        ...baseColumns(input),
+        name: input.name,
+        value: input.value,
+        rating: input.rating,
+        route: nullable(input.route),
+        navigation_type: nullable(input.navigationType)
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertClickEvent(db: Db, input: InsertClickEventInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("click_events").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const result = await trx
+      .insertInto("click_events")
+      .values({
+        ...baseColumns(input),
+        route: input.route,
+        selector: input.selector,
+        element_tag: nullable(input.elementTag),
+        element_role: nullable(input.elementRole),
+        x: String(input.x),
+        y: String(input.y),
+        viewport_width: input.viewportWidth,
+        viewport_height: input.viewportHeight,
+        scroll_x: nullable(input.scrollX),
+        scroll_y: nullable(input.scrollY),
+        masked: input.masked ?? true
+      })
+      .onConflict((oc) => oc.column("id").doNothing())
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertSessionReplay(db: Db, input: InsertSessionReplayInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("session_replays").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const events = input.events ?? [];
+    const result = await trx
+      .insertInto("session_replays")
+      .values({
+        ...baseColumns(input),
+        replay_id: input.replayId,
+        route: nullable(input.route),
+        error_id: nullable(input.errorId),
+        started_at: input.startedAt,
+        ended_at: nullable(input.endedAt),
+        duration_ms: nullable(input.durationMs),
+        event_count: events.length,
+        masked: input.masked ?? true,
+        events: jsonb(
+          events.map((event) => ({
+            offsetMs: event.offsetMs,
+            type: event.type,
+            route: event.route,
+            selector: event.selector,
+            message: event.message,
+            x: event.x,
+            y: event.y,
+            data: event.data ?? {}
+          }))
+        )
+      })
+      .onConflict((oc) =>
+        oc.columns(["project_id", "environment_id", "replay_id"]).doUpdateSet({
+          tenant_id: nullable(input.tenantId),
+          user_id: nullable(input.userId),
+          session_id: nullable(input.sessionId),
+          trace_id: nullable(input.traceId),
+          timestamp: input.timestamp,
+          received_at: input.receivedAt,
+          source: nullable(input.source),
+          release: nullable(input.release),
+          metadata: jsonb(input.metadata ?? {}),
+          route: nullable(input.route),
+          error_id: nullable(input.errorId),
+          started_at: input.startedAt,
+          ended_at: nullable(input.endedAt),
+          duration_ms: nullable(input.durationMs),
+          event_count: events.length,
+          masked: input.masked ?? true,
+          events: jsonb(
+            events.map((event) => ({
+              offsetMs: event.offsetMs,
+              type: event.type,
+              route: event.route,
+              selector: event.selector,
+              message: event.message,
+              x: event.x,
+              y: event.y,
+              data: event.data ?? {}
+            }))
+          )
+        })
+      )
+      .returning("id")
+      .execute();
+
+    if (inserted(result)) {
+      await touchProfiles(trx, input);
+    }
+  });
+}
+
+export async function insertProfile(db: Db, input: InsertProfileInput): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const existing = await trx.selectFrom("profiles").select("id").where("id", "=", input.id).executeTakeFirst();
+    if (existing) return;
+
+    await assertActiveTelemetryScope(trx, input);
+
+    const result = await trx
+      .insertInto("profiles")
+      .values({
+        ...baseColumns(input),
+        name: input.name,
+        kind: input.kind,
+        runtime: input.runtime,
+        service: nullable(input.service),
+        route: nullable(input.route),
+        started_at: input.startedAt,
+        ended_at: nullable(input.endedAt),
+        duration_ms: nullable(input.durationMs),
+        sample_count: input.sampleCount ?? 0,
+        sampling_interval_ms: nullable(input.samplingIntervalMs),
+        cpu_usage_percent: nullable(input.cpuUsagePercent),
+        cpu_user_ms: nullable(input.cpuUserMs),
+        cpu_system_ms: nullable(input.cpuSystemMs),
+        rss_bytes: nullable(input.rssBytes),
+        heap_used_bytes: nullable(input.heapUsedBytes),
+        heap_total_bytes: nullable(input.heapTotalBytes),
+        external_bytes: nullable(input.externalBytes),
+        array_buffers_bytes: nullable(input.arrayBuffersBytes),
+        top_functions: jsonb(input.topFunctions ?? []),
+        summary: jsonb(input.summary ?? {})
       })
       .onConflict((oc) => oc.column("id").doNothing())
       .returning("id")

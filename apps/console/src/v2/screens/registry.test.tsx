@@ -114,6 +114,8 @@ describe("screen registry", () => {
       data: null,
       status: "loading",
       reload: vi.fn(),
+      selectedRelease: null,
+      selectRelease: vi.fn(),
     });
     const ctx = makeCtx();
     const { container } = render(<>{renderSection("overview", ctx)}</>);
@@ -183,7 +185,16 @@ describe("screen registry", () => {
   });
 
   it("renders the v2 Traces screen (not wrapped in the legacy island)", () => {
-    vi.spyOn(useTracesModule, "useTraces").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    vi.spyOn(useTracesModule, "useTraces").mockReturnValue({
+      data: null,
+      endpoints: [],
+      serviceMap: { edges: [], totals: null },
+      webVitals: { metrics: [], totals: null },
+      runtimeProfiles: { profiles: [], hotFunctions: [], totals: null },
+      totals: null,
+      status: "loading",
+      reload: vi.fn()
+    });
     const ctx = makeCtx();
     const node = renderSection("traces", ctx);
     const { container } = render(<>{node}</>);
@@ -208,6 +219,7 @@ describe("screen registry", () => {
       updateChannel: vi.fn().mockResolvedValue(true),
       archiveChannel: vi.fn().mockResolvedValue(true),
       createFromSuggestion: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage: vi.fn().mockResolvedValue(true),
     });
     const ctx = makeCtx();
     const node = renderSection("alerts", ctx);

@@ -27,11 +27,25 @@ import {
 
 function createWriter(): TelemetryWriter {
   return {
+    getDataGovernancePolicy: vi.fn(async (input) => ({
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      retentionPolicy: {},
+      propertyRules: [],
+      updatedByUserId: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0)
+    })),
     insertEvent: vi.fn(async () => undefined),
     insertError: vi.fn(async () => undefined),
     insertLlmCall: vi.fn(async () => undefined),
     insertTrace: vi.fn(async () => undefined),
     insertSpan: vi.fn(async () => undefined),
+    insertWebVital: vi.fn(async () => undefined),
+    insertClickEvent: vi.fn(async () => undefined),
+    insertSessionReplay: vi.fn(async () => undefined),
+    insertProfile: vi.fn(async () => undefined),
+    insertSurveyResponse: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
@@ -59,6 +73,7 @@ describe("processTelemetryJob", () => {
         user_id: "user_1",
         session_id: "session_1",
         trace_id: "trace_1",
+        replay_id: "rpl_checkout_1",
         source: "sdk-js",
         release: "1.2.3",
         metadata: {
@@ -85,6 +100,7 @@ describe("processTelemetryJob", () => {
         userId: "user_1",
         sessionId: "session_1",
         traceId: "trace_1",
+        replayId: "rpl_checkout_1",
         source: "sdk-js",
         release: "1.2.3",
         timestamp: new Date("2026-01-01T00:00:00.000Z"),
@@ -98,6 +114,108 @@ describe("processTelemetryJob", () => {
           plan: "pro",
           password: "[REDACTED]",
           nested: { token: "[REDACTED]" }
+        }
+      })
+    );
+  });
+
+  it("sanitizes and persists survey response jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "survey_response",
+      id: "srs_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        survey_id: "srv_1",
+        actor_type: "user",
+        actor_id: "usr_1",
+        user_id: "usr_1",
+        tenant_id: "tenant_1",
+        session_id: "sess_1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        answers: {
+          satisfaction: 5,
+          comment: "great",
+          password: "secret"
+        },
+        metadata: {
+          token: "secret"
+        }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertSurveyResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "srs_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        surveyId: "srv_1",
+        actorType: "user",
+        actorId: "usr_1",
+        userId: "usr_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        answers: expect.objectContaining({
+          satisfaction: 5,
+          comment: "great",
+          password: "[REDACTED]"
+        }),
+        metadata: expect.objectContaining({ token: "[REDACTED]" }),
+        submittedAt: new Date("2026-01-01T00:00:00.000Z")
+      })
+    );
+  });
+
+  it("applies data governance rules before persisting event jobs", async () => {
+    const writer = createWriter();
+    vi.mocked(writer.getDataGovernancePolicy!).mockResolvedValue({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      retentionPolicy: {},
+      propertyRules: [
+        { target: "event.properties", path: "email", action: "mask" },
+        { target: "event.properties", path: "billing.card", action: "block" },
+        { target: "metadata", path: "headers.authorization", action: "block" }
+      ],
+      updatedByUserId: null,
+      createdAt: new Date(0),
+      updatedAt: new Date(0)
+    });
+    const job: TelemetryJobPayload = {
+      kind: "event",
+      id: "evt_governance",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-01-01T00:00:00.000Z",
+        metadata: {
+          headers: {
+            authorization: "Bearer secret",
+            accept: "json"
+          }
+        },
+        name: "checkout.started",
+        properties: {
+          email: "admin@example.com",
+          billing: {
+            card: "4242",
+            plan: "team"
+          }
+        }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { headers: { accept: "json" } },
+        properties: {
+          email: "[REDACTED]",
+          billing: { plan: "team" }
         }
       })
     );
@@ -118,6 +236,7 @@ describe("processTelemetryJob", () => {
         severity: "critical",
         stack: "stack trace",
         fingerprint: "checkout-type-error",
+        replay_id: "rpl_1",
         context: {
           request: {
             headers: {
@@ -143,6 +262,7 @@ describe("processTelemetryJob", () => {
         severity: "critical",
         stack: "stack trace",
         fingerprint: "checkout-type-error",
+        replayId: "rpl_1",
         metadata: { cookie: "[REDACTED]" },
         context: {
           request: {
@@ -361,6 +481,145 @@ describe("processTelemetryJob", () => {
           token: "[REDACTED]",
           nested: { authorization: "[REDACTED]" }
         }
+      })
+    );
+  });
+
+  it("persists runtime profile jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "profile",
+      id: "prf_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        trace_id: "trace_1",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        started_at: "2026-05-11T12:00:00.000Z",
+        duration_ms: 120,
+        sample_count: 2,
+        top_functions: [{ function_name: "tick", self_time_ms: 14, sample_count: 2 }],
+        summary: { token: "secret" }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "prf_1",
+        traceId: "trace_1",
+        name: "worker.tick",
+        kind: "cpu",
+        runtime: "node",
+        durationMs: 120,
+        sampleCount: 2,
+        topFunctions: [expect.objectContaining({ functionName: "tick", selfTimeMs: 14, sampleCount: 2 })],
+        summary: { token: "[REDACTED]" }
+      })
+    );
+  });
+
+  it("persists privacy-safe click map jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "click",
+      id: "clk_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        session_id: "sess_1",
+        source: "web",
+        metadata: { cookie: "session=secret" },
+        route: "/checkout",
+        selector: "[data-sigmon-id=\"pay\"]",
+        element_tag: "button",
+        element_role: "button",
+        x: 0.25,
+        y: 0.75,
+        viewport_width: 1440,
+        viewport_height: 900,
+        scroll_x: 0,
+        scroll_y: 320,
+        masked: true
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertClickEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "clk_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        sessionId: "sess_1",
+        route: "/checkout",
+        selector: "[data-sigmon-id=\"pay\"]",
+        elementTag: "button",
+        elementRole: "button",
+        x: 0.25,
+        y: 0.75,
+        viewportWidth: 1440,
+        viewportHeight: 900,
+        scrollX: 0,
+        scrollY: 320,
+        masked: true,
+        metadata: { cookie: "[REDACTED]" }
+      })
+    );
+  });
+
+  it("persists masked session replay jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "replay",
+      id: "rpl_job_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        timestamp: "2026-05-11T12:00:00.000Z",
+        session_id: "sess_1",
+        source: "web",
+        metadata: { authorization: "Bearer secret" },
+        replay_id: "rpl_1",
+        route: "/checkout",
+        error_id: "err_1",
+        started_at: "2026-05-11T11:59:58.000Z",
+        ended_at: "2026-05-11T12:00:03.000Z",
+        duration_ms: 5000,
+        masked: true,
+        events: [
+          {
+            offset_ms: 200,
+            type: "click",
+            selector: '[data-sigmon-id="pay"]',
+            data: { token: "secret" }
+          }
+        ]
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertSessionReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rpl_job_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        sessionId: "sess_1",
+        replayId: "rpl_1",
+        route: "/checkout",
+        errorId: "err_1",
+        startedAt: new Date("2026-05-11T11:59:58.000Z"),
+        endedAt: new Date("2026-05-11T12:00:03.000Z"),
+        durationMs: 5000,
+        masked: true,
+        metadata: { authorization: "[REDACTED]" },
+        events: [expect.objectContaining({ offsetMs: 200, type: "click", data: { token: "[REDACTED]" } })]
       })
     );
   });
@@ -955,6 +1214,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -969,7 +1229,9 @@ describe("runRetentionOnce", () => {
             traces: 3,
             spans: 4,
             llmCalls: 5,
-            breadcrumbs: 6,
+            webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 6,
             deadLetterJobs: 0,
             sourceMapArtifacts: 0,
             sourceMapFiles: 0
@@ -1001,6 +1263,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1029,6 +1292,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1061,6 +1325,8 @@ describe("runRetentionOnce", () => {
           spans: 0,
           traces: 0,
           llmCalls: 0,
+          webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1087,6 +1353,7 @@ describe("runRetentionOnce", () => {
           tracesDays: 90,
           spansDays: 90,
           llmCallsDays: 180,
+          profilesDays: 30,
           breadcrumbsDays: 30,
           deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1104,7 +1371,9 @@ describe("runRetentionOnce", () => {
                   traces: 3,
                   spans: 4,
                   llmCalls: 5,
-                  breadcrumbs: 6,
+                  webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 6,
                   deadLetterJobs: 0,
           sourceMapArtifacts: 0,
                   sourceMapFiles: 0
@@ -1137,6 +1406,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1153,7 +1423,9 @@ describe("runRetentionOnce", () => {
               traces: 0,
               spans: 0,
               llmCalls: 0,
-              breadcrumbs: 0,
+              webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 0,
               deadLetterJobs: 0,
           sourceMapArtifacts: 0,
               sourceMapFiles: 0
@@ -1189,6 +1461,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: false,
@@ -1204,7 +1477,9 @@ describe("runRetentionOnce", () => {
             traces: 0,
             spans: 0,
             llmCalls: 0,
-            breadcrumbs: 0,
+            webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 0,
             deadLetterJobs: 0,
           sourceMapArtifacts: 0,
             sourceMapFiles: 0
@@ -1234,6 +1509,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1251,7 +1527,9 @@ describe("runRetentionOnce", () => {
                 traces: 0,
                 spans: 0,
                 llmCalls: 0,
-                breadcrumbs: 0,
+                webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 0,
                 deadLetterJobs: 0,
           sourceMapArtifacts: 0,
                 sourceMapFiles: 0
@@ -1276,6 +1554,8 @@ describe("runRetentionOnce", () => {
           traces: 0,
           spans: 0,
           llmCalls: 0,
+          webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 0,
@@ -1298,6 +1578,7 @@ describe("runRetentionOnce", () => {
         tracesDays: 90,
         spansDays: 90,
         llmCallsDays: 180,
+        profilesDays: 30,
         breadcrumbsDays: 30,
         deadLetterJobsDays: 30,
         sourceMapsEnabled: true,
@@ -1313,7 +1594,9 @@ describe("runRetentionOnce", () => {
             traces: 0,
             spans: 0,
             llmCalls: 0,
-            breadcrumbs: 0,
+            webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 0,
             deadLetterJobs: 0,
           sourceMapArtifacts: 0,
             sourceMapFiles: 0
@@ -1335,6 +1618,8 @@ describe("runRetentionOnce", () => {
           traces: 0,
           spans: 0,
           llmCalls: 0,
+          webVitals: 0,
+          profiles: 0,
           breadcrumbs: 0,
           deadLetterJobs: 0,
           sourceMapArtifacts: 1,
@@ -1444,12 +1729,14 @@ describe("runAlertEvaluationOnce", () => {
           projectId: "prj_1",
           environmentId: "env_1",
           notificationChannelId: "chn_1",
+          escalationChannelId: null,
           name: "Critical errors",
           type: "critical_errors",
           severity: "critical",
           windowMinutes: 10,
           threshold: "1",
           cooldownMinutes: 30,
+          escalationMinutes: null,
           routePattern: null,
           minimumSampleSize: 1,
           enabled: true,
@@ -1529,6 +1816,154 @@ describe("runAlertEvaluationOnce", () => {
     ]);
   });
 
+  it("suppresses attributable alert events when the triggering error group is silenced", async () => {
+    const now = new Date("2026-05-06T12:00:00.000Z");
+    const eventInputs: unknown[] = [];
+    const updates: unknown[] = [];
+
+    const result = await runAlertEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listActiveRules: async () => [
+        {
+          id: "rule_silenced",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          notificationChannelId: null,
+          escalationChannelId: null,
+          name: "Errors",
+          type: "error_count",
+          severity: "warning",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          escalationMinutes: null,
+          routePattern: null,
+          minimumSampleSize: 1,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        }
+      ],
+      getNotificationChannel: async () => null,
+      evaluateRule: async () => ({ observedValue: "4", errorGroupId: "egrp_silenced" }),
+      isErrorGroupSilenced: async (input) => {
+        expect(input).toEqual({ errorGroupId: "egrp_silenced", now });
+        return true;
+      },
+      recordAlertEvent: async (input) => {
+        eventInputs.push(input);
+        return { id: "evt_suppressed" };
+      },
+      updateRuleEvaluation: async (input) => {
+        updates.push(input);
+      },
+      deliver: async () => ({ status: "success", responseStatus: 204, errorMessage: null }),
+      recordDelivery: async () => {}
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, evaluated: 1, triggered: 0 });
+    expect(eventInputs).toEqual([]);
+    expect(updates).toEqual([{ ruleId: "rule_silenced", evaluatedAt: now }]);
+  });
+
+  it("delivers due escalations once for unacknowledged alert events", async () => {
+    const now = new Date("2026-05-06T12:10:00.000Z");
+    const deliveries: unknown[] = [];
+    const marked: unknown[] = [];
+    const payloads: unknown[] = [];
+
+    const result = await runAlertEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listActiveRules: async () => [],
+      getNotificationChannel: async () => ({
+        id: "chn_escalation",
+        name: "Escalation",
+        type: "webhook",
+        url: "https://hooks.example.com/escalation",
+        emailRecipients: [],
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      }),
+      evaluateRule: async () => ({ observedValue: "0" }),
+      recordAlertEvent: async () => ({ id: "evt_new" }),
+      updateRuleEvaluation: async () => undefined,
+      deliver: async (_channel, payload) => {
+        payloads.push(payload);
+        return { status: "success", responseStatus: 202, errorMessage: null };
+      },
+      recordDelivery: async (input) => {
+        deliveries.push(input);
+      },
+      listEscalationsDue: async () => [
+        {
+          id: "evt_due",
+          ruleId: "rule_1",
+          monitorId: null,
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status: "triggered",
+          severity: "critical",
+          triggeredAt: new Date("2026-05-06T12:00:00.000Z"),
+          windowStart: new Date("2026-05-06T11:50:00.000Z"),
+          windowEnd: new Date("2026-05-06T12:00:00.000Z"),
+          observedValue: "2",
+          threshold: "1",
+          message: "Critical errors threshold reached",
+          metadata: { ruleType: "critical_errors" },
+          acknowledgedAt: null,
+          acknowledgedByUserId: null,
+          acknowledgedByEmail: null,
+          resolvedAt: null,
+          resolvedByUserId: null,
+          resolvedByEmail: null,
+          snoozedUntil: null,
+          triageNote: null,
+          escalationDueAt: new Date("2026-05-06T12:05:00.000Z"),
+          escalatedAt: null,
+          createdAt: new Date("2026-05-06T12:00:00.000Z"),
+          latestDeliveryStatus: "success",
+          ruleNotificationChannelId: "chn_primary",
+          ruleEscalationChannelId: "chn_escalation",
+          ruleName: "Critical errors",
+          ruleType: "critical_errors",
+          ruleWindowMinutes: 10
+        }
+      ],
+      markEscalated: async (id, escalatedAt) => {
+        marked.push({ id, escalatedAt });
+      }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, evaluated: 0, triggered: 0 });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        alertEventId: "evt_due",
+        ruleId: "rule_1",
+        ruleName: "Critical errors",
+        message: expect.stringContaining("Escalation:")
+      })
+    ]);
+    expect(deliveries).toEqual([
+      expect.objectContaining({
+        alertEventId: "evt_due",
+        notificationChannelId: "chn_escalation",
+        status: "success",
+        responseStatus: 202
+      })
+    ]);
+    expect(marked).toEqual([{ id: "evt_due", escalatedAt: now }]);
+  });
+
   it("suppresses events during cooldown while updating evaluation time", async () => {
     const now = new Date("2026-05-06T12:00:00.000Z");
     const updated: unknown[] = [];
@@ -1543,12 +1978,14 @@ describe("runAlertEvaluationOnce", () => {
           projectId: "prj_1",
           environmentId: "env_1",
           notificationChannelId: null,
+          escalationChannelId: null,
           name: "Errors",
           type: "error_count",
           severity: "warning",
           windowMinutes: 10,
           threshold: "1",
           cooldownMinutes: 30,
+          escalationMinutes: null,
           routePattern: null,
           minimumSampleSize: 1,
           enabled: true,
@@ -1612,12 +2049,14 @@ describe("runAlertEvaluationOnce", () => {
           projectId: "prj_1",
           environmentId: "env_1",
           notificationChannelId: "chn_1",
+          escalationChannelId: null,
           name: "Critical errors",
           type: "critical_errors",
           severity: "critical",
           windowMinutes: 10,
           threshold: "1",
           cooldownMinutes: 30,
+          escalationMinutes: null,
           routePattern: null,
           minimumSampleSize: 1,
           enabled: true,

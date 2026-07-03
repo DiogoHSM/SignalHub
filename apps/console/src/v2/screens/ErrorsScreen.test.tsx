@@ -25,62 +25,84 @@ const ERRORS_VM: ErrorsVM = {
   summary: {
     errors24h: 2481,
     openGroups: 14,
+    crashes: 3,
     critical: 2,
-    mttr: null,
+    mttr: 42 * 60_000,
     topRelease: "v2026.05.14",
   },
   volume: [12, 18, 22, 28, 32, 38, 46, 52, 68, 82, 124, 168, 142, 98, 72, 58, 42, 32, 28, 24],
   rows: [
     {
+      id: "err_grp_fatal",
+      message: "RuntimeCrash: worker process exited unexpectedly",
+      severity: "fatal",
+      isCrash: true,
+      status: "open",
+      priority: "P1",
+      events: 3,
+      users: 1,
+      tenants: 1,
+      last: "2s ago",
+      trend: [0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1],
+    },
+    {
       id: "err_grp_8a2f",
       message: "PaymentTimeoutError: provider timeout after 12000ms",
       severity: "critical",
+      isCrash: false,
       status: "investigating",
       priority: "P1",
       events: 412,
       users: 38,
       tenants: 2,
       last: "8s ago",
+      trend: [4, 8, 13, 21, 34, 55, 89, 144, 112, 76, 52, 33],
     },
     {
       id: "err_grp_4c1d",
       message: "StripeAPIError: rate_limited",
       severity: "critical",
+      isCrash: false,
       status: "open",
       priority: "P1",
       events: 184,
       users: 22,
       tenants: 1,
       last: "32s ago",
+      trend: [0, 3, 5, 8, 13, 21, 34, 55, 34, 21, 13, 8],
     },
     {
       id: "err_grp_2a8c",
       message: "Worker job dlq_telemetry timed out (max_attempts reached)",
       severity: "error",
+      isCrash: false,
       status: "investigating",
       priority: "P2",
       events: 28,
       users: null,
       tenants: null,
       last: "12m ago",
+      trend: [0, 0, 1, 1, 2, 3, 5, 8, 5, 2, 1, 0],
     },
     {
       id: "err_grp_0e91",
       message: "AbortError: signal timeout in /llm/generate",
       severity: "warning",
+      isCrash: false,
       status: "ignored",
       priority: "P4",
       events: 12,
       users: 8,
       tenants: 2,
       last: "4h ago",
+      trend: [1, 0, 0, 2, 0, 1, 0, 3, 0, 2, 1, 2],
     },
   ],
 };
 
 const EMPTY_VM: ErrorsVM = {
   tabs: { events: 0, errors: 0, traces: 0, llm: 0, tenants: 0, users: 0 },
-  summary: { errors24h: 0, openGroups: 0, critical: 0, mttr: null, topRelease: null },
+  summary: { errors24h: 0, openGroups: 0, crashes: 0, critical: 0, mttr: null, topRelease: null },
   volume: [],
   rows: [],
 };
@@ -238,12 +260,13 @@ describe("ErrorsScreen", () => {
   });
 
   describe("severity filter", () => {
-    it("renders severity segmented options: all, critical, error, warning", () => {
+    it("renders severity segmented options: all, crashes, critical, error, warning", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       // using aria-pressed to find segmented options
       const allBtn = screen.getByRole("button", { name: /severity: all/i });
       expect(allBtn).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /crashes/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^critical$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^error$/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^warning$/i })).toBeInTheDocument();
@@ -267,6 +290,20 @@ describe("ErrorsScreen", () => {
         const calls = spy.mock.calls;
         const lastCall = calls[calls.length - 1][0];
         expect(lastCall.severity).toBe("critical");
+      });
+    });
+
+    it("calls useErrors with fatal severity when crash filter changes", async () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /crashes/i }));
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall.severity).toBe("fatal");
       });
     });
 
@@ -301,6 +338,13 @@ describe("ErrorsScreen", () => {
       expect(screen.getByText("14")).toBeInTheDocument();
     });
 
+    it("renders Crashes count", () => {
+      mockUseErrors(ERRORS_VM);
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(screen.getAllByText(/crashes/i).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText("3").length).toBeGreaterThanOrEqual(1);
+    });
+
     it("renders Critical count", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
@@ -309,13 +353,11 @@ describe("ErrorsScreen", () => {
       expect(criticalLabels.length).toBeGreaterThan(0);
     });
 
-    it("renders MTTR as '—' (em dash, never a computed value)", () => {
+    it("renders formatted MTTR when available", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByText(/mttr/i)).toBeInTheDocument();
-      // MTTR value should be "—"
-      const mttrs = screen.getAllByText("—");
-      expect(mttrs.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("42 min")).toBeInTheDocument();
     });
 
     it("renders Top release label and value", () => {
@@ -335,7 +377,7 @@ describe("ErrorsScreen", () => {
   });
 
   describe("error table", () => {
-    it("renders table header with expected columns (no sparkline)", () => {
+    it("renders table header with expected columns including trend", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       // Use getAllByText for headers that may appear multiple times (tab bar + column)
@@ -350,9 +392,8 @@ describe("ErrorsScreen", () => {
       expect(usersTexts.length).toBeGreaterThanOrEqual(1);
       const tenantsTexts = screen.getAllByText(/^tenants$/i);
       expect(tenantsTexts.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/^trend$/i)).toBeInTheDocument();
       expect(screen.getByText(/^last$/i)).toBeInTheDocument();
-      // No "Trend" column header
-      expect(screen.queryByText(/^trend/i)).not.toBeInTheDocument();
     });
 
     it("renders error row messages", () => {
@@ -394,12 +435,14 @@ describe("ErrorsScreen", () => {
             id: "err_null_prio",
             message: "SomeError: null priority row",
             severity: "error",
+            isCrash: false,
             status: "open",
             priority: null,
             events: 5,
             users: null,
             tenants: null,
             last: "1h ago",
+            trend: [],
           },
         ],
       };
@@ -425,12 +468,10 @@ describe("ErrorsScreen", () => {
       expect(dashes.length).toBeGreaterThanOrEqual(1);
     });
 
-    it("does NOT render a sparkline/trend cell in table rows", () => {
+    it("renders a sparkline/trend cell in table rows", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-      // No SVG paths with strokeWidth=1.6 for inline trend sparklines in rows
-      // We check for absence of trend column header
-      expect(screen.queryByText(/trend/i)).not.toBeInTheDocument();
+      expect(screen.getAllByTestId("error-group-trend-sparkline")).toHaveLength(ERRORS_VM.rows.length);
     });
 
     it("calls ctx.drill('incident', {groupId}) when a row is clicked", async () => {
@@ -448,6 +489,13 @@ describe("ErrorsScreen", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByText("8s ago")).toBeInTheDocument();
+    });
+
+    it("marks fatal rows as crashes", () => {
+      mockUseErrors(ERRORS_VM);
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(screen.getByText(/RuntimeCrash/i)).toBeInTheDocument();
+      expect(screen.getByText("Crash")).toBeInTheDocument();
     });
   });
 

@@ -48,6 +48,7 @@ describe("API docs", () => {
         "/v1/events",
         "/v1/errors",
         "/v1/breadcrumbs",
+        "/v1/clicks",
         "/v1/llm",
         "/v1/traces",
         "/v1/spans",
@@ -59,11 +60,16 @@ describe("API docs", () => {
         "/admin/projects",
         "/admin/monitors",
         "/admin/monitors/{id}/checks",
+        "/admin/message-campaigns",
+        "/admin/message-campaigns/{id}",
         "/admin/dead-letter-jobs",
         "/admin/dead-letter-jobs/{id}",
         "/admin/dead-letter-jobs/{id}/actions",
         "/admin/dead-letter-jobs/{id}/replay",
         "/query/events",
+        "/query/events/click-map",
+        "/query/message-campaigns/{id}/results",
+        "/query/replays",
         "/system/health"
       ])
     );
@@ -74,6 +80,7 @@ describe("API docs", () => {
       sessionCookie: { type: "apiKey", in: "cookie", name: "__Host-sigmon_session" }
     });
     expect(spec.paths["/v1/events"].post.security).toEqual([{ ingestionApiKey: [] }]);
+    expect(spec.paths["/v1/clicks"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(spec.paths["/v1/identify/user"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(spec.paths["/v1/identify/tenant"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(Object.keys(spec.paths["/v1/identify/user"].post.responses)).toEqual(["202", "400", "401", "503"]);
@@ -123,6 +130,8 @@ describe("API docs", () => {
     ]);
     expect(spec.components.schemas.ErrorPayload.properties.stack.description).toContain("Source maps");
     expect(spec.components.schemas.BreadcrumbPayload.required).toEqual(["type", "message"]);
+    expect(spec.components.schemas.ClickEventPayload.required).toEqual(["route", "selector", "x", "y", "viewport_width", "viewport_height"]);
+    expect(spec.components.schemas.ClickEventPayload.description).toContain("privacy-safe");
     expect(spec.components.schemas.BreadcrumbPayload.properties.type.enum).toEqual([
       "navigation",
       "click",
@@ -142,6 +151,24 @@ describe("API docs", () => {
     expect(spec.components.schemas.DeadLetterJob.properties.environmentId.type).toEqual(["string", "null"]);
     expect(spec.components.schemas.DeadLetterJobAction.properties.action.enum).toEqual(["deleted", "replayed", "expired"]);
     expect(spec.components.schemas.UserIdentifyPayload.description).toContain("last_seen_at");
+    expect(spec.components.schemas.UserIdentifyPayload.description).toContain("shallow-merge");
+    expect(spec.components.schemas.TenantIdentifyPayload.description).toContain("shallow-merge");
+    expect(spec.components.schemas.MessageCampaign.properties.channelType.enum).toEqual(["email", "webhook", "in_app"]);
+    expect(spec.components.schemas.MessageCampaignResults.properties.totals.required).toEqual([
+      "queued",
+      "sent",
+      "delivered",
+      "opened",
+      "clicked",
+      "converted",
+      "failed",
+      "optedOut",
+      "uniqueActors"
+    ]);
+    expect(spec.paths["/admin/message-campaigns"].post.description).toContain("opt-out");
+    expect(spec.paths["/query/message-campaigns/{id}/results"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/v1/identify/user"].post.description).toContain("shallow-merge");
+    expect(spec.paths["/v1/identify/tenant"].post.description).toContain("shallow-merge");
     expect(spec.components.schemas.TenantIdentifyPayload.properties.traits.examples[0]).toMatchObject({
       name: "MicroERP",
       operation_mode: "production"
@@ -193,7 +220,10 @@ describe("API docs", () => {
     expect(response.body).toContain("NEXT_PUBLIC_SIGMON_BROWSER_KEY");
     expect(response.body).toContain("withSignalMonitorRoute");
     expect(response.body).toContain("identifyTenant");
-    expect(response.body).toContain("Experiments and A/B tests");
+    expect(response.body).toContain("shallow-merge");
+    expect(response.body).toContain("Experiments, flags, surveys, and campaigns");
+    expect(response.body).toContain("submitSurvey");
+    expect(response.body).toContain("/admin/message-campaigns");
     expect(response.body).toContain("checkout.exposed");
     expect(response.body).toContain("source-maps:upload");
     expect(response.body).toContain("BROWSER_CORS_ORIGINS");

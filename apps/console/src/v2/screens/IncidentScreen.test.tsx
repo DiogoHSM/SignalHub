@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IncidentVM } from "./useIncident";
@@ -30,7 +30,17 @@ const MOCK_VM: IncidentVM = {
   lastSeenRelative: "8s ago",
   silencedUntil: null,
   stack: "PaymentTimeoutError: provider timeout after 12000ms\n    at chargeCustomer (src/services/payment/charge.ts:84:12)",
+  errorTimestamp: "2026-06-01T12:00:03.400Z",
+  replay: null,
   sourceMapBadge: { resolved: true, frameCount: 3 },
+  sourceMapDiagnostic: {
+    status: "resolved",
+    label: "Source maps resolved",
+    detail: "3 stack frames resolved for release v2026.05.14.",
+    release: "v2026.05.14",
+    frameCount: 3,
+    unresolvedFrameCount: 0,
+  },
   breadcrumbs: [
     { kind: "navigation", timeRelative: "2m ago", title: "/cart" },
     { kind: "click", timeRelative: "2m ago", title: "button[data-cta='checkout']" },
@@ -46,12 +56,78 @@ const MOCK_VM: IncidentVM = {
     { initials: "A", authorEmail: "ana@acme.dev", timeRelative: "8 min ago", body: "Provider degradation confirmed" },
     { initials: "M", authorEmail: "marco@acme.dev", timeRelative: "2 min ago", body: "Reduced timeout to 8s" },
   ],
+  externalIssues: [],
+  codeContext: {
+    status: "ready",
+    summary: "Start with src/services/payment/charge.ts:84.",
+    repository: {
+      provider: "github",
+      name: "api",
+      owner: "acme",
+      repo: "commerce",
+      url: "https://github.com/acme/commerce"
+    },
+    release: {
+      release: "v2026.05.14",
+      commitSha: "abcdef123456",
+      commitUrl: "https://github.com/acme/commerce/commit/abcdef123456",
+      pullRequestNumber: 74,
+      pullRequestUrl: "https://github.com/acme/commerce/pull/74",
+      deployedBy: "ci"
+    },
+    suspectedFiles: [
+      {
+        path: "src/services/payment/charge.ts",
+        functionName: "chargeCustomer",
+        line: 84,
+        column: 12,
+        confidence: "high",
+        evidence: ["source-map frame 0"]
+      }
+    ],
+    evidence: [{ type: "source_map", label: "Source maps applied", value: "3 resolved frames", confidence: "high" }],
+    suggestedNextSteps: ["Open src/services/payment/charge.ts around line 84."],
+    privacy: {
+      aiEnabled: false,
+      outboundCodeSharing: false,
+      reason: "Local deterministic analysis only."
+    }
+  },
 };
 
 const SILENCED_VM: IncidentVM = {
   ...MOCK_VM,
   silencedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1h in the future
 };
+
+const CRASH_VM: IncidentVM = {
+  ...MOCK_VM,
+  severity: "fatal",
+  severityColor: "var(--sev-critical)",
+  title: "RuntimeCrash: worker process exited unexpectedly",
+  occurrenceCount: 3,
+  affectedUsers: 1,
+  affectedTenants: 1,
+};
+
+const REPLAY_VM = {
+  ...MOCK_VM,
+  errorTimestamp: "2026-06-01T12:00:03.400Z",
+  replay: {
+    id: "row_1",
+    replayId: "rpl_checkout",
+    route: "/checkout",
+    startedAt: "2026-06-01T12:00:00.000Z",
+    endedAt: "2026-06-01T12:00:05.000Z",
+    durationMs: 5000,
+    eventCount: 2,
+    masked: true,
+    events: [
+      { offsetMs: 0, type: "navigation", route: "/checkout", data: {} },
+      { offsetMs: 3200, type: "click", selector: '[data-sigmon-id="pay"]', x: 0.5, y: 0.6, data: {} },
+    ],
+  },
+} as IncidentVM;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -171,6 +247,20 @@ describe("IncidentScreen", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.getByText(/critical/i)).toBeInTheDocument();
+    });
+
+    it("renders crash impact banner for fatal incidents", () => {
+      mockUseIncident(CRASH_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByRole("region", { name: /crash impact/i })).toBeInTheDocument();
+      expect(screen.getByText(/fatal runtime crash detected/i)).toBeInTheDocument();
+      expect(screen.getByText(/prioritize this before lower-severity error groups/i)).toBeInTheDocument();
+    });
+
+    it("does not render crash impact banner for non-fatal incidents", () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.queryByRole("region", { name: /crash impact/i })).not.toBeInTheDocument();
     });
 
     it("warning incident severity tag has 'warn' class, not 'critical'", () => {
@@ -394,7 +484,31 @@ describe("IncidentScreen", () => {
     it("renders 'source maps resolved' badge when resolved", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      expect(screen.getByText(/source maps resolved/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/source maps resolved/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("renders source-map diagnostic detail", () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByText(/3 stack frames resolved for release/i)).toBeInTheDocument();
+    });
+
+    it("renders actionable unresolved source-map guidance", () => {
+      mockUseIncident({
+        ...MOCK_VM,
+        sourceMapBadge: { resolved: false, frameCount: 0 },
+        sourceMapDiagnostic: {
+          status: "unresolved",
+          label: "Source maps not applied",
+          detail: "This error has a stack trace but no release. Configure the SDK release and upload matching maps from CI.",
+          release: null,
+          frameCount: 0,
+          unresolvedFrameCount: 0,
+        },
+      });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getAllByText(/source maps not applied/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/configure the sdk release/i)).toBeInTheDocument();
     });
 
     it("shows frame count when source maps resolved", () => {
@@ -404,7 +518,18 @@ describe("IncidentScreen", () => {
     });
 
     it("does not show resolved badge when source maps not resolved", () => {
-      mockUseIncident({ ...MOCK_VM, sourceMapBadge: { resolved: false, frameCount: 0 } });
+      mockUseIncident({
+        ...MOCK_VM,
+        sourceMapBadge: { resolved: false, frameCount: 0 },
+        sourceMapDiagnostic: {
+          status: "unresolved",
+          label: "Source maps not applied",
+          detail: "No matching source map resolved for release v2026.05.14.",
+          release: "v2026.05.14",
+          frameCount: 0,
+          unresolvedFrameCount: 0,
+        },
+      });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.queryByText(/source maps resolved/i)).not.toBeInTheDocument();
     });
@@ -413,6 +538,19 @@ describe("IncidentScreen", () => {
       mockUseIncident({ ...MOCK_VM, stack: null });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.getAllByText(/no stack trace/i).length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("session replay context", () => {
+    it("shows replay, error moment, stack, and breadcrumbs in the incident workspace", () => {
+      mockUseIncident(REPLAY_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+
+      const replay = screen.getByRole("region", { name: /session replay/i });
+      expect(within(replay).getAllByText(/error moment/i).length).toBeGreaterThanOrEqual(1);
+      expect(within(replay).getByText("+3.4 s")).toBeInTheDocument();
+      expect(within(replay).getAllByText(/PaymentTimeoutError/).length).toBeGreaterThanOrEqual(1);
+      expect(within(replay).getByText("button[data-cta='checkout']")).toBeInTheDocument();
     });
   });
 

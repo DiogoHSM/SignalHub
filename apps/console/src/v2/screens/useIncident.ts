@@ -3,7 +3,10 @@ import type { ApiClient, ErrorGroupApiClient } from "../../api/client";
 import type {
   ErrorGroupIncident,
   ErrorGroupPriority,
+  IncidentExternalLink,
+  IncidentReplay,
   IncidentTimelineItem,
+  SourceMapResolution,
   User
 } from "../../api/types";
 import { relativeTime } from "../../components/ui/v2/format";
@@ -40,10 +43,22 @@ export type IncidentVM = {
   lastSeenRelative: string;
   silencedUntil: string | null;
   stack: string | null;
+  errorTimestamp: string;
+  replay: IncidentReplay | null;
   sourceMapBadge: { resolved: boolean; frameCount: number };
+  sourceMapDiagnostic: {
+    status: "resolved" | "partially_resolved" | "unresolved" | "unavailable" | "none";
+    label: string;
+    detail: string;
+    release: string | null;
+    frameCount: number;
+    unresolvedFrameCount: number;
+  };
   breadcrumbs: { kind: string; timeRelative: string; title: string }[];
   related: RelVM[];
   notes: { initials: string; authorEmail: string; timeRelative: string; body: string }[];
+  externalIssues: IncidentExternalLink[];
+  codeContext: ErrorGroupIncident["codeContext"];
 };
 
 // ---------------------------------------------------------------------------
@@ -54,6 +69,7 @@ type UseIncidentClient = Pick<
   ApiClient,
   "listUsers"
 > &
+  Partial<Pick<ApiClient, "getErrorSourceMapResolution">> &
   Pick<
     ErrorGroupApiClient,
     "getErrorGroupIncident" | "updateErrorGroupTriage" | "silenceIncident" | "addTriageNote"
@@ -123,6 +139,94 @@ function mapBreadcrumbs(
     timeRelative: relativeTime(item.timestamp),
     title: item.title
   }));
+}
+
+function sourceMapDiagnostic(
+  incident: ErrorGroupIncident,
+  resolution: SourceMapResolution | null
+): IncidentVM["sourceMapDiagnostic"] {
+  const { group, primaryOccurrence, sourceMapResolution } = incident;
+  const release = resolution?.release ?? primaryOccurrence.release ?? group.latestRelease;
+
+  if (resolution) {
+    if (resolution.status === "resolved") {
+      return {
+        status: "resolved",
+        label: "Source maps resolved",
+        detail: `${resolution.frames.length} stack frame${resolution.frames.length === 1 ? "" : "s"} resolved for release ${release ?? "unknown"}.`,
+        release,
+        frameCount: resolution.frames.length,
+        unresolvedFrameCount: 0
+      };
+    }
+
+    if (resolution.status === "partially_resolved") {
+      return {
+        status: "partially_resolved",
+        label: "Source maps partially resolved",
+        detail: `${resolution.frames.length} frame${resolution.frames.length === 1 ? "" : "s"} resolved, ${resolution.unresolvedFrameCount} unresolved. Upload maps for the missing generated files using the same release.`,
+        release,
+        frameCount: resolution.frames.length,
+        unresolvedFrameCount: resolution.unresolvedFrameCount
+      };
+    }
+
+    if (resolution.status === "unavailable") {
+      return {
+        status: "unavailable",
+        label: "Source maps unavailable",
+        detail: "Resolution could not run for this occurrence. Check Sigmon source-map storage and retry after the artifacts API is healthy.",
+        release,
+        frameCount: 0,
+        unresolvedFrameCount: resolution.unresolvedFrameCount
+      };
+    }
+
+    const missingRelease = release == null;
+    return {
+      status: "unresolved",
+      label: "Source maps not applied",
+      detail: missingRelease
+        ? "This error has no release. Send a release from the SDK and upload source maps with the same release value."
+        : `No matching source map resolved for release ${release}. Check that CI uploaded the map for the generated file path shown in the stack.`,
+      release,
+      frameCount: 0,
+      unresolvedFrameCount: resolution.unresolvedFrameCount
+    };
+  }
+
+  if (sourceMapResolution.status === "cached") {
+    return {
+      status: "resolved",
+      label: "Source maps resolved",
+      detail: `${sourceMapResolution.frameCount} cached stack frame${sourceMapResolution.frameCount === 1 ? "" : "s"} resolved for this group.`,
+      release,
+      frameCount: sourceMapResolution.frameCount,
+      unresolvedFrameCount: 0
+    };
+  }
+
+  if (!primaryOccurrence.stack) {
+    return {
+      status: "none",
+      label: "No stack trace captured",
+      detail: "This occurrence did not include a stack trace. Capture thrown Error objects in the SDK so Sigmon can map frames.",
+      release,
+      frameCount: 0,
+      unresolvedFrameCount: 0
+    };
+  }
+
+  return {
+    status: "unresolved",
+    label: "Source maps not applied",
+    detail: release == null
+      ? "This error has a stack trace but no release. Configure the SDK release and upload matching maps from CI."
+      : `No cached source-map resolution was found for release ${release}. Upload maps from CI or open Artifacts to verify the release.`,
+    release,
+    frameCount: 0,
+    unresolvedFrameCount: 0
+  };
 }
 
 // Always emits four rows (trace/session/user/tenant); rows without an underlying id get no `target` (screen renders them as unavailable).
@@ -201,7 +305,7 @@ function mapRelated(incident: ErrorGroupIncident): RelVM[] {
   return rows;
 }
 
-function buildVM(incident: ErrorGroupIncident): IncidentVM {
+function buildVM(incident: ErrorGroupIncident, resolution: SourceMapResolution | null = null): IncidentVM {
   const { group, primaryOccurrence, sourceMapResolution, stronglyRelated } = incident;
 
   const sourceMapBadge =
@@ -235,10 +339,15 @@ function buildVM(incident: ErrorGroupIncident): IncidentVM {
     lastSeenRelative: relativeTime(group.lastSeenAt),
     silencedUntil: incident.silencedUntil,
     stack: primaryOccurrence.stack,
+    errorTimestamp: primaryOccurrence.timestamp,
+    replay: incident.replay,
     sourceMapBadge,
+    sourceMapDiagnostic: sourceMapDiagnostic(incident, resolution),
     breadcrumbs: mapBreadcrumbs(stronglyRelated.items),
     related: mapRelated(incident),
-    notes
+    notes,
+    externalIssues: incident.externalIssues ?? [],
+    codeContext: incident.codeContext
   };
 }
 
@@ -278,9 +387,16 @@ export function useIncident({
 
     client
       .getErrorGroupIncident(groupId, query)
-      .then((res) => {
+      .then(async (res) => {
         if (gen !== genRef.current) return;
-        setData(buildVM(res.data));
+
+        const primaryErrorId = errorId ?? res.data.primaryOccurrence.id;
+        const resolution = client.getErrorSourceMapResolution
+          ? await client.getErrorSourceMapResolution(primaryErrorId, { projectId, environmentId }).catch(() => null)
+          : null;
+
+        if (gen !== genRef.current) return;
+        setData(buildVM(res.data, resolution));
         setHookStatus("ready");
       })
       .catch((err) => {

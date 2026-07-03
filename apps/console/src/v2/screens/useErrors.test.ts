@@ -31,11 +31,13 @@ function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord 
     occurrenceCount: 42,
     affectedUsersCount: 7,
     affectedTenantsCount: 3,
+    trend: [0, 1, 1, 2, 3, 5, 8, 13, 8, 5, 3, 1],
     latestErrorId: "err_1",
     latestRelease: "v1.2.0",
     resolvedAt: null,
     ignoredAt: null,
     assignedToUserId: null,
+    assignedTo: null,
     incidentNumber: null,
     silencedUntil: null,
     createdAt: "2026-06-01T00:00:00Z",
@@ -123,11 +125,13 @@ const OVERVIEW: OverviewResponse = {
 
 function makeClient(
   groups: ErrorGroupRecord[] = ERROR_GROUPS,
-  overview: OverviewResponse = OVERVIEW
+  overview: OverviewResponse = OVERVIEW,
+  mttrMs: number | null = 42 * 60_000
 ) {
   return {
     listErrorGroups: vi.fn().mockResolvedValue({ data: groups } as QueryListResponse<ErrorGroupRecord>),
-    getOverview: vi.fn().mockResolvedValue({ data: overview } as AggregateResponse<OverviewResponse>)
+    getOverview: vi.fn().mockResolvedValue({ data: overview } as AggregateResponse<OverviewResponse>),
+    getIncidentMttr: vi.fn().mockResolvedValue({ data: { mttrMs, resolvedCount: mttrMs === null ? 0 : 3, windowDays: 7 } })
   };
 }
 
@@ -183,6 +187,7 @@ describe("useErrors", () => {
     expect(row.id).toBe("eg_1");
     expect(row.message).toBe("TypeError: cannot read 'x'");
     expect(row.severity).toBe("critical");
+    expect(row.isCrash).toBe(false);
     expect(row.status).toBe("open");
     expect(row.events).toBe(42); // occurrenceCount
     expect(row.users).toBe(7);   // affectedUsersCount
@@ -203,14 +208,25 @@ describe("useErrors", () => {
     expect(row.last).toMatch(/ago|just now|s ago|m ago|h ago|d ago/i);
   });
 
-  it("row has no 'trend' field", async () => {
-    const client = makeClient([GROUP_1]);
+  it("row preserves per-group trend buckets", async () => {
+    const trend = [0, 0, 1, 2, 4, 8, 4, 2, 1, 0, 0, 0];
+    const group = makeGroup({ trend });
+    const client = makeClient([group]);
     const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
 
     await waitFor(() => expect(result.current.status).toBe("ok"));
 
-    const row = result.current.data!.rows[0];
-    expect("trend" in row).toBe(false);
+    expect(result.current.data!.rows[0].trend).toEqual(trend);
+  });
+
+  it("row defaults trend to an empty series when omitted", async () => {
+    const { trend: _trend, ...groupWithoutTrend } = GROUP_1;
+    const client = makeClient([groupWithoutTrend]);
+    const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.rows[0].trend).toEqual([]);
   });
 
   it("summary.errors24h = kpis.errors from overview", async () => {
@@ -232,6 +248,25 @@ describe("useErrors", () => {
     expect(result.current.data!.summary.critical).toBe(20);
   });
 
+  it("summary.crashes = sum of fatal top.errorSeverity buckets", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.summary.crashes).toBe(5);
+  });
+
+  it("marks fatal rows as crashes", async () => {
+    const client = makeClient([GROUP_3]);
+    const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.rows[0].severity).toBe("fatal");
+    expect(result.current.data!.rows[0].isCrash).toBe(true);
+  });
+
   it("summary.openGroups = count of fetched rows with status open or investigating", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
@@ -242,27 +277,31 @@ describe("useErrors", () => {
     expect(result.current.data!.summary.openGroups).toBe(3);
   });
 
-  it("summary.mttr is always null", async () => {
+  it("summary.mttr comes from incident MTTR query", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
 
     await waitFor(() => expect(result.current.status).toBe("ok"));
 
-    expect(result.current.data!.summary.mttr).toBeNull();
+    expect(client.getIncidentMttr).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d"
+    });
+    expect(result.current.data!.summary.mttr).toBe(42 * 60_000);
   });
 
-  it("summary.topRelease = most frequent latestRelease among rows", async () => {
-    const client = makeClient();
+  it("summary.topRelease = release with most error occurrences among rows", async () => {
+    const client = makeClient([
+      makeGroup({ id: "eg_release_a", latestRelease: "v1.2.0", occurrenceCount: 2 }),
+      makeGroup({ id: "eg_release_b", latestRelease: "v1.1.0", occurrenceCount: 50 }),
+      makeGroup({ id: "eg_release_c", latestRelease: "v1.2.0", occurrenceCount: 2 })
+    ]);
     const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
 
     await waitFor(() => expect(result.current.status).toBe("ok"));
 
-    // v1.2.0 appears in GROUP_1, GROUP_2 (2 times)
-    // v1.1.0 appears in GROUP_3, GROUP_4 (2 times)
-    // null in GROUP_5
-    // tie: both v1.2.0 and v1.1.0 have count 2 — whichever is first wins
-    const topRelease = result.current.data!.summary.topRelease;
-    expect(topRelease).toBe("v1.2.0");
+    expect(result.current.data!.summary.topRelease).toBe("v1.1.0");
   });
 
   it("summary.topRelease is null when all latestRelease are null", async () => {

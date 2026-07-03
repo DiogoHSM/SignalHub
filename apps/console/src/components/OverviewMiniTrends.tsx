@@ -1,4 +1,5 @@
 import type { OverviewResponse } from "../api/types";
+import { formatCompactNumber, formatNumber } from "./ui/v2/format";
 
 type Props = {
   trends: OverviewResponse["trends"];
@@ -31,14 +32,6 @@ function toNumber(value: string): number {
 
 function currency(value: number): string {
   return new Intl.NumberFormat("en-US", { currency: "USD", maximumFractionDigits: 2, style: "currency" }).format(value);
-}
-
-function compactNumber(value: number): string {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: value >= 10 ? 0 : 1, notation: value >= 1000 ? "compact" : "standard" }).format(value);
-}
-
-function integer(value: number): string {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
 function cleanValues(values: number[]): number[] {
@@ -114,7 +107,7 @@ function hasActivity(series: Trend["series"]): boolean {
 
 function tickLabel(value: number, formatter?: (value: number) => string): string {
   if (formatter) return formatter(value);
-  if (value >= 1000) return compactNumber(value);
+  if (value >= 1000) return formatCompactNumber(value);
   if (value < 1 && value > 0) return value.toFixed(2);
   return String(Math.round(value));
 }
@@ -124,7 +117,7 @@ export function OverviewMiniTrends({ trends }: Props) {
     {
       axisLabel: "Count axis",
       title: "Usage trend",
-      valueLabel: `${integer(total(trends.usage.map((bucket) => bucket.events)))} events · ${integer(total(trends.usage.map((bucket) => bucket.traces)))} traces · ${integer(total(trends.usage.map((bucket) => bucket.llmCalls)))} LLM calls`,
+      valueLabel: `${formatNumber(total(trends.usage.map((bucket) => bucket.events)))} events · ${formatNumber(total(trends.usage.map((bucket) => bucket.traces)))} traces · ${formatNumber(total(trends.usage.map((bucket) => bucket.llmCalls)))} LLM calls`,
       series: [
         { label: "Events", values: trends.usage.map((bucket) => bucket.events) },
         { label: "Traces", values: trends.usage.map((bucket) => bucket.traces) },
@@ -134,7 +127,7 @@ export function OverviewMiniTrends({ trends }: Props) {
     {
       axisLabel: "Errors axis",
       title: "Error trend",
-      valueLabel: `${integer(total(trends.errors.map((bucket) => bucket.errors)))} errors · ${integer(total(trends.errors.map((bucket) => bucket.openErrors)))} open · ${integer(total(trends.errors.map((bucket) => bucket.severeErrors)))} severe`,
+      valueLabel: `${formatNumber(total(trends.errors.map((bucket) => bucket.errors)))} errors · ${formatNumber(total(trends.errors.map((bucket) => bucket.openErrors)))} open · ${formatNumber(total(trends.errors.map((bucket) => bucket.severeErrors)))} severe`,
       series: [
         { label: "Errors", values: trends.errors.map((bucket) => bucket.errors) },
         { label: "Open", values: trends.errors.map((bucket) => bucket.openErrors) },
@@ -143,7 +136,7 @@ export function OverviewMiniTrends({ trends }: Props) {
     },
     {
       axisLabel: "Latency (ms) axis",
-      formatTick: (value) => `${compactNumber(value)} ms`,
+      formatTick: (value) => `${formatCompactNumber(value)} ms`,
       title: "Latency trend",
       valueLabel: `${Math.round(total(trends.latency.map((bucket) => bucket.averageTraceDurationMs)) / Math.max(1, trends.latency.length))} ms avg`,
       series: [
@@ -220,7 +213,7 @@ export function OverviewMiniTrends({ trends }: Props) {
               {trend.series.map((series, index) => (
                 <span className={`series-${index + 1}`} key={series.label}>
                   <span>{series.label}</span>
-                  <strong>{(series.formatValue ?? compactNumber)(latest(series.values))}</strong>
+                  <strong>{(series.formatValue ?? formatCompactNumber)(latest(series.values))}</strong>
                 </span>
               ))}
             </div>

@@ -1,28 +1,45 @@
-import { nanoid } from "nanoid";
 import {
   createBreadcrumbSignal,
+  createClickSignal,
   createErrorSignal,
   createEventSignal,
+  createFeedbackSignal,
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
+  createRuntimeProfileSignal,
+  createSessionReplaySignal,
   createSpanSignal,
-  createTraceSignal
+  createSurveyResponseSignal,
+  createTraceSignal,
+  createWebVitalSignal
 } from "./mapping.js";
 import { createSignalQueue } from "./queue.js";
 import { sendSignal } from "./retry.js";
 import { enforcePayloadSize, sanitizePayload } from "./sanitize.js";
+import { createTraceContext, traceContextHeaders } from "./trace-context.js";
 import type {
   ActiveTrace,
   BreadcrumbInput,
+  ClickInput,
   EndTraceInput,
   ErrorInput,
+  EventInput,
+  FeedbackInput,
+  ExperimentAssignment,
+  ExperimentAssignmentInput,
+  FeatureFlagEvaluation,
+  FeatureFlagEvaluationInput,
+  FeatureFlagRuleInput,
+  FeatureFlagValue,
   FlushOptions,
   FlushResult,
   IdentifyTenantInput,
   IdentifyUserInput,
   LlmInput,
   QueuedSignal,
+  RuntimeProfileInput,
+  SessionReplayInput,
   SignalContext,
   SignalMonitorClient,
   SignalMonitorClientOptions,
@@ -30,7 +47,9 @@ import type {
   SignalMetadata,
   SpanInput,
   StartTraceInput,
-  TraceInput
+  SurveyResponseInput,
+  TraceInput,
+  WebVitalInput
 } from "./types.js";
 import {
   DEFAULT_MAX_QUEUE_SIZE,
@@ -239,6 +258,51 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
       enqueue(createEventSignal(name, properties, context, defaultContext));
     },
 
+    assignExperiment(input: ExperimentAssignmentInput, context?: SignalContext & EventInput): ExperimentAssignment {
+      const variant = assignVariant(input.experimentKey, input.subjectId, input.variants);
+      if (input.trackExposure !== false) {
+        enqueue(
+          createEventSignal(
+            input.exposureEvent ?? "sigmon.experiment.exposed",
+            {
+              experiment_key: input.experimentKey,
+              variant,
+              subject_id: input.subjectId,
+              ...(input.properties ?? {})
+            },
+            context,
+            defaultContext
+          )
+        );
+      }
+      return {
+        experimentKey: input.experimentKey,
+        subjectId: input.subjectId,
+        variant
+      };
+    },
+
+    evaluateFlag(input: FeatureFlagEvaluationInput, context?: SignalContext & EventInput): FeatureFlagEvaluation {
+      const evaluation = evaluateLocalFlag(input);
+      if (input.trackExposure !== false) {
+        enqueue(
+          createEventSignal(
+            "sigmon.feature_flag.evaluated",
+            {
+              flag_key: input.key,
+              variant: evaluation.variant,
+              value: evaluation.value,
+              reason: evaluation.reason,
+              matched: evaluation.matched
+            },
+            context,
+            defaultContext
+          )
+        );
+      }
+      return evaluation;
+    },
+
     captureError(error: unknown, input?: ErrorInput): void {
       enqueue(createErrorSignal(error, input, defaultContext));
     },
@@ -256,11 +320,17 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
     },
 
     startTrace(name: string, input?: StartTraceInput & SignalContext): ActiveTrace {
-      const traceId = input?.traceId ?? `trc_${nanoid()}`;
+      const canUseW3cTraceId =
+        input?.traceId === undefined || (/^[0-9a-f]{32}$/.test(input.traceId) && input.traceId !== "0".repeat(32));
+      const traceContext = canUseW3cTraceId ? createTraceContext(input?.traceId) : undefined;
+      const traceId = input?.traceId ?? traceContext?.traceId ?? createTraceContext().traceId;
       const startedAt = toDate(input?.startedAt);
 
       return {
         traceId,
+        spanId: traceContext?.spanId,
+        traceparent: traceContext?.traceparent,
+        headers: () => (traceContext ? traceContextHeaders(traceContext) : {}),
         startedAt,
         end(endInput?: EndTraceInput, context?: SignalContext): void {
           const endedAt = endInput?.endedAt ?? input?.endedAt ?? new Date();
@@ -293,6 +363,30 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
 
     span(input: SpanInput, context?: SignalContext): void {
       enqueue(createSpanSignal(input, context, defaultContext));
+    },
+
+    webVital(input: WebVitalInput, context?: SignalContext): void {
+      enqueue(createWebVitalSignal(input, context, defaultContext));
+    },
+
+    click(input: ClickInput, context?: SignalContext): void {
+      enqueue(createClickSignal(input, context, defaultContext));
+    },
+
+    replay(input: SessionReplayInput, context?: SignalContext): void {
+      enqueue(createSessionReplaySignal(input, context, defaultContext));
+    },
+
+    profile(input: RuntimeProfileInput, context?: SignalContext): void {
+      enqueue(createRuntimeProfileSignal(input, context, defaultContext));
+    },
+
+    submitSurvey(input: SurveyResponseInput, context?: SignalContext): void {
+      enqueue(createSurveyResponseSignal(input, context, defaultContext));
+    },
+
+    feedback(input: FeedbackInput, context?: SignalContext): void {
+      enqueue(createFeedbackSignal(input, context, defaultContext));
     },
 
     identify(context: SignalContext): void {
@@ -365,4 +459,93 @@ function combineFlushResults(first: FlushResult, second: FlushResult): FlushResu
     retained: first.retained + second.retained,
     dropped: first.dropped + second.dropped
   };
+}
+
+function assignVariant(experimentKey: string, subjectId: string, variants: ExperimentAssignmentInput["variants"]): string {
+  const normalized = variants
+    .filter((variant) => variant.key.trim() && Number.isFinite(variant.weight) && variant.weight > 0)
+    .map((variant) => ({ key: variant.key.trim(), weight: Math.trunc(variant.weight) }));
+  if (normalized.length === 0) {
+    throw new Error("at least one weighted variant is required");
+  }
+
+  const totalWeight = normalized.reduce((sum, variant) => sum + variant.weight, 0);
+  const bucket = stableHash(`${experimentKey}:${subjectId}`) % totalWeight;
+  let cursor = 0;
+  for (const variant of normalized) {
+    cursor += variant.weight;
+    if (bucket < cursor) {
+      return variant.key;
+    }
+  }
+  return normalized[normalized.length - 1]!.key;
+}
+
+function evaluateLocalFlag(input: FeatureFlagEvaluationInput): FeatureFlagEvaluation {
+  const variants = input.variants
+    .filter((variant) => variant.key.trim())
+    .map((variant) => ({ key: variant.key.trim(), value: normalizeFlagValue(variant.value) }));
+  const fallbackVariant = input.fallbackVariant.trim();
+  const defaultVariant = variants.find((variant) => variant.key === fallbackVariant) ?? variants[0] ?? { key: fallbackVariant || "off", value: false };
+  const matchedRule = (input.rules ?? []).find((rule) => flagRuleMatches(input.key, rule, input.subject ?? {}));
+  if (matchedRule) {
+    const variant = variants.find((candidate) => candidate.key === matchedRule.variant.trim());
+    if (variant) {
+      return {
+        key: input.key,
+        variant: variant.key,
+        value: variant.value,
+        matched: true,
+        reason: "rule_match"
+      };
+    }
+  }
+  return {
+    key: input.key,
+    variant: defaultVariant.key,
+    value: defaultVariant.value,
+    matched: false,
+    reason: "default"
+  };
+}
+
+function flagRuleMatches(flagKey: string, rule: FeatureFlagRuleInput, subject: NonNullable<FeatureFlagEvaluationInput["subject"]>): boolean {
+  const match = rule.match ?? {};
+  if (match.userId && match.userId !== subject.userId) return false;
+  if (match.tenantId && match.tenantId !== subject.tenantId) return false;
+  if (match.sessionId && match.sessionId !== subject.sessionId) return false;
+  if (match.traits) {
+    for (const [key, value] of Object.entries(match.traits)) {
+      if (subject.traits?.[key] !== value) return false;
+    }
+  }
+  if (rule.rollout) {
+    const percentage = Math.min(100, Math.max(0, Number(rule.rollout.percentage)));
+    if (!Number.isFinite(percentage) || percentage <= 0) return false;
+    const stickyValue =
+      rule.rollout.stickiness === "tenant" ? subject.tenantId : rule.rollout.stickiness === "session" ? subject.sessionId : subject.userId;
+    if (!stickyValue) return false;
+    const salt = rule.rollout.salt?.trim() || `${normalizeFlagKey(flagKey)}:${normalizeFlagKey(rule.id || rule.variant)}`;
+    const bucket = stableHash(`${salt}:${rule.rollout.stickiness}:${stickyValue}`) % 10000;
+    return bucket < Math.round(percentage * 100);
+  }
+  if (!match.userId && !match.tenantId && !match.sessionId && (!match.traits || Object.keys(match.traits).length === 0)) return false;
+  return true;
+}
+
+function normalizeFlagKey(value: string): string {
+  return value.trim().replace(/\s+/g, "_").toLowerCase();
+}
+
+function normalizeFlagValue(value: FeatureFlagValue): FeatureFlagValue {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null ? value : String(value);
+}
+
+function stableHash(input: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }

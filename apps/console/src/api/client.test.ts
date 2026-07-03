@@ -84,6 +84,7 @@ function operationsResponse() {
     },
     recent: { monitors: [], alerts: [], incidents: [] },
     topLatency: [],
+    anomalies: [],
     setupGaps: []
   };
 }
@@ -186,6 +187,8 @@ describe("createApiClient", () => {
       projectId: "prj_1",
       environmentId: "env_1",
       traceId: "trace_1",
+      traceName: "GET /api/orders",
+      status: "success",
       tenantId: "tenant_1",
       userId: "user_1",
       sessionId: "session_1",
@@ -195,7 +198,7 @@ describe("createApiClient", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/query/traces?project_id=prj_1&environment_id=env_1&tenant_id=tenant_1&user_id=user_1&session_id=session_1&trace_id=trace_1&from=2026-05-04T12%3A00%3A00.000Z&to=2026-05-04T13%3A00%3A00.000Z&limit=25",
+      "/query/traces?project_id=prj_1&environment_id=env_1&tenant_id=tenant_1&user_id=user_1&session_id=session_1&trace_id=trace_1&trace_name=GET+%2Fapi%2Forders&status=success&from=2026-05-04T12%3A00%3A00.000Z&to=2026-05-04T13%3A00%3A00.000Z&limit=25",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -236,6 +239,53 @@ describe("createApiClient", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/query/sessions/sess%2F1/timeline?project_id=prj%2F1&environment_id=env+1&center=2026-05-11T12%3A00%3A00.000Z&before=600&after=120&types=breadcrumb%2Cerror&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("gets session replay detail with scoped product event markers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        data: {
+          replayId: "rpl_1",
+          events: [],
+          productEvents: [{ id: "evt_1", name: "checkout.clicked", offsetMs: 2500 }]
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+    expect(client.getSessionReplayDetail).toBeDefined();
+
+    await client.getSessionReplayDetail!("rpl/1", {
+      projectId: "prj/1",
+      environmentId: "env 1"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/replays/rpl%2F1?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("lists session replay samples with segment and event filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient("/api");
+    expect(client.listSessionReplays).toBeDefined();
+
+    await client.listSessionReplays!({
+      projectId: "prj/1",
+      environmentId: "env 1",
+      segmentId: "seg_1",
+      eventName: "checkout.started",
+      tenantId: "tenant_1",
+      limit: 10
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/replays?project_id=prj%2F1&environment_id=env+1&tenant_id=tenant_1&event_name=checkout.started&segment_id=seg_1&limit=10",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -352,6 +402,57 @@ describe("createApiClient", () => {
     );
   });
 
+  it("encodes recent activity query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { activity: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getRecentActivity?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      release: "web@1.2.3",
+      limit: 15
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/recent-activity?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3&limit=15",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes overview release filters and release list query params", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { data: overviewResponse() }))
+      .mockResolvedValueOnce(jsonResponse(200, { data: { releases: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient();
+    await client.getOverview({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      release: "web@1.2.3"
+    });
+    await client.listReleases!({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 8
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/query/overview?project_id=prj_1&environment_id=env_1&window=7d&release=web%401.2.3",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/query/releases?project_id=prj_1&environment_id=env_1&window=7d&limit=8",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("encodes operations query params", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: operationsResponse() }));
     vi.stubGlobal("fetch", fetchMock);
@@ -365,6 +466,684 @@ describe("createApiClient", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/query/operations?project_id=prj_1&environment_id=env_1&window=7d",
       expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes APM endpoint query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { endpoints: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getApmEndpoints?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "24h",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/apm/endpoints?project_id=prj_1&environment_id=env_1&window=24h&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes service map query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { edges: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getServiceMap?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 10
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/apm/service-map?project_id=prj_1&environment_id=env_1&window=7d&limit=10",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes web vitals query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { metrics: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getWebVitals?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      limit: 15
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/apm/web-vitals?project_id=prj_1&environment_id=env_1&window=30d&limit=15",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event property catalog query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { properties: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventPropertyCatalog?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/properties?project_id=prj_1&environment_id=env_1&window=7d&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event click map query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { points: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventClickMap?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "7d",
+      route: "/checkout",
+      selector: '[data-sigmon-id="submit"]',
+      tenantId: "tenant_1",
+      gridSize: 20,
+      limit: 25
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/click-map?project_id=prj_1&environment_id=env_1&window=7d&route=%2Fcheckout&selector=%5Bdata-sigmon-id%3D%22submit%22%5D&tenant_id=tenant_1&grid_size=20&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event funnel query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { steps: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventFunnel?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      steps: ["signup.started", "project.created"],
+      limit: 20
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&limit=20&steps=signup.started%2Cproject.created",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event pathfinder query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { paths: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventPaths?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      startEvent: "signup.started",
+      endEvent: "key.created",
+      tenantId: "tenant_1",
+      segmentId: "seg_1",
+      actorType: "user",
+      pathLength: 4,
+      limit: 20,
+      from: "2026-05-01T00:00:00.000Z",
+      to: "2026-05-08T00:00:00.000Z"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/paths?project_id=prj_1&environment_id=env_1&window=30d&limit=20&start_event=signup.started&end_event=key.created&tenant_id=tenant_1&segment_id=seg_1&actor=user&from=2026-05-01T00%3A00%3A00.000Z&to=2026-05-08T00%3A00%3A00.000Z&max_depth=4",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event retention query params", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { cohorts: [] } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().getEventRetention?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d",
+      entryEvent: "signup.started",
+      returnEvent: "app.opened",
+      period: "daily",
+      intervals: 7
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events/retention?project_id=prj_1&environment_id=env_1&window=30d&entry_event=signup.started&return_event=app.opened&period=daily&intervals=7",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event segment filters in event queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listEvents({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      segmentId: "seg_1",
+      limit: 50
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events?project_id=prj_1&environment_id=env_1&segment_id=seg_1&limit=50",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("encodes event id filters in event queries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient().listEvents({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      eventId: "evt_1",
+      limit: 1
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/query/events?project_id=prj_1&environment_id=env_1&event_id=evt_1&limit=1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages analytics segments through admin endpoints", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { segments: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listAnalyticsSegments?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-segments?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { segment: { id: "seg_1" } }));
+    await createApiClient("/api").createAnalyticsSegment?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Team creators",
+      actorType: "user",
+      definition: { window: "30d", eventName: "project.created" }
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-segments",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { preview: { actors: 1 } }));
+    await createApiClient("/api").previewAnalyticsSegment?.("seg/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      limit: 3
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-segments/seg%2F1/preview?project_id=prj_1&environment_id=env_1&limit=3",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages analytics dashboards and fetches reports", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { dashboards: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listAnalyticsDashboards?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-dashboards?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { dashboard: { id: "dash_1" } }));
+    await createApiClient("/api").createAnalyticsDashboard?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Operations report",
+      widgets: [
+        { type: "metric.events", title: "Events", width: "half", options: {} },
+        { type: "metric.errors", title: "Errors", width: "half", options: {} },
+        { type: "top.events", title: "Top events", width: "full", options: {} }
+      ]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-dashboards",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { dashboard: { id: "dash_1" } }));
+    await createApiClient("/api").updateAnalyticsDashboard?.(
+      "dash/1",
+      { projectId: "prj_1", environmentId: "env_1" },
+      { name: "Executive report" }
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics-dashboards/dash%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { widgets: [] } }));
+    await createApiClient("/api").getDashboardReport?.("dash/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      window: "30d"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/reports/dashboards/dash%2F1?project_id=prj_1&environment_id=env_1&window=30d",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages experiments and fetches experiment results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { experiments: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listExperiments?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/experiments?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { experiment: { id: "exp_1" } }));
+    await createApiClient("/api").createExperiment?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "checkout_copy",
+      name: "Checkout copy",
+      conversionEvent: "checkout.completed",
+      variants: [
+        { key: "control", name: "Control", weight: 50 },
+        { key: "treatment", name: "Treatment", weight: 50 }
+      ],
+      primaryMetric: { eventName: "checkout.completed", windowHours: 24 }
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/experiments",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { experiment: { id: "exp_1" } }));
+    await createApiClient("/api").updateExperiment?.("exp/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/experiments/exp%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { variants: [] } }));
+    await createApiClient("/api").getExperimentResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      experimentId: "exp/1",
+      window: "7d",
+      limit: 50
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/experiments/exp%2F1/results?project_id=prj_1&environment_id=env_1&window=7d&limit=50",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages surveys and fetches survey results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { surveys: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.listSurveys?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { survey: { id: "surv_1" } }));
+    await api.createSurvey?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "activation_pulse",
+      name: "Activation pulse",
+      actorType: "user",
+      questions: [{ id: "satisfaction", type: "rating", label: "How satisfied are you?", required: true, scale: { min: 1, max: 5 } }]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { survey: { id: "surv_1" } }));
+    await api.updateSurvey?.("surv/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys/surv%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await api.archiveSurvey?.("surv/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys/surv%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { recentResponses: [] } }));
+    await api.getSurveyResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      surveyId: "surv/1",
+      window: "30d",
+      limit: 25
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/surveys/surv%2F1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { totals: { score: 42 } } }));
+    await api.getNpsResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      surveyId: "surv/1",
+      window: "30d",
+      limit: 25,
+      questionId: "nps",
+      tenantId: "tenant_1",
+      release: "2026.05.1",
+      plan: "pro"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/surveys/surv%2F1/nps?project_id=prj_1&environment_id=env_1&window=30d&limit=25&question_id=nps&tenant_id=tenant_1&release=2026.05.1&plan=pro",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages message campaigns and fetches campaign results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { campaigns: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.listMessageCampaigns?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { campaign: { id: "cmp_1" } }));
+    await api.createMessageCampaign?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "invoice_activation",
+      name: "Invoice activation",
+      channelType: "email",
+      notificationChannelId: "chn_1",
+      body: "Create your first invoice."
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { campaign: { id: "cmp_1" } }));
+    await api.updateMessageCampaign?.("cmp/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns/cmp%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await api.archiveMessageCampaign?.("cmp/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns/cmp%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { totals: { delivered: 1 } } }));
+    await api.getMessageCampaignResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      campaignId: "cmp/1",
+      window: "30d",
+      limit: 25
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/message-campaigns/cmp%2F1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages feedback widget settings and feedback triage", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { settings: { enabled: false } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.getFeedbackWidgetSettings?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feedback-widget?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { settings: { enabled: true } }));
+    await api.updateFeedbackWidgetSettings?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      enabled: true,
+      title: "Send feedback",
+      prompt: "Tell us what happened.",
+      placeholder: "Write your feedback...",
+      buttonLabel: "Feedback",
+      accentColor: "#66e38a",
+      allowScreenshot: false,
+      privacyNote: null
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feedback-widget",
+      expect.objectContaining({ method: "PUT" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { feedback: [] }));
+    await api.listFeedbackItems?.({ projectId: "prj_1", environmentId: "env_1", status: "open", tenantId: "tenant_1", limit: 10 });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/feedback?project_id=prj_1&environment_id=env_1&status=open&tenant_id=tenant_1&limit=10",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { feedback: { id: "fbk_1", status: "reviewed" } }));
+    await api.updateFeedbackStatus?.("fbk/1", { projectId: "prj_1", environmentId: "env_1" }, "reviewed");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/feedback/fbk%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "reviewed" }) })
+    );
+  });
+
+  it("manages feature flags and fetches audit/evaluation preview", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { flags: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listFeatureFlags?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { flag: { id: "flg_1" } }));
+    await createApiClient("/api").createFeatureFlag?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "new_checkout",
+      name: "New checkout",
+      defaultVariant: "off",
+      variants: [
+        { key: "off", value: false },
+        { key: "on", value: true }
+      ],
+      rules: [{ variant: "on", match: { userId: "user_1" } }]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { flag: { id: "flg_1" } }));
+    await createApiClient("/api").updateFeatureFlag?.("flg/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags/flg%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { audit: [] }));
+    await createApiClient("/api").listFeatureFlagAudit?.("flg/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags/flg%2F1/audit?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { evaluation: { variant: "on" } }));
+    await createApiClient("/api").evaluateFeatureFlag?.("flg/1", { projectId: "prj_1", environmentId: "env_1" }, { subject: { userId: "user_1" } });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feature-flags/flg%2F1/evaluate?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("manages beta programs, participants, and adoption", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { programs: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listBetaPrograms?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { program: { id: "beta_1" } }));
+    await createApiClient("/api").createBetaProgram?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "checkout_beta",
+      name: "Checkout beta",
+      actorType: "user",
+      featureFlagId: "flg_1",
+      featureFlagVariant: "on"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { participants: [] }));
+    await createApiClient("/api").listBetaProgramParticipants?.("beta/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/participants?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { participant: { id: "betap_1" } }));
+    await createApiClient("/api").addBetaProgramParticipant?.("beta/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      actorType: "user",
+      actorId: "user_1",
+      status: "active",
+      notes: "Requested access"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/participants",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { adoption: { participants: 1 } }));
+    await createApiClient("/api").getBetaProgramAdoption?.("beta/1", { projectId: "prj_1", environmentId: "env_1", window: "7d" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/adoption?project_id=prj_1&environment_id=env_1&window=7d",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await createApiClient("/api").removeBetaProgramParticipant?.("beta/1", "betap/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/beta-programs/beta%2F1/participants/betap%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("manages data governance policies", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { policy: { projectId: "prj_1", environmentId: "env_1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getDataGovernancePolicy?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/data-governance?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { policy: { projectId: "prj_1", environmentId: "env_1" } }));
+    await createApiClient("/api").updateDataGovernancePolicy?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      retentionPolicy: { events: 60, errors: 180 },
+      propertyRules: [{ target: "event.properties", path: "email", action: "mask" }]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/data-governance",
+      expect.objectContaining({ method: "PUT" })
+    );
+  });
+
+  it("manages warehouse export destinations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { destinations: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.listWarehouseDestinations?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { destination: { id: "whdst_1" } }));
+    await api.createWarehouseDestination?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Warehouse",
+      connectionUrl: "postgres://writer:secret@warehouse/sigmon",
+      datasets: ["events"]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { destination: { id: "whdst_1" } }));
+    await api.updateWarehouseDestination?.("whdst/1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      enabled: false
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await api.archiveWarehouseDestination?.("whdst/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { runs: [] }));
+    await api.listWarehouseExportRuns?.("whdst/1", { projectId: "prj_1", environmentId: "env_1", limit: 10 });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1/runs?project_id=prj_1&environment_id=env_1&limit=10",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(202, { result: { ran: true, skipped: false, exported: 1, failed: 0 } }));
+    await api.runWarehouseExport?.("whdst/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/warehouse-destinations/whdst%2F1/runs",
+      expect.objectContaining({ method: "POST" })
     );
   });
 
@@ -601,7 +1380,7 @@ describe("createApiClient", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/query/traces?project_id=prj_1&environment_id=env_1",
+      "/query/traces?project_id=prj_1&environment_id=env_1&status=success",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -1092,6 +1871,24 @@ describe("createApiClient", () => {
     );
   });
 
+  it("updates alert event triage state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "ale_1", status: "acknowledged" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").updateAlertEventTriage("ale/1", {
+      status: "acknowledged",
+      note: "Looking now"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/alerts/events/ale%2F1/triage",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "acknowledged", note: "Looking now" })
+      })
+    );
+  });
+
   it("lists alert events with optional limit", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [] }));
     vi.stubGlobal("fetch", fetchMock);
@@ -1434,6 +2231,86 @@ describe("createApiClient", () => {
         },
         body: undefined
       }
+    );
+  });
+
+  it("calls code integration and release metadata admin routes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { integrations: [] }))
+      .mockResolvedValueOnce(jsonResponse(201, { integration: { id: "cint_1" } }))
+      .mockResolvedValueOnce(jsonResponse(201, { metadata: { id: "relm_1" } }))
+      .mockResolvedValueOnce(emptyResponse(204));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.listCodeIntegrations!("prj/1");
+    await client.createCodeIntegration!("prj/1", {
+      provider: "github",
+      name: "Web",
+      owner: "acme",
+      repo: "web"
+    });
+    await client.upsertReleaseMetadata!("prj/1", {
+      environmentId: "env 1",
+      release: "web@1.2.3",
+      integrationId: "cint_1",
+      commitSha: "abcdef"
+    });
+    await client.revokeCodeIntegration!("prj/1", "cint/1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/admin/projects/prj%2F1/code-integrations", expect.objectContaining({ method: "GET" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/admin/projects/prj%2F1/code-integrations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ provider: "github", name: "Web", owner: "acme", repo: "web" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/admin/projects/prj%2F1/release-metadata",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ environmentId: "env 1", release: "web@1.2.3", integrationId: "cint_1", commitSha: "abcdef" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/admin/projects/prj%2F1/code-integrations/cint%2F1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("calls incident external issue routes with scoped query params", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { link: { id: "iext_1" } }))
+      .mockResolvedValueOnce(jsonResponse(201, { draft: { url: "https://github.com/acme/web/issues/new" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.linkIncidentExternalIssue!("egrp/1", { projectId: "prj/1", environmentId: "env 1" }, {
+      provider: "github",
+      externalKey: "42",
+      title: "Fix",
+      url: "https://github.com/acme/web/issues/42"
+    });
+    await client.createIncidentIssueDraft!("egrp/1", { projectId: "prj/1", environmentId: "env 1" }, {
+      integrationId: "cint_1",
+      incidentUrl: "https://my.sigmon.app/console/incidents/1"
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/query/incidents/error-groups/egrp%2F1/external-issues?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/query/incidents/error-groups/egrp%2F1/external-issues/draft?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "POST" })
     );
   });
 });

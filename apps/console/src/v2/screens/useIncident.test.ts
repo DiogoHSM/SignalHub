@@ -19,6 +19,43 @@ const NOW_ISO = "2026-06-22T12:00:00.000Z";
 const FIRST_ISO = "2026-06-20T10:00:00.000Z";
 const LAST_ISO = "2026-06-22T11:50:00.000Z";
 
+const DEFAULT_CODE_CONTEXT: ErrorGroupIncident["codeContext"] = {
+  status: "ready",
+  summary: "Start with src/foo.ts:10.",
+  repository: {
+    provider: "github",
+    name: "api",
+    owner: "acme",
+    repo: "api",
+    url: "https://github.com/acme/api"
+  },
+  release: {
+    release: "v1.2.0",
+    commitSha: "1234567890abcdef",
+    commitUrl: "https://github.com/acme/api/commit/1234567890abcdef",
+    pullRequestNumber: 99,
+    pullRequestUrl: "https://github.com/acme/api/pull/99",
+    deployedBy: "ci"
+  },
+  suspectedFiles: [
+    {
+      path: "src/foo.ts",
+      functionName: "foo",
+      line: 10,
+      column: 5,
+      confidence: "high",
+      evidence: ["source-map frame 0"]
+    }
+  ],
+  evidence: [{ type: "source_map", label: "Source maps applied", value: "1 resolved frames", confidence: "high" }],
+  suggestedNextSteps: ["Open src/foo.ts around line 10."],
+  privacy: {
+    aiEnabled: false,
+    outboundCodeSharing: false,
+    reason: "Local deterministic analysis only."
+  }
+};
+
 function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord {
   return {
     id: "eg_1",
@@ -42,6 +79,7 @@ function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord 
     resolvedAt: null,
     ignoredAt: null,
     assignedToUserId: null,
+    assignedTo: null,
     incidentNumber: null,
     silencedUntil: null,
     createdAt: FIRST_ISO,
@@ -84,6 +122,7 @@ function makeIncident(overrides: Partial<ErrorGroupIncident> = {}): ErrorGroupIn
     priority: "urgent",
     suggestedPriority: "high",
     sourceMapResolution: { status: "cached", frameCount: 5 },
+    replay: null,
     stronglyRelated: {
       items: [
         {
@@ -122,6 +161,7 @@ function makeIncident(overrides: Partial<ErrorGroupIncident> = {}): ErrorGroupIn
         createdAt: NOW_ISO
       }
     ],
+    codeContext: DEFAULT_CODE_CONTEXT,
     ...overrides
   };
 }
@@ -394,6 +434,103 @@ describe("useIncident", () => {
     expect(r2.current.data?.sourceMapBadge).toEqual({ resolved: false, frameCount: 0 });
   });
 
+  it("maps cached source-map diagnostic from incident resolution", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.data?.sourceMapDiagnostic).toMatchObject({
+      status: "resolved",
+      label: "Source maps resolved",
+      frameCount: 5,
+      unresolvedFrameCount: 0
+    });
+  });
+
+  it("explains unresolved source maps when release is missing", async () => {
+    const client = makeClient({
+      getErrorGroupIncident: vi.fn().mockResolvedValue({
+        data: makeIncident({
+          sourceMapResolution: { status: "none" },
+          group: makeGroup({ latestRelease: null }),
+          primaryOccurrence: makeErrorRecord({ release: null })
+        }),
+        meta: {}
+      })
+    });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(result.current.data?.sourceMapDiagnostic).toMatchObject({
+      status: "unresolved",
+      label: "Source maps not applied",
+      release: null
+    });
+    expect(result.current.data?.sourceMapDiagnostic.detail).toMatch(/Configure the SDK release/i);
+  });
+
+  it("fetches detailed source-map resolution for the primary occurrence", async () => {
+    const getErrorSourceMapResolution = vi.fn().mockResolvedValue({
+      errorId: "err_1",
+      release: "v1.2.0",
+      status: "partially_resolved",
+      frames: [
+        {
+          frameIndex: 0,
+          minifiedFile: "main.js",
+          minifiedLine: 10,
+          minifiedColumn: 5,
+          originalSource: "src/main.ts",
+          originalLine: 25,
+          originalColumn: 10,
+          originalName: "foo",
+          sourceMapArtifactId: "smap_1"
+        }
+      ],
+      unresolvedFrameCount: 2
+    });
+    const client = makeClient({ getErrorSourceMapResolution });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    expect(getErrorSourceMapResolution).toHaveBeenCalledWith("err_1", {
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+    expect(result.current.data?.sourceMapDiagnostic).toMatchObject({
+      status: "partially_resolved",
+      frameCount: 1,
+      unresolvedFrameCount: 2
+    });
+  });
+
   it("maps breadcrumbs from stronglyRelated items", async () => {
     const client = makeClient();
     const { result } = renderHook(() =>
@@ -501,6 +638,8 @@ describe("useIncident", () => {
     expect(vm.release).toBe("v1.2.0");
     expect(vm.status).toBe("open");
     expect(vm.silencedUntil).toBeNull();
+    expect(vm.codeContext.summary).toContain("src/foo.ts");
+    expect(vm.codeContext.suspectedFiles[0]).toMatchObject({ path: "src/foo.ts", confidence: "high" });
   });
 
   // -------------------------------------------------------------------------

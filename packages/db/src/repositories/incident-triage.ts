@@ -1,11 +1,12 @@
 import { sql } from "kysely";
-import type { Kysely, Selectable, Transaction } from "kysely";
+import type { Selectable, Transaction } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
+import type { Db } from "../client.js";
 import type { Database, TriageNotesTable } from "../schema.js";
 import { toGroup } from "./error-groups.js";
-import type { ErrorGroupRecord, ErrorGroupRow } from "./error-groups.js";
+import type { ErrorGroupRecord } from "./error-groups.js";
 
-type DbExecutor = Kysely<Database> | Transaction<Database>;
+type DbExecutor = Db | Transaction<Database>;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export async function assignIncident(
   db: DbExecutor,
   input: { errorGroupId: string; assignedToUserId: string | null; projectId: string; environmentId: string }
 ): Promise<AssignIncidentResult> {
-  const existingGroup = await (db as Kysely<Database>)
+  const existingGroup = await db
     .selectFrom("error_groups")
     .select("id")
     .where("id", "=", input.errorGroupId)
@@ -64,7 +65,7 @@ export async function assignIncident(
   }
 
   if (input.assignedToUserId !== null) {
-    const user = await (db as Kysely<Database>)
+    const user = await db
       .selectFrom("users")
       .select(["id", "archived_at"])
       .where("id", "=", input.assignedToUserId)
@@ -78,7 +79,7 @@ export async function assignIncident(
     }
   }
 
-  const row = await (db as Kysely<Database>)
+  const row = await db
     .updateTable("error_groups")
     .set({
       assigned_to_user_id: input.assignedToUserId,
@@ -88,7 +89,7 @@ export async function assignIncident(
     .where("project_id", "=", input.projectId)
     .where("environment_id", "=", input.environmentId)
     .returningAll()
-    .executeTakeFirstOrThrow() as ErrorGroupRow;
+    .executeTakeFirstOrThrow();
 
   return { ok: true, group: toGroup(row) };
 }
@@ -110,7 +111,7 @@ export async function addTriageNote(
     environmentId: string;
   }
 ): Promise<AddTriageNoteResult> {
-  const existingGroup = await (db as Kysely<Database>)
+  const existingGroup = await db
     .selectFrom("error_groups")
     .select("id")
     .where("id", "=", input.errorGroupId)
@@ -122,7 +123,7 @@ export async function addTriageNote(
     return { ok: false, error: "group_not_found" };
   }
 
-  const row = await (db as Kysely<Database>)
+  const row = await db
     .insertInto("triage_notes")
     .values({
       id: createId("note"),
@@ -143,7 +144,7 @@ export async function listTriageNotes(
   db: DbExecutor,
   errorGroupId: string
 ): Promise<TriageNoteRecord[]> {
-  const rows = await (db as Kysely<Database>)
+  const rows = await db
     .selectFrom("triage_notes")
     .selectAll()
     .where("error_group_id", "=", errorGroupId)
@@ -159,7 +160,7 @@ export async function silenceIncident(
   db: DbExecutor,
   input: { errorGroupId: string; until: Date | null; projectId: string; environmentId: string }
 ): Promise<ErrorGroupRecord | null> {
-  const row = await (db as Kysely<Database>)
+  const row = await db
     .updateTable("error_groups")
     .set({
       silenced_until: input.until,
@@ -171,7 +172,7 @@ export async function silenceIncident(
     .returningAll()
     .executeTakeFirst();
 
-  return row ? toGroup(row as ErrorGroupRow) : null;
+  return row ? toGroup(row) : null;
 }
 
 // ── getIncidentMttr ────────────────────────────────────────────────────────────
@@ -190,7 +191,7 @@ export async function getIncidentMttr(
       AND status = 'resolved'
       AND resolved_at IS NOT NULL
       AND resolved_at >= now() - (${input.windowDays} * interval '1 day')
-  `.execute(db as Kysely<Database>);
+  `.execute(db);
 
   const row = result.rows[0];
   if (!row) {

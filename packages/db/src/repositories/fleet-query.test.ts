@@ -101,6 +101,7 @@ function makeOperationsResponse(overrides: Partial<OperationsResponse> = {}): Op
       ]
     },
     topLatency: [],
+    anomalies: [],
     setupGaps: [],
     ...overrides
   } as OperationsResponse;
@@ -128,6 +129,22 @@ function makeOverviewResponse(overrides: Partial<OverviewResponse> = {}): Overvi
       llmOutputTokens: 5000,
       llmCostUsd: "5.50"
     },
+    deltas: {
+      events: { current: 500, previous: null, absolute: null, percent: null, direction: "none" },
+      activeUsers: { current: 20, previous: null, absolute: null, percent: null, direction: "none" },
+      activeTenants: { current: 5, previous: null, absolute: null, percent: null, direction: "none" },
+      errors: { current: 10, previous: null, absolute: null, percent: null, direction: "none" },
+      openErrors: { current: 3, previous: null, absolute: null, percent: null, direction: "none" },
+      traces: { current: 100, previous: null, absolute: null, percent: null, direction: "none" },
+      failedTraces: { current: 5, previous: null, absolute: null, percent: null, direction: "none" },
+      averageTraceDurationMs: { current: 150, previous: null, absolute: null, percent: null, direction: "none" },
+      p95TraceDurationMs: { current: 350, previous: null, absolute: null, percent: null, direction: "none" },
+      llmCalls: { current: 50, previous: null, absolute: null, percent: null, direction: "none" },
+      failedLlmCalls: { current: 2, previous: null, absolute: null, percent: null, direction: "none" },
+      llmInputTokens: { current: 10000, previous: null, absolute: null, percent: null, direction: "none" },
+      llmOutputTokens: { current: 5000, previous: null, absolute: null, percent: null, direction: "none" },
+      llmCostUsd: { current: "5.50", previous: null, absolute: null, percent: null, direction: "none" }
+    },
     trends: {
       usage: [],
       errors: Array.from({ length: 12 }, (_, i) => ({
@@ -151,7 +168,8 @@ function makeOverviewResponse(overrides: Partial<OverviewResponse> = {}): Overvi
       errorSeverity: [],
       errorStatus: []
     },
-    recent: { errors: [], failedTraces: [], failedLlmCalls: [] }
+    recent: { activity: [], errors: [], failedTraces: [], failedLlmCalls: [] },
+    releases: { selected: null, recent: [] }
   };
   return { ...base, ...overrides } as OverviewResponse;
 }
@@ -181,7 +199,7 @@ function makeHealthSnapshot(overrides: Partial<SystemHealthSnapshot["services"]>
       enabled: true,
       intervalMinutes: 60,
       lastRun: null,
-      policy: { eventsDays: 30, errorsDays: 30, tracesDays: 30, spansDays: 30, llmCallsDays: 30, breadcrumbsDays: 30, deadLetterJobsDays: 30, sourceMapsEnabled: false, sourceMapsDays: 30, sourceMapsBatchSize: 1000 }
+      policy: { eventsDays: 30, errorsDays: 30, tracesDays: 30, spansDays: 30, llmCallsDays: 30, profilesDays: 30, breadcrumbsDays: 30, deadLetterJobsDays: 30, sourceMapsEnabled: false, sourceMapsDays: 30, sourceMapsBatchSize: 1000 }
     },
     backups: { enabled: false, intervalHours: 24, retentionDays: 7, s3Enabled: false, stale: null, latestSuccess: null, latestFailure: null }
   };

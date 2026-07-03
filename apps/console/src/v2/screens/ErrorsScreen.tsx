@@ -11,10 +11,11 @@ import {
   Icon,
   PriorityPill,
   Segmented,
+  Sparkline,
   StatusPill,
   SummaryStat,
 } from "../../components/ui/v2";
-import { formatCompact } from "../../components/ui/v2/format";
+import { formatCompact, formatDurationShort } from "../../components/ui/v2/format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,7 +23,7 @@ import { formatCompact } from "../../components/ui/v2/format";
 
 type NavigateFn = (section: NavSection) => void;
 
-type SeverityFilter = "all" | "critical" | "error" | "warning";
+type SeverityFilter = "all" | "fatal" | "critical" | "error" | "warning";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,18 +96,23 @@ function InvestigateTabs({
 function ErrorRow({ row, ctx }: { row: ErrorRowVM; ctx: ScreenCtx }) {
   const sevColor = SEV_COLOR[row.severity] ?? "var(--fg-muted)";
   const sevBg = SEV_BG[row.severity] ?? "var(--bg-surface-2)";
+  const rowBg = row.isCrash
+    ? "linear-gradient(90deg, var(--sev-critical-bg), transparent 72%)"
+    : "transparent";
 
   return (
     <button
       className="sh-row sh-row--btn"
       aria-label={row.message}
       style={{
-        gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 84px 28px",
+        gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 120px 84px 28px",
         width: "100%",
         textAlign: "left",
-        background: "transparent",
-        border: "none",
+        background: rowBg,
+        border: row.isCrash ? "1px solid var(--sev-critical-border)" : "none",
         borderBottom: "1px solid var(--border-subtle)",
+        borderRadius: row.isCrash ? 10 : 0,
+        margin: row.isCrash ? "6px 8px" : 0,
         cursor: "pointer",
       }}
       onClick={() => ctx.drill("incident", { groupId: row.id })}
@@ -137,6 +143,14 @@ function ErrorRow({ row, ctx }: { row: ErrorRowVM; ctx: ScreenCtx }) {
           </div>
           <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
             <span className="sh-tag mono">{row.id}</span>
+            {row.isCrash ? (
+              <span
+                className="sh-tag critical"
+                style={{ textTransform: "uppercase", fontSize: 10, fontWeight: 800 }}
+              >
+                Crash
+              </span>
+            ) : null}
             <span
               className="sh-tag"
               style={{
@@ -177,6 +191,11 @@ function ErrorRow({ row, ctx }: { row: ErrorRowVM; ctx: ScreenCtx }) {
       {/* tenants */}
       <span className="sh-muted" style={{ fontVariantNumeric: "tabular-nums" }}>
         {row.tenants ?? "—"}
+      </span>
+
+      {/* trend */}
+      <span data-testid="error-group-trend-sparkline" aria-label="12 bucket error group trend">
+        <Sparkline data={row.trend.length > 0 ? row.trend : [0]} color={sevColor} height={24} fill={false} />
       </span>
 
       {/* last */}
@@ -263,8 +282,12 @@ export function ErrorsScreen({
     { label: "Users", icon: "users", count: formatCompact(tabs.users), dest: "investigate" },
   ];
 
-  const SEV_OPTIONS = ["all", "critical", "error", "warning"] as const;
-  const sevLabel = (s: string) => (s === "all" ? "severity: all" : s);
+  const SEV_OPTIONS = ["all", "fatal", "critical", "error", "warning"] as const;
+  const sevLabel = (s: string) => {
+    if (s === "all") return "severity: all";
+    if (s === "fatal") return "crashes";
+    return s;
+  };
 
   return (
     <>
@@ -322,9 +345,11 @@ export function ErrorsScreen({
           <Divider />
           <SummaryStat label="Open groups" value={String(summary.openGroups)} />
           <Divider />
+          <SummaryStat label="Crashes" value={String(summary.crashes)} tone="danger" />
+          <Divider />
           <SummaryStat label="Critical" value={String(summary.critical)} tone="danger" />
           <Divider />
-          <SummaryStat label="MTTR" value="—" />
+          <SummaryStat label="MTTR" value={formatDurationShort(summary.mttr)} />
           <Divider />
           <SummaryStat
             label="Top release"
@@ -355,7 +380,7 @@ export function ErrorsScreen({
         <div
           className="sh-row sh-row__head"
           style={{
-            gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 84px 28px",
+            gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 120px 84px 28px",
           }}
         >
           <span>Error</span>
@@ -364,6 +389,7 @@ export function ErrorsScreen({
           <span>Events</span>
           <span>Users</span>
           <span>Tenants</span>
+          <span>Trend</span>
           <span>Last</span>
           <span />
         </div>

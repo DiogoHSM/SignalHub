@@ -39,6 +39,724 @@ export type BrowserOrigin = {
   archivedAt: string | null;
 };
 
+export type DataGovernanceRetentionCategory =
+  | "events"
+  | "errors"
+  | "traces"
+  | "spans"
+  | "llmCalls"
+  | "profiles"
+  | "breadcrumbs"
+  | "webVitals"
+  | "clicks"
+  | "replays";
+
+export type DataGovernancePropertyRuleTarget =
+  | "metadata"
+  | "event.properties"
+  | "error.context"
+  | "span.input"
+  | "span.output"
+  | "span.error"
+  | "breadcrumb.data"
+  | "replay.event.data"
+  | "identity.traits";
+
+export type DataGovernancePropertyRule = {
+  target: DataGovernancePropertyRuleTarget;
+  path: string;
+  action: "mask" | "block";
+};
+
+export type DataGovernancePolicy = {
+  projectId: string;
+  environmentId: string;
+  retentionPolicy: Partial<Record<DataGovernanceRetentionCategory, number>>;
+  propertyRules: DataGovernancePropertyRule[];
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WarehouseDataset = "events" | "errors" | "traces" | "llmCalls";
+
+export type WarehouseCursorValue = {
+  timestamp: string;
+  id: string;
+};
+
+export type WarehouseCursor = Partial<Record<WarehouseDataset, WarehouseCursorValue>>;
+
+export type WarehouseDestination = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  destinationType: "postgres";
+  connectionUrlPreview: string;
+  datasets: WarehouseDataset[];
+  cursor: WarehouseCursor;
+  batchSize: number;
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastErrorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type WarehouseExportRun = {
+  id: string;
+  destinationId: string;
+  projectId: string;
+  environmentId: string;
+  trigger: "scheduled" | "manual" | "retry";
+  status: "running" | "success" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  cursorBefore: WarehouseCursor;
+  cursorAfter: WarehouseCursor;
+  exported: Partial<Record<WarehouseDataset, number>>;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type CreateWarehouseDestinationInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  destinationType?: "postgres";
+  connectionUrl: string;
+  datasets: WarehouseDataset[];
+  batchSize?: number;
+  enabled?: boolean;
+};
+
+export type UpdateWarehouseDestinationInput = Partial<
+  Pick<CreateWarehouseDestinationInput, "name" | "connectionUrl" | "datasets" | "batchSize" | "enabled">
+> & {
+  projectId: string;
+  environmentId: string;
+};
+
+export type AnalyticsSegmentActorType = "user" | "tenant";
+
+export type AnalyticsSegmentDefinition = {
+  window?: ApmWindow;
+  eventName?: string;
+  propertyName?: string;
+  propertyValue?: string;
+};
+
+export type AnalyticsSegment = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description: string | null;
+  actorType: AnalyticsSegmentActorType;
+  definition: AnalyticsSegmentDefinition;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateAnalyticsSegmentInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description?: string | null;
+  actorType: AnalyticsSegmentActorType;
+  definition: AnalyticsSegmentDefinition;
+};
+
+export type UpdateAnalyticsSegmentInput = Partial<Omit<CreateAnalyticsSegmentInput, "projectId" | "environmentId">>;
+
+export type AnalyticsSegmentPreview = {
+  segmentId: string;
+  actorType: AnalyticsSegmentActorType;
+  window: ApmWindow;
+  actors: number;
+  samples: Array<{
+    actorId: string;
+    lastSeenAt: string;
+  }>;
+};
+
+export type AnalyticsDashboardCategory = "executive" | "operational" | "product";
+export type AnalyticsDashboardWidgetType = "metric.events" | "metric.errors" | "top.events" | "trend.events" | "trend.errors";
+
+export type AnalyticsDashboardFilters = {
+  window?: ApmWindow;
+  tenantId?: string;
+  userId?: string;
+  segmentId?: string;
+};
+
+export type AnalyticsDashboardWidget = {
+  id?: string;
+  type: AnalyticsDashboardWidgetType;
+  title: string;
+  width: "half" | "full";
+  options: Record<string, unknown>;
+};
+
+export type AnalyticsDashboard = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description: string | null;
+  category: AnalyticsDashboardCategory;
+  filters: AnalyticsDashboardFilters;
+  widgets: Array<AnalyticsDashboardWidget & { id: string }>;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateAnalyticsDashboardInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description?: string | null;
+  category?: AnalyticsDashboardCategory;
+  filters?: AnalyticsDashboardFilters;
+  widgets: AnalyticsDashboardWidget[];
+};
+
+export type UpdateAnalyticsDashboardInput = Partial<Omit<CreateAnalyticsDashboardInput, "projectId" | "environmentId">>;
+
+export type DashboardReportWidget = {
+  widgetId: string;
+  type: AnalyticsDashboardWidgetType;
+  title: string;
+  width: "half" | "full";
+  status: "ok" | "error";
+  data: unknown;
+  error?: string;
+};
+
+export type DashboardReportResponse = {
+  dashboard: AnalyticsDashboard;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  window: ApmWindow;
+  widgets: DashboardReportWidget[];
+};
+
+export type ExperimentStatus = "draft" | "running" | "paused" | "completed" | "archived";
+export type ExperimentActorType = "user" | "tenant" | "session";
+
+export type ExperimentVariant = {
+  key: string;
+  name: string;
+  weight: number;
+};
+
+export type ExperimentPrimaryMetric = {
+  eventName: string;
+  windowHours: number;
+};
+
+export type Experiment = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ExperimentStatus;
+  actorType: ExperimentActorType;
+  exposureEvent: string;
+  conversionEvent: string;
+  variants: ExperimentVariant[];
+  primaryMetric: ExperimentPrimaryMetric;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateExperimentInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: ExperimentStatus;
+  actorType?: ExperimentActorType;
+  exposureEvent?: string;
+  conversionEvent: string;
+  variants: ExperimentVariant[];
+  primaryMetric: ExperimentPrimaryMetric;
+};
+
+export type UpdateExperimentInput = Partial<Omit<CreateExperimentInput, "projectId" | "environmentId" | "key">>;
+
+export type ExperimentResultsQuery = ApmQuery & {
+  experimentId: string;
+};
+
+export type ExperimentVariantResult = ExperimentVariant & {
+  exposures: number;
+  conversions: number;
+  conversionRate: number;
+  liftPoints: number | null;
+  sampleActors: string[];
+};
+
+export type ExperimentResultsResponse = {
+  experiment: Experiment;
+  window: ApmWindow;
+  totals: {
+    exposures: number;
+    conversions: number;
+    variants: number;
+  };
+  variants: ExperimentVariantResult[];
+};
+
+export type SurveyStatus = "draft" | "active" | "paused" | "archived";
+export type SurveyActorType = "user" | "tenant" | "session";
+export type SurveyQuestionType = "rating" | "choice" | "text";
+
+export type SurveyQuestion = {
+  id: string;
+  type: SurveyQuestionType;
+  label: string;
+  required: boolean;
+  scale?: { min: number; max: number; minLabel?: string; maxLabel?: string };
+  options?: string[];
+};
+
+export type SurveyTargeting = {
+  segmentId?: string;
+  userId?: string;
+  tenantId?: string;
+  eventName?: string;
+  sampleRate?: number;
+};
+
+export type Survey = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: SurveyStatus;
+  actorType: SurveyActorType;
+  triggerEvent: string | null;
+  questions: SurveyQuestion[];
+  targeting: SurveyTargeting;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateSurveyInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: SurveyStatus;
+  actorType?: SurveyActorType;
+  triggerEvent?: string | null;
+  questions: SurveyQuestion[];
+  targeting?: SurveyTargeting;
+};
+
+export type UpdateSurveyInput = Partial<Omit<CreateSurveyInput, "projectId" | "environmentId" | "key">>;
+
+export type SurveyResultsQuery = ApmQuery & {
+  surveyId: string;
+};
+
+export type SurveyResponse = {
+  id: string;
+  surveyId: string;
+  actorType: "user" | "tenant" | "session" | "anonymous";
+  actorId: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  answers: Record<string, unknown>;
+  submittedAt: string;
+};
+
+export type SurveyResultsResponse = {
+  survey: Survey;
+  window: ApmWindow;
+  totals: {
+    responses: number;
+    users: number;
+    tenants: number;
+    sessions: number;
+  };
+  questions: Array<{
+    id: string;
+    label: string;
+    type: SurveyQuestionType;
+    responses: number;
+    average?: number;
+    choices?: Array<{ value: string; count: number }>;
+  }>;
+  recentResponses: SurveyResponse[];
+};
+
+export type MessageCampaignStatus = "draft" | "active" | "paused" | "archived";
+export type MessageCampaignChannelType = "email" | "webhook" | "in_app";
+export type MessageCampaignActorType = "user" | "tenant" | "session" | "anonymous";
+export type MessageCampaignEventType = "queued" | "sent" | "delivered" | "opened" | "clicked" | "converted" | "failed" | "opted_out";
+
+export type MessageCampaign = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: MessageCampaignStatus;
+  channelType: MessageCampaignChannelType;
+  notificationChannelId: string | null;
+  segmentId: string | null;
+  conversionEvent: string | null;
+  subject: string | null;
+  body: string;
+  ctaUrl: string | null;
+  consentCategory: string;
+  privacyNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateMessageCampaignInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: MessageCampaignStatus;
+  channelType?: MessageCampaignChannelType;
+  notificationChannelId?: string | null;
+  segmentId?: string | null;
+  conversionEvent?: string | null;
+  subject?: string | null;
+  body: string;
+  ctaUrl?: string | null;
+  consentCategory?: string;
+  privacyNote?: string | null;
+};
+
+export type UpdateMessageCampaignInput = Partial<Omit<CreateMessageCampaignInput, "projectId" | "environmentId" | "key">>;
+
+export type MessageCampaignResultsQuery = ApmQuery & {
+  campaignId: string;
+};
+
+export type MessageCampaignEvent = {
+  id: string;
+  campaignId: string;
+  type: MessageCampaignEventType;
+  actorType: MessageCampaignActorType;
+  actorId: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  occurredAt: string;
+};
+
+export type MessageCampaignResultsResponse = {
+  campaign: MessageCampaign;
+  window: ApmWindow;
+  totals: {
+    queued: number;
+    sent: number;
+    delivered: number;
+    opened: number;
+    clicked: number;
+    converted: number;
+    failed: number;
+    optedOut: number;
+    uniqueActors: number;
+  };
+  rates: {
+    deliveryRate: number;
+    openRate: number;
+    clickRate: number;
+    conversionRate: number;
+    optOutRate: number;
+  };
+  recentEvents: MessageCampaignEvent[];
+  optOuts: Array<{
+    id: string;
+    actorType: MessageCampaignActorType;
+    actorId: string;
+    category: string;
+    reason: string | null;
+    createdAt: string;
+  }>;
+};
+
+export type NpsSegmentSummary = {
+  key: string;
+  label: string;
+  responses: number;
+  score: number;
+  promoters: number;
+  passives: number;
+  detractors: number;
+};
+
+export type NpsResultsQuery = SurveyResultsQuery & {
+  questionId?: string;
+  tenantId?: string;
+  release?: string;
+  plan?: string;
+};
+
+export type NpsResultsResponse = {
+  survey: Survey;
+  window: ApmWindow;
+  questionId: string;
+  totals: {
+    responses: number;
+    promoters: number;
+    passives: number;
+    detractors: number;
+    score: number;
+    average: number | null;
+  };
+  trend: Array<{
+    bucket: string;
+    responses: number;
+    score: number;
+    promoters: number;
+    passives: number;
+    detractors: number;
+  }>;
+  segments: {
+    tenants: NpsSegmentSummary[];
+    releases: NpsSegmentSummary[];
+    plans: NpsSegmentSummary[];
+  };
+  recentResponses: SurveyResponse[];
+};
+
+export type FeedbackStatus = "open" | "reviewed" | "archived";
+
+export type FeedbackWidgetSettings = {
+  projectId: string;
+  environmentId: string;
+  enabled: boolean;
+  title: string;
+  prompt: string;
+  placeholder: string;
+  buttonLabel: string;
+  accentColor: string;
+  allowScreenshot: boolean;
+  privacyNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpdateFeedbackWidgetSettingsInput = {
+  projectId: string;
+  environmentId: string;
+  enabled: boolean;
+  title?: string;
+  prompt?: string;
+  placeholder?: string;
+  buttonLabel?: string;
+  accentColor?: string;
+  allowScreenshot?: boolean;
+  privacyNote?: string | null;
+};
+
+export type FeedbackItem = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  status: FeedbackStatus;
+  message: string;
+  category: string | null;
+  pageUrl: string | null;
+  path: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  release: string | null;
+  source: string | null;
+  userAgent: string | null;
+  metadata: Record<string, unknown>;
+  submittedAt: string;
+  receivedAt: string;
+  updatedAt: string;
+};
+
+export type FeedbackListQuery = {
+  projectId: string;
+  environmentId: string;
+  status?: FeedbackStatus;
+  tenantId?: string;
+  userId?: string;
+  limit?: number;
+};
+
+export type FeatureFlagStatus = "draft" | "active" | "paused" | "archived";
+export type FeatureFlagValue = string | number | boolean | null;
+
+export type FeatureFlagVariant = {
+  key: string;
+  value: FeatureFlagValue;
+};
+
+export type FeatureFlagRuleMatch = {
+  userId?: string;
+  tenantId?: string;
+  sessionId?: string;
+  traits?: Record<string, FeatureFlagValue>;
+};
+
+export type FeatureFlagRollout = {
+  percentage: number;
+  stickiness: "user" | "tenant" | "session";
+  salt?: string;
+};
+
+export type FeatureFlagRule = {
+  id?: string;
+  description?: string;
+  variant: string;
+  match: FeatureFlagRuleMatch;
+  rollout?: FeatureFlagRollout;
+};
+
+export type FeatureFlag = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: FeatureFlagStatus;
+  defaultVariant: string;
+  variants: FeatureFlagVariant[];
+  rules: FeatureFlagRule[];
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateFeatureFlagInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: FeatureFlagStatus;
+  defaultVariant: string;
+  variants: FeatureFlagVariant[];
+  rules?: FeatureFlagRule[];
+};
+
+export type UpdateFeatureFlagInput = Partial<Omit<CreateFeatureFlagInput, "projectId" | "environmentId" | "key">>;
+
+export type FeatureFlagAudit = {
+  id: string;
+  featureFlagId: string;
+  projectId: string;
+  environmentId: string;
+  action: "created" | "updated" | "archived";
+  actorId: string | null;
+  changes: unknown;
+  createdAt: string;
+};
+
+export type FeatureFlagEvaluation = {
+  key: string;
+  variant: string;
+  value: FeatureFlagValue;
+  matched: boolean;
+  reason: "rule_match" | "default" | "missing" | "inactive";
+  ruleId?: string;
+};
+
+export type BetaProgramStatus = "draft" | "active" | "paused" | "archived";
+export type BetaProgramActorType = "user" | "tenant";
+export type BetaProgramParticipantStatus = "invited" | "active" | "opted_out" | "removed";
+
+export type BetaProgram = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: BetaProgramStatus;
+  actorType: BetaProgramActorType;
+  featureFlagId: string | null;
+  featureFlagVariant: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateBetaProgramInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: BetaProgramStatus;
+  actorType?: BetaProgramActorType;
+  featureFlagId?: string | null;
+  featureFlagVariant?: string;
+};
+
+export type UpdateBetaProgramInput = Partial<Omit<CreateBetaProgramInput, "projectId" | "environmentId" | "key">>;
+
+export type BetaProgramParticipant = {
+  id: string;
+  programId: string;
+  projectId: string;
+  environmentId: string;
+  actorType: BetaProgramActorType;
+  actorId: string;
+  status: BetaProgramParticipantStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  removedAt: string | null;
+};
+
+export type AddBetaProgramParticipantInput = {
+  projectId: string;
+  environmentId: string;
+  actorType: BetaProgramActorType;
+  actorId: string;
+  status?: BetaProgramParticipantStatus;
+  notes?: string | null;
+};
+
+export type BetaProgramAdoption = {
+  programId: string;
+  window: ApmWindow;
+  participants: number;
+  activeParticipants: number;
+  activeActorsWithEvents: number;
+  events: number;
+  adoptionRate: number;
+  samples: Array<{ actorId: string; events: number; lastSeenAt: string }>;
+};
+
 export type CreatedApiKey = ApiKey & {
   secret: string;
 };
@@ -57,7 +775,242 @@ export type EventRecord = {
   release: string | null;
   metadata: unknown;
   name: string;
+  replayId: string | null;
   properties: unknown;
+};
+
+export type EventPropertyCatalogItem = {
+  eventName: string;
+  propertyName: string;
+  totalOccurrences: number;
+  eventCount: number;
+  coveragePercent: number;
+  dominantType: string;
+  typeCounts: Record<string, number>;
+  hasTypeConflict: boolean;
+  sampleValues: string[];
+  similarPropertyNames: string[];
+  lastSeenAt: string | null;
+};
+
+export type EventPropertySimilarNameGroup = {
+  normalizedName: string;
+  propertyNames: string[];
+  eventNames: string[];
+};
+
+export type EventPropertyCatalogResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    events: number;
+    properties: number;
+    conflictProperties: number;
+    similarNameGroups: number;
+  };
+  properties: EventPropertyCatalogItem[];
+  similarNameGroups: EventPropertySimilarNameGroup[];
+};
+
+export type EventClickMapQuery = ApmQuery & {
+  route: string;
+  selector?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  gridSize?: number;
+};
+
+export type EventClickMapPoint = {
+  xBucket: number;
+  yBucket: number;
+  clicks: number;
+  percent: number;
+};
+
+export type EventClickMapResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    route: string;
+    selector: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    gridSize: number;
+  };
+  totals: {
+    clicks: number;
+    routes: number;
+    selectors: number;
+  };
+  routes: Array<{ route: string; clicks: number }>;
+  selectors: Array<{ selector: string; elementTag: string | null; elementRole: string | null; clicks: number }>;
+  points: EventClickMapPoint[];
+};
+
+export type EventFunnelQuery = ApmQuery & {
+  steps: string[];
+};
+
+export type EventFunnelStep = {
+  index: number;
+  name: string;
+  actors: number;
+  conversionPercent: number;
+  dropOffFromPreviousPercent: number;
+};
+
+export type EventFunnelActor = {
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+  reachedStepIndex: number;
+  reachedStepName: string;
+  lastSeenAt: string;
+};
+
+export type EventFunnelResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
+  sampleActors: EventFunnelActor[];
+};
+
+export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
+
+export type EventRetentionQuery = ApmQuery & {
+  entryEvent: string;
+  returnEvent: string;
+  period?: EventRetentionPeriod;
+  intervals?: number;
+};
+
+export type EventRetentionInterval = {
+  index: number;
+  label: string;
+  retainedActors: number;
+  retentionPercent: number;
+};
+
+export type EventRetentionCohort = {
+  cohortStart: string;
+  cohortLabel: string;
+  entrants: number;
+  intervals: EventRetentionInterval[];
+};
+
+export type EventRetentionResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  entryEvent: string;
+  returnEvent: string;
+  period: EventRetentionPeriod;
+  intervals: number;
+  totals: {
+    cohorts: number;
+    entrants: number;
+  };
+  cohorts: EventRetentionCohort[];
+};
+
+export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
+
+export type EventPathsQuery = ApmQuery & {
+  startEvent?: string;
+  endEvent?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  traceId?: string;
+  segmentId?: string;
+  actorType?: EventPathActorType;
+  from?: Date | string;
+  to?: Date | string;
+  pathLength?: number;
+};
+
+export type EventPathSampleEvent = {
+  id: string;
+  name: string;
+  timestamp: string;
+  actorId: string;
+  actorType: "user" | "tenant" | "session" | "trace";
+};
+
+export type EventPathRow = {
+  path: string[];
+  actors: number;
+  occurrences: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sampleEvents: EventPathSampleEvent[];
+};
+
+export type EventPathsResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  filters: {
+    startEvent: string | null;
+    endEvent: string | null;
+    tenantId: string | null;
+    userId: string | null;
+    sessionId: string | null;
+    traceId: string | null;
+    segmentId: string | null;
+    actorType: EventPathActorType;
+    pathLength: number;
+  };
+  totals: {
+    actors: number;
+    paths: number;
+    events: number;
+  };
+  paths: EventPathRow[];
 };
 
 export type ErrorRecord = {
@@ -110,8 +1063,10 @@ export type ErrorGroupRecord = {
   resolvedAt: string | null;
   ignoredAt: string | null;
   assignedToUserId: string | null;
+  assignedTo: { id: string; email: string } | null;
   incidentNumber: string | null;
   silencedUntil: string | null;
+  trend?: number[];
   createdAt: string;
   updatedAt: string;
 };
@@ -162,6 +1117,55 @@ export type IncidentTimelineItem = {
   data: unknown;
 };
 
+export type IncidentReplayEvent = {
+  offsetMs: number;
+  type: string;
+  route?: string;
+  selector?: string;
+  message?: string;
+  x?: number;
+  y?: number;
+  data: unknown;
+};
+
+export type IncidentReplayProductEvent = {
+  id: string;
+  name: string;
+  timestamp: string;
+  offsetMs: number;
+};
+
+export type IncidentReplay = {
+  id: string;
+  replayId: string;
+  route: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  events: IncidentReplayEvent[];
+  productEvents?: IncidentReplayProductEvent[];
+};
+
+export type SessionReplaySample = {
+  id: string;
+  replayId: string;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  route: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  eventCount: number;
+  masked: boolean;
+  linkedEventId: string | null;
+  linkedEventName: string | null;
+  linkedErrorId: string | null;
+  linkedErrorMessage: string | null;
+};
+
 export type ErrorGroupIncident = {
   group: ErrorGroupRecord;
   primaryOccurrence: ErrorRecord;
@@ -170,6 +1174,7 @@ export type ErrorGroupIncident = {
   sourceMapResolution: { status: "cached"; frameCount: number } | { status: "none" };
   stronglyRelated: { items: IncidentTimelineItem[]; truncated: boolean };
   nearbyContext: { items: IncidentTimelineItem[]; truncated: boolean };
+  replay: IncidentReplay | null;
   related: {
     traceId: string | null;
     sessionId: string | null;
@@ -181,6 +1186,46 @@ export type ErrorGroupIncident = {
   assignedTo: { id: string; email: string } | null;
   silencedUntil: string | null;
   notes: { id: string; authorEmail: string; body: string; createdAt: string }[];
+  externalIssues?: IncidentExternalLink[];
+  codeContext: {
+    status: "ready" | "limited";
+    summary: string;
+    repository: {
+      provider: "github" | "gitlab";
+      name: string;
+      owner: string;
+      repo: string;
+      url: string;
+    } | null;
+    release: {
+      release: string | null;
+      commitSha: string | null;
+      commitUrl: string | null;
+      pullRequestNumber: number | null;
+      pullRequestUrl: string | null;
+      deployedBy: string | null;
+    };
+    suspectedFiles: Array<{
+      path: string;
+      functionName: string | null;
+      line: number | null;
+      column: number | null;
+      confidence: "high" | "medium" | "low";
+      evidence: string[];
+    }>;
+    evidence: Array<{
+      type: "stack" | "source_map" | "release" | "repo" | "trace" | "breadcrumb" | "replay";
+      label: string;
+      value: string | null;
+      confidence: "high" | "medium" | "low";
+    }>;
+    suggestedNextSteps: string[];
+    privacy: {
+      aiEnabled: boolean;
+      outboundCodeSharing: boolean;
+      reason: string;
+    };
+  };
 };
 
 export type TriageNoteRecord = {
@@ -419,10 +1464,12 @@ export type OverviewQuery = {
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
+  release?: string;
 };
 
 export type OverviewRecentError = {
   id: string;
+  errorGroupId: string | null;
   timestamp: string;
   message: string;
   type: string | null;
@@ -456,6 +1503,45 @@ export type OverviewRecentLlmCall = {
   traceId: string | null;
 };
 
+export type RecentActivityItem = {
+  id: string;
+  type: "event" | "error" | "trace" | "llm";
+  timestamp: string;
+  title: string;
+  status: string;
+  severity: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  durationMs: number | null;
+  costUsd: string | null;
+};
+
+export type RecentActivityQuery = OverviewQuery & {
+  limit?: number;
+};
+
+export type RecentActivityResponse = {
+  activity: RecentActivityItem[];
+};
+
+export type OverviewKpiDelta = {
+  current: number;
+  previous: number | null;
+  absolute: number | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
+export type OverviewMoneyDelta = {
+  current: string;
+  previous: string | null;
+  absolute: string | null;
+  percent: number | null;
+  direction: "up" | "down" | "flat" | "none";
+};
+
 export type OverviewResponse = {
   window: OverviewWindow;
   generatedAt: string;
@@ -484,6 +1570,22 @@ export type OverviewResponse = {
     llmOutputTokens: number;
     llmCostUsd: string;
   };
+  deltas?: {
+    events: OverviewKpiDelta;
+    activeUsers: OverviewKpiDelta;
+    activeTenants: OverviewKpiDelta;
+    errors: OverviewKpiDelta;
+    openErrors: OverviewKpiDelta;
+    traces: OverviewKpiDelta;
+    failedTraces: OverviewKpiDelta;
+    averageTraceDurationMs: OverviewKpiDelta;
+    p95TraceDurationMs: OverviewKpiDelta;
+    llmCalls: OverviewKpiDelta;
+    failedLlmCalls: OverviewKpiDelta;
+    llmInputTokens: OverviewKpiDelta;
+    llmOutputTokens: OverviewKpiDelta;
+    llmCostUsd: OverviewMoneyDelta;
+  };
   trends: {
     usage: Array<{ bucketStart: string; events: number; traces: number; llmCalls: number }>;
     errors: Array<{ bucketStart: string; errors: number; openErrors: number; severeErrors: number }>;
@@ -503,10 +1605,92 @@ export type OverviewResponse = {
     errorStatus: Array<{ status: string; total: number }>;
   };
   recent: {
+    activity?: RecentActivityItem[];
     errors: OverviewRecentError[];
     failedTraces: OverviewRecentTrace[];
     failedLlmCalls: OverviewRecentLlmCall[];
   };
+  releases?: {
+    selected: string | null;
+    recent: ReleaseSummary[];
+  };
+};
+
+export type ReleaseSummary = {
+  release: string;
+  events: number;
+  errors: number;
+  traces: number;
+  failedTraces: number;
+  llmCalls: number;
+  code: {
+    commitSha: string | null;
+    commitUrl: string | null;
+    pullRequestNumber: number | null;
+    pullRequestUrl: string | null;
+    deployedBy: string | null;
+  } | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
+export type CodeIntegrationProvider = "github" | "gitlab";
+
+export type CodeIntegration = {
+  id: string;
+  projectId: string;
+  provider: CodeIntegrationProvider;
+  name: string;
+  owner: string;
+  repo: string;
+  webBaseUrl: string;
+  createdAt: string;
+  updatedAt: string;
+  revokedAt: string | null;
+};
+
+export type IncidentExternalLink = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  errorGroupId: string;
+  integrationId: string | null;
+  provider: CodeIntegrationProvider;
+  externalKey: string;
+  title: string;
+  url: string;
+  state: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IncidentIssueDraft = {
+  provider: CodeIntegrationProvider;
+  integrationId: string;
+  title: string;
+  body: string;
+  url: string;
+};
+
+export type ReleaseListQuery = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  limit?: number;
+};
+
+export type ReleaseListResponse = {
+  window: OverviewWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  releases: ReleaseSummary[];
 };
 
 export type OperationsWindow = "24h" | "7d" | "30d";
@@ -517,6 +1701,180 @@ export type OperationsQuery = {
   projectId: string;
   environmentId: string;
   window: OperationsWindow;
+};
+
+export type ApmWindow = OperationsWindow;
+
+export type ApmQuery = {
+  projectId: string;
+  environmentId: string;
+  window: ApmWindow;
+  limit?: number;
+};
+
+export type ApmEndpoint = {
+  name: string;
+  requests: number;
+  errors: number;
+  errorRatePercent: number | null;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+  p99DurationMs: number | null;
+  averageDurationMs: number | null;
+  apdex: number | null;
+  lastSeenAt: string | null;
+};
+
+export type ApmEndpointsResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    endpoints: number;
+    requests: number;
+    errors: number;
+    errorRatePercent: number | null;
+    p95DurationMs: number | null;
+    apdex: number | null;
+  };
+  endpoints: ApmEndpoint[];
+};
+
+export type ServiceMapEdge = {
+  source: string;
+  target: string;
+  dependencyType: string;
+  spans: number;
+  traces: number;
+  errors: number;
+  errorRatePercent: number | null;
+  averageDurationMs: number | null;
+  p95DurationMs: number | null;
+  lastSeenAt: string | null;
+};
+
+export type ServiceMapResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    services: number;
+    edges: number;
+    spans: number;
+    errors: number;
+    errorRatePercent: number | null;
+  };
+  edges: ServiceMapEdge[];
+};
+
+export type WebVitalMetric = {
+  name: "CLS" | "FCP" | "FID" | "INP" | "LCP" | "TTFB";
+  route: string;
+  samples: number;
+  good: number;
+  needsImprovement: number;
+  poor: number;
+  averageValue: number | null;
+  p75Value: number | null;
+  latestRelease: string | null;
+  latestReleaseP75Value: number | null;
+  previousRelease: string | null;
+  previousReleaseP75Value: number | null;
+  regressionPercent: number | null;
+  lastSeenAt: string | null;
+};
+
+export type WebVitalsResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    samples: number;
+    routes: number;
+    releases: number;
+    poorSamples: number;
+    p75LcpMs: number | null;
+    p75InpMs: number | null;
+    p75Cls: number | null;
+  };
+  metrics: WebVitalMetric[];
+};
+
+export type RuntimeProfile = {
+  id: string;
+  name: string;
+  kind: "cpu" | "memory";
+  runtime: string;
+  service: string | null;
+  route: string | null;
+  traceId: string | null;
+  source: string | null;
+  release: string | null;
+  startedAt: string;
+  durationMs: number | null;
+  sampleCount: number;
+  cpuUsagePercent: number | null;
+  heapUsedBytes: number | null;
+  rssBytes: number | null;
+  topFunction: string | null;
+  topFunctionSelfTimeMs: number | null;
+};
+
+export type RuntimeProfileHotFunction = {
+  functionName: string;
+  url: string | null;
+  lineNumber: number | null;
+  columnNumber: number | null;
+  selfTimeMs: number;
+  totalTimeMs: number | null;
+  sampleCount: number;
+  profileCount: number;
+  lastSeenAt: string | null;
+};
+
+export type RuntimeProfilesResponse = {
+  window: ApmWindow;
+  generatedAt: string;
+  scope: {
+    projectId: string;
+    environmentId: string;
+  };
+  range: {
+    from: string;
+    to: string;
+  };
+  totals: {
+    profiles: number;
+    cpuProfiles: number;
+    memoryProfiles: number;
+    samples: number;
+    avgCpuUsagePercent: number | null;
+    maxHeapUsedBytes: number | null;
+    p95DurationMs: number | null;
+  };
+  profiles: RuntimeProfile[];
+  hotFunctions: RuntimeProfileHotFunction[];
 };
 
 export type OperationsMonitorStatus = "unknown" | "up" | "down" | "degraded" | "paused";
@@ -535,6 +1893,55 @@ export type OperationsSetupGap = {
   label: string;
   severity: "info" | "warning";
   action: "monitors" | "alerts" | "setup" | "overview";
+};
+
+export type OperationsAnomaly = {
+  id: string;
+  type: "event_volume" | "error_volume" | "error_rate" | "trace_p95_latency" | "llm_cost";
+  label: string;
+  severity: "info" | "warning" | "critical";
+  observedValue: number;
+  baselineValue: number;
+  changePercent: number | null;
+  sampleSize: number;
+  baselineSampleSize: number;
+  threshold: string;
+  reason: string;
+  suggestedAlertRuleType: AlertRuleType | null;
+  routePattern: string | null;
+  drilldown: "events" | "errors" | "traces" | "llm" | "alerts";
+};
+
+export type OperationsPredictionSeverity = "low" | "medium" | "high" | "critical";
+
+export type OperationsPrediction = {
+  id: string;
+  type: "operational_risk";
+  label: string;
+  horizon: "next_window";
+  severity: OperationsPredictionSeverity;
+  score: number;
+  confidence: "low" | "medium" | "high";
+  probabilityPercent: number;
+  validation: {
+    baselineWindow: { from: string; to: string };
+    currentWindow: { from: string; to: string };
+    baselineRiskScore: number;
+    delta: number;
+    sampleSize: number;
+    baselineSampleSize: number;
+    method: string;
+  };
+  factors: Array<{
+    key: string;
+    label: string;
+    impact: "positive" | "negative";
+    weight: number;
+    observedValue: number;
+    baselineValue: number | null;
+    reason: string;
+  }>;
+  suggestedDrilldown: "operations" | "alerts" | "monitors" | "errors" | "traces";
 };
 
 export type OperationsResponse = {
@@ -601,6 +2008,8 @@ export type OperationsResponse = {
     }>;
   };
   topLatency: Array<{ name: string; p95TraceDurationMs: number; traces: number; failedTraces: number }>;
+  anomalies: OperationsAnomaly[];
+  predictions?: OperationsPrediction[];
   setupGaps: OperationsSetupGap[];
 };
 
@@ -615,7 +2024,9 @@ export type TenantSummary = {
   keyTraits: Record<string, string>;
   isUnassigned: boolean;
   impactScore: number;
+  firstSeenAt?: string | null;
   lastSeenAt: string | null;
+  profileUpdatedAt?: string | null;
   events: number;
   errors: number;
   openErrors: number;
@@ -737,7 +2148,9 @@ export type UserSummary = {
   keyTraits: Record<string, string>;
   isAnonymous: boolean;
   impactScore: number;
+  firstSeenAt?: string | null;
   lastSeenAt: string | null;
+  profileUpdatedAt?: string | null;
   events: number;
   errors: number;
   openErrors: number;
@@ -944,6 +2357,8 @@ export type SystemHealthResponse = {
         traces: number;
         spans: number;
         llmCalls: number;
+        webVitals: number;
+        profiles: number;
         breadcrumbs: number;
         deadLetterJobs: number;
         sourceMapArtifacts: number;
@@ -957,6 +2372,7 @@ export type SystemHealthResponse = {
       tracesDays: number;
       spansDays: number;
       llmCallsDays: number;
+      profilesDays: number;
       breadcrumbsDays: number;
       deadLetterJobsDays: number;
       sourceMapsEnabled: boolean;
@@ -1055,12 +2471,14 @@ export type AlertRuleResponse = {
   projectId: string;
   environmentId: string;
   notificationChannelId: string | null;
+  escalationChannelId: string | null;
   name: string;
   type: AlertRuleType;
   severity: AlertSeverity;
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  escalationMinutes: number | null;
   routePattern: string | null;
   minimumSampleSize: number;
   enabled: boolean;
@@ -1075,12 +2493,14 @@ export type CreateAlertRuleInput = {
   projectId: string;
   environmentId: string;
   notificationChannelId?: string | null;
+  escalationChannelId?: string | null;
   name: string;
   type: AlertRuleType;
   severity: AlertSeverity;
   windowMinutes: number;
   threshold: string;
   cooldownMinutes: number;
+  escalationMinutes?: number | null;
   routePattern?: string | null;
   minimumSampleSize?: number;
   enabled?: boolean;
@@ -1099,7 +2519,7 @@ export type AlertEventResponse = {
   monitorId: string | null;
   projectId: string;
   environmentId: string;
-  status: "triggered";
+  status: "triggered" | "acknowledged" | "snoozed" | "resolved";
   severity: AlertSeverity;
   triggeredAt: string;
   windowStart: string;
@@ -1108,8 +2528,24 @@ export type AlertEventResponse = {
   threshold: string;
   message: string;
   metadata: unknown;
+  acknowledgedAt: string | null;
+  acknowledgedByUserId: string | null;
+  acknowledgedByEmail: string | null;
+  resolvedAt: string | null;
+  resolvedByUserId: string | null;
+  resolvedByEmail: string | null;
+  snoozedUntil: string | null;
+  triageNote: string | null;
+  escalationDueAt: string | null;
+  escalatedAt: string | null;
   createdAt: string;
   latestDeliveryStatus: "success" | "failed" | null;
+};
+
+export type UpdateAlertEventTriageInput = {
+  status: AlertEventResponse["status"];
+  snoozedUntil?: Date | string | null;
+  note?: string | null;
 };
 
 export type AlertSuggestionResponse = {
@@ -1276,11 +2712,14 @@ export type QueryFilters = {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  traceName?: string;
+  eventId?: string;
   eventName?: string;
   severity?: string;
   status?: string;
   fingerprint?: string;
   errorGroupId?: string;
+  segmentId?: string;
   provider?: string;
   model?: string;
   promptName?: string;
@@ -1289,3 +2728,8 @@ export type QueryFilters = {
   limit?: number;
   cursor?: string;
 };
+
+export type SessionReplaySampleQuery = Pick<
+  QueryFilters,
+  "projectId" | "environmentId" | "tenantId" | "userId" | "eventName" | "segmentId" | "limit"
+>;

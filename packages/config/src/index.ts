@@ -103,6 +103,7 @@ const rawConfigSchema = z.object({
   RETENTION_TRACES_DAYS: optionalPositiveInteger(90),
   RETENTION_SPANS_DAYS: optionalPositiveInteger(90),
   RETENTION_LLM_CALLS_DAYS: optionalPositiveInteger(180),
+  RETENTION_PROFILES_DAYS: optionalPositiveInteger(30),
   RETENTION_BREADCRUMBS_DAYS: optionalPositiveInteger(30),
   RETENTION_DEAD_LETTER_JOBS_DAYS: optionalPositiveInteger(30),
   ALERTS_ENABLED: z
@@ -118,6 +119,11 @@ const rawConfigSchema = z.object({
   MONITORS_INTERVAL_MINUTES: optionalPositiveInteger(1),
   MONITORS_HTTP_TIMEOUT_MS: optionalPositiveInteger(5000),
   MONITORS_MAX_CONCURRENCY: optionalPositiveInteger(5),
+  WAREHOUSE_EXPORTS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  WAREHOUSE_EXPORTS_INTERVAL_MINUTES: optionalPositiveInteger(15),
   SMTP_HOST: optionalTrimmedEnvString,
   SMTP_PORT: optionalPositiveInteger(587),
   SMTP_USERNAME: optionalTrimmedEnvString,
@@ -250,6 +256,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       tracesDays: parsed.RETENTION_TRACES_DAYS,
       spansDays: parsed.RETENTION_SPANS_DAYS,
       llmCallsDays: parsed.RETENTION_LLM_CALLS_DAYS,
+      profilesDays: parsed.RETENTION_PROFILES_DAYS,
       breadcrumbsDays: parsed.RETENTION_BREADCRUMBS_DAYS,
       deadLetterJobsDays: parsed.RETENTION_DEAD_LETTER_JOBS_DAYS
     },
@@ -263,6 +270,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       intervalMinutes: parsed.MONITORS_INTERVAL_MINUTES,
       httpTimeoutMs: parsed.MONITORS_HTTP_TIMEOUT_MS,
       maxConcurrency: parsed.MONITORS_MAX_CONCURRENCY
+    },
+    warehouseExports: {
+      enabled: parsed.WAREHOUSE_EXPORTS_ENABLED,
+      intervalMinutes: parsed.WAREHOUSE_EXPORTS_INTERVAL_MINUTES
     },
     smtp: {
       enabled: smtpConfigured,

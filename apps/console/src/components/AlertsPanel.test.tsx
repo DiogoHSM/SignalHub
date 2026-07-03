@@ -63,6 +63,8 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
         projectId: "prj_1",
         environmentId: "env_1",
         notificationChannelId: null,
+        escalationChannelId: null,
+        escalationMinutes: null,
         name: "Critical errors",
         type: "critical_errors",
         severity: "critical",
@@ -79,6 +81,7 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     }),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     createNotificationChannel: vi.fn().mockResolvedValue({
       channel: {
         id: "chn_1",
@@ -119,6 +122,8 @@ describe("AlertsPanel", () => {
             projectId: "prj_1",
             environmentId: "env_1",
             notificationChannelId: "chn_1",
+            escalationChannelId: null,
+            escalationMinutes: null,
             name: "Critical errors",
             type: "critical_errors",
             severity: "critical",
@@ -169,7 +174,17 @@ describe("AlertsPanel", () => {
             message: "Critical errors threshold reached",
             metadata: {},
             createdAt: "2026-05-06T12:00:00.000Z",
-            latestDeliveryStatus: "success"
+            latestDeliveryStatus: "success",
+            acknowledgedAt: null,
+            acknowledgedByUserId: null,
+            acknowledgedByEmail: null,
+            resolvedAt: null,
+            resolvedByUserId: null,
+            resolvedByEmail: null,
+            snoozedUntil: null,
+            triageNote: null,
+            escalationDueAt: null,
+            escalatedAt: null
           }
         ]
       })
@@ -195,6 +210,8 @@ describe("AlertsPanel", () => {
             projectId: "prj_1",
             environmentId: "env_1",
             notificationChannelId: "chn_1",
+            escalationChannelId: null,
+            escalationMinutes: null,
             name: "Critical errors",
             type: "critical_errors",
             severity: "critical",
@@ -213,6 +230,8 @@ describe("AlertsPanel", () => {
             projectId: "prj_1",
             environmentId: "env_1",
             notificationChannelId: null,
+            escalationChannelId: null,
+            escalationMinutes: null,
             name: "Trace p95",
             type: "trace_p95_latency",
             severity: "warning",
@@ -263,7 +282,17 @@ describe("AlertsPanel", () => {
             message: "Critical errors threshold reached",
             metadata: {},
             createdAt: "2026-05-06T12:00:00.000Z",
-            latestDeliveryStatus: "failed"
+            latestDeliveryStatus: "failed",
+            acknowledgedAt: null,
+            acknowledgedByUserId: null,
+            acknowledgedByEmail: null,
+            resolvedAt: null,
+            resolvedByUserId: null,
+            resolvedByEmail: null,
+            snoozedUntil: null,
+            triageNote: null,
+            escalationDueAt: null,
+            escalatedAt: null
           }
         ]
       })
@@ -293,6 +322,8 @@ describe("AlertsPanel", () => {
             projectId: "prj_1",
             environmentId: "env_1",
             notificationChannelId: null,
+            escalationChannelId: null,
+            escalationMinutes: null,
             name: "Critical errors",
             type: "critical_errors",
             severity: "critical",
@@ -555,6 +586,8 @@ describe("AlertsPanel", () => {
         projectId: "prj_1",
         environmentId: "env_1",
         notificationChannelId: "chn_1",
+        escalationChannelId: null,
+        escalationMinutes: null,
         name: "Critical errors",
         type: "critical_errors",
         severity: "critical",
@@ -628,6 +661,8 @@ describe("AlertsPanel", () => {
         projectId: "prj_1",
         environmentId: "env_1",
         notificationChannelId: "chn_1",
+        escalationChannelId: null,
+        escalationMinutes: null,
         name: "Critical errors updated",
         type: "error_count",
         severity: "warning",
@@ -650,6 +685,8 @@ describe("AlertsPanel", () => {
             projectId: "prj_1",
             environmentId: "env_1",
             notificationChannelId: null,
+            escalationChannelId: null,
+            escalationMinutes: null,
             name: "Critical errors",
             type: "critical_errors",
             severity: "critical",
@@ -766,6 +803,8 @@ describe("AlertsPanel", () => {
           projectId: "prj_1",
           environmentId: "env_1",
           notificationChannelId: null,
+          escalationChannelId: null,
+          escalationMinutes: null,
           name: "Env A critical errors",
           type: "critical_errors",
           severity: "critical",
@@ -826,6 +865,8 @@ describe("AlertsPanel", () => {
             projectId: "prj_1",
             environmentId: "env_1",
             notificationChannelId: "chn_env_1",
+            escalationChannelId: null,
+            escalationMinutes: null,
             name: "Env 1 stale rule",
             type: "critical_errors",
             severity: "critical",
@@ -882,7 +923,17 @@ describe("AlertsPanel", () => {
             message: "Env 1 stale event",
             metadata: {},
             createdAt: "",
-            latestDeliveryStatus: "success"
+            latestDeliveryStatus: "success",
+            acknowledgedAt: null,
+            acknowledgedByUserId: null,
+            acknowledgedByEmail: null,
+            resolvedAt: null,
+            resolvedByUserId: null,
+            resolvedByEmail: null,
+            snoozedUntil: null,
+            triageNote: null,
+            escalationDueAt: null,
+            escalatedAt: null
           }
         ]
       })
@@ -910,6 +961,8 @@ describe("AlertsPanel", () => {
             projectId: "prj_1",
             environmentId: "env_2",
             notificationChannelId: "chn_env_2",
+            escalationChannelId: null,
+            escalationMinutes: null,
             name: "Env 2 fresh rule",
             type: "error_count",
             severity: "warning",
@@ -962,7 +1015,17 @@ describe("AlertsPanel", () => {
             message: "Env 2 fresh event",
             metadata: {},
             createdAt: "",
-            latestDeliveryStatus: "success"
+            latestDeliveryStatus: "success",
+            acknowledgedAt: null,
+            acknowledgedByUserId: null,
+            acknowledgedByEmail: null,
+            resolvedAt: null,
+            resolvedByUserId: null,
+            resolvedByEmail: null,
+            snoozedUntil: null,
+            triageNote: null,
+            escalationDueAt: null,
+            escalatedAt: null
           }
         ]
       });

@@ -45,11 +45,28 @@ describe("SDK exports", () => {
     expect(source).not.toMatch(/from ["']crypto/);
   });
 
+  it("exposes browser error capture from the browser entrypoint", async () => {
+    const browser = await import("../src/browser.js");
+
+    expect(browser.createSignalMonitorClient).toBeTypeOf("function");
+    expect(browser.installBrowserErrorCapture).toBeTypeOf("function");
+    expect(browser.installBrowserWebVitals).toBeTypeOf("function");
+    expect(browser.installBrowserClickCapture).toBeTypeOf("function");
+    expect(browser.createBrowserBreadcrumbs).toBeTypeOf("function");
+  });
+
   it("exposes a Next.js wrapper entrypoint", async () => {
     const next = await import("../src/next.js");
 
     expect(next.createSignalMonitorNextClient).toBeTypeOf("function");
     expect(next.withSignalMonitorRoute).toBeTypeOf("function");
     expect(next.withSignalMonitorAction).toBeTypeOf("function");
+  });
+
+  it("exposes Node.js runtime error capture from the node entrypoint", async () => {
+    const node = await import("../src/node.js");
+
+    expect(node.createSignalMonitorClient).toBeTypeOf("function");
+    expect(node.installNodeErrorCapture).toBeTypeOf("function");
   });
 });

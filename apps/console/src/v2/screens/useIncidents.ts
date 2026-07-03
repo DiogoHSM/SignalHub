@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { ErrorGroupRecord, ErrorGroupPriority } from "../../api/types";
+import type { ErrorGroupRecord, ErrorGroupPriority, ErrorGroupStatus } from "../../api/types";
 import { formatDurationShort, relativeTime } from "../../components/ui/v2/format";
 
 // ---------------------------------------------------------------------------
@@ -24,12 +24,18 @@ export type IncidentRowVM = {
   occurrenceCount: number;
   affectedUsersCount: number;
   affectedTenantsCount: number;
+  trend: number[];
 };
 
 export type IncidentsVM = {
   kpis: { active: number; p1: number; mttrLabel: string; resolved7d: number };
   rows: IncidentRowVM[];
 };
+
+export type IncidentView = "active" | "history";
+export type IncidentPriorityFilter = "all" | "P1" | "P2" | "P3" | "P4" | "none";
+export type IncidentStatusFilter = "all" | ErrorGroupStatus;
+export type IncidentAssigneeFilter = "all" | "assigned" | "unassigned";
 
 export type UseIncidentsResult = {
   data: IncidentsVM | null;
@@ -42,11 +48,16 @@ export type UseIncidentsResult = {
 // ---------------------------------------------------------------------------
 
 type UseIncidentsArgs = {
-  client: Pick<ApiClient, "listErrorGroups" | "listUsers"> & {
+  client: Pick<ApiClient, "listErrorGroups"> & {
     getIncidentMttr?: ApiClient["getIncidentMttr"];
+    getOperations?: ApiClient["getOperations"];
   };
   projectId: string | undefined;
   environmentId: string | undefined;
+  view?: IncidentView;
+  priorityFilter?: IncidentPriorityFilter;
+  statusFilter?: IncidentStatusFilter;
+  assigneeFilter?: IncidentAssigneeFilter;
 };
 
 // ---------------------------------------------------------------------------
@@ -82,6 +93,23 @@ function emailInitials(email: string): string {
   return local.charAt(0).toUpperCase();
 }
 
+function statusQueries(view: IncidentView, statusFilter: IncidentStatusFilter): ErrorGroupStatus[] {
+  if (statusFilter !== "all") return [statusFilter];
+  return view === "history" ? ["resolved", "ignored"] : ["open", "investigating"];
+}
+
+function matchesPriority(group: ErrorGroupRecord, priorityFilter: IncidentPriorityFilter): boolean {
+  if (priorityFilter === "all") return true;
+  if (priorityFilter === "none") return group.priority == null;
+  return mapPriority(group.priority) === priorityFilter;
+}
+
+function matchesAssignee(group: ErrorGroupRecord, assigneeFilter: IncidentAssigneeFilter): boolean {
+  if (assigneeFilter === "all") return true;
+  const isAssigned = group.assignedToUserId != null;
+  return assigneeFilter === "assigned" ? isAssigned : !isAssigned;
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -89,7 +117,11 @@ function emailInitials(email: string): string {
 export function useIncidents({
   client,
   projectId,
-  environmentId
+  environmentId,
+  view = "active",
+  priorityFilter = "all",
+  statusFilter = "all",
+  assigneeFilter = "all"
 }: UseIncidentsArgs): UseIncidentsResult {
   const [hookStatus, setHookStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<IncidentsVM | null>(null);
@@ -108,34 +140,40 @@ export function useIncidents({
     setHookStatus("loading");
 
     const scope = { projectId, environmentId };
+    const statuses = statusQueries(view, statusFilter);
 
-    const openFetch = client.listErrorGroups({ ...scope, status: "open", limit: 100 });
-    const investigatingFetch = client.listErrorGroups({ ...scope, status: "investigating", limit: 100 });
+    const groupFetches = statuses.map((status) =>
+      client.listErrorGroups({ ...scope, status, limit: 100 })
+    );
     const mttrFetch = client.getIncidentMttr
       ? client.getIncidentMttr({ ...scope, window: "7d" }).catch((err) => {
           console.error(err);
           return null;
         })
       : Promise.resolve(null);
-    const usersFetch = client.listUsers().catch(() => null);
+    const operationsFetch = client.getOperations
+      ? client.getOperations({ ...scope, window: "24h" })
+          .then((response) => response.data)
+          .catch((err) => {
+            console.error(err);
+            return null;
+          })
+      : Promise.resolve(null);
 
-    Promise.all([openFetch, investigatingFetch, mttrFetch, usersFetch])
-      .then(([openRes, investigatingRes, mttrRes, usersRes]) => {
+    Promise.all([Promise.all(groupFetches), mttrFetch, operationsFetch])
+      .then(([groupResponses, mttrRes, operationsRes]) => {
         if (gen !== genRef.current) return;
 
-        // Merge open + investigating
-        const allGroups: ErrorGroupRecord[] = [
-          ...openRes.data,
-          ...investigatingRes.data
-        ];
-
-        // Build user map for assignee resolution (null means fetch failed → degrade)
-        const userMap = usersRes
-          ? new Map(usersRes.users.map((u) => [u.id, u]))
-          : null;
+        const allGroups: ErrorGroupRecord[] = groupResponses.flatMap((response) => response.data);
 
         // Sort: priority rank asc, then lastSeenAt desc
-        const sorted = [...allGroups].sort((a, b) => {
+        const visibleGroups = allGroups.filter(
+          (group) =>
+            matchesPriority(group, priorityFilter) &&
+            matchesAssignee(group, assigneeFilter)
+        );
+
+        const sorted = [...visibleGroups].sort((a, b) => {
           const rankA = priorityRank(a.priority);
           const rankB = priorityRank(b.priority);
           if (rankA !== rankB) return rankA - rankB;
@@ -146,18 +184,9 @@ export function useIncidents({
         const rows: IncidentRowVM[] = sorted.map((g) => {
           let assignee: IncidentAssignee = null;
           if (g.assignedToUserId != null) {
-            if (userMap === null) {
-              // listUsers failed — degrade to generic
-              assignee = { kind: "generic" };
-            } else {
-              const user = userMap.get(g.assignedToUserId);
-              if (user) {
-                assignee = { kind: "initials", initials: emailInitials(user.email) };
-              } else {
-                // User ID not found in list (could be deleted) — generic
-                assignee = { kind: "generic" };
-              }
-            }
+            assignee = g.assignedTo
+              ? { kind: "initials", initials: emailInitials(g.assignedTo.email) }
+              : { kind: "generic" };
           }
 
           return {
@@ -171,13 +200,19 @@ export function useIncidents({
             assignee,
             occurrenceCount: g.occurrenceCount,
             affectedUsersCount: g.affectedUsersCount,
-            affectedTenantsCount: g.affectedTenantsCount
+            affectedTenantsCount: g.affectedTenantsCount,
+            trend: g.trend ?? []
           };
         });
 
         // KPIs
-        const active = allGroups.length;
-        const p1 = allGroups.filter((g) => g.priority === "urgent").length;
+        const serverIncidents = operationsRes?.summary?.incidents ?? null;
+        const active = serverIncidents
+          ? serverIncidents.open + serverIncidents.investigating
+          : allGroups.length;
+        const p1 = serverIncidents
+          ? serverIncidents.urgent
+          : allGroups.filter((g) => g.priority === "urgent").length;
         const mttrMs = mttrRes?.data?.mttrMs ?? null;
         const mttrLabel = formatDurationShort(mttrMs);
         const resolved7d = mttrRes?.data?.resolvedCount ?? 0;
@@ -199,7 +234,7 @@ export function useIncidents({
       ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, environmentId, tick]);
+  }, [projectId, environmentId, view, priorityFilter, statusFilter, assigneeFilter, tick]);
 
   return { data, status: hookStatus, reload };
 }

@@ -12,7 +12,7 @@ SignalMonitor is a self-hosted operational core with five runtime components:
 
 Ingestion:
 
-1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/llm`, `/v1/traces`, or `/v1/spans`.
+1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/surveys/responses`, `/v1/feedback`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, or `/v1/spans`.
 2. API extracts the bearer API key and verifies the stored hash with `API_KEY_PEPPER`.
 3. API validates the JSON payload with Zod.
 4. API generates a signal id, attaches project and environment scope from the API key, enqueues the job, and returns `202 Accepted`.
@@ -20,11 +20,13 @@ Ingestion:
 
 Telemetry queue jobs use deterministic IDs derived from the payload IDs. The worker writes telemetry through idempotent repository paths so duplicate queue delivery or retry attempts do not create duplicate telemetry rows.
 
+Project data governance policies are loaded by the worker per project/environment before persistence. Policy rules can mask or block configured JSON paths in shared metadata, event properties, error context, span input/output/error, breadcrumb data, replay event data, and identity traits; built-in secret redaction still runs after policy application.
+
 Identify:
 
 1. SDKs or raw clients call `POST /v1/identify/user` or `POST /v1/identify/tenant`.
 2. API authenticates the same project/environment ingestion API key used for telemetry.
-3. API validates the identify payload, sanitizes traits, and upserts the scoped profile row directly.
+3. API validates the identify payload, applies project data-governance rules to `identity.traits`, sanitizes traits, and upserts the scoped profile row directly. New identify traits shallow-merge into existing stored traits.
 4. Identify request `metadata` is accepted for envelope compatibility, but this MVP does not persist it in profile rows. Persisted profile data is `traits` plus project, environment, user/tenant IDs, timestamps, and optional user tenant linkage.
 
 Telemetry rows that contain `user_id` or `tenant_id` update profile `last_seen_at` timestamps for the same project/environment scope. They do not overwrite profile traits; only explicit identify calls update traits.
@@ -58,6 +60,21 @@ Operational tables:
 - `notification_deliveries`
 - `monitors`
 - `monitor_checks`
+- `analytics_segments`
+- `analytics_dashboards`
+- `experiments`
+- `surveys`
+- `message_campaigns`
+- `message_campaign_events`
+- `message_campaign_opt_outs`
+- `feedback_widget_settings`
+- `feedback_items`
+- `data_governance_policies`
+- `warehouse_destinations`
+- `warehouse_export_runs`
+- `project_code_integrations`
+- `incident_external_links`
+- `release_metadata`
 - `source_map_artifacts`
 - `source_map_upload_tokens`
 - `error_stack_resolutions`
@@ -69,8 +86,10 @@ Telemetry tables:
 - `errors`
 - `breadcrumbs`
 - `llm_calls`
+- `web_vitals`
 - `traces`
 - `spans`
+- `survey_responses`
 
 Profile tables:
 
@@ -89,6 +108,18 @@ Source-map CI uploads use dedicated `source_map_upload_tokens`, not ingestion AP
 Archived projects and environments are inactive scopes. Ingestion API key verification, identify writes, source-map token creation, source-map uploads, source-map resolution reads, and worker telemetry writes all require an active project/environment pair. This protects already-queued telemetry jobs from writing into archived scopes after an operator archives a project or environment.
 
 Breadcrumbs are stored in the `breadcrumbs` telemetry table. They use the same project, environment, tenant, user, session, trace, source, release, timestamp, received_at, and metadata envelope as other telemetry signals. The API accepts `POST /v1/breadcrumbs`, the worker persists sanitized rows, and `GET /query/sessions/:sessionId/timeline` returns a mixed session timeline across breadcrumbs, events, errors, traces, and LLM calls.
+
+Opt-in browser click maps are stored in the `click_events` telemetry table. `POST /v1/clicks` accepts normalized viewport coordinates, viewport dimensions, route, safe selector, and optional element tag/role metadata. The browser SDK helper avoids text, values, DOM snapshots, screenshots, and form fields by design. `GET /query/events/click-map` aggregates click density by route, safe selector, and bounded grid bucket for Events investigation. `click_events` expires with the events retention window.
+
+Privacy-safe browser replays are stored in the `session_replays` telemetry table. `POST /v1/replays` accepts a masked interaction timeline keyed by `replay_id`; errors and product events can include the same `replay_id`. Incident detail returns linked replay context for errors, `GET /query/replays/:replayId` returns the replay plus linked product-event markers for event investigation, and `GET /query/replays` lists replay samples filtered by saved segment, tenant, user, and event name. The v2 incident view carries the primary occurrence timestamp into the replay panel so the UI can compute and highlight the error offset while keeping stack and breadcrumb context beside the masked timeline. Replay payloads store route, safe selectors, normalized click coordinates, sanitized messages, and bounded event data only. They do not store screenshots, DOM snapshots, raw text, input values, passwords, cookies, or HTML. `session_replays` expires with the events retention window and is counted with deleted events.
+
+Web Vitals are stored in the `web_vitals` telemetry table. Browser SDK helpers send LCP, INP, CLS, FCP, FID, and TTFB samples through `POST /v1/web-vitals` with route, navigation type, rating, release, and the shared telemetry envelope. `GET /query/apm/web-vitals` aggregates p75 values by metric and route, rating counts, latest/previous release p75 values, and regression percentage for the Traces/APM workspace.
+
+Runtime profiles are stored in the `profiles` telemetry table. Node SDK helpers send bounded opt-in CPU and memory snapshots through `POST /v1/profiles`; custom runtimes can use the same REST contract directly. `GET /query/apm/profiles` aggregates CPU profile count, memory profile count, average duration, latest memory usage, recent profiles, and hot functions for the Traces/APM workspace. Profiles are designed for targeted investigations rather than always-on raw profiler dumps.
+
+Feedback widget settings are stored per project/environment in `feedback_widget_settings`; submissions are stored in `feedback_items`. `POST /v1/feedback` accepts short browser-safe user feedback with optional category, page URL, path, user agent, identifiers, and metadata. The JavaScript SDK exposes `installFeedbackWidget()` for a lightweight textual widget, while screenshot capture remains intentionally disabled until masking and explicit consent controls exist. Operators configure copy/enablement and triage open/reviewed/archived submissions from Project Settings.
+
+NPS tracking reuses the existing `surveys` and `survey_responses` tables. A standard NPS campaign is a survey with a 0-10 `nps` rating question and optional text comment. `GET /query/surveys/:id/nps` calculates score, promoter/passive/detractor counts, daily trend buckets, and tenant/release/plan segments from stored survey responses.
 
 ## API Surface
 
@@ -124,6 +155,23 @@ Admin:
 - `/admin/monitors/heartbeat`
 - `/admin/monitors/:id`
 - `/admin/monitors/:id/checks`
+- `/admin/analytics-segments`
+- `/admin/analytics-segments/:id`
+- `/admin/analytics-segments/:id/preview`
+- `/admin/analytics-dashboards`
+- `/admin/analytics-dashboards/:id`
+- `/admin/surveys`
+- `/admin/surveys/:id`
+- `/admin/message-campaigns`
+- `/admin/message-campaigns/:id`
+- `/admin/feedback-widget`
+- `/admin/data-governance`
+- `/admin/warehouse-destinations`
+- `/admin/warehouse-destinations/:id`
+- `/admin/warehouse-destinations/:id/runs`
+- `/admin/projects/:projectId/code-integrations`
+- `/admin/projects/:projectId/code-integrations/:id`
+- `/admin/projects/:projectId/release-metadata`
 - `/admin/source-maps`
 - `/admin/source-map-upload-tokens`
 
@@ -132,9 +180,14 @@ Ingestion:
 - `POST /v1/events`
 - `POST /v1/errors`
 - `POST /v1/breadcrumbs`
+- `POST /v1/clicks`
+- `POST /v1/replays`
+- `POST /v1/surveys/responses`
+- `POST /v1/feedback`
 - `POST /v1/identify/user`
 - `POST /v1/identify/tenant`
 - `POST /v1/llm`
+- `POST /v1/web-vitals`
 - `POST /v1/heartbeats/:id`
 - `POST /v1/source-maps`
 - `POST /v1/traces`
@@ -143,12 +196,16 @@ Ingestion:
 Query:
 
 - `GET /query/events`
+- `GET /query/replays`
+- `GET /query/replays/:replayId`
 - `GET /query/errors`
 - `GET /query/error-groups`
 - `GET /query/error-groups/:id`
 - `GET /query/error-groups/:id/errors`
 - `PATCH /query/error-groups/:id`
 - `GET /query/incidents/error-groups/:id`
+- `POST /query/incidents/error-groups/:id/external-issues`
+- `POST /query/incidents/error-groups/:id/external-issues/draft`
 - `GET /query/errors/:id/source-map-resolution`
 - `GET /query/sessions/:sessionId/timeline`
 - `GET /query/llm-calls`
@@ -159,7 +216,17 @@ Query:
 - `GET /query/users`
 - `GET /query/users/:userKey`
 - `GET /query/overview`
+- `GET /query/recent-activity`
+- `GET /query/reports/dashboards/:id`
+- `GET /query/surveys/:id/results`
+- `GET /query/surveys/:id/nps`
+- `GET /query/message-campaigns/:id/results`
+- `GET /query/feedback`
+- `PATCH /query/feedback/:id`
 - `GET /query/operations`
+- `GET /query/apm/endpoints`
+- `GET /query/apm/service-map`
+- `GET /query/apm/web-vitals`
 - `GET /query/aggregates/events`
 - `GET /query/aggregates/errors`
 - `GET /query/aggregates/llm`
@@ -185,13 +252,17 @@ The API exposes `GET /console/config` for non-secret browser configuration and s
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
 
-The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `errors`, `traces`, `spans`, `llm_calls`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Retention run outcomes are recorded in `retention_runs`, including a `deleted_dead_letter_jobs` count.
+The scheduler role owns the retention scheduler. When `RETENTION_ENABLED=true`, it periodically deletes old telemetry from `events`, `click_events`, `session_replays`, `errors`, `traces`, `spans`, `llm_calls`, `web_vitals`, `profiles`, and `breadcrumbs`, and expires old `dead_letter_jobs` using configured retention windows and bounded batches. Project data governance policies can define shorter per-project/environment retention windows by category; these scoped windows run after the installation-level retention pass. `click_events` and `session_replays` use the events retention window by default and are counted with deleted events. Retention run outcomes are recorded in `retention_runs`, including `deleted_web_vitals`, `deleted_profiles`, and `deleted_dead_letter_jobs` counts.
+
+The scheduler role also owns warehouse exports. Project/environment-scoped `warehouse_destinations` select datasets and store durable per-dataset cursors. Export runs write into the external Postgres landing table `sigmon_telemetry_export` with idempotent upserts by dataset and source id, and each attempt is recorded in `warehouse_export_runs` for operator audit and retry visibility.
+
+Project code hosting metadata lives in `project_code_integrations`, `incident_external_links`, and `release_metadata`. Integrations are project-scoped, tokenless GitHub/GitLab repository references in this slice: SignalMonitor can build issue-draft URLs and link incidents to external issues, but it does not store code-hosting access tokens or mutate repositories directly. Release metadata enriches Overview release rows with commit, pull request, and deployed-by context.
 
 The worker also prunes local source-map artifacts when source-map retention is enabled. Source-map cleanup is reported through the existing retention run status path and removes local files, artifact metadata, and cached stack resolutions. File cleanup runs outside the telemetry deletion transaction so permanent filesystem side effects are not coupled to telemetry rollback behavior.
 
 The worker owns the backup scheduler. When `BACKUPS_ENABLED=true`, it creates scheduled Postgres logical backups with `pg_dump` custom format and writes them to `BACKUPS_LOCAL_DIR`. The `backup_runs` table stores backup metadata only: run status, trigger, filename, byte size, optional S3 bucket/key, timestamps, and sanitized error text. Backup dump contents are stored on the configured filesystem path and optional S3-compatible bucket, not in Postgres metadata tables.
 
-The scheduler role owns simple alert scheduling and monitor evaluation. When `ALERTS_ENABLED=true`, it evaluates enabled project/environment-scoped `alert_rules` under an advisory lock, records triggered `alert_events`, and sends optional webhook or email notifications through `notification_channels`. Webhook and email delivery outcomes are stored in `notification_deliveries`.
+The scheduler role owns simple alert scheduling and monitor evaluation. When `ALERTS_ENABLED=true`, it evaluates enabled project/environment-scoped `alert_rules` under an advisory lock, records triggered `alert_events`, and sends optional webhook or email notifications through `notification_channels`. Error-derived rules also return the dominant triggering `error_group_id`; if that incident group is silenced, the scheduler records evaluation time but suppresses the alert event and notification. Alert rules can also define an optional escalation channel and delay; triggered alert events receive an `escalation_due_at` timestamp, and the scheduler sends one escalation delivery if the event is still triggered when due. Acknowledged, snoozed, and resolved alert events suppress escalation. Webhook and email delivery outcomes are stored in `notification_deliveries`.
 
 HTTP and heartbeat monitors live in `monitors`; individual probe and check-in history lives in `monitor_checks`. Admin monitor routes create and manage monitor definitions. Heartbeat monitors return a one-time `shhb_...` secret on creation; only the hash is stored, and `POST /v1/heartbeats/:id` verifies the bearer secret before recording a successful check-in. Monitor down/recovery events are represented as `alert_events` with `monitor_id` set.
 
@@ -221,35 +292,67 @@ The console includes a read-only `Investigate` mode for Events. It uses the exis
 
 The Events query supports exact `event_name` filtering in addition to project, environment, tenant, user, session, trace, date range, and limit filters. The first investigation slice does not mutate telemetry data and does not add new storage tables.
 
+`GET /query/events/properties` builds a read-only property governance catalog from event JSON properties for a selected project/environment window. It reports property frequency, event coverage, inferred JSON type counts, safe sample values, type conflicts, and similar property-name groups without enforcing schemas at ingest time.
+
+`GET /query/events/funnel` analyzes ordered product-event conversion for a selected project/environment window. The first implementation is read-only and stateless: operators pass 2+ event names, and the query computes actor progression using `user_id`, then `tenant_id`, `session_id`, or `trace_id` as the actor key. It returns per-step actors, conversion, drop-off, and sample actors without adding persisted funnel definitions yet.
+
+`GET /query/events/retention` analyzes temporal retention for a selected project/environment window. The first implementation is read-only and stateless: operators pass an entry event, a return event, a period (`daily`, `weekly`, or `monthly`), and interval count. The query groups actors by their first entry event cohort and counts later return events per interval using the same actor-key fallback as funnels.
+
+Saved analytics segments live in `analytics_segments` and are scoped to one project/environment. Segment definitions are bounded JSON, not arbitrary SQL: actor type (`user` or `tenant`), window, optional event name, and optional event property condition. Admin routes create, edit, archive, list, and preview active segments. `GET /query/events` accepts `segment_id` to filter event investigation to actors matching a saved segment.
+
+`GET /query/events/paths` analyzes common user journey paths from existing event telemetry. Operators provide a start event or end event, optional actor type (`auto`, `user`, `tenant`, `session`, or `trace`), max path depth, and the same project/environment/time/entity filters used elsewhere. The query compacts repeated adjacent event names per actor, aggregates the most common paths, supports saved segment filtering, and returns sample event ids for direct event drilldown in the console.
+
+Events can store optional `replay_id` values. The Events detail drawer uses `GET /query/replays/:replayId` to load the privacy-safe replay and overlay linked product events in the same timeline, letting operators move from a product event to surrounding browser context without relying on screenshots or DOM capture. The Events investigation workspace also uses `GET /query/replays` to show replay samples for the active saved segment and current event filters, including user, tenant, route, timestamp, and linked event/error context.
+
+Saved analytics dashboards live in `analytics_dashboards` and are scoped to one project/environment. Dashboard definitions store bounded JSON filters and whitelisted widget definitions, not arbitrary SQL. Admin routes list, create, edit, and archive active dashboards with project/environment-scoped mutations. `GET /query/reports/dashboards/:id` renders a saved dashboard by combining its saved window/filter defaults with `GET /query/overview` aggregates and returns metric, trend, and top-list widget data for the console.
+
+Experiments live in `experiments` and are scoped to one project/environment. The first implementation supports A/B-style experiments with a stable key, actor type, exposure event, conversion event, weighted variants, and a bounded primary metric. The SDK helper deterministically assigns a subject to a variant and records an exposure event. `GET /query/experiments/:id/results` calculates variant exposure, conversion, conversion rate, and lift from normal event telemetry containing `experiment_key` and `variant` properties.
+
+In-app surveys live in `surveys`, with answers stored in `survey_responses`. Survey definitions are scoped to one project/environment and include a stable key, status, actor type, optional trigger event, bounded question definitions, and lightweight targeting metadata. Browser and server integrations submit answers through `POST /v1/surveys/responses` or SDK `submitSurvey`; the worker applies data-governance rules before persistence. `GET /query/surveys/:id/results` returns response totals, per-question summaries, and recent responses for the selected window.
+
+Message campaigns live in `message_campaigns`, with delivery/engagement/conversion/opt-out measurements stored in `message_campaign_events` and audience opt-outs stored in `message_campaign_opt_outs`. Campaign definitions are scoped to one project/environment and include a stable key, status, channel type (`in_app`, `email`, or `webhook`), optional notification channel id, optional analytics segment id, optional conversion event, copy, consent category, and privacy note. The first native slice is measurement-first: Sigmon creates, updates, archives, and reports campaign definitions, but does not yet run automated sends from the scheduler. `GET /query/message-campaigns/:id/results` returns totals, rates, recent campaign events, and opt-outs for the selected window.
+
+Feature flags live in `feature_flags` with companion `feature_flag_audit` rows for created/updated/archived history. Flags are scoped to one project/environment, have active/paused/draft/archived status, a safe default variant, bounded variants, and ordered targeting rules over user, tenant, session, and trait equality. Rules can also include deterministic percentage rollout by user, tenant, or session stickiness; the DB preview and SDK use the same stable hash contract so actor assignment stays consistent. The SDK exposes `evaluateFlag` for local/safe evaluation and records `sigmon.feature_flag.evaluated` as normal event telemetry unless exposure tracking is disabled.
+
+Beta programs live in `beta_programs` with participant rows in `beta_program_participants`. Programs are scoped to one project/environment, can target users or tenants, and can optionally link to a feature flag variant. Active participants are synchronized into generated targeting rules on the linked flag; removing a participant or archiving the program removes those generated rules. Adoption is calculated from normal event telemetry for active participants, so runtime applications keep using `evaluateFlag` rather than a separate beta-program SDK call.
+
 High-volume investigation lists use opaque cursor pagination scoped to the exact project, environment, and active filters. This includes events, errors, LLM calls, traces, trace spans, error groups, source-map artifacts, and monitor check history. Monitor check cursors are additionally bound to the selected monitor id. Query migrations keep composite indexes aligned with the primary drilldown patterns for scope/time, trace id, tenant id, user id, source-map release, alert events, and error group ordering so operator views can page without broad table scans.
 
 The console includes an Errors investigation workflow with grouped triage and raw occurrence drilldown. Grouped errors use `GET /query/error-groups`, `GET /query/error-groups/:id`, and `PATCH /query/error-groups/:id` for exact project/environment-scoped status and priority workflows. Raw occurrences remain available through the peer Raw occurrences tab and `GET /query/errors`, including exact `error_group_id` filtering.
 
-The dedicated Incident view uses `GET /query/incidents/error-groups/:id` with project, environment, and optional raw error scope. The incident repository returns the selected group, a primary occurrence, source-map resolution status, suggested priority, saved priority override, and two context collections. Strongly related context matches the incident by strong identifiers such as trace, session, user, tenant, and release. Nearby context is lower-confidence activity around the primary occurrence timestamp and is labeled separately so operators can use it as supporting context rather than direct causality.
+The dedicated Incident view uses `GET /query/incidents/error-groups/:id` with project, environment, and optional raw error scope. The incident repository returns the selected group, a primary occurrence, source-map resolution status, suggested priority, saved priority override, AI-ready code context, and two context collections. Strongly related context matches the incident by strong identifiers such as trace, session, user, tenant, and release. Nearby context is lower-confidence activity around the primary occurrence timestamp and is labeled separately so operators can use it as supporting context rather than direct causality.
+
+Incident code context is deterministic and privacy-first in this slice. It combines `release_metadata`, tokenless `project_code_integrations`, cached `error_stack_resolutions`, raw stack frames, trace ids, related signals, and replay linkage into a summary, probable files, evidence list, and suggested next steps. It does not read repository source code, store code-hosting tokens, or send incident payloads to external AI providers. Future AI providers should use this object as the bounded evidence envelope and remain project-configurable.
 
 Raw error details can resolve minified production stack frames on demand through `GET /query/errors/:id/source-map-resolution`. Resolution requires exact active project, active environment, release, and minified filename matches against uploaded artifacts. Resolved frames are cached in `error_stack_resolutions`; database constraints bind each cached row to the same error scope, artifact scope, release, and minified file so direct SQL writes cannot cross-link source maps between projects, environments, releases, or bundles. Deleting a source-map artifact invalidates full cached stacks for any error that referenced the deleted artifact. The console displays file, line, column, and symbol metadata only, never original source code or `sourcesContent`.
 
 Raw error details can also show session context when the selected error has a `session_id`. The timeline combines breadcrumbs and nearby existing signals in chronological order, highlights the selected error, and displays safe summaries only. Full visual replay and a dedicated Sessions investigation tab remain deferred.
 
-The console also includes a read-only Traces view for raw traces and ordered spans. It uses `GET /query/traces` for trace rows and `GET /query/traces/:id/spans` for spans loaded after selecting a trace. This slice does not add cross-signal timelines, trace mutation, charts, storage tables, or ingestion routes.
+The console also includes a Traces/APM view for raw traces, ordered spans, endpoint performance, and span-derived service dependencies. It uses `GET /query/traces` for trace rows, `GET /query/traces/:id/spans` for spans loaded after selecting a trace, `GET /query/apm/endpoints` for endpoint-level latency/throughput rollups, and `GET /query/apm/service-map` for service dependency edges inferred from span `metadata.service`, `metadata.target_service`, `metadata.peer_service`, `metadata.peer`, source, and operation names. This slice does not add new storage tables or ingestion routes.
 
 The console also includes a read-only LLM view for raw AI calls and compact aggregate totals. It uses `GET /query/llm-calls` for call rows and `GET /query/aggregates/llm` for total calls, input tokens, output tokens, and total cost. This slice supports exact `provider`, `model`, `prompt_name`, and `status` filters and does not add charts, grouping, mutation, cross-signal timelines, storage tables, or ingestion routes.
 
-The console also includes a read-only Entities view for tenant-first investigation. It uses `GET /query/entities/tenants` for impact-ranked tenant summaries and `GET /query/entities/tenants/:tenantKey` for selected tenant details. Entity queries are implemented behind the repository boundary in `packages/db/src/repositories/entities-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records only. When a tenant profile exists, the view shows trait-derived labels and key trait chips from `tenant_profiles.traits`. Spans are intentionally excluded from entity timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
+The console also includes a read-only Entities view for tenant-first investigation. It uses `GET /query/entities/tenants` for impact-ranked tenant summaries and `GET /query/entities/tenants/:tenantKey` for selected tenant details. Entity queries are implemented behind the repository boundary in `packages/db/src/repositories/entities-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records. Tenant profiles with identify traits can also appear without activity in the selected window, with zeroed counters and profile timestamps, so operators can inspect durable tenant identity data. When a tenant profile exists, the view shows trait-derived labels, key trait chips, and full profile traits from `tenant_profiles.traits`. Spans are intentionally excluded from entity timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
 
-The console also includes a read-only Users view for user-first investigation. It uses `GET /query/users` for impact-ranked user summaries and `GET /query/users/:userKey` for selected user details. User queries are implemented behind the repository boundary in `packages/db/src/repositories/users-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records only. When a user profile exists, the view shows trait-derived labels and key trait chips from `user_profiles.traits`. Spans are intentionally excluded from user timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
+The console also includes a read-only Users view for user-first investigation. It uses `GET /query/users` for impact-ranked user summaries and `GET /query/users/:userKey` for selected user details. User queries are implemented behind the repository boundary in `packages/db/src/repositories/users-query.ts` and aggregate existing `events`, `errors`, `traces`, and `llm_calls` records. User profiles with identify traits can also appear without activity in the selected window, with zeroed counters and profile timestamps, so operators can inspect durable user identity data. When a user profile exists, the view shows trait-derived labels, key trait chips, and full profile traits from `user_profiles.traits`. Spans are intentionally excluded from user timelines; trace rows link operators into the existing Traces investigation flow when span detail is needed.
 
 ## Overview Console
 
-The console includes a read-only `Overview` mode for the selected project and environment. It uses `GET /query/overview` to load KPIs, UTC-bucketed mini trends, top lists, and recent important signals for `24h`, `7d`, or `30d` windows.
+The console includes a read-only `Overview` mode for the selected project and environment. It uses `GET /query/overview` to load KPIs, prior-window KPI deltas, UTC-bucketed mini trends, top lists, and recent important signals for `24h`, `7d`, or `30d` windows.
 
-Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. Independent KPI, trend, top-list, and recent-signal queries are dispatched together rather than awaited in serial, and bigint/numeric aggregate values pass through finite safe-number helpers before becoming JavaScript numbers. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
+Overview aggregates are computed from the existing events, errors, traces, and LLM call tables. Independent current KPI, prior-window KPI, trend, top-list, and recent-signal queries are dispatched together rather than awaited in serial, and bigint/numeric aggregate values pass through finite safe-number helpers before becoming JavaScript numbers. Delta fields report current, previous, absolute, percent, and direction per KPI; previous values are `null` when the prior window has no telemetry. It does not add storage tables, chart libraries, mutation routes, or SaaS workspace scope. Top-list rows can drill into existing investigation tabs by seeding exact filters; tenant top-list rows open the Entities investigation for the selected tenant. Recent signals remain read-only summaries without exact-record deep links.
+
+Release tracking is a derived Overview dimension in this slice. `GET /query/releases` lists recently observed release values for the active project/environment/window by aggregating existing events, errors, traces, and LLM calls. `GET /query/overview` accepts an optional exact `release` filter so operators can compare deploy-scoped KPIs and trends without adding a release table yet. Incidents and source-map workflows continue to use the same release value for stack resolution and related-context grouping.
 
 ## Operations Console
 
-The console includes a read-only `Operations` mode for the selected project and environment. It uses `GET /query/operations` to load monitored health, alert state, error rate, p95 trace latency, ingestion freshness, active incidents, recent monitor and alert activity, top latency names, and setup gaps for `24h`, `7d`, or `30d` windows.
+The console includes a read-only `Operations` mode for the selected project and environment. It uses `GET /query/operations` to load monitored health, alert state, error rate, p95 trace latency, ingestion freshness, active incidents, recent monitor and alert activity, top latency names, anomaly detection, and setup gaps for `24h`, `7d`, or `30d` windows.
 
-Operations aggregates are computed in `packages/db/src/repositories/operations-query.ts` from existing monitors, monitor checks, alert rules, alert events, notification delivery state, error groups, events, errors, and traces. It does not add storage tables or mutation routes. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views.
+Operations aggregates are computed in `packages/db/src/repositories/operations-query.ts` from existing monitors, monitor checks, alert rules, alert events, notification delivery state, error groups, events, errors, traces, and LLM calls. It does not add storage tables or mutation routes. Drilldowns route to existing Monitors, Alerts, Investigate, and Incident views.
+
+Anomaly detection is heuristic and explainable. The repository compares the current Operations window with the previous equivalent baseline and reports outliers in event volume, error volume, error rate, route p95 latency, and LLM cost when both the sample size and deviation thresholds are high enough. Each anomaly includes observed value, baseline value, sample sizes, percent change, threshold explanation, suggested alert-rule type when one exists, and a drilldown target.
+
+Operations also returns a first predictive analytics slice through `predictions`. The initial prediction is an explainable `operational_risk` score for the next equivalent window. It is computed from current monitors, incidents, alert firings, alert delivery failures, telemetry error rate, failed traces, p95 latency, setup coverage, detected anomalies, and a previous-window baseline. The response includes severity, score, probability, confidence, validation sample sizes, baseline risk score, delta, top weighted factors, and a suggested drilldown. This is deterministic heuristic scoring, not an external ML or AI call, and it does not introduce new storage tables.
 
 `System` remains global Sigmon install health. `Operations` is scoped to a monitored project/environment, so a self-monitoring `sigmon.app` project can be added like any other project without special product logic.
 

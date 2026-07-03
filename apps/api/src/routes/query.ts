@@ -5,6 +5,8 @@ import type { SourceMapResolutionResponse } from "../source-maps/resolver.js";
 import type { AuthDependencies } from "./auth.js";
 import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
 import type { AddTriageNoteResult, AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
+import type { AnalyticsDashboardRecord, AnalyticsDashboardWidget } from "@sigmon/db/repositories/analytics-dashboards.js";
+import type { CodeIntegrationProvider, IncidentExternalLinkRecord, IssueDraft } from "@sigmon/db/repositories/code-integrations.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -13,6 +15,8 @@ export type QueryFilters = {
   userId?: string;
   sessionId?: string;
   traceId?: string;
+  traceName?: string;
+  eventId?: string;
   eventName?: string;
   provider?: string;
   model?: string;
@@ -21,6 +25,7 @@ export type QueryFilters = {
   status?: string;
   fingerprint?: string;
   errorGroupId?: string;
+  segmentId?: string;
   from?: Date;
   to?: Date;
   limit: number;
@@ -33,6 +38,18 @@ export type OverviewFilters = {
   projectId: string;
   environmentId: string;
   window: OverviewWindow;
+  release?: string;
+};
+
+export type RecentActivityFilters = OverviewFilters & {
+  limit: number;
+};
+
+export type ReleaseFilters = {
+  projectId: string;
+  environmentId: string;
+  window: OverviewWindow;
+  limit: number;
 };
 
 export type LlmAggregateFilters = {
@@ -47,6 +64,55 @@ export type OperationsFilters = {
   projectId: string;
   environmentId: string;
   window: OperationsWindow;
+};
+
+export type ApmWindow = "24h" | "7d" | "30d";
+
+export type ApmFilters = {
+  projectId: string;
+  environmentId: string;
+  window: ApmWindow;
+  limit: number;
+};
+
+export type ExperimentResultFilters = ApmFilters & {
+  experimentId: string;
+};
+
+export type SurveyResultFilters = ApmFilters & {
+  surveyId: string;
+};
+
+export type MessageCampaignResultFilters = ApmFilters & {
+  campaignId: string;
+};
+
+export type NpsResultFilters = SurveyResultFilters & {
+  questionId?: string;
+  tenantId?: string;
+  release?: string;
+  plan?: string;
+};
+
+export type FeedbackListFilters = {
+  projectId: string;
+  environmentId: string;
+  limit?: number;
+  status?: "open" | "reviewed" | "archived";
+  tenantId?: string;
+  userId?: string;
+};
+
+export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
+export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
+
+export type EventClickMapFilters = ApmFilters & {
+  route: string;
+  selector?: string;
+  tenantId?: string;
+  userId?: string;
+  sessionId?: string;
+  gridSize?: number;
 };
 
 export type EntityWindow = "24h" | "7d" | "30d";
@@ -164,18 +230,70 @@ export type QueryDependencies = {
   getLlmAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getTraceAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getOverview?: (filters: OverviewFilters) => Promise<unknown>;
+  getRecentActivity?: (filters: RecentActivityFilters) => Promise<unknown>;
+  listReleases?: (filters: ReleaseFilters) => Promise<unknown>;
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
+  getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
+  getEventClickMap?: (filters: EventClickMapFilters) => Promise<unknown>;
+  getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
+  getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
+  getSurveyResults?: (filters: SurveyResultFilters) => Promise<unknown | null>;
+  getMessageCampaignResults?: (filters: MessageCampaignResultFilters) => Promise<unknown | null>;
+  getNpsResults?: (filters: NpsResultFilters) => Promise<unknown | null>;
+  listFeedbackItems?: (filters: FeedbackListFilters) => Promise<unknown>;
+  updateFeedbackStatus?: (input: FeedbackListFilters & { id: string; status: "open" | "reviewed" | "archived" }) => Promise<unknown | null>;
+  getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
+  getEventPaths?: (
+    filters: ApmFilters & {
+      startEvent?: string;
+      endEvent?: string;
+      tenantId?: string;
+      userId?: string;
+      sessionId?: string;
+      traceId?: string;
+      segmentId?: string;
+      actorType?: EventPathActorType;
+      from?: Date;
+      to?: Date;
+      pathLength?: number;
+    }
+  ) => Promise<unknown>;
+  getApmEndpoints?: (filters: ApmFilters) => Promise<unknown>;
+  getServiceMap?: (filters: ApmFilters) => Promise<unknown>;
+  getWebVitals?: (filters: ApmFilters) => Promise<unknown>;
+  getRuntimeProfiles?: (filters: ApmFilters) => Promise<unknown>;
   listEntityTenants?: (filters: EntityTenantListFilters) => Promise<unknown>;
   getEntityTenantDetail?: (tenantId: string, filters: EntityTenantDetailFilters) => Promise<unknown>;
   listUsersActivity?: (filters: UserListFilters) => Promise<unknown>;
   getUserDetail?: (userId: string, filters: UserDetailFilters) => Promise<unknown>;
   getSessionTimeline?: (filters: SessionTimelineFilters) => Promise<unknown>;
+  getSessionReplayDetail?: (filters: { projectId: string; environmentId: string; replayId: string }) => Promise<unknown | null>;
+  listSessionReplays?: (filters: QueryFilters) => Promise<QueryListResult>;
   listErrorGroups?: (filters: ErrorGroupFilters) => Promise<QueryListResult>;
   getErrorGroup?: (id: string, filters: ErrorGroupScope) => Promise<unknown | null>;
   getErrorGroupIncident?: (
     id: string,
     filters: ErrorGroupScope & { errorId?: string }
   ) => Promise<unknown | null>;
+  listIncidentExternalIssues?: (input: { projectId: string; environmentId: string; errorGroupId: string }) => Promise<IncidentExternalLinkRecord[]>;
+  linkIncidentExternalIssue?: (input: {
+    projectId: string;
+    environmentId: string;
+    errorGroupId: string;
+    integrationId?: string | null;
+    provider: CodeIntegrationProvider;
+    externalKey: string;
+    title: string;
+    url: string;
+    state?: string;
+  }) => Promise<IncidentExternalLinkRecord>;
+  buildIncidentIssueDraft?: (input: {
+    projectId: string;
+    environmentId: string;
+    errorGroupId: string;
+    integrationId: string;
+    incidentUrl?: string;
+  }) => Promise<IssueDraft | null>;
   updateErrorGroupTriage?: (
     id: string,
     input: ErrorGroupScope & { status?: ErrorGroupStatus; priority?: ErrorGroupPriority | null }
@@ -206,6 +324,7 @@ export type QueryDependencies = {
   getLlmByTenant?: (filters: LlmAggregateFilters) => Promise<unknown>;
   getLlmByPrompt?: (filters: LlmAggregateFilters) => Promise<unknown>;
   getLlmCostByModel?: (filters: LlmAggregateFilters) => Promise<unknown>;
+  getAnalyticsDashboard?: (input: { id: string; projectId: string; environmentId: string }) => Promise<AnalyticsDashboardRecord | null | undefined>;
 };
 
 export type QueryRouteOptions = {
@@ -215,10 +334,13 @@ export type QueryRouteOptions = {
 
 const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
 const sessionParamsSchema = z.object({ sessionId: z.string().trim().min(1) });
+const replayParamsSchema = z.object({ replayId: z.string().trim().min(1) });
 const entityTenantParamsSchema = z.object({ tenantKey: z.string().trim().min(1) });
 const userParamsSchema = z.object({ userKey: z.string().trim().min(1) });
 const errorParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupParamsSchema = z.object({ id: z.string().trim().min(1) });
+const dashboardParamsSchema = z.object({ id: z.string().trim().min(1) });
+const experimentParamsSchema = z.object({ id: z.string().trim().min(1) });
 const errorGroupStatusSchema = z.enum(["open", "investigating", "resolved", "ignored"]);
 const errorGroupPrioritySchema = z.enum(["urgent", "high", "normal", "low"]);
 const errorGroupIncidentScopeSchema = z.object({
@@ -245,6 +367,20 @@ const triageNoteBodySchema = z.object({
 
 const silenceBodySchema = z.object({
   minutes: z.number().int().nonnegative().nullable()
+});
+
+const externalIssueLinkBodySchema = z.object({
+  integrationId: z.string().trim().min(1).nullable().optional(),
+  provider: z.enum(["github", "gitlab"]),
+  externalKey: z.string().trim().min(1).max(128),
+  title: z.string().trim().min(1).max(512),
+  url: z.string().trim().url().max(2048),
+  state: z.string().trim().min(1).max(64).optional()
+});
+
+const externalIssueDraftBodySchema = z.object({
+  integrationId: z.string().trim().min(1),
+  incidentUrl: z.string().trim().url().max(2048).optional()
 });
 
 type RawQuery = Record<string, unknown>;
@@ -318,7 +454,7 @@ function parseDate(raw: RawQuery, key: string): Date | undefined | null {
 
 function parseFilters(
   query: unknown,
-  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean } = {}
+  options: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeTraceFilters?: boolean } = {}
 ): QueryFilters | undefined {
   const raw = (query ?? {}) as RawQuery;
   const projectId = parseRequiredId(raw, "project_id");
@@ -343,7 +479,10 @@ function parseFilters(
   const userId = optionalNonEmpty(raw, "user_id");
   const sessionId = optionalNonEmpty(raw, "session_id");
   const traceId = optionalNonEmpty(raw, "trace_id");
+  const traceName = optionalNonEmpty(raw, "trace_name");
+  const eventId = optionalNonEmpty(raw, "event_id");
   const eventName = optionalNonEmpty(raw, "event_name");
+  const segmentId = optionalNonEmpty(raw, "segment_id");
   const cursor = optionalNonEmpty(raw, "cursor");
 
   if (tenantId) {
@@ -358,8 +497,24 @@ function parseFilters(
   if (traceId) {
     filters.traceId = traceId;
   }
+  if (options.includeTraceFilters) {
+    const status = optionalNonEmpty(raw, "status");
+    if (traceName) {
+      filters.traceName = traceName;
+      filters.eventName = traceName;
+    }
+    if (status) {
+      filters.status = status;
+    }
+  }
   if (options.includeEventName && eventName) {
     filters.eventName = eventName;
+  }
+  if (options.includeEventName && eventId) {
+    filters.eventId = eventId;
+  }
+  if (options.includeEventName && segmentId) {
+    filters.segmentId = segmentId;
   }
   if (options.includeErrorFilters) {
     const severity = optionalNonEmpty(raw, "severity");
@@ -619,10 +774,50 @@ function parseOverviewFilters(query: unknown): OverviewFilters | undefined {
     return undefined;
   }
 
-  return {
+  const filters: OverviewFilters = {
     projectId,
     environmentId,
     window: rawWindow
+  };
+
+  const release = optionalNonEmpty(raw, "release");
+  if (release) {
+    filters.release = release;
+  }
+
+  return filters;
+}
+
+function parseRecentActivityFilters(query: unknown): RecentActivityFilters | undefined {
+  const filters = parseOverviewFilters(query);
+  if (!filters) {
+    return undefined;
+  }
+
+  return {
+    ...filters,
+    limit: parseLimit((query ?? {}) as RawQuery)
+  };
+}
+
+function parseReleaseFilters(query: unknown): ReleaseFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "24h";
+  if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    window: rawWindow,
+    limit: parseLimit(raw)
   };
 }
 
@@ -663,6 +858,289 @@ function parseOperationsFilters(query: unknown): OperationsFilters | undefined {
     projectId,
     environmentId,
     window: rawWindow
+  };
+}
+
+function parseDashboardReportFilters(query: unknown): (Omit<OverviewFilters, "window"> & { window?: OverviewWindow }) | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const rawWindow = optionalNonEmpty(raw, "window");
+  if (rawWindow && rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    ...(rawWindow ? { window: rawWindow as OverviewWindow } : {})
+  };
+}
+
+function parseApmFilters(query: unknown): ApmFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "24h";
+  if (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    window: rawWindow,
+    limit: parseLimit(raw)
+  };
+}
+
+function parseExperimentResultFilters(params: unknown, query: unknown): ExperimentResultFilters | undefined {
+  const parsedParams = experimentParamsSchema.safeParse(params);
+  const base = parseApmFilters(query);
+  if (!parsedParams.success || !base) {
+    return undefined;
+  }
+
+  return {
+    ...base,
+    experimentId: parsedParams.data.id
+  };
+}
+
+function parseSurveyResultFilters(params: unknown, query: unknown): SurveyResultFilters | undefined {
+  const parsedParams = experimentParamsSchema.safeParse(params);
+  const base = parseApmFilters(query);
+  if (!parsedParams.success || !base) {
+    return undefined;
+  }
+
+  return {
+    ...base,
+    surveyId: parsedParams.data.id
+  };
+}
+
+function parseMessageCampaignResultFilters(params: unknown, query: unknown): MessageCampaignResultFilters | undefined {
+  const parsedParams = experimentParamsSchema.safeParse(params);
+  const base = parseApmFilters(query);
+  if (!parsedParams.success || !base) {
+    return undefined;
+  }
+
+  return {
+    ...base,
+    campaignId: parsedParams.data.id
+  };
+}
+
+function parseNpsResultFilters(params: unknown, query: unknown): NpsResultFilters | undefined {
+  const base = parseSurveyResultFilters(params, query);
+  if (!base) return undefined;
+  const raw = (query ?? {}) as RawQuery;
+  const questionId = optionalNonEmpty(raw, "question_id");
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const release = optionalNonEmpty(raw, "release");
+  const plan = optionalNonEmpty(raw, "plan");
+  return {
+    ...base,
+    ...(questionId ? { questionId } : {}),
+    ...(tenantId ? { tenantId } : {}),
+    ...(release ? { release } : {}),
+    ...(plan ? { plan } : {})
+  };
+}
+
+function parseFeedbackListFilters(query: unknown): FeedbackListFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const status = optionalNonEmpty(raw, "status");
+  if (status !== undefined && status !== "open" && status !== "reviewed" && status !== "archived") {
+    return undefined;
+  }
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const userId = optionalNonEmpty(raw, "user_id");
+
+  return {
+    projectId,
+    environmentId,
+    limit: parseLimit(raw),
+    ...(status ? { status } : {}),
+    ...(tenantId ? { tenantId } : {}),
+    ...(userId ? { userId } : {})
+  };
+}
+
+function parseEventClickMapFilters(query: unknown): EventClickMapFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const base = parseApmFilters(query);
+  const route = optionalNonEmpty(raw, "route");
+  if (!base || !route) {
+    return undefined;
+  }
+
+  const gridRaw = optionalNonEmpty(raw, "grid_size");
+  const gridSize = gridRaw === undefined ? undefined : Number(gridRaw);
+  if (gridSize !== undefined && (!Number.isFinite(gridSize) || gridSize < 10 || gridSize > 100)) {
+    return undefined;
+  }
+
+  const filters: EventClickMapFilters = {
+    ...base,
+    route
+  };
+  const selector = optionalNonEmpty(raw, "selector");
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const userId = optionalNonEmpty(raw, "user_id");
+  const sessionId = optionalNonEmpty(raw, "session_id");
+  if (selector) filters.selector = selector;
+  if (tenantId) filters.tenantId = tenantId;
+  if (userId) filters.userId = userId;
+  if (sessionId) filters.sessionId = sessionId;
+  if (gridSize !== undefined) filters.gridSize = Math.trunc(gridSize);
+
+  return filters;
+}
+
+function parseEventPathFilters(
+  query: unknown
+): | (ApmFilters & {
+      startEvent?: string;
+      endEvent?: string;
+      tenantId?: string;
+      userId?: string;
+      sessionId?: string;
+      traceId?: string;
+      segmentId?: string;
+      actorType?: EventPathActorType;
+      from?: Date;
+      to?: Date;
+      pathLength?: number;
+    })
+  | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  const rawWindow = optionalNonEmpty(raw, "window") ?? "7d";
+  const startEvent = optionalNonEmpty(raw, "start_event");
+  const endEvent = optionalNonEmpty(raw, "end_event");
+  const actorType = optionalNonEmpty(raw, "actor") ?? "auto";
+  const rawPathLength = optionalNonEmpty(raw, "max_depth");
+  const from = parseDate(raw, "from");
+  const to = parseDate(raw, "to");
+
+  if (!projectId || !environmentId || (rawWindow !== "24h" && rawWindow !== "7d" && rawWindow !== "30d")) {
+    return undefined;
+  }
+  if (!startEvent && !endEvent) {
+    return undefined;
+  }
+  if (actorType !== "auto" && actorType !== "user" && actorType !== "tenant" && actorType !== "session" && actorType !== "trace") {
+    return undefined;
+  }
+  if (from === null || to === null || (from && to && from >= to)) {
+    return undefined;
+  }
+
+  const parsedPathLength = rawPathLength ? Number(rawPathLength) : 5;
+  if (!Number.isFinite(parsedPathLength)) {
+    return undefined;
+  }
+  const pathLength = Math.trunc(parsedPathLength);
+  if (pathLength < 2 || pathLength > 8) {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    window: rawWindow,
+    limit: parseLimit(raw),
+    ...(startEvent ? { startEvent } : {}),
+    ...(endEvent ? { endEvent } : {}),
+    tenantId: optionalNonEmpty(raw, "tenant_id"),
+    userId: optionalNonEmpty(raw, "user_id"),
+    sessionId: optionalNonEmpty(raw, "session_id"),
+    traceId: optionalNonEmpty(raw, "trace_id"),
+    segmentId: optionalNonEmpty(raw, "segment_id"),
+    actorType,
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    pathLength
+  };
+}
+
+function parseEventFunnelFilters(query: unknown): (ApmFilters & { steps: string[] }) | undefined {
+  const filters = parseApmFilters(query);
+  if (!filters) {
+    return undefined;
+  }
+
+  const raw = (query ?? {}) as RawQuery;
+  const steps = (optionalNonEmpty(raw, "steps") ?? "")
+    .split(",")
+    .map((step) => step.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+  if (steps.length < 2) {
+    return undefined;
+  }
+
+  return {
+    ...filters,
+    steps
+  };
+}
+
+function parseEventRetentionFilters(
+  query: unknown
+): (ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) | undefined {
+  const filters = parseApmFilters(query);
+  if (!filters) {
+    return undefined;
+  }
+
+  const raw = (query ?? {}) as RawQuery;
+  const entryEvent = optionalNonEmpty(raw, "entry_event");
+  const returnEvent = optionalNonEmpty(raw, "return_event");
+  const rawPeriod = optionalNonEmpty(raw, "period") ?? "weekly";
+  const rawIntervals = optionalNonEmpty(raw, "intervals");
+
+  if (!entryEvent || !returnEvent) {
+    return undefined;
+  }
+  if (rawPeriod !== "daily" && rawPeriod !== "weekly" && rawPeriod !== "monthly") {
+    return undefined;
+  }
+
+  const parsedIntervals = rawIntervals ? Number(rawIntervals) : 6;
+  if (!Number.isFinite(parsedIntervals)) {
+    return undefined;
+  }
+  const intervals = Math.trunc(parsedIntervals);
+  if (intervals < 2 || intervals > 12) {
+    return undefined;
+  }
+
+  return {
+    ...filters,
+    entryEvent,
+    returnEvent,
+    period: rawPeriod,
+    intervals
   };
 }
 
@@ -963,7 +1441,7 @@ async function handleListRoute(
   options: QueryRouteOptions,
   hasMethod: () => boolean,
   run: ListRunner,
-  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean }
+  filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeTraceFilters?: boolean }
 ) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -1073,6 +1551,139 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
   }
 }
 
+async function handleRecentActivityRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getRecentActivity) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseRecentActivityFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getRecentActivity(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleReleaseListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listReleases) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseReleaseFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.listReleases(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+function dashboardWidgetData(widget: AnalyticsDashboardWidget, overview: unknown): unknown {
+  const data = overview as {
+    kpis: { events: number; errors: number; openErrors: number };
+    trends: {
+      usage: Array<{ bucketStart: string; events: number }>;
+      errors: Array<{ bucketStart: string; errors: number; openErrors: number }>;
+    };
+    top: { events: Array<{ name: string; total: number }> };
+  };
+  if (widget.type === "metric.events") {
+    return { value: data.kpis.events, label: "Events" };
+  }
+  if (widget.type === "metric.errors") {
+    return { value: data.kpis.errors, open: data.kpis.openErrors, label: "Errors" };
+  }
+  if (widget.type === "top.events") {
+    return { rows: data.top.events };
+  }
+  if (widget.type === "trend.events") {
+    return {
+      buckets: data.trends.usage.map((row) => row.bucketStart),
+      series: [{ label: "Events", values: data.trends.usage.map((row) => row.events) }]
+    };
+  }
+  if (widget.type === "trend.errors") {
+    return {
+      buckets: data.trends.errors.map((row) => row.bucketStart),
+      series: [
+        { label: "Errors", values: data.trends.errors.map((row) => row.errors) },
+        { label: "Open", values: data.trends.errors.map((row) => row.openErrors) }
+      ]
+    };
+  }
+  return null;
+}
+
+async function handleDashboardReportRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getAnalyticsDashboard || !options.query?.getOverview) {
+    return reply.status(501).send({ error: "dashboard_reports_unavailable" });
+  }
+
+  const params = dashboardParamsSchema.safeParse(request.params);
+  const filters = parseDashboardReportFilters(request.query);
+  if (!params.success || !filters) {
+    return reply.status(400).send({ error: "invalid_dashboard_report_request" });
+  }
+
+  try {
+    const dashboard = await options.query.getAnalyticsDashboard({
+      id: params.data.id,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!dashboard) {
+      return reply.status(404).send({ error: "dashboard_not_found" });
+    }
+
+    const window = filters.window ?? dashboard.filters.window ?? "7d";
+    const overview = await options.query.getOverview({ projectId: filters.projectId, environmentId: filters.environmentId, window });
+
+    return reply.send({
+      data: {
+        dashboard,
+        generatedAt: new Date().toISOString(),
+        scope: {
+          projectId: filters.projectId,
+          environmentId: filters.environmentId
+        },
+        window,
+        widgets: dashboard.widgets.map((widget) => ({
+          widgetId: widget.id,
+          type: widget.type,
+          title: widget.title,
+          width: widget.width,
+          status: "ok",
+          data: dashboardWidgetData(widget, overview)
+        }))
+      }
+    });
+  } catch {
+    return reply.status(503).send({ error: "dashboard_report_unavailable" });
+  }
+}
+
 async function handleLlmAggregateRoute(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -1123,6 +1734,369 @@ async function handleOperationsRoute(request: FastifyRequest, reply: FastifyRepl
   }
 }
 
+async function handleApmEndpointsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getApmEndpoints) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseApmFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getApmEndpoints(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventPropertyCatalogRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventPropertyCatalog) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseApmFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventPropertyCatalog(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventClickMapRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventClickMap) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventClickMapFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventClickMap(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventFunnel) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventFunnelFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventFunnel(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleExperimentResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getExperimentResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseExperimentResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getExperimentResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "experiment_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getSurveyResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseSurveyResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getSurveyResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "survey_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleMessageCampaignResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getMessageCampaignResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseMessageCampaignResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getMessageCampaignResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "message_campaign_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleNpsResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getNpsResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseNpsResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getNpsResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "survey_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+const feedbackStatusBodySchema = z.object({
+  status: z.enum(["open", "reviewed", "archived"])
+});
+
+async function handleFeedbackListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listFeedbackItems) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseFeedbackListFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ feedback: await options.query.listFeedbackItems(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleFeedbackStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.updateFeedbackStatus) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = experimentParamsSchema.safeParse(request.params);
+  const filters = parseFeedbackListFilters(request.query);
+  const body = feedbackStatusBodySchema.safeParse(request.body);
+  if (!params.success || !filters || !body.success) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const feedback = await options.query.updateFeedbackStatus({
+      projectId: filters.projectId,
+      environmentId: filters.environmentId,
+      ...(filters.tenantId ? { tenantId: filters.tenantId } : {}),
+      ...(filters.userId ? { userId: filters.userId } : {}),
+      id: params.data.id,
+      status: body.data.status
+    });
+    if (!feedback) {
+      return reply.status(404).send({ error: "feedback_not_found" });
+    }
+    return reply.send({ feedback });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventPaths) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventPathFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventPaths(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleEventRetentionRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getEventRetention) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseEventRetentionFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getEventRetention(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleServiceMapRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getServiceMap) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseApmFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getServiceMap(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleWebVitalsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getWebVitals) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseApmFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getWebVitals(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleRuntimeProfilesRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getRuntimeProfiles) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseApmFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ data: await options.query.getRuntimeProfiles(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleSessionTimelineRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -1145,6 +2119,58 @@ async function handleSessionTimelineRoute(request: FastifyRequest, reply: Fastif
 
   try {
     return reply.send({ data: await options.query.getSessionTimeline(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleSessionReplayRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getSessionReplayDetail) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = replayParamsSchema.safeParse(request.params);
+  const raw = (request.query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!params.success || !projectId || !environmentId) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const replay = await options.query.getSessionReplayDetail({
+      projectId,
+      environmentId,
+      replayId: params.data.replayId
+    });
+    return replay ? reply.send({ data: replay }) : reply.status(404).send({ error: "replay_not_found" });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleSessionReplayListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listSessionReplays) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseFilters(request.query, { includeEventName: true });
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send(await options.query.listSessionReplays(filters));
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1307,7 +2333,69 @@ async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: Fas
 
   try {
     const incident = await options.query.getErrorGroupIncident(params.data.id, scope);
-    return incident ? reply.send({ data: incident }) : reply.status(404).send({ error: "incident_not_found" });
+    if (!incident) return reply.status(404).send({ error: "incident_not_found" });
+    const externalIssues = options.query.listIncidentExternalIssues
+      ? await options.query.listIncidentExternalIssues({
+          projectId: scope.projectId,
+          environmentId: scope.environmentId,
+          errorGroupId: params.data.id
+        })
+      : [];
+    return reply.send({ data: { ...(incident as Record<string, unknown>), externalIssues } });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleIncidentExternalIssueLinkRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) return reply;
+  if (!options.query?.linkIncidentExternalIssue) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupIncidentScope(request.query);
+  const body = externalIssueLinkBodySchema.safeParse(request.body);
+  if (!params.success || !scope || !body.success) {
+    return reply.status(400).send({ error: "invalid_external_issue_request" });
+  }
+
+  try {
+    const link = await options.query.linkIncidentExternalIssue({
+      projectId: scope.projectId,
+      environmentId: scope.environmentId,
+      errorGroupId: params.data.id,
+      ...body.data
+    });
+    return reply.status(201).send({ link });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleIncidentExternalIssueDraftRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) return reply;
+  if (!options.query?.buildIncidentIssueDraft) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupIncidentScope(request.query);
+  const body = externalIssueDraftBodySchema.safeParse(request.body);
+  if (!params.success || !scope || !body.success) {
+    return reply.status(400).send({ error: "invalid_external_issue_request" });
+  }
+
+  try {
+    const draft = await options.query.buildIncidentIssueDraft({
+      projectId: scope.projectId,
+      environmentId: scope.environmentId,
+      errorGroupId: params.data.id,
+      ...body.data
+    });
+    return draft ? reply.status(201).send({ draft }) : reply.status(404).send({ error: "code_integration_not_found" });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -1654,6 +2742,8 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     handleFleetProjectEnvironmentsRoute(request, reply, options)
   );
   app.get("/query/overview", (request, reply) => handleOverviewRoute(request, reply, options));
+  app.get("/query/recent-activity", (request, reply) => handleRecentActivityRoute(request, reply, options));
+  app.get("/query/releases", (request, reply) => handleReleaseListRoute(request, reply, options));
   app.get("/query/llm/summary", (request, reply) =>
     handleLlmAggregateRoute(request, reply, options,
       () => !!options.query?.getLlmSummary,
@@ -1671,7 +2761,26 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
       () => !!options.query?.getLlmCostByModel,
       (filters) => options.query!.getLlmCostByModel!(filters)));
   app.get("/query/operations", (request, reply) => handleOperationsRoute(request, reply, options));
+  app.get("/query/apm/endpoints", (request, reply) => handleApmEndpointsRoute(request, reply, options));
+  app.get("/query/apm/service-map", (request, reply) => handleServiceMapRoute(request, reply, options));
+  app.get("/query/apm/web-vitals", (request, reply) => handleWebVitalsRoute(request, reply, options));
+  app.get("/query/apm/profiles", (request, reply) => handleRuntimeProfilesRoute(request, reply, options));
+  app.get("/query/events/properties", (request, reply) => handleEventPropertyCatalogRoute(request, reply, options));
+  app.get("/query/events/click-map", (request, reply) => handleEventClickMapRoute(request, reply, options));
+  app.get("/query/events/paths", (request, reply) => handleEventPathsRoute(request, reply, options));
+  app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
+  app.get("/query/experiments/:id/results", (request, reply) => handleExperimentResultsRoute(request, reply, options));
+  app.get("/query/surveys/:id/results", (request, reply) => handleSurveyResultsRoute(request, reply, options));
+  app.get("/query/surveys/:id/nps", (request, reply) => handleNpsResultsRoute(request, reply, options));
+  app.get("/query/message-campaigns/:id/results", (request, reply) =>
+    handleMessageCampaignResultsRoute(request, reply, options));
+  app.get("/query/feedback", (request, reply) => handleFeedbackListRoute(request, reply, options));
+  app.patch("/query/feedback/:id", (request, reply) => handleFeedbackStatusRoute(request, reply, options));
+  app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
+  app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
+  app.get("/query/replays", (request, reply) => handleSessionReplayListRoute(request, reply, options));
+  app.get("/query/replays/:replayId", (request, reply) => handleSessionReplayRoute(request, reply, options));
   app.get("/query/entities/tenants", (request, reply) => handleEntityTenantListRoute(request, reply, options));
   app.get("/query/entities/tenants/:tenantKey", (request, reply) => handleEntityTenantDetailRoute(request, reply, options));
   app.get("/query/users", (request, reply) => handleUserListRoute(request, reply, options));
@@ -1682,6 +2791,12 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   );
   app.post("/query/incidents/error-groups/:id/notes", (request, reply) =>
     handleTriageNoteRoute(request, reply, options)
+  );
+  app.post("/query/incidents/error-groups/:id/external-issues", (request, reply) =>
+    handleIncidentExternalIssueLinkRoute(request, reply, options)
+  );
+  app.post("/query/incidents/error-groups/:id/external-issues/draft", (request, reply) =>
+    handleIncidentExternalIssueDraftRoute(request, reply, options)
   );
   app.post("/query/incidents/error-groups/:id/silence", (request, reply) =>
     handleSilenceIncidentRoute(request, reply, options)
@@ -1729,7 +2844,14 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
     )
   );
   app.get("/query/traces", (request, reply) =>
-    handleListRoute(request, reply, options, () => !!options.query?.listTraces, (filters) => options.query!.listTraces!(filters))
+    handleListRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.listTraces,
+      (filters) => options.query!.listTraces!(filters),
+      { includeTraceFilters: true }
+    )
   );
   app.get("/query/traces/:id/spans", (request, reply) => handleTraceSpansRoute(request, reply, options));
 

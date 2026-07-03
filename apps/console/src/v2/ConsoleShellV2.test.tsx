@@ -41,7 +41,7 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     getEventAggregates: vi.fn(),
     getErrorAggregates: vi.fn(),
     getOverview: vi.fn().mockResolvedValue({ data: { window: "24h", generatedAt: "", scope: {}, range: {}, kpis: { events: 0, activeUsers: 0, activeTenants: 0, errors: 0, openErrors: 0, traces: 0, failedTraces: 0, llmCalls: 0, failedLlmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0, llmCostUsd: "0" }, trends: { usage: [], errors: [], latency: [], aiCost: [] }, top: { events: [], tenantsByUsage: [], tenantsByErrors: [], tenantsByLlmCalls: [], tenantsByLlmCost: [], llmProviders: [], llmModels: [], llmPrompts: [], errorSeverity: [], errorStatus: [] }, recent: { errors: [], failedTraces: [], failedLlmCalls: [] } } }),
-    getOperations: vi.fn().mockResolvedValue({ data: { window: "24h", generatedAt: "", scope: {}, range: {}, status: "ok", summary: { monitors: { total: 0, http: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 }, heartbeat: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 } }, alerts: { rules: { total: 0, enabled: 0 }, events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 } }, telemetry: { events: 0, errors: 0, traces: 0, failedTraces: 0, errorRatePercent: 0, p95TraceDurationMs: 0, lastEventAt: null, lastErrorAt: null, lastTraceAt: null }, incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 } }, recent: { monitors: [], alerts: [], incidents: [] }, topLatency: [], setupGaps: [] } }),
+    getOperations: vi.fn().mockResolvedValue({ data: { window: "24h", generatedAt: "", scope: {}, range: {}, status: "ok", summary: { monitors: { total: 0, http: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 }, heartbeat: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 } }, alerts: { rules: { total: 0, enabled: 0 }, events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 } }, telemetry: { events: 0, errors: 0, traces: 0, failedTraces: 0, errorRatePercent: 0, p95TraceDurationMs: 0, lastEventAt: null, lastErrorAt: null, lastTraceAt: null }, incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 } }, recent: { monitors: [], alerts: [], incidents: [] }, topLatency: [], anomalies: [], setupGaps: [] } }),
     getSystemHealth: vi.fn(),
     listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [] } }),
     getEntityTenantDetail: vi.fn(),
@@ -59,6 +59,7 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
     archiveAlertRule: vi.fn(),
+    updateAlertEventTriage: vi.fn(),
     listAlertEvents: vi.fn().mockResolvedValue({ data: [] }),
     getAlertEvent: vi.fn(),
     listErrorGroups: vi.fn().mockResolvedValue({ data: [] }),
@@ -196,6 +197,37 @@ describe("ConsoleShellV2", () => {
     });
   });
 
+  it("restores the persisted environment by id instead of duplicate names", async () => {
+    const envA = { id: "env_1", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
+    const envB = { id: "env_2", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
+    localStorage.setItem("sh_v2_state", JSON.stringify({ projectId: "prj_1", environmentId: "env_2" }));
+    const getOverview = vi.fn().mockResolvedValue({
+      data: {
+        window: "24h",
+        generatedAt: "",
+        scope: {},
+        range: {},
+        kpis: { events: 0, activeUsers: 0, activeTenants: 0, errors: 0, openErrors: 0, traces: 0, failedTraces: 0, llmCalls: 0, failedLlmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0, llmCostUsd: "0" },
+        trends: { usage: [], errors: [], latency: [], aiCost: [] },
+        top: { events: [], tenantsByUsage: [], tenantsByErrors: [], tenantsByLlmCalls: [], tenantsByLlmCost: [], llmProviders: [], llmModels: [], llmPrompts: [], errorSeverity: [], errorStatus: [] },
+        recent: { errors: [], failedTraces: [], failedLlmCalls: [] }
+      }
+    });
+    render(
+      <ConsoleShellV2
+        client={makeClient({
+          getOverview,
+          listEnvironments: vi.fn().mockResolvedValue({ environments: [envA, envB] })
+        })}
+        user={ADMIN_USER}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getOverview).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "env_2" }));
+    });
+  });
+
   it("⌘K opens command palette and Escape closes it", async () => {
     const user = userEvent.setup();
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
@@ -243,19 +275,21 @@ describe("ConsoleShellV2", () => {
   describe("drill/back navigation", () => {
     const ERRORS_VM_FOR_DRILL = {
       tabs: { events: 0, errors: 1, traces: 0, llm: 0, tenants: 0, users: 0 },
-      summary: { errors24h: 1, openGroups: 1, critical: 1, mttr: null, topRelease: null },
+      summary: { errors24h: 1, openGroups: 1, crashes: 0, critical: 1, mttr: null, topRelease: null },
       volume: [],
       rows: [
         {
           id: "g1",
           message: "TestError: drill navigation test",
           severity: "critical",
+          isCrash: false,
           status: "open",
           priority: null as null,
           events: 10,
           users: null as null,
           tenants: null as null,
           last: "5m ago",
+          trend: [],
         },
       ],
     };
@@ -279,10 +313,42 @@ describe("ConsoleShellV2", () => {
       lastSeenRelative: "5m ago",
       silencedUntil: null,
       stack: null,
+      errorTimestamp: "2026-06-01T12:00:00.000Z",
+      replay: null,
       sourceMapBadge: { resolved: false, frameCount: 0 },
+      sourceMapDiagnostic: {
+        status: "none" as const,
+        label: "No stack trace captured",
+        detail: "No stack trace was captured for this occurrence.",
+        release: null,
+        frameCount: 0,
+        unresolvedFrameCount: 0,
+      },
       breadcrumbs: [],
       related: [],
       notes: [],
+      externalIssues: [],
+      codeContext: {
+        status: "limited" as const,
+        summary: "No code context available.",
+        repository: null,
+        release: {
+          release: null,
+          commitSha: null,
+          commitUrl: null,
+          pullRequestNumber: null,
+          pullRequestUrl: null,
+          deployedBy: null,
+        },
+        suspectedFiles: [],
+        evidence: [],
+        suggestedNextSteps: [],
+        privacy: {
+          aiEnabled: false,
+          outboundCodeSharing: false,
+          reason: "Local deterministic analysis only.",
+        },
+      },
     };
 
     function setupDrillMocks() {
@@ -466,13 +532,13 @@ describe("ConsoleShellV2", () => {
         expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
       });
 
-      // Click Create issue — this calls ctx.pushToast which should put a toast in the stack
+      // Click Create issue without code integration support — this calls ctx.pushToast.
       await user.click(screen.getByRole("button", { name: /create issue/i }));
 
       // Toast should appear in the DOM via ToastStack
       await waitFor(() => {
         expect(document.querySelector(".toast__title")).toBeInTheDocument();
-        expect(document.querySelector(".toast__title")?.textContent).toMatch(/github issue creation is not available yet/i);
+        expect(document.querySelector(".toast__title")?.textContent).toMatch(/code integrations are not available/i);
       });
     });
 

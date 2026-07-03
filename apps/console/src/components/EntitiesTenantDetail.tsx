@@ -1,5 +1,6 @@
 import type { EntitySignalType, TenantDetailResponse, TenantSummary, TenantTimelineRow } from "../api/types";
 import { EntityOperationalProfile, TimelineSignalMix } from "./EntityOperationalSummary";
+import { IdentityProfilePanel } from "./IdentityProfilePanel";
 
 type Props = {
   tenant?: TenantSummary;
@@ -95,6 +96,13 @@ export function EntitiesTenantDetail({
             </label>
           </div>
           {appliedUserId ? <p className="muted-text">Filtered to user {appliedUserId}</p> : null}
+          <IdentityProfilePanel
+            firstSeenAt={summary.firstSeenAt}
+            kind="tenant"
+            lastSeenAt={summary.lastSeenAt}
+            profileUpdatedAt={summary.profileUpdatedAt}
+            traits={summary.traits}
+          />
           <EntityOperationalProfile label="Tenant operational profile" summary={summary} />
           <div className="entity-summary-grid">
             <div>
