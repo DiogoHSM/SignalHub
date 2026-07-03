@@ -24,6 +24,8 @@ const STORAGE_KEY = "sh_v2_state";
 type PersistedState = {
   nav?: NavSection;
   projectId?: string;
+  environmentId?: string;
+  /** Legacy localStorage key from the first v2 shell. Prefer environmentId. */
   env?: string;
   railCollapsed?: boolean;
 };
@@ -105,6 +107,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     activeEnvironment,
     selectProject,
     selectEnvironment,
+    selectEnvironmentByName,
     reload: reloadProjects,
   } = useConsoleProjects(client);
 
@@ -124,9 +127,13 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   }, [projects.length > 0]);
 
   useEffect(() => {
-    if (!persisted.env || environments.length === 0) return;
-    const env = environments.find((e) => e.name === persisted.env);
-    if (env) selectEnvironment(env.name);
+    if (environments.length === 0) return;
+    const env = persisted.environmentId
+      ? environments.find((e) => e.id === persisted.environmentId)
+      : persisted.env
+        ? environments.find((e) => e.name === persisted.env)
+        : undefined;
+    if (env) selectEnvironment(env.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [environments.length > 0]);
 
@@ -173,16 +180,16 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     (id: string) => {
       setDetail(null);
       selectProject(id);
-      saveState({ projectId: id });
+      saveState({ projectId: id, environmentId: undefined, env: undefined });
     },
     [selectProject]
   );
 
   const handleSelectEnv = useCallback(
-    (name: string) => {
+    (environmentId: string) => {
       setDetail(null);
-      selectEnvironment(name);
-      saveState({ env: name });
+      selectEnvironment(environmentId);
+      saveState({ environmentId, env: undefined });
     },
     [selectEnvironment]
   );
@@ -199,10 +206,10 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   const handleOpenEnv = useCallback(
     (projectId: string, envName: string) => {
       handleSelectProject(projectId);
-      handleSelectEnv(envName);
+      selectEnvironmentByName(envName);
       if (railCollapsed) toggleRail();
     },
-    [handleSelectProject, handleSelectEnv, railCollapsed, toggleRail]
+    [handleSelectProject, railCollapsed, selectEnvironmentByName, toggleRail]
   );
 
   const handleRefresh = useCallback(() => {
@@ -222,7 +229,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     async (name: string) => {
       if (!activeProject) return;
       const { environment: created } = await client.createEnvironment(activeProject.id, { name });
-      selectEnvironment(created.name);
+      selectEnvironment(created.id);
     },
     [client, activeProject, selectEnvironment]
   );
@@ -245,7 +252,8 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   const handleSelectEnvironmentObj = useCallback(
     (env: Environment) => {
-      selectEnvironment(env.name);
+      selectEnvironment(env.id);
+      saveState({ environmentId: env.id, env: undefined });
     },
     [selectEnvironment]
   );

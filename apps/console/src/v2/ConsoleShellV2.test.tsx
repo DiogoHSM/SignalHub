@@ -197,6 +197,37 @@ describe("ConsoleShellV2", () => {
     });
   });
 
+  it("restores the persisted environment by id instead of duplicate names", async () => {
+    const envA = { id: "env_1", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
+    const envB = { id: "env_2", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
+    localStorage.setItem("sh_v2_state", JSON.stringify({ projectId: "prj_1", environmentId: "env_2" }));
+    const getOverview = vi.fn().mockResolvedValue({
+      data: {
+        window: "24h",
+        generatedAt: "",
+        scope: {},
+        range: {},
+        kpis: { events: 0, activeUsers: 0, activeTenants: 0, errors: 0, openErrors: 0, traces: 0, failedTraces: 0, llmCalls: 0, failedLlmCalls: 0, llmInputTokens: 0, llmOutputTokens: 0, llmCostUsd: "0" },
+        trends: { usage: [], errors: [], latency: [], aiCost: [] },
+        top: { events: [], tenantsByUsage: [], tenantsByErrors: [], tenantsByLlmCalls: [], tenantsByLlmCost: [], llmProviders: [], llmModels: [], llmPrompts: [], errorSeverity: [], errorStatus: [] },
+        recent: { errors: [], failedTraces: [], failedLlmCalls: [] }
+      }
+    });
+    render(
+      <ConsoleShellV2
+        client={makeClient({
+          getOverview,
+          listEnvironments: vi.fn().mockResolvedValue({ environments: [envA, envB] })
+        })}
+        user={ADMIN_USER}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getOverview).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "env_2" }));
+    });
+  });
+
   it("⌘K opens command palette and Escape closes it", async () => {
     const user = userEvent.setup();
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);

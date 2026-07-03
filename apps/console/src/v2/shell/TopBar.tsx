@@ -15,7 +15,7 @@ export interface TopBarProps {
   environments: Environment[];
   env: Environment;
   onSelectProject: (id: string) => void;
-  onSelectEnv: (name: string) => void;
+  onSelectEnv: (id: string) => void;
   crumb: BreadcrumbItem[];
   railCollapsed: boolean;
   onToggleRail: () => void;
@@ -42,7 +42,7 @@ function ProjectSwitcher({
   environments: Environment[];
   env: Environment;
   onSelectProject: (id: string) => void;
-  onSelectEnv: (name: string) => void;
+  onSelectEnv: (id: string) => void;
 }) {
   const [open, setOpen] = useState<"project" | "env" | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -117,16 +117,16 @@ function ProjectSwitcher({
               const ee = envItem as WithOptionalStatus<Environment>;
               return (
                 <button
-                  key={envItem.name}
-                  className={`sw-opt ${envItem.name === env.name ? "is-active" : ""}`}
+                  key={envItem.id}
+                  className={`sw-opt ${envItem.id === env.id ? "is-active" : ""}`}
                   onClick={() => {
-                    onSelectEnv(envItem.name);
+                    onSelectEnv(envItem.id);
                     setOpen(null);
                   }}
                 >
                   <StatusDot status={ee.status ?? "idle"} size={7} />
                   <span style={{ flex: 1, textAlign: "left" }}>{envItem.name}</span>
-                  {envItem.name === env.name ? (
+                  {envItem.id === env.id ? (
                     <Icon name="check" size={13} stroke={2.4} style={{ color: "var(--accent)" }} />
                   ) : null}
                 </button>
