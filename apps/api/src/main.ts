@@ -203,6 +203,13 @@ import {
   updateSurvey
 } from "@sigmon/db/repositories/surveys.js";
 import {
+  archiveMessageCampaign,
+  createMessageCampaign,
+  getMessageCampaignResults,
+  listMessageCampaigns,
+  updateMessageCampaign
+} from "@sigmon/db/repositories/message-campaigns.js";
+import {
   getFeedbackWidgetSettings,
   listFeedbackItems,
   updateFeedbackItemStatus,
@@ -700,6 +707,12 @@ const app = await buildApp({
       update: (input) => updateSurvey(db, input),
       archive: (input) => archiveSurvey(db, input)
     },
+    messageCampaigns: {
+      list: (filters) => listMessageCampaigns(db, filters),
+      create: (input) => createMessageCampaign(db, input),
+      update: (input) => updateMessageCampaign(db, input),
+      archive: (input) => archiveMessageCampaign(db, input)
+    },
     feedbackWidget: {
       getSettings: (input) => getFeedbackWidgetSettings(db, input),
       upsertSettings: (input) => upsertFeedbackWidgetSettings(db, input)
@@ -809,6 +822,7 @@ const app = await buildApp({
     getEventFunnel: (filters) => getEventFunnel(db, filters),
     getExperimentResults: (filters) => getExperimentResults(db, filters),
     getSurveyResults: (filters) => getSurveyResults(db, filters),
+    getMessageCampaignResults: (filters) => getMessageCampaignResults(db, filters),
     getNpsResults: (filters) => getNpsResults(db, filters),
     listFeedbackItems: (filters) => listFeedbackItems(db, filters),
     updateFeedbackStatus: (input) => updateFeedbackItemStatus(db, input),

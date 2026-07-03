@@ -99,6 +99,13 @@ import type {
   UpdateSurveyInput
 } from "@sigmon/db/repositories/surveys.js";
 import type {
+  CreateMessageCampaignInput,
+  MessageCampaignChannelType,
+  MessageCampaignRecord,
+  MessageCampaignStatus,
+  UpdateMessageCampaignInput
+} from "@sigmon/db/repositories/message-campaigns.js";
+import type {
   FeedbackWidgetSettings,
   UpsertFeedbackWidgetSettingsInput
 } from "@sigmon/db/repositories/feedback-widget.js";
@@ -191,6 +198,7 @@ export type AdminResourceDependencies = {
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
   experiments?: ExperimentAdministrationDependencies;
   surveys?: SurveyAdministrationDependencies;
+  messageCampaigns?: MessageCampaignAdministrationDependencies;
   feedbackWidget?: FeedbackWidgetAdministrationDependencies;
   featureFlags?: FeatureFlagAdministrationDependencies;
   betaPrograms?: BetaProgramAdministrationDependencies;
@@ -240,6 +248,18 @@ export type SurveyAdministrationDependencies = {
     environmentId: string;
     patch: UpdateSurveyInput;
   }) => Promise<SurveyRecord | null | undefined>;
+  archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
+export type MessageCampaignAdministrationDependencies = {
+  list: (filters: { projectId: string; environmentId: string }) => Promise<MessageCampaignRecord[]>;
+  create: (input: CreateMessageCampaignInput) => Promise<MessageCampaignRecord>;
+  update: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    patch: UpdateMessageCampaignInput;
+  }) => Promise<MessageCampaignRecord | null | undefined>;
   archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
@@ -1022,6 +1042,59 @@ type UpdateSurveyBody = z.infer<typeof updateSurveySchema> & {
   actorType?: SurveyActorType;
   questions?: SurveyQuestion[];
   targeting?: SurveyTargeting;
+};
+
+const messageCampaignStatusSchema = z.enum(["draft", "active", "paused", "archived"]);
+const messageCampaignChannelTypeSchema = z.enum(["email", "webhook", "in_app"]);
+const messageCampaignFieldsSchema = {
+  key: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  status: messageCampaignStatusSchema,
+  channelType: messageCampaignChannelTypeSchema,
+  notificationChannelId: z.string().trim().min(1).max(256).nullable().optional(),
+  segmentId: z.string().trim().min(1).max(256).nullable().optional(),
+  conversionEvent: z.string().trim().min(1).max(256).nullable().optional(),
+  subject: z.string().trim().max(500).nullable().optional(),
+  body: z.string().trim().min(1).max(4000),
+  ctaUrl: z.string().trim().max(2048).nullable().optional(),
+  consentCategory: z.string().trim().max(120).optional(),
+  privacyNote: z.string().trim().max(1000).nullable().optional()
+} satisfies z.ZodRawShape;
+const messageCampaignRequiresChannel = (input: { channelType?: MessageCampaignChannelType; notificationChannelId?: string | null }) =>
+  input.channelType === "in_app" || Boolean(input.notificationChannelId);
+const messageCampaignSchema = z
+  .object({
+    ...messageCampaignFieldsSchema,
+    status: messageCampaignStatusSchema.default("draft"),
+    channelType: messageCampaignChannelTypeSchema.default("email")
+  })
+  .extend({
+    projectId: z.string().trim().min(1),
+    environmentId: z.string().trim().min(1)
+  })
+  .refine(messageCampaignRequiresChannel, {
+    message: "notification_channel_required_for_delivery_channel",
+    path: ["notificationChannelId"]
+  });
+const updateMessageCampaignSchema = z
+  .object({
+    ...messageCampaignFieldsSchema,
+    body: z.string().trim().min(1).max(4000)
+  })
+  .partial()
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" })
+  .refine((input) => input.channelType !== "email" && input.channelType !== "webhook" || input.notificationChannelId !== null, {
+    message: "notification_channel_required_for_delivery_channel",
+    path: ["notificationChannelId"]
+  });
+type CreateMessageCampaignBody = z.infer<typeof messageCampaignSchema> & {
+  status: MessageCampaignStatus;
+  channelType: MessageCampaignChannelType;
+};
+type UpdateMessageCampaignBody = z.infer<typeof updateMessageCampaignSchema> & {
+  status?: MessageCampaignStatus;
+  channelType?: MessageCampaignChannelType;
 };
 
 const feedbackWidgetSchema = z.object({
@@ -2330,6 +2403,116 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(204).send();
     } catch {
       return reply.status(503).send({ error: "surveys_unavailable" });
+    }
+  });
+
+  app.get("/admin/message-campaigns", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.messageCampaigns) {
+      return reply.status(501).send({ error: "message_campaigns_repository_unavailable" });
+    }
+
+    const query = surveyScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_message_campaign_request" });
+    }
+
+    try {
+      const campaigns = await options.adminResources.messageCampaigns.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ campaigns });
+    } catch {
+      return reply.status(503).send({ error: "message_campaigns_unavailable" });
+    }
+  });
+
+  app.post("/admin/message-campaigns", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.messageCampaigns) {
+      return reply.status(501).send({ error: "message_campaigns_repository_unavailable" });
+    }
+
+    const parsed = messageCampaignSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_message_campaign_request" });
+    }
+
+    try {
+      const campaign = await options.adminResources.messageCampaigns.create(parsed.data as CreateMessageCampaignBody);
+      return reply.status(201).send({ campaign });
+    } catch {
+      return reply.status(503).send({ error: "message_campaigns_unavailable" });
+    }
+  });
+
+  app.patch("/admin/message-campaigns/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.messageCampaigns) {
+      return reply.status(501).send({ error: "message_campaigns_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = surveyScopeQuerySchema.safeParse(request.query);
+    const parsed = updateMessageCampaignSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_message_campaign_request" });
+    }
+
+    try {
+      const campaign = await options.adminResources.messageCampaigns.update({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        patch: parsed.data as UpdateMessageCampaignBody
+      });
+      if (!campaign) {
+        return reply.status(404).send({ error: "message_campaign_not_found" });
+      }
+      return reply.send({ campaign });
+    } catch {
+      return reply.status(503).send({ error: "message_campaigns_unavailable" });
+    }
+  });
+
+  app.delete("/admin/message-campaigns/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.messageCampaigns) {
+      return reply.status(501).send({ error: "message_campaigns_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = surveyScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_message_campaign_request" });
+    }
+
+    try {
+      await options.adminResources.messageCampaigns.archive({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "message_campaigns_unavailable" });
     }
   });
 

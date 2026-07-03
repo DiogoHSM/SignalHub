@@ -9,6 +9,8 @@ import type {
   Experiment,
   ExperimentResultsResponse,
   FeatureFlag,
+  MessageCampaign,
+  MessageCampaignResultsResponse,
   NpsResultsResponse,
   Survey,
   SurveyResultsResponse
@@ -182,6 +184,58 @@ const npsResults: NpsResultsResponse = {
   recentResponses: []
 };
 
+const campaign: MessageCampaign = {
+  id: "cmp_1",
+  projectId: "prj_1",
+  environmentId: "env_1",
+  key: "invoice_activation",
+  name: "Invoice activation",
+  description: null,
+  status: "active",
+  channelType: "in_app",
+  notificationChannelId: null,
+  segmentId: "seg_1",
+  conversionEvent: "invoice.paid",
+  subject: "Create your first invoice",
+  body: "Create your first invoice to finish onboarding.",
+  ctaUrl: "https://app.example.com/invoices",
+  consentCategory: "product",
+  privacyNote: "Respects Sigmon campaign opt-outs.",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null
+};
+
+const campaignResults: MessageCampaignResultsResponse = {
+  campaign,
+  window: "30d",
+  totals: {
+    queued: 1,
+    sent: 1,
+    delivered: 1,
+    opened: 1,
+    clicked: 1,
+    converted: 1,
+    failed: 0,
+    optedOut: 0,
+    uniqueActors: 1
+  },
+  rates: { deliveryRate: 100, openRate: 100, clickRate: 100, conversionRate: 100, optOutRate: 0 },
+  recentEvents: [
+    {
+      id: "cme_1",
+      campaignId: "cmp_1",
+      type: "converted",
+      actorType: "user",
+      actorId: "user_1",
+      tenantId: "tenant_1",
+      userId: "user_1",
+      occurredAt: "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  optOuts: []
+};
+
 function client(overrides: Partial<ApiClient>): ApiClient {
   return {
     listEvents: vi.fn().mockResolvedValue({ data: [] }),
@@ -207,6 +261,11 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     archiveSurvey: vi.fn().mockResolvedValue(undefined),
     getSurveyResults: vi.fn().mockResolvedValue({ data: surveyResults }),
     getNpsResults: vi.fn().mockResolvedValue({ data: npsResults }),
+    listMessageCampaigns: vi.fn().mockResolvedValue({ campaigns: [] }),
+    createMessageCampaign: vi.fn().mockResolvedValue({ campaign }),
+    updateMessageCampaign: vi.fn().mockResolvedValue({ campaign }),
+    archiveMessageCampaign: vi.fn().mockResolvedValue(undefined),
+    getMessageCampaignResults: vi.fn().mockResolvedValue({ data: campaignResults }),
     ...overrides
   } as ApiClient;
 }
@@ -406,6 +465,41 @@ describe("ExperimentsPanel", () => {
           expect.objectContaining({ id: "nps", type: "rating", scale: { min: 0, max: 10, minLabel: "Not likely", maxLabel: "Very likely" } }),
           expect.objectContaining({ id: "comment", type: "text" })
         ]
+      })
+    );
+  });
+
+  it("loads message campaigns, creates one, and shows delivery results", async () => {
+    const user = userEvent.setup();
+    const createMessageCampaign = vi.fn().mockResolvedValue({ campaign: { ...campaign, id: "cmp_2", name: "Invoice activation v2" } });
+    const api = client({
+      listMessageCampaigns: vi.fn().mockResolvedValue({ campaigns: [campaign] }),
+      getMessageCampaignResults: vi.fn().mockResolvedValue({ data: campaignResults }),
+      createMessageCampaign
+    });
+
+    render(<ExperimentsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const campaignsRegion = await screen.findByRole("region", { name: "Message campaigns" });
+    expect(within(campaignsRegion).getByLabelText("Campaign")).toHaveValue("cmp_1");
+    await waitFor(() => expect(within(campaignsRegion).getAllByText("100.0%")[0]).toBeInTheDocument());
+    expect(within(campaignsRegion).getByRole("row", { name: /converted/ })).toHaveTextContent("tenant_1");
+
+    await user.clear(within(campaignsRegion).getByLabelText("Campaign key"));
+    await user.type(within(campaignsRegion).getByLabelText("Campaign key"), "invoice_activation_v2");
+    await user.clear(within(campaignsRegion).getByLabelText("Campaign name"));
+    await user.type(within(campaignsRegion).getByLabelText("Campaign name"), "Invoice activation v2");
+    await user.click(within(campaignsRegion).getByRole("button", { name: "Create campaign" }));
+
+    expect(createMessageCampaign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "invoice_activation_v2",
+        name: "Invoice activation v2",
+        channelType: "in_app",
+        notificationChannelId: null,
+        consentCategory: "product"
       })
     );
   });

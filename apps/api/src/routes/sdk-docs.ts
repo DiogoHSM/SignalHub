@@ -715,7 +715,7 @@ await sigmon.flush();</code></pre>
           </section>
 
           <section id="experiments">
-            <h2>Experiments, flags, and surveys</h2>
+            <h2>Experiments, flags, surveys, and campaigns</h2>
             <p>
               Sigmon experiments are derived from normal event telemetry. Create the experiment in the
               console, use the SDK to assign a stable subject to a weighted variant, and keep
@@ -851,6 +851,34 @@ if (flag.value === true) {
               console, submit an answer keyed as <code>nps</code> on the 0-10 scale, and read
               <code>GET /query/surveys/:id/nps</code> for score, trend, and tenant/release/plan
               segments.
+            </div>
+            <h3>Message campaigns</h3>
+            <p>
+              Message campaigns are currently definition and measurement primitives. Create or update
+              campaign definitions in the console or admin API, then emit campaign lifecycle events
+              with <code>track()</code> so Sigmon can measure delivery, opens, clicks, conversions,
+              failures, and opt-outs without owning your sending provider.
+            </p>
+            <pre><code>sigmon.track("sigmon.campaign.delivered", {
+  campaign_id: "cmp_invoice_activation",
+  campaign_key: "invoice_activation",
+  campaign_event: "delivered"
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});
+
+sigmon.track("invoice.paid", {
+  campaign_id: "cmp_invoice_activation"
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456"
+});</code></pre>
+            <div class="callout">
+              Use the API reference for <code>/admin/message-campaigns</code> and
+              <code>/query/message-campaigns/:id/results</code>. Native scheduled sending is deferred;
+              email and webhook campaigns should point to an existing notification channel or an
+              external delivery workflow.
             </div>
             <h3>Feedback widget</h3>
             <p>

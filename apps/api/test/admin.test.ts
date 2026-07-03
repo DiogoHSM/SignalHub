@@ -18,6 +18,7 @@ import type {
   BetaProgramRecord
 } from "../../../packages/db/src/repositories/beta-programs.js";
 import type { SurveyRecord } from "../../../packages/db/src/repositories/surveys.js";
+import type { MessageCampaignRecord } from "../../../packages/db/src/repositories/message-campaigns.js";
 import type { DataGovernancePolicy } from "../../../packages/db/src/repositories/data-governance.js";
 import type {
   WarehouseDestinationRecord,
@@ -197,6 +198,41 @@ function survey(overrides: Partial<SurveyRecord> = {}): SurveyRecord {
 function surveyResponse(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     ...survey(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function messageCampaign(overrides: Partial<MessageCampaignRecord> = {}): MessageCampaignRecord {
+  return {
+    id: "cmp_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "invoice_activation",
+    name: "Invoice activation",
+    description: null,
+    status: "active",
+    channelType: "email",
+    notificationChannelId: "chn_1",
+    segmentId: "seg_1",
+    conversionEvent: "invoice.paid",
+    subject: "Create your first invoice",
+    body: "Invite tenants to finish onboarding.",
+    ctaUrl: "https://app.example.com/invoices",
+    consentCategory: "product",
+    privacyNote: "Only opted-in contacts.",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function messageCampaignResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...messageCampaign(),
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: null,
@@ -1491,6 +1527,81 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_survey_request" });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages message campaigns for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [messageCampaign()]);
+    const create = vi.fn(async (input) => messageCampaign(input));
+    const update = vi.fn(async (input) => messageCampaign({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        messageCampaigns: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/message-campaigns?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ campaigns: [messageCampaignResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/message-campaigns",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "invoice_activation",
+        name: "Invoice activation",
+        status: "active",
+        channelType: "email",
+        notificationChannelId: "chn_1",
+        segmentId: "seg_1",
+        conversionEvent: "invoice.paid",
+        subject: "Create your first invoice",
+        body: "Invite tenants to finish onboarding.",
+        ctaUrl: "https://app.example.com/invoices",
+        consentCategory: "product",
+        privacyNote: "Only opted-in contacts."
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "invoice_activation",
+        channelType: "email",
+        notificationChannelId: "chn_1",
+        consentCategory: "product"
+      })
+    );
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/message-campaigns/cmp_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "cmp_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/message-campaigns/cmp_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "cmp_1", projectId: "prj_1", environmentId: "env_1" });
   });
 
   it("manages feedback widget settings for a scoped environment", async () => {

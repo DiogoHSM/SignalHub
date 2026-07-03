@@ -79,6 +79,10 @@ export type SurveyResultFilters = ApmFilters & {
   surveyId: string;
 };
 
+export type MessageCampaignResultFilters = ApmFilters & {
+  campaignId: string;
+};
+
 export type NpsResultFilters = SurveyResultFilters & {
   questionId?: string;
   tenantId?: string;
@@ -224,6 +228,7 @@ export type QueryDependencies = {
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
   getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
   getSurveyResults?: (filters: SurveyResultFilters) => Promise<unknown | null>;
+  getMessageCampaignResults?: (filters: MessageCampaignResultFilters) => Promise<unknown | null>;
   getNpsResults?: (filters: NpsResultFilters) => Promise<unknown | null>;
   listFeedbackItems?: (filters: FeedbackListFilters) => Promise<unknown>;
   updateFeedbackStatus?: (input: FeedbackListFilters & { id: string; status: "open" | "reviewed" | "archived" }) => Promise<unknown | null>;
@@ -898,6 +903,19 @@ function parseSurveyResultFilters(params: unknown, query: unknown): SurveyResult
   return {
     ...base,
     surveyId: parsedParams.data.id
+  };
+}
+
+function parseMessageCampaignResultFilters(params: unknown, query: unknown): MessageCampaignResultFilters | undefined {
+  const parsedParams = experimentParamsSchema.safeParse(params);
+  const base = parseApmFilters(query);
+  if (!parsedParams.success || !base) {
+    return undefined;
+  }
+
+  return {
+    ...base,
+    campaignId: parsedParams.data.id
   };
 }
 
@@ -1808,6 +1826,32 @@ async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyR
   }
 }
 
+async function handleMessageCampaignResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getMessageCampaignResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseMessageCampaignResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getMessageCampaignResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "message_campaign_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleNpsResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -2676,6 +2720,8 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/experiments/:id/results", (request, reply) => handleExperimentResultsRoute(request, reply, options));
   app.get("/query/surveys/:id/results", (request, reply) => handleSurveyResultsRoute(request, reply, options));
   app.get("/query/surveys/:id/nps", (request, reply) => handleNpsResultsRoute(request, reply, options));
+  app.get("/query/message-campaigns/:id/results", (request, reply) =>
+    handleMessageCampaignResultsRoute(request, reply, options));
   app.get("/query/feedback", (request, reply) => handleFeedbackListRoute(request, reply, options));
   app.patch("/query/feedback/:id", (request, reply) => handleFeedbackStatusRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));

@@ -135,6 +135,8 @@ SignalMonitor includes an admin-only Integration Console.
 - In-app Surveys live in the same Experiments workspace for now. Operators can create rating-style prompts with optional trigger event and tenant targeting, pause/activate/archive definitions, and read response totals, per-question summaries, and recent answers without leaving the selected project/environment.
 - Survey controls should make units and linkage explicit: answers are keyed by question id, browser submission uses the project browser-origin allowlist, and response reports are derived from `POST /v1/surveys/responses` / SDK `submitSurvey`.
 - NPS tracking lives beside Surveys as a standard campaign shortcut. Operators can create a 0-10 NPS campaign and read score, promoter/passive/detractor counts, trend buckets, and tenant/release/plan segments without leaving Experiments.
+- Message Campaigns live beside Surveys in Experiments. Operators can define an in-app, email, or webhook campaign, link it to an optional analytics segment and notification channel, pause/activate/archive it, and inspect delivery, open, click, conversion, opt-out, and recent event metrics.
+- Campaign UI copy must make the current product decision clear: Sigmon stores definitions and measures campaign events, while automated outbound sending is deferred. Email and webhook campaigns must ask for an existing notification channel id; in-app campaigns can be definition-only.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Feedback UX

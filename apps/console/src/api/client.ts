@@ -26,6 +26,7 @@ import type {
   CreateBetaProgramInput,
   CreateExperimentInput,
   CreateFeatureFlagInput,
+  CreateMessageCampaignInput,
   CreateSurveyInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
@@ -68,6 +69,9 @@ import type {
   EventRetentionResponse,
   LlmAggregates,
   LlmCallRecord,
+  MessageCampaign,
+  MessageCampaignResultsQuery,
+  MessageCampaignResultsResponse,
   MonitorCheckResponse,
   MonitorListQuery,
   MonitorResponse,
@@ -120,6 +124,7 @@ import type {
   UpdateExperimentInput,
   UpdateFeatureFlagInput,
   UpdateFeedbackWidgetSettingsInput,
+  UpdateMessageCampaignInput,
   UpdateSurveyInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
@@ -362,6 +367,15 @@ export type ApiClient = {
   archiveSurvey?: (id: string, query: Pick<CreateSurveyInput, "projectId" | "environmentId">) => Promise<void>;
   getSurveyResults?: (query: SurveyResultsQuery) => Promise<AggregateResponse<SurveyResultsResponse>>;
   getNpsResults?: (query: NpsResultsQuery) => Promise<AggregateResponse<NpsResultsResponse>>;
+  listMessageCampaigns?: (query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">) => Promise<{ campaigns: MessageCampaign[] }>;
+  createMessageCampaign?: (input: CreateMessageCampaignInput) => Promise<{ campaign: MessageCampaign }>;
+  updateMessageCampaign?: (
+    id: string,
+    query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">,
+    input: UpdateMessageCampaignInput
+  ) => Promise<{ campaign: MessageCampaign }>;
+  archiveMessageCampaign?: (id: string, query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">) => Promise<void>;
+  getMessageCampaignResults?: (query: MessageCampaignResultsQuery) => Promise<AggregateResponse<MessageCampaignResultsResponse>>;
   getFeedbackWidgetSettings?: (query: Pick<UpdateFeedbackWidgetSettingsInput, "projectId" | "environmentId">) => Promise<{ settings: FeedbackWidgetSettings }>;
   updateFeedbackWidgetSettings?: (input: UpdateFeedbackWidgetSettingsInput) => Promise<{ settings: FeedbackWidgetSettings }>;
   listFeedbackItems?: (query: FeedbackListQuery) => Promise<{ feedback: FeedbackItem[] }>;
@@ -961,6 +975,32 @@ function surveyResultsPath(query: SurveyResultsQuery): string {
   return `/query/surveys/${encodePathSegment(query.surveyId)}/results?${params.toString()}`;
 }
 
+function messageCampaignsPath(query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/message-campaigns?${params.toString()}`;
+}
+
+function messageCampaignScopedPath(id: string, query: Pick<CreateMessageCampaignInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/message-campaigns/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function messageCampaignResultsPath(query: MessageCampaignResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/message-campaigns/${encodePathSegment(query.campaignId)}/results?${params.toString()}`;
+}
+
 function npsResultsPath(query: NpsResultsQuery): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -1332,6 +1372,19 @@ export function createApiClient(
       request<AggregateResponse<SurveyResultsResponse>>(path(apiBasePath, surveyResultsPath(query))),
     getNpsResults: (query) =>
       request<AggregateResponse<NpsResultsResponse>>(path(apiBasePath, npsResultsPath(query))),
+    listMessageCampaigns: (query) =>
+      request<{ campaigns: MessageCampaign[] }>(path(apiBasePath, messageCampaignsPath(query))),
+    createMessageCampaign: (input) =>
+      request<{ campaign: MessageCampaign }>(path(apiBasePath, "/admin/message-campaigns"), { method: "POST", body: input }),
+    updateMessageCampaign: (id, query, input) =>
+      request<{ campaign: MessageCampaign }>(path(apiBasePath, messageCampaignScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveMessageCampaign: (id, query) =>
+      request<void>(path(apiBasePath, messageCampaignScopedPath(id, query)), { method: "DELETE" }),
+    getMessageCampaignResults: (query) =>
+      request<AggregateResponse<MessageCampaignResultsResponse>>(path(apiBasePath, messageCampaignResultsPath(query))),
     getFeedbackWidgetSettings: (query) =>
       request<{ settings: FeedbackWidgetSettings }>(path(apiBasePath, feedbackWidgetPath(query))),
     updateFeedbackWidgetSettings: (input) =>

@@ -7,6 +7,9 @@ import type {
   Experiment,
   ExperimentResultsResponse,
   FeatureFlag,
+  MessageCampaign,
+  MessageCampaignChannelType,
+  MessageCampaignResultsResponse,
   NpsResultsResponse,
   Survey,
   SurveyResultsResponse
@@ -47,6 +50,19 @@ const defaultSurveyDraft = {
   question: "How satisfied are you with this workflow?",
   triggerEvent: "",
   targetTenantId: ""
+};
+
+const defaultCampaignDraft = {
+  key: "invoice_activation",
+  name: "Invoice activation",
+  channelType: "in_app" as MessageCampaignChannelType,
+  notificationChannelId: "",
+  segmentId: "",
+  conversionEvent: "invoice.paid",
+  subject: "",
+  body: "Create your first invoice to finish onboarding.",
+  ctaUrl: "",
+  consentCategory: "product"
 };
 
 function formatPercent(value: number): string {
@@ -103,26 +119,32 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const [flagDraft, setFlagDraft] = useState(defaultFlagDraft);
   const [betaDraft, setBetaDraft] = useState(defaultBetaDraft);
   const [surveyDraft, setSurveyDraft] = useState(defaultSurveyDraft);
+  const [campaignDraft, setCampaignDraft] = useState(defaultCampaignDraft);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [betaPrograms, setBetaPrograms] = useState<BetaProgram[]>([]);
   const [surveys, setSurveys] = useState<Survey[]>([]);
+  const [campaigns, setCampaigns] = useState<MessageCampaign[]>([]);
   const [betaParticipants, setBetaParticipants] = useState<BetaProgramParticipant[]>([]);
   const [betaAdoption, setBetaAdoption] = useState<BetaProgramAdoption | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [selectedBetaId, setSelectedBetaId] = useState("");
   const [selectedSurveyId, setSelectedSurveyId] = useState("");
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [results, setResults] = useState<ExperimentResultsResponse | null>(null);
   const [surveyResults, setSurveyResults] = useState<SurveyResultsResponse | null>(null);
+  const [campaignResults, setCampaignResults] = useState<MessageCampaignResultsResponse | null>(null);
   const [npsResults, setNpsResults] = useState<NpsResultsResponse | null>(null);
   const [state, setState] = useState<LoadState>("idle");
   const [flagsState, setFlagsState] = useState<LoadState>("idle");
   const [betaState, setBetaState] = useState<LoadState>("idle");
   const [surveyState, setSurveyState] = useState<LoadState>("idle");
+  const [campaignState, setCampaignState] = useState<LoadState>("idle");
   const [error, setError] = useState("");
   const [flagError, setFlagError] = useState("");
   const [betaError, setBetaError] = useState("");
   const [surveyError, setSurveyError] = useState("");
+  const [campaignError, setCampaignError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -201,6 +223,43 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
 
   useEffect(() => {
     if (!projectId || !environmentId) {
+      setCampaigns([]);
+      setSelectedCampaignId("");
+      setCampaignResults(null);
+      setCampaignState("idle");
+      return;
+    }
+    if (!client.listMessageCampaigns) {
+      setCampaignState("unavailable");
+      return;
+    }
+
+    let cancelled = false;
+    setCampaignState("loading");
+    setCampaignError("");
+    void client.listMessageCampaigns({ projectId, environmentId }).then(
+      ({ campaigns: rows }) => {
+        if (cancelled) return;
+        setCampaigns(rows);
+        setSelectedCampaignId((current) => (rows.some((row) => row.id === current) ? current : rows[0]?.id ?? ""));
+        setCampaignState(rows.length > 0 ? "ready" : "empty");
+      },
+      () => {
+        if (cancelled) return;
+        setCampaigns([]);
+        setSelectedCampaignId("");
+        setCampaignResults(null);
+        setCampaignState("unavailable");
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, reloadToken]);
+
+  useEffect(() => {
+    if (!projectId || !environmentId) {
       setFlags([]);
       setFlagsState("idle");
       return;
@@ -269,6 +328,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const selected = useMemo(() => experiments.find((experiment) => experiment.id === selectedId) ?? null, [experiments, selectedId]);
   const selectedBeta = useMemo(() => betaPrograms.find((program) => program.id === selectedBetaId) ?? null, [betaPrograms, selectedBetaId]);
   const selectedSurvey = useMemo(() => surveys.find((survey) => survey.id === selectedSurveyId) ?? null, [surveys, selectedSurveyId]);
+  const selectedCampaign = useMemo(() => campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null, [campaigns, selectedCampaignId]);
   const selectedSurveyIsNps = isNpsSurvey(selectedSurvey);
 
   useEffect(() => {
@@ -321,6 +381,25 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
       cancelled = true;
     };
   }, [client, environmentId, projectId, selectedSurvey, selectedSurveyIsNps]);
+
+  useEffect(() => {
+    if (!projectId || !environmentId || !selectedCampaign || !client.getMessageCampaignResults) {
+      setCampaignResults(null);
+      return;
+    }
+    let cancelled = false;
+    void client.getMessageCampaignResults({ projectId, environmentId, campaignId: selectedCampaign.id, window: "30d", limit: 25 }).then(
+      ({ data }) => {
+        if (!cancelled) setCampaignResults(data);
+      },
+      () => {
+        if (!cancelled) setCampaignResults(null);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selectedCampaign]);
 
   useEffect(() => {
     if (!projectId || !environmentId || !selectedBeta) {
@@ -493,6 +572,53 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
     setSurveys((current) => current.filter((row) => row.id !== survey.id));
     setSelectedSurveyId((current) => (current === survey.id ? surveys.find((row) => row.id !== survey.id)?.id ?? "" : current));
     setSurveyState((current) => (surveys.length <= 1 ? "empty" : current));
+  }
+
+  async function createMessageCampaign() {
+    if (!projectId || !environmentId || !client.createMessageCampaign) return;
+    if (!campaignDraft.key.trim() || !campaignDraft.name.trim() || !campaignDraft.body.trim()) {
+      setCampaignError("Campaign key, name, and message body are required.");
+      return;
+    }
+    if ((campaignDraft.channelType === "email" || campaignDraft.channelType === "webhook") && !campaignDraft.notificationChannelId.trim()) {
+      setCampaignError("Email and webhook campaigns require a notification channel id.");
+      return;
+    }
+    setCampaignError("");
+    const response = await client.createMessageCampaign({
+      projectId,
+      environmentId,
+      key: campaignDraft.key,
+      name: campaignDraft.name,
+      status: "active",
+      channelType: campaignDraft.channelType,
+      notificationChannelId: campaignDraft.channelType === "in_app" ? null : campaignDraft.notificationChannelId.trim(),
+      segmentId: campaignDraft.segmentId.trim() || null,
+      conversionEvent: campaignDraft.conversionEvent.trim() || null,
+      subject: campaignDraft.subject.trim() || null,
+      body: campaignDraft.body,
+      ctaUrl: campaignDraft.ctaUrl.trim() || null,
+      consentCategory: campaignDraft.consentCategory.trim() || "product",
+      privacyNote: "Respects Sigmon campaign opt-outs and project data-governance rules."
+    });
+    setCampaigns((current) => [response.campaign, ...current]);
+    setSelectedCampaignId(response.campaign.id);
+    setCampaignState("ready");
+  }
+
+  async function pauseMessageCampaign(campaign: MessageCampaign) {
+    if (!projectId || !environmentId || !client.updateMessageCampaign) return;
+    const nextStatus = campaign.status === "active" ? "paused" : "active";
+    const response = await client.updateMessageCampaign(campaign.id, { projectId, environmentId }, { status: nextStatus });
+    setCampaigns((current) => current.map((row) => (row.id === campaign.id ? response.campaign : row)));
+  }
+
+  async function archiveMessageCampaign(campaign: MessageCampaign) {
+    if (!projectId || !environmentId || !client.archiveMessageCampaign) return;
+    await client.archiveMessageCampaign(campaign.id, { projectId, environmentId });
+    setCampaigns((current) => current.filter((row) => row.id !== campaign.id));
+    setSelectedCampaignId((current) => (current === campaign.id ? campaigns.find((row) => row.id !== campaign.id)?.id ?? "" : current));
+    setCampaignState((current) => (campaigns.length <= 1 ? "empty" : current));
   }
 
   async function pauseFlag(flag: FeatureFlag) {
@@ -934,6 +1060,264 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                 </>
               ) : (
                 <p className="muted-text">Select a survey to inspect response quality, actors, and recent answers.</p>
+              )}
+            </article>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="experiments-readout" aria-label="Message campaigns">
+        <div className="panel-header">
+          <h2>Message campaigns</h2>
+          <span>{campaigns.length} definitions</span>
+        </div>
+        <p className="muted-text">
+          Define product messaging campaigns tied to existing segments and notification channels. Delivery is intentionally measured from campaign events,
+          and opt-out controls stay visible before any full automation layer.
+        </p>
+
+        <div className="experiments-form">
+          <label>
+            Campaign key
+            <span>Stable key used when emitting campaign events.</span>
+            <input
+              aria-label="Campaign key"
+              value={campaignDraft.key}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, key: event.target.value }))}
+            />
+          </label>
+          <label>
+            Campaign name
+            <span>Operator-facing name for this message.</span>
+            <input
+              aria-label="Campaign name"
+              value={campaignDraft.name}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, name: event.target.value }))}
+            />
+          </label>
+          <label>
+            Channel
+            <span>In-app is definition-only; email/webhook require an existing notification channel id.</span>
+            <select
+              aria-label="Campaign channel"
+              value={campaignDraft.channelType}
+              onChange={(event) =>
+                setCampaignDraft((current) => ({ ...current, channelType: event.target.value as MessageCampaignChannelType }))
+              }
+            >
+              <option value="in_app">In-app</option>
+              <option value="email">Email</option>
+              <option value="webhook">Webhook</option>
+            </select>
+          </label>
+          <label>
+            Notification channel id
+            <span>Required for email or webhook delivery.</span>
+            <input
+              aria-label="Campaign notification channel"
+              value={campaignDraft.notificationChannelId}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, notificationChannelId: event.target.value }))}
+            />
+          </label>
+          <label>
+            Segment id
+            <span>Optional analytics segment that defines the target audience.</span>
+            <input
+              aria-label="Campaign segment"
+              value={campaignDraft.segmentId}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, segmentId: event.target.value }))}
+            />
+          </label>
+          <label>
+            Conversion event
+            <span>Event counted as business impact for this campaign.</span>
+            <input
+              aria-label="Campaign conversion event"
+              value={campaignDraft.conversionEvent}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, conversionEvent: event.target.value }))}
+            />
+          </label>
+          <label>
+            Subject
+            <span>Optional email or in-app heading.</span>
+            <input
+              aria-label="Campaign subject"
+              value={campaignDraft.subject}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, subject: event.target.value }))}
+            />
+          </label>
+          <label>
+            CTA URL
+            <span>Optional destination used by click tracking.</span>
+            <input
+              aria-label="Campaign CTA URL"
+              value={campaignDraft.ctaUrl}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, ctaUrl: event.target.value }))}
+            />
+          </label>
+          <label>
+            Consent category
+            <span>Opt-out bucket, for example product or marketing.</span>
+            <input
+              aria-label="Campaign consent category"
+              value={campaignDraft.consentCategory}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, consentCategory: event.target.value }))}
+            />
+          </label>
+          <label className="experiments-form__wide">
+            Message body
+            <span>Short copy shown or sent by the integration layer.</span>
+            <textarea
+              aria-label="Campaign body"
+              value={campaignDraft.body}
+              onChange={(event) => setCampaignDraft((current) => ({ ...current, body: event.target.value }))}
+            />
+          </label>
+          <button type="button" onClick={() => void createMessageCampaign()}>
+            Create campaign
+          </button>
+        </div>
+
+        {campaignError ? <p className="status-box unavailable">{campaignError}</p> : null}
+        {campaignState === "loading" ? <p className="muted-text">Loading message campaigns</p> : null}
+        {campaignState === "unavailable" ? (
+          <div className="status-box unavailable">
+            <strong>Message campaigns unavailable</strong>
+            <button type="button" onClick={() => setReloadToken((current) => current + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {campaignState === "empty" ? <p className="muted-text">No campaigns yet. Create one, then emit campaign events to measure delivery and impact.</p> : null}
+
+        {campaigns.length > 0 ? (
+          <div className="experiments-panel__grid">
+            <article>
+              <label className="experiments-picker">
+                Campaign
+                <span>Messaging definition configured for this environment.</span>
+                <select aria-label="Campaign" value={selectedCampaignId} onChange={(event) => setSelectedCampaignId(event.target.value)}>
+                  {campaigns.map((campaign) => (
+                    <option key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {selectedCampaign ? (
+                <>
+                  <div className="experiments-summary" aria-label="Campaign summary">
+                    <div>
+                      <span>Status</span>
+                      <strong>{selectedCampaign.status}</strong>
+                    </div>
+                    <div>
+                      <span>Channel</span>
+                      <strong>{selectedCampaign.channelType}</strong>
+                    </div>
+                    <div>
+                      <span>Conversion</span>
+                      <strong>{selectedCampaign.conversionEvent ?? "not set"}</strong>
+                    </div>
+                    <div>
+                      <span>Consent</span>
+                      <strong>{selectedCampaign.consentCategory}</strong>
+                    </div>
+                  </div>
+                  <p className="muted-text">{selectedCampaign.privacyNote ?? "Campaign results respect stored opt-outs and data-governance rules."}</p>
+                  <div className="experiments-row-actions">
+                    <button type="button" onClick={() => void pauseMessageCampaign(selectedCampaign)}>
+                      {selectedCampaign.status === "active" ? "Pause campaign" : "Activate campaign"}
+                    </button>
+                    <button type="button" onClick={() => void archiveMessageCampaign(selectedCampaign)}>
+                      Archive campaign
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </article>
+
+            <article>
+              <div className="panel-header">
+                <h3>Campaign results</h3>
+                <span>{campaignResults ? `${campaignResults.window} window` : "No report"}</span>
+              </div>
+              {campaignResults ? (
+                <>
+                  <div className="experiments-summary" aria-label="Campaign result totals">
+                    <div>
+                      <span>Delivered</span>
+                      <strong>{campaignResults.totals.delivered}</strong>
+                    </div>
+                    <div>
+                      <span>Opened</span>
+                      <strong>{campaignResults.totals.opened}</strong>
+                    </div>
+                    <div>
+                      <span>Clicked</span>
+                      <strong>{campaignResults.totals.clicked}</strong>
+                    </div>
+                    <div>
+                      <span>Converted</span>
+                      <strong>{campaignResults.totals.converted}</strong>
+                    </div>
+                    <div>
+                      <span>Opt-outs</span>
+                      <strong>{campaignResults.totals.optedOut}</strong>
+                    </div>
+                  </div>
+                  <div className="experiments-summary" aria-label="Campaign rates">
+                    <div>
+                      <span>Delivery</span>
+                      <strong>{formatPercent(campaignResults.rates.deliveryRate)}</strong>
+                    </div>
+                    <div>
+                      <span>Open</span>
+                      <strong>{formatPercent(campaignResults.rates.openRate)}</strong>
+                    </div>
+                    <div>
+                      <span>Click</span>
+                      <strong>{formatPercent(campaignResults.rates.clickRate)}</strong>
+                    </div>
+                    <div>
+                      <span>Conversion</span>
+                      <strong>{formatPercent(campaignResults.rates.conversionRate)}</strong>
+                    </div>
+                    <div>
+                      <span>Opt-out</span>
+                      <strong>{formatPercent(campaignResults.rates.optOutRate)}</strong>
+                    </div>
+                  </div>
+                  <div className="experiments-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Occurred</th>
+                          <th>Type</th>
+                          <th>Actor</th>
+                          <th>Tenant</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {campaignResults.recentEvents.map((event) => (
+                          <tr key={event.id}>
+                            <th scope="row">{new Date(event.occurredAt).toLocaleString()}</th>
+                            <td>{event.type}</td>
+                            <td>
+                              {event.actorType} {event.actorId ?? "anonymous"}
+                            </td>
+                            <td>{event.tenantId ?? "none"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {campaignResults.recentEvents.length === 0 ? <p className="muted-text">No campaign events in this window yet.</p> : null}
+                  {campaignResults.optOuts.length > 0 ? <p className="muted-text">{campaignResults.optOuts.length} opt-out records apply to this campaign or category.</p> : null}
+                </>
+              ) : (
+                <p className="muted-text">Select a campaign to inspect delivery, engagement, conversions, and opt-outs.</p>
               )}
             </article>
           </div>

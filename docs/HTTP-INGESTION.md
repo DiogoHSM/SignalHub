@@ -760,6 +760,36 @@ pnpm source-maps:upload \
 
 Use `--timeout-ms` or `SIGMON_UPLOAD_TIMEOUT_MS` when CI needs a non-default upload timeout.
 
+## Message campaigns
+
+Campaign definitions and results are managed through the session-authenticated admin/query API, not the ingestion key:
+
+- `POST /admin/message-campaigns`
+- `GET /admin/message-campaigns`
+- `PATCH /admin/message-campaigns/:id`
+- `DELETE /admin/message-campaigns/:id`
+- `GET /query/message-campaigns/:id/results`
+
+The first native campaign slice is measurement-first. Sigmon stores the definition, target segment, delivery channel reference, consent category, opt-out records, and engagement metrics, but it does not send scheduled outbound messages by itself yet. Emit delivery and engagement lifecycle events from your app or delivery workflow as normal events:
+
+```bash
+curl -i https://sigmon.example.com/v1/events \
+  -H "Authorization: Bearer sh_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "sigmon.campaign.delivered",
+    "tenant_id": "tenant_123",
+    "user_id": "user_456",
+    "properties": {
+      "campaign_id": "cmp_invoice_activation",
+      "campaign_key": "invoice_activation",
+      "campaign_event": "delivered"
+    }
+  }'
+```
+
+Use the campaign `conversionEvent` as the business outcome, for example `invoice.paid`, and include the campaign id or key in event properties when your product can attribute it.
+
 ## Production Smoke Tests
 
 Validate credentials before asking a code agent to instrument a product:

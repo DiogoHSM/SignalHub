@@ -238,6 +238,64 @@ export interface SurveyResponsesTable {
   received_at: Timestamp;
 }
 
+export type MessageCampaignStatus = "draft" | "active" | "paused" | "archived";
+export type MessageCampaignChannelType = "email" | "webhook" | "in_app";
+export type MessageCampaignEventType = "queued" | "sent" | "delivered" | "opened" | "clicked" | "converted" | "failed" | "opted_out";
+export type MessageCampaignActorType = "user" | "tenant" | "session" | "anonymous";
+
+export interface MessageCampaignsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<MessageCampaignStatus, MessageCampaignStatus | undefined, MessageCampaignStatus>;
+  channel_type: ColumnType<MessageCampaignChannelType, MessageCampaignChannelType | undefined, MessageCampaignChannelType>;
+  notification_channel_id: string | null;
+  segment_id: string | null;
+  conversion_event: string | null;
+  subject: string | null;
+  body: string;
+  cta_url: string | null;
+  consent_category: string;
+  privacy_note: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface MessageCampaignEventsTable {
+  id: string;
+  campaign_id: string;
+  project_id: string;
+  environment_id: string;
+  type: MessageCampaignEventType;
+  actor_type: ColumnType<MessageCampaignActorType, MessageCampaignActorType | undefined, MessageCampaignActorType>;
+  actor_id: string | null;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  release: string | null;
+  source: string | null;
+  metadata: JsonColumn;
+  occurred_at: Timestamp;
+  received_at: Timestamp;
+}
+
+export interface MessageCampaignOptOutsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  campaign_id: string | null;
+  actor_type: MessageCampaignActorType;
+  actor_id: string;
+  category: string;
+  reason: string | null;
+  created_at: Timestamp;
+}
+
 export type FeedbackItemStatus = "open" | "reviewed" | "archived";
 
 export interface FeedbackWidgetSettingsTable {
@@ -933,6 +991,9 @@ export interface Database {
   beta_program_participants: BetaProgramParticipantsTable;
   surveys: SurveysTable;
   survey_responses: SurveyResponsesTable;
+  message_campaigns: MessageCampaignsTable;
+  message_campaign_events: MessageCampaignEventsTable;
+  message_campaign_opt_outs: MessageCampaignOptOutsTable;
   feedback_widget_settings: FeedbackWidgetSettingsTable;
   feedback_items: FeedbackItemsTable;
   data_governance_policies: DataGovernancePoliciesTable;

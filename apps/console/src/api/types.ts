@@ -410,6 +410,100 @@ export type SurveyResultsResponse = {
   recentResponses: SurveyResponse[];
 };
 
+export type MessageCampaignStatus = "draft" | "active" | "paused" | "archived";
+export type MessageCampaignChannelType = "email" | "webhook" | "in_app";
+export type MessageCampaignActorType = "user" | "tenant" | "session" | "anonymous";
+export type MessageCampaignEventType = "queued" | "sent" | "delivered" | "opened" | "clicked" | "converted" | "failed" | "opted_out";
+
+export type MessageCampaign = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: MessageCampaignStatus;
+  channelType: MessageCampaignChannelType;
+  notificationChannelId: string | null;
+  segmentId: string | null;
+  conversionEvent: string | null;
+  subject: string | null;
+  body: string;
+  ctaUrl: string | null;
+  consentCategory: string;
+  privacyNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateMessageCampaignInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: MessageCampaignStatus;
+  channelType?: MessageCampaignChannelType;
+  notificationChannelId?: string | null;
+  segmentId?: string | null;
+  conversionEvent?: string | null;
+  subject?: string | null;
+  body: string;
+  ctaUrl?: string | null;
+  consentCategory?: string;
+  privacyNote?: string | null;
+};
+
+export type UpdateMessageCampaignInput = Partial<Omit<CreateMessageCampaignInput, "projectId" | "environmentId" | "key">>;
+
+export type MessageCampaignResultsQuery = ApmQuery & {
+  campaignId: string;
+};
+
+export type MessageCampaignEvent = {
+  id: string;
+  campaignId: string;
+  type: MessageCampaignEventType;
+  actorType: MessageCampaignActorType;
+  actorId: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  occurredAt: string;
+};
+
+export type MessageCampaignResultsResponse = {
+  campaign: MessageCampaign;
+  window: ApmWindow;
+  totals: {
+    queued: number;
+    sent: number;
+    delivered: number;
+    opened: number;
+    clicked: number;
+    converted: number;
+    failed: number;
+    optedOut: number;
+    uniqueActors: number;
+  };
+  rates: {
+    deliveryRate: number;
+    openRate: number;
+    clickRate: number;
+    conversionRate: number;
+    optOutRate: number;
+  };
+  recentEvents: MessageCampaignEvent[];
+  optOuts: Array<{
+    id: string;
+    actorType: MessageCampaignActorType;
+    actorId: string;
+    category: string;
+    reason: string | null;
+    createdAt: string;
+  }>;
+};
+
 export type NpsSegmentSummary = {
   key: string;
   label: string;

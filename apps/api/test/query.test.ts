@@ -1920,6 +1920,70 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards message campaign result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getMessageCampaignResults: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            totals: {
+              queued: 0,
+              sent: 0,
+              delivered: 1,
+              opened: 1,
+              clicked: 1,
+              converted: 1,
+              failed: 0,
+              optedOut: 0,
+              uniqueActors: 1
+            },
+            rates: { deliveryRate: 100, openRate: 100, clickRate: 100, conversionRate: 100, optOutRate: 0 },
+            recentEvents: [],
+            optOuts: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/message-campaigns/cmp_1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        totals: {
+          queued: 0,
+          sent: 0,
+          delivered: 1,
+          opened: 1,
+          clicked: 1,
+          converted: 1,
+          failed: 0,
+          optedOut: 0,
+          uniqueActors: 1
+        },
+        rates: { deliveryRate: 100, openRate: 100, clickRate: 100, conversionRate: 100, optOutRate: 0 },
+        recentEvents: [],
+        optOuts: []
+      }
+    });
+    expect(receivedFilters).toEqual([
+      {
+        campaignId: "cmp_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 25
+      }
+    ]);
+  });
+
   it("forwards feedback list and status update filters", async () => {
     const receivedListFilters: unknown[] = [];
     const receivedStatusUpdates: unknown[] = [];

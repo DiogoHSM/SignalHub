@@ -405,6 +405,95 @@ export const openApiDocument = {
           }
         }
       },
+      MessageCampaign: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "channelType", "body", "consentCategory"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["invoice_activation"] },
+          name: { type: "string", examples: ["Invoice activation"] },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          channelType: { type: "string", enum: ["email", "webhook", "in_app"] },
+          notificationChannelId: { type: ["string", "null"], description: "Required for email and webhook campaigns." },
+          segmentId: { type: ["string", "null"], description: "Optional analytics segment id for the target audience." },
+          conversionEvent: { type: ["string", "null"], examples: ["invoice.paid"] },
+          subject: { type: ["string", "null"] },
+          body: { type: "string" },
+          ctaUrl: { type: ["string", "null"], format: "uri" },
+          consentCategory: { type: "string", examples: ["product"] },
+          privacyNote: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      MessageCampaignResults: {
+        type: "object",
+        required: ["campaign", "window", "totals", "rates", "recentEvents", "optOuts"],
+        properties: {
+          campaign: { $ref: "#/components/schemas/MessageCampaign" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          totals: {
+            type: "object",
+            required: ["queued", "sent", "delivered", "opened", "clicked", "converted", "failed", "optedOut", "uniqueActors"],
+            properties: {
+              queued: { type: "integer" },
+              sent: { type: "integer" },
+              delivered: { type: "integer" },
+              opened: { type: "integer" },
+              clicked: { type: "integer" },
+              converted: { type: "integer" },
+              failed: { type: "integer" },
+              optedOut: { type: "integer" },
+              uniqueActors: { type: "integer" }
+            }
+          },
+          rates: {
+            type: "object",
+            required: ["deliveryRate", "openRate", "clickRate", "conversionRate", "optOutRate"],
+            properties: {
+              deliveryRate: { type: "number" },
+              openRate: { type: "number" },
+              clickRate: { type: "number" },
+              conversionRate: { type: "number" },
+              optOutRate: { type: "number" }
+            }
+          },
+          recentEvents: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                campaignId: { type: "string" },
+                type: { type: "string", enum: ["queued", "sent", "delivered", "opened", "clicked", "converted", "failed", "opted_out"] },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: ["string", "null"] },
+                tenantId: { type: ["string", "null"] },
+                userId: { type: ["string", "null"] },
+                occurredAt: { type: "string", format: "date-time" }
+              }
+            }
+          },
+          optOuts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: "string" },
+                category: { type: "string" },
+                reason: { type: ["string", "null"] },
+                createdAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
       NpsSegmentSummary: {
         type: "object",
         required: ["key", "label", "responses", "score", "promoters", "passives", "detractors"],
@@ -1659,6 +1748,136 @@ export const openApiDocument = {
         }
       }
     },
+    "/admin/message-campaigns": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List message campaigns",
+        description: "List active product messaging campaign definitions for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Message campaign definitions",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { campaigns: { type: "array", items: { $ref: "#/components/schemas/MessageCampaign" } } } }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create a message campaign",
+        description: "Create a scoped campaign definition for in-app, email, or webhook delivery. Email and webhook campaigns require an existing notification channel id. Campaigns are measured from campaign events and respect opt-out records.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name", "body"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  channelType: { type: "string", enum: ["email", "webhook", "in_app"], default: "email" },
+                  notificationChannelId: { type: ["string", "null"] },
+                  segmentId: { type: ["string", "null"] },
+                  conversionEvent: { type: ["string", "null"] },
+                  subject: { type: ["string", "null"] },
+                  body: { type: "string" },
+                  ctaUrl: { type: ["string", "null"], format: "uri" },
+                  consentCategory: { type: "string", default: "product" },
+                  privacyNote: { type: ["string", "null"] }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "invoice_activation",
+                    name: "Invoice activation",
+                    status: "active",
+                    channelType: "in_app",
+                    segmentId: "seg_123",
+                    conversionEvent: "invoice.paid",
+                    body: "Create your first invoice to finish onboarding.",
+                    consentCategory: "product"
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Campaign created",
+            content: { "application/json": { schema: { type: "object", properties: { campaign: { $ref: "#/components/schemas/MessageCampaign" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/message-campaigns/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update a message campaign",
+        description: "Update mutable campaign metadata, status, channel linkage, target segment, copy, conversion event, consent category, or privacy note.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", additionalProperties: true } } }
+        },
+        responses: {
+          "200": {
+            description: "Campaign updated",
+            content: { "application/json": { schema: { type: "object", properties: { campaign: { $ref: "#/components/schemas/MessageCampaign" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Campaign not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive a message campaign",
+        description: "Soft-archive a campaign definition so it no longer appears in active lists.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Campaign archived" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/admin/feedback-widget": {
       get: {
         tags: ["Session authenticated"],
@@ -2848,6 +3067,31 @@ export const openApiDocument = {
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
           "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/message-campaigns/{id}/results": {
+      get: {
+        ...sessionRoute(
+          "Query message campaign results",
+          "Read campaign delivery, engagement, conversion, recent event, and opt-out metrics. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } }
+        ],
+        responses: {
+          "200": {
+            description: "Message campaign results",
+            content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/MessageCampaignResults" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Campaign not found" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }

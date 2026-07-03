@@ -840,6 +840,60 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages message campaigns and fetches campaign results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { campaigns: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.listMessageCampaigns?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { campaign: { id: "cmp_1" } }));
+    await api.createMessageCampaign?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "invoice_activation",
+      name: "Invoice activation",
+      channelType: "email",
+      notificationChannelId: "chn_1",
+      body: "Create your first invoice."
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { campaign: { id: "cmp_1" } }));
+    await api.updateMessageCampaign?.("cmp/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns/cmp%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await api.archiveMessageCampaign?.("cmp/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/message-campaigns/cmp%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { totals: { delivered: 1 } } }));
+    await api.getMessageCampaignResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      campaignId: "cmp/1",
+      window: "30d",
+      limit: 25
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/message-campaigns/cmp%2F1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("manages feedback widget settings and feedback triage", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { settings: { enabled: false } }));
     vi.stubGlobal("fetch", fetchMock);

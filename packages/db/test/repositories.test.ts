@@ -65,6 +65,14 @@ import {
   updateSurvey
 } from "../src/repositories/surveys.js";
 import {
+  archiveMessageCampaign,
+  createMessageCampaign,
+  getMessageCampaignResults,
+  listMessageCampaigns,
+  recordMessageCampaignEvent,
+  upsertMessageCampaignOptOut
+} from "../src/repositories/message-campaigns.js";
+import {
   getFeedbackWidgetSettings,
   listFeedbackItems,
   recordFeedbackItem,
@@ -10444,6 +10452,133 @@ describe("repositories", () => {
         now: new Date("2026-05-03T00:00:00.000Z")
       });
       expect(proOnly?.totals).toMatchObject({ responses: 2, score: 50 });
+    });
+  });
+
+  it("manages message campaigns, measures engagement, and respects opt-outs", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Campaign Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Active tenants",
+        actorType: "tenant",
+        definition: { window: "30d", eventName: "invoice.created" }
+      });
+      const channel = await createNotificationChannel(db, {
+        name: "Lifecycle email",
+        type: "email",
+        emailRecipients: ["ops@example.com"],
+        enabled: true
+      });
+
+      const campaign = await createMessageCampaign(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "invoice_activation",
+        name: "Invoice activation",
+        status: "active",
+        channelType: "email",
+        notificationChannelId: channel.id,
+        segmentId: segment.id,
+        conversionEvent: "invoice.paid",
+        subject: "Create your first invoice",
+        body: "Invite tenants to finish onboarding.",
+        ctaUrl: "https://app.example.com/invoices",
+        consentCategory: "product",
+        privacyNote: "Only opted-in product contacts should receive this."
+      });
+
+      const baseEvent = {
+        campaignId: campaign.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "tenant" as const
+      };
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "delivered",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:00:00.000Z")
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "opened",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:05:00.000Z")
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "clicked",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:10:00.000Z")
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "converted",
+        actorId: "tenant_1",
+        tenantId: "tenant_1",
+        occurredAt: new Date("2026-06-01T10:30:00.000Z")
+      });
+      await upsertMessageCampaignOptOut(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        campaignId: campaign.id,
+        actorType: "tenant",
+        actorId: "tenant_2",
+        category: "product",
+        reason: "User unsubscribed"
+      });
+      await recordMessageCampaignEvent(db, {
+        ...baseEvent,
+        type: "opted_out",
+        actorId: "tenant_2",
+        tenantId: "tenant_2",
+        occurredAt: new Date("2026-06-01T11:00:00.000Z")
+      });
+
+      const listed = await listMessageCampaigns(db, { projectId: project.id, environmentId: environment.id });
+      expect(listed[0]).toMatchObject({
+        id: campaign.id,
+        key: "invoice_activation",
+        channelType: "email",
+        consentCategory: "product",
+        segmentId: segment.id
+      });
+
+      const results = await getMessageCampaignResults(db, {
+        campaignId: campaign.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-06-02T00:00:00.000Z")
+      });
+
+      expect(results?.totals).toMatchObject({
+        delivered: 1,
+        opened: 1,
+        clicked: 1,
+        converted: 1,
+        optedOut: 1,
+        uniqueActors: 2
+      });
+      expect(results?.rates).toMatchObject({
+        openRate: 100,
+        clickRate: 100,
+        conversionRate: 100,
+        optOutRate: 100
+      });
+      expect(results?.recentEvents.map((event) => event.type)).toEqual(["opted_out", "converted", "clicked", "opened", "delivered"]);
+      expect(results?.optOuts[0]).toMatchObject({ actorId: "tenant_2", category: "product", reason: "User unsubscribed" });
+
+      await archiveMessageCampaign(db, { id: campaign.id, projectId: project.id, environmentId: environment.id });
+      expect(await listMessageCampaigns(db, { projectId: project.id, environmentId: environment.id })).toEqual([]);
     });
   });
 

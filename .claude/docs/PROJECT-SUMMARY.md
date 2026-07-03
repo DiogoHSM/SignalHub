@@ -56,7 +56,7 @@ Implemented capabilities:
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 - Next.js apps can use App Router route/action wrappers and opt-in browser global error capture through the JavaScript SDK.
 - Browser SDK telemetry can post directly to public ingestion endpoints from project-scoped Browser origins configured in Project Settings, with `BROWSER_CORS_ORIGINS` as an optional global allowlist.
-- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, event-based Experiments/A-B instrumentation, feature flags, in-app surveys, feedback widget, Web Vitals, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`.
+- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, event-based Experiments/A-B instrumentation, feature flags, in-app surveys, feedback widget, Web Vitals, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`, including admin/query APIs for message campaign definitions and results.
 - Public npm package metadata, package README, and Trusted Publishing release workflow for publishing `@sigmon/sdk`.
 
 ## Out of Scope for Current Phase
@@ -68,6 +68,7 @@ Implemented capabilities:
 - ClickHouse and object storage adapters beyond optional backup upload.
 - Object storage and source-code viewing for source-map artifacts.
 - Full visual/video session replay, DOM mutation replay, and a dedicated Sessions investigation workspace.
+- Automated native campaign delivery, scheduling, and outbound message rendering beyond campaign definitions, metrics, and opt-out visibility.
 - Stored log telemetry.
 - Retention for operational metadata, projects, environments, users, API keys, or dead-letter action history.
 - Native Telegram, Discord, WhatsApp, calendar-based on-call rotation, and multi-step escalation policies.
