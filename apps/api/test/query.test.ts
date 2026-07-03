@@ -1830,6 +1830,48 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards survey result query filters", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getSurveyResults: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            totals: { responses: 0, users: 0, tenants: 0, sessions: 0 },
+            questions: [],
+            recentResponses: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/surveys/surv_1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        totals: { responses: 0, users: 0, tenants: 0, sessions: 0 },
+        questions: [],
+        recentResponses: []
+      }
+    });
+    expect(receivedFilters).toEqual([
+      {
+        surveyId: "surv_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 25
+      }
+    ]);
+  });
+
   it("forwards event pathfinder query filters", async () => {
     const receivedFilters: unknown[] = [];
 

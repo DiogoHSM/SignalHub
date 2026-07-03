@@ -222,6 +222,127 @@ export const openApiDocument = {
           }
         }
       },
+      SurveyQuestion: {
+        type: "object",
+        required: ["id", "type", "label", "required"],
+        properties: {
+          id: { type: "string", examples: ["satisfaction"] },
+          type: { type: "string", enum: ["rating", "choice", "text"] },
+          label: { type: "string", examples: ["How satisfied are you with this workflow?"] },
+          required: { type: "boolean", default: true },
+          scale: {
+            type: "object",
+            properties: {
+              min: { type: "integer", examples: [1] },
+              max: { type: "integer", examples: [5] },
+              minLabel: { type: "string", examples: ["Hard"] },
+              maxLabel: { type: "string", examples: ["Great"] }
+            }
+          },
+          options: { type: "array", items: { type: "string" } }
+        }
+      },
+      Survey: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "key", "name", "status", "actorType", "questions", "targeting"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          key: { type: "string", examples: ["activation_pulse"] },
+          name: { type: "string", examples: ["Activation pulse"] },
+          description: { type: ["string", "null"] },
+          status: { type: "string", enum: ["draft", "active", "paused", "archived"] },
+          actorType: { type: "string", enum: ["user", "tenant", "session"] },
+          triggerEvent: { type: ["string", "null"], examples: ["checkout.completed"] },
+          questions: { type: "array", items: { $ref: "#/components/schemas/SurveyQuestion" } },
+          targeting: {
+            type: "object",
+            properties: {
+              segmentId: { type: "string" },
+              userId: { type: "string" },
+              tenantId: { type: "string" },
+              eventName: { type: "string" },
+              sampleRate: { type: "number", minimum: 0, maximum: 1 }
+            }
+          },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          archivedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      SurveyResponsePayload: {
+        type: "object",
+        required: ["survey_id", "answers"],
+        properties: {
+          survey_id: { type: "string", examples: ["srv_123"] },
+          actor_type: { type: "string", enum: ["user", "tenant", "session", "anonymous"], default: "user" },
+          actor_id: { type: "string" },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["web"] },
+          release: { type: "string", examples: ["2026.06.01"] },
+          answers: {
+            type: "object",
+            description: "Question id to answer value map. Secrets should not be sent.",
+            additionalProperties: true,
+            examples: [{ satisfaction: 5, comment: "Great" }]
+          },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      SurveyResults: {
+        type: "object",
+        required: ["survey", "window", "totals", "questions", "recentResponses"],
+        properties: {
+          survey: { $ref: "#/components/schemas/Survey" },
+          window: { type: "string", enum: ["24h", "7d", "30d"] },
+          totals: {
+            type: "object",
+            required: ["responses", "users", "tenants", "sessions"],
+            properties: {
+              responses: { type: "integer" },
+              users: { type: "integer" },
+              tenants: { type: "integer" },
+              sessions: { type: "integer" }
+            }
+          },
+          questions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                label: { type: "string" },
+                type: { type: "string", enum: ["rating", "choice", "text"] },
+                responses: { type: "integer" },
+                average: { type: "number" },
+                choices: { type: "array", items: { type: "object", properties: { value: { type: "string" }, count: { type: "integer" } } } }
+              }
+            }
+          },
+          recentResponses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                surveyId: { type: "string" },
+                actorType: { type: "string", enum: ["user", "tenant", "session", "anonymous"] },
+                actorId: { type: ["string", "null"] },
+                tenantId: { type: ["string", "null"] },
+                userId: { type: ["string", "null"] },
+                sessionId: { type: ["string", "null"] },
+                answers: { type: "object", additionalProperties: true },
+                submittedAt: { type: "string", format: "date-time" }
+              }
+            }
+          }
+        }
+      },
       FeatureFlagVariant: {
         type: "object",
         required: ["key", "value"],
@@ -1042,6 +1163,25 @@ export const openApiDocument = {
         metadata: { request_id: "req_abc" }
       })
     },
+    "/v1/surveys/responses": {
+      post: ingestionOperation(
+        "Ingest an in-app survey response",
+        "Track lightweight survey answers collected by browser widgets, SDK calls, or server-side product flows. Responses are scoped to a configured survey and can be linked to user, tenant, session, trace, source, and release context.",
+        "SurveyResponsePayload",
+        {
+          survey_id: "srv_activation_pulse",
+          actor_type: "user",
+          actor_id: "user_456",
+          tenant_id: "tenant_123",
+          user_id: "user_456",
+          session_id: "sess_789",
+          source: "web",
+          release: "2026.06.01",
+          answers: { satisfaction: 5, comment: "Great" },
+          metadata: { placement: "checkout_success" }
+        }
+      )
+    },
     "/v1/errors": {
       post: ingestionOperation("Ingest an error", "Track exceptions, crashes, and grouped error occurrences. Include stack, release, source, and identity fields to unlock issue detail, source-map resolution, and tenant/user drilldowns.", "ErrorPayload", {
         message: "Payment provider timeout",
@@ -1235,6 +1375,130 @@ export const openApiDocument = {
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "404": { description: "Heartbeat monitor not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/surveys": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List in-app surveys",
+        description: "List active survey definitions for a project/environment.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Survey definitions",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { surveys: { type: "array", items: { $ref: "#/components/schemas/Survey" } } } }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create an in-app survey",
+        description: "Create a project/environment-scoped survey with targeting, optional trigger event, and one or more questions.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "key", "name", "questions"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  description: { type: ["string", "null"] },
+                  status: { type: "string", enum: ["draft", "active", "paused", "archived"], default: "draft" },
+                  actorType: { type: "string", enum: ["user", "tenant", "session"], default: "user" },
+                  triggerEvent: { type: ["string", "null"] },
+                  questions: { type: "array", items: { $ref: "#/components/schemas/SurveyQuestion" } },
+                  targeting: { type: "object", additionalProperties: true }
+                }
+              },
+              examples: {
+                default: {
+                  value: {
+                    projectId: "prj_123",
+                    environmentId: "env_123",
+                    key: "activation_pulse",
+                    name: "Activation pulse",
+                    status: "active",
+                    actorType: "user",
+                    triggerEvent: "checkout.completed",
+                    questions: [{ id: "satisfaction", type: "rating", label: "How satisfied are you?", required: true, scale: { min: 1, max: 5 } }],
+                    targeting: { sampleRate: 0.25 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Survey created",
+            content: { "application/json": { schema: { type: "object", properties: { survey: { $ref: "#/components/schemas/Survey" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/surveys/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update an in-app survey",
+        description: "Update mutable survey metadata, status, actor type, questions, trigger event, or targeting.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", additionalProperties: true } } }
+        },
+        responses: {
+          "200": {
+            description: "Survey updated",
+            content: { "application/json": { schema: { type: "object", properties: { survey: { $ref: "#/components/schemas/Survey" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Archive an in-app survey",
+        description: "Soft-archive a survey definition so it no longer appears in active lists.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Survey archived" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }
@@ -2317,6 +2581,31 @@ export const openApiDocument = {
         "Query experiment results",
         "Read A/B experiment conversion results by variant. Query with project_id, environment_id, window=24h|7d|30d, and optional limit. Results are derived from exposure and conversion events that include experiment_key and variant properties."
       )
+    },
+    "/query/surveys/{id}/results": {
+      get: {
+        ...sessionRoute(
+          "Query survey results",
+          "Read in-app survey response totals, per-question summaries, and recent responses. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 25 } }
+        ],
+        responses: {
+          "200": {
+            description: "Survey results",
+            content: { "application/json": { schema: { type: "object", properties: { data: { $ref: "#/components/schemas/SurveyResults" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/query/events/retention": {
       get: sessionRoute(

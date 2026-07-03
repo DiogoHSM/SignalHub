@@ -8,7 +8,7 @@ Use this guide for non-TypeScript clients, smoke tests, and code agents that nee
 
 | Credential | Used by | Keep secret? | Notes |
 | --- | --- | --- | --- |
-| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
+| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/surveys/responses`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
 | Heartbeat secret | `/v1/heartbeats/{id}` | Yes | Generated per heartbeat monitor. Use from cron, workers, and schedulers. |
 | Source-map upload token | `/v1/source-maps` | Yes | CI-only token created from the Artifacts console. |
 | Session cookie | `/admin/*`, `/query/*`, `/system/*` | Browser session only | Used by logged-in human operators and the console. |
@@ -46,6 +46,7 @@ Content-Type: application/json
 | Breadcrumbs | `POST /v1/breadcrumbs` | Ingestion API key |
 | Browser click maps | `POST /v1/clicks` | Ingestion API key |
 | Privacy-safe session replays | `POST /v1/replays` | Ingestion API key |
+| In-app survey responses | `POST /v1/surveys/responses` | Ingestion API key |
 | LLM calls | `POST /v1/llm` | Ingestion API key |
 | Web Vitals | `POST /v1/web-vitals` | Ingestion API key |
 | Runtime profiles | `POST /v1/profiles` | Ingestion API key |
@@ -216,6 +217,38 @@ Operators can create beta programs in the console or admin API, link a program t
 variant, and add user or tenant participants. Sigmon syncs active participants into targeting rules
 on the linked feature flag. Runtime code does not need a separate beta API call: keep using the
 feature-flag evaluator with a safe fallback, and use normal event telemetry to measure beta adoption.
+
+### In-app surveys
+
+Operators can create lightweight in-app surveys in the Experiments console and read response totals
+with `GET /query/surveys/:id/results`. Submit responses from a browser widget, SDK call, or server
+flow with the survey id and an `answers` object keyed by question id.
+
+```bash
+curl -i https://sigmon.example.com/v1/surveys/responses \
+  -H "Authorization: Bearer sh_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "survey_id": "srv_activation_pulse",
+    "actor_type": "user",
+    "actor_id": "user_456",
+    "tenant_id": "tenant_123",
+    "user_id": "user_456",
+    "session_id": "sess_789",
+    "source": "web",
+    "answers": {
+      "satisfaction": 5,
+      "comment": "Great"
+    },
+    "metadata": {
+      "placement": "checkout_success"
+    }
+  }'
+```
+
+Configure browser origins before posting survey responses directly from the browser. Survey answers
+go through the same worker-side data-governance rules and built-in secret redaction as other browser
+telemetry.
 
 ### Retention curves
 

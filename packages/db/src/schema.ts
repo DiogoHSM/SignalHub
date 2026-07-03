@@ -198,6 +198,46 @@ export interface BetaProgramParticipantsTable {
   removed_at: NullableTimestamp;
 }
 
+export type SurveyStatus = "draft" | "active" | "paused" | "archived";
+export type SurveyActorType = "user" | "tenant" | "session";
+export type SurveyResponseActorType = SurveyActorType | "anonymous";
+
+export interface SurveysTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: ColumnType<SurveyStatus, SurveyStatus | undefined, SurveyStatus>;
+  actor_type: ColumnType<SurveyActorType, SurveyActorType | undefined, SurveyActorType>;
+  trigger_event: string | null;
+  questions: JsonColumn;
+  targeting: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface SurveyResponsesTable {
+  id: string;
+  survey_id: string;
+  project_id: string;
+  environment_id: string;
+  actor_type: ColumnType<SurveyResponseActorType, SurveyResponseActorType | undefined, SurveyResponseActorType>;
+  actor_id: string | null;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  release: string | null;
+  source: string | null;
+  answers: JsonColumn;
+  metadata: JsonColumn;
+  submitted_at: Timestamp;
+  received_at: Timestamp;
+}
+
 export interface DataGovernancePoliciesTable {
   project_id: string;
   environment_id: string;
@@ -852,6 +892,8 @@ export interface Database {
   feature_flag_audit: FeatureFlagAuditTable;
   beta_programs: BetaProgramsTable;
   beta_program_participants: BetaProgramParticipantsTable;
+  surveys: SurveysTable;
+  survey_responses: SurveyResponsesTable;
   data_governance_policies: DataGovernancePoliciesTable;
   warehouse_destinations: WarehouseDestinationsTable;
   warehouse_export_runs: WarehouseExportRunsTable;

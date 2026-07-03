@@ -12,7 +12,7 @@ SignalMonitor is a self-hosted operational core with five runtime components:
 
 Ingestion:
 
-1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, or `/v1/spans`.
+1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/surveys/responses`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, or `/v1/spans`.
 2. API extracts the bearer API key and verifies the stored hash with `API_KEY_PEPPER`.
 3. API validates the JSON payload with Zod.
 4. API generates a signal id, attaches project and environment scope from the API key, enqueues the job, and returns `202 Accepted`.
@@ -63,6 +63,7 @@ Operational tables:
 - `analytics_segments`
 - `analytics_dashboards`
 - `experiments`
+- `surveys`
 - `data_governance_policies`
 - `warehouse_destinations`
 - `warehouse_export_runs`
@@ -83,6 +84,7 @@ Telemetry tables:
 - `web_vitals`
 - `traces`
 - `spans`
+- `survey_responses`
 
 Profile tables:
 
@@ -149,6 +151,8 @@ Admin:
 - `/admin/analytics-segments/:id/preview`
 - `/admin/analytics-dashboards`
 - `/admin/analytics-dashboards/:id`
+- `/admin/surveys`
+- `/admin/surveys/:id`
 - `/admin/data-governance`
 - `/admin/warehouse-destinations`
 - `/admin/warehouse-destinations/:id`
@@ -166,6 +170,7 @@ Ingestion:
 - `POST /v1/breadcrumbs`
 - `POST /v1/clicks`
 - `POST /v1/replays`
+- `POST /v1/surveys/responses`
 - `POST /v1/identify/user`
 - `POST /v1/identify/tenant`
 - `POST /v1/llm`
@@ -199,6 +204,7 @@ Query:
 - `GET /query/users/:userKey`
 - `GET /query/overview`
 - `GET /query/reports/dashboards/:id`
+- `GET /query/surveys/:id/results`
 - `GET /query/operations`
 - `GET /query/apm/endpoints`
 - `GET /query/apm/service-map`
@@ -283,6 +289,8 @@ Events can store optional `replay_id` values. The Events detail drawer uses `GET
 Saved analytics dashboards live in `analytics_dashboards` and are scoped to one project/environment. Dashboard definitions store bounded JSON filters and whitelisted widget definitions, not arbitrary SQL. Admin routes list, create, edit, and archive active dashboards with project/environment-scoped mutations. `GET /query/reports/dashboards/:id` renders a saved dashboard by combining its saved window/filter defaults with `GET /query/overview` aggregates and returns metric, trend, and top-list widget data for the console.
 
 Experiments live in `experiments` and are scoped to one project/environment. The first implementation supports A/B-style experiments with a stable key, actor type, exposure event, conversion event, weighted variants, and a bounded primary metric. The SDK helper deterministically assigns a subject to a variant and records an exposure event. `GET /query/experiments/:id/results` calculates variant exposure, conversion, conversion rate, and lift from normal event telemetry containing `experiment_key` and `variant` properties.
+
+In-app surveys live in `surveys`, with answers stored in `survey_responses`. Survey definitions are scoped to one project/environment and include a stable key, status, actor type, optional trigger event, bounded question definitions, and lightweight targeting metadata. Browser and server integrations submit answers through `POST /v1/surveys/responses` or SDK `submitSurvey`; the worker applies data-governance rules before persistence. `GET /query/surveys/:id/results` returns response totals, per-question summaries, and recent responses for the selected window.
 
 Feature flags live in `feature_flags` with companion `feature_flag_audit` rows for created/updated/archived history. Flags are scoped to one project/environment, have active/paused/draft/archived status, a safe default variant, bounded variants, and ordered targeting rules over user, tenant, session, and trait equality. Rules can also include deterministic percentage rollout by user, tenant, or session stickiness; the DB preview and SDK use the same stable hash contract so actor assignment stays consistent. The SDK exposes `evaluateFlag` for local/safe evaluation and records `sigmon.feature_flag.evaluated` as normal event telemetry unless exposure tracking is disabled.
 

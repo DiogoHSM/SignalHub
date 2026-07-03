@@ -11,7 +11,8 @@ export type TelemetryJobKind =
   | "web_vital"
   | "click"
   | "replay"
-  | "profile";
+  | "profile"
+  | "survey_response";
 
 export type TelemetryJobPayload = {
   kind: TelemetryJobKind;

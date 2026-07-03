@@ -38,6 +38,7 @@ Implemented capabilities:
 - Read-only LLM investigation workspace with exact provider, model, prompt, and status filtering plus aggregate totals.
 - Read-only Entities investigation workspace with impact-ranked tenant summaries, trait-derived labels and chips, selected tenant top users, and cross-signal timeline drilldowns.
 - Read-only Users investigation workspace with impact-ranked user summaries, trait-derived labels and chips, selected user recent sessions, and cross-signal timeline drilldowns.
+- Experiments workspace with event-derived A/B readouts, SDK assignment helpers, feature flag definitions/evaluation, beta programs, and in-app survey definitions plus response reporting.
 - Worker-owned telemetry and dead-letter retention with per-table windows, bounded batches, retained DLQ action history, and recorded retention runs.
 - Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
@@ -54,7 +55,7 @@ Implemented capabilities:
 - JavaScript SDK and raw HTTP ingestion guide for product integration.
 - Next.js apps can use App Router route/action wrappers and opt-in browser global error capture through the JavaScript SDK.
 - Browser SDK telemetry can post directly to public ingestion endpoints from project-scoped Browser origins configured in Project Settings, with `BROWSER_CORS_ORIGINS` as an optional global allowlist.
-- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, event-based Experiments/A-B instrumentation, Web Vitals, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`.
+- Public SDK docs at `/sdk` cover Node.js, browser, Next.js, identity, event-based Experiments/A-B instrumentation, feature flags, in-app surveys, Web Vitals, traces, LLM calls, delivery behavior, and source-map upload; Scalar/OpenAPI API docs cover raw HTTP integration at `/docs` and `/openapi.json`.
 - Public npm package metadata, package README, and Trusted Publishing release workflow for publishing `@sigmon/sdk`.
 
 ## Out of Scope for Current Phase

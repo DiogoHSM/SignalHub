@@ -45,6 +45,7 @@ function createWriter(): TelemetryWriter {
     insertClickEvent: vi.fn(async () => undefined),
     insertSessionReplay: vi.fn(async () => undefined),
     insertProfile: vi.fn(async () => undefined),
+    insertSurveyResponse: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
@@ -114,6 +115,56 @@ describe("processTelemetryJob", () => {
           password: "[REDACTED]",
           nested: { token: "[REDACTED]" }
         }
+      })
+    );
+  });
+
+  it("sanitizes and persists survey response jobs", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "survey_response",
+      id: "srs_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        survey_id: "srv_1",
+        actor_type: "user",
+        actor_id: "usr_1",
+        user_id: "usr_1",
+        tenant_id: "tenant_1",
+        session_id: "sess_1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        answers: {
+          satisfaction: 5,
+          comment: "great",
+          password: "secret"
+        },
+        metadata: {
+          token: "secret"
+        }
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertSurveyResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "srs_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        surveyId: "srv_1",
+        actorType: "user",
+        actorId: "usr_1",
+        userId: "usr_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        answers: expect.objectContaining({
+          satisfaction: 5,
+          comment: "great",
+          password: "[REDACTED]"
+        }),
+        metadata: expect.objectContaining({ token: "[REDACTED]" }),
+        submittedAt: new Date("2026-01-01T00:00:00.000Z")
       })
     );
   });

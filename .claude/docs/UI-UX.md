@@ -131,6 +131,8 @@ SignalMonitor includes an admin-only Integration Console.
 - Gradual rollout controls should label units explicitly as percentages and explain that rollout is deterministic by user, tenant, or session stickiness rather than random on each request.
 - Beta Programs live in the same Experiments workspace. Operators can create an early-access program, link it to a flag variant, add user or tenant participants, and inspect adoption from normal event telemetry without leaving the project/environment context.
 - Beta program controls should make the linked flag, actor scope, participant count, active actor count, adoption percentage, and participant removal actions visible. Runtime setup should be explained as feature-flag evaluation, not as a separate beta SDK path.
+- In-app Surveys live in the same Experiments workspace for now. Operators can create rating-style prompts with optional trigger event and tenant targeting, pause/activate/archive definitions, and read response totals, per-question summaries, and recent answers without leaving the selected project/environment.
+- Survey controls should make units and linkage explicit: answers are keyed by question id, browser submission uses the project browser-origin allowlist, and response reports are derived from `POST /v1/surveys/responses` / SDK `submitSurvey`.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
 ## Operations UX

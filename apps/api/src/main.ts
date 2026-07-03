@@ -195,6 +195,13 @@ import {
   upsertReleaseMetadata
 } from "@sigmon/db/repositories/code-integrations.js";
 import {
+  archiveSurvey,
+  createSurvey,
+  getSurveyResults,
+  listSurveys,
+  updateSurvey
+} from "@sigmon/db/repositories/surveys.js";
+import {
   assignIncident,
   addTriageNote,
   silenceIncident,
@@ -680,6 +687,12 @@ const app = await buildApp({
       update: (input) => updateExperiment(db, input),
       archive: (input) => archiveExperiment(db, input)
     },
+    surveys: {
+      list: (filters) => listSurveys(db, filters),
+      create: (input) => createSurvey(db, input),
+      update: (input) => updateSurvey(db, input),
+      archive: (input) => archiveSurvey(db, input)
+    },
     featureFlags: {
       list: (filters) => listFeatureFlags(db, filters),
       create: (input) => createFeatureFlag(db, input),
@@ -784,6 +797,7 @@ const app = await buildApp({
     getEventClickMap: (filters) => getEventClickMap(db, filters),
     getEventFunnel: (filters) => getEventFunnel(db, filters),
     getExperimentResults: (filters) => getExperimentResults(db, filters),
+    getSurveyResults: (filters) => getSurveyResults(db, filters),
     getEventPaths: (filters) => getEventPaths(db, filters),
     getEventRetention: (filters) => getEventRetention(db, filters),
     getApmEndpoints: (filters) => getApmEndpoints(db, filters),

@@ -89,6 +89,15 @@ import type {
   ReleaseMetadataRecord,
   UpsertReleaseMetadataInput
 } from "@sigmon/db/repositories/code-integrations.js";
+import type {
+  CreateSurveyInput,
+  SurveyActorType,
+  SurveyQuestion,
+  SurveyRecord,
+  SurveyStatus,
+  SurveyTargeting,
+  UpdateSurveyInput
+} from "@sigmon/db/repositories/surveys.js";
 
 export interface AdminProject {
   id: string;
@@ -177,6 +186,7 @@ export type AdminResourceDependencies = {
   analyticsSegments?: AnalyticsSegmentAdministrationDependencies;
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
   experiments?: ExperimentAdministrationDependencies;
+  surveys?: SurveyAdministrationDependencies;
   featureFlags?: FeatureFlagAdministrationDependencies;
   betaPrograms?: BetaProgramAdministrationDependencies;
   dataGovernance?: DataGovernanceAdministrationDependencies;
@@ -213,6 +223,18 @@ export type ExperimentAdministrationDependencies = {
     environmentId: string;
     patch: UpdateExperimentInput;
   }) => Promise<ExperimentRecord | null | undefined>;
+  archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
+export type SurveyAdministrationDependencies = {
+  list: (filters: { projectId: string; environmentId: string }) => Promise<SurveyRecord[]>;
+  create: (input: CreateSurveyInput) => Promise<SurveyRecord>;
+  update: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    patch: UpdateSurveyInput;
+  }) => Promise<SurveyRecord | null | undefined>;
   archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
@@ -929,6 +951,67 @@ type UpdateExperimentBody = z.infer<typeof updateExperimentSchema> & {
   actorType?: ExperimentActorType;
   variants?: ExperimentVariant[];
   primaryMetric?: ExperimentPrimaryMetric;
+};
+
+const surveyStatusSchema = z.enum(["draft", "active", "paused", "archived"]);
+const surveyActorTypeSchema = z.enum(["user", "tenant", "session"]);
+const surveyQuestionSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  type: z.enum(["rating", "choice", "text"]).default("rating"),
+  label: z.string().trim().min(1).max(240),
+  required: z.boolean().default(true),
+  scale: z
+    .object({
+      min: z.coerce.number().int().min(0).max(10).default(1),
+      max: z.coerce.number().int().min(1).max(10).default(5),
+      minLabel: z.string().trim().max(80).optional(),
+      maxLabel: z.string().trim().max(80).optional()
+    })
+    .optional(),
+  options: z.array(z.string().trim().min(1).max(80)).max(20).optional()
+});
+const surveyTargetingSchema = z.object({
+  segmentId: z.string().trim().min(1).max(256).optional(),
+  userId: z.string().trim().min(1).max(256).optional(),
+  tenantId: z.string().trim().min(1).max(256).optional(),
+  eventName: z.string().trim().min(1).max(256).optional(),
+  sampleRate: z.coerce.number().min(0).max(1).optional()
+});
+const surveyScopeQuerySchema = analyticsSegmentScopeQuerySchema;
+const surveySchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  key: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  status: surveyStatusSchema.default("draft"),
+  actorType: surveyActorTypeSchema.default("user"),
+  triggerEvent: z.string().trim().min(1).max(256).nullable().optional(),
+  questions: z.array(surveyQuestionSchema).min(1).max(20),
+  targeting: surveyTargetingSchema.default({})
+});
+const updateSurveySchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional(),
+    description: z.string().trim().max(1024).nullable().optional(),
+    status: surveyStatusSchema.optional(),
+    actorType: surveyActorTypeSchema.optional(),
+    triggerEvent: z.string().trim().min(1).max(256).nullable().optional(),
+    questions: z.array(surveyQuestionSchema).min(1).max(20).optional(),
+    targeting: surveyTargetingSchema.optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+type CreateSurveyBody = z.infer<typeof surveySchema> & {
+  status: SurveyStatus;
+  actorType: SurveyActorType;
+  questions: SurveyQuestion[];
+  targeting: SurveyTargeting;
+};
+type UpdateSurveyBody = z.infer<typeof updateSurveySchema> & {
+  status?: SurveyStatus;
+  actorType?: SurveyActorType;
+  questions?: SurveyQuestion[];
+  targeting?: SurveyTargeting;
 };
 const featureFlagStatusSchema = z.enum(["draft", "active", "paused", "archived"]);
 const featureFlagValueSchema = z.union([z.string().max(512), z.number(), z.boolean(), z.null()]);
@@ -2112,6 +2195,116 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(204).send();
     } catch {
       return reply.status(503).send({ error: "experiments_unavailable" });
+    }
+  });
+
+  app.get("/admin/surveys", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.surveys) {
+      return reply.status(501).send({ error: "surveys_repository_unavailable" });
+    }
+
+    const query = surveyScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_survey_request" });
+    }
+
+    try {
+      const surveys = await options.adminResources.surveys.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ surveys });
+    } catch {
+      return reply.status(503).send({ error: "surveys_unavailable" });
+    }
+  });
+
+  app.post("/admin/surveys", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.surveys) {
+      return reply.status(501).send({ error: "surveys_repository_unavailable" });
+    }
+
+    const parsed = surveySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_survey_request" });
+    }
+
+    try {
+      const survey = await options.adminResources.surveys.create(parsed.data as CreateSurveyBody);
+      return reply.status(201).send({ survey });
+    } catch {
+      return reply.status(503).send({ error: "surveys_unavailable" });
+    }
+  });
+
+  app.patch("/admin/surveys/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.surveys) {
+      return reply.status(501).send({ error: "surveys_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = surveyScopeQuerySchema.safeParse(request.query);
+    const parsed = updateSurveySchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_survey_request" });
+    }
+
+    try {
+      const survey = await options.adminResources.surveys.update({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        patch: parsed.data as UpdateSurveyBody
+      });
+      if (!survey) {
+        return reply.status(404).send({ error: "survey_not_found" });
+      }
+      return reply.send({ survey });
+    } catch {
+      return reply.status(503).send({ error: "surveys_unavailable" });
+    }
+  });
+
+  app.delete("/admin/surveys/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.surveys) {
+      return reply.status(501).send({ error: "surveys_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = surveyScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_survey_request" });
+    }
+
+    try {
+      await options.adminResources.surveys.archive({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch {
+      return reply.status(503).send({ error: "surveys_unavailable" });
     }
   });
 

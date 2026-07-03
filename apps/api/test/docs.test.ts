@@ -204,7 +204,8 @@ describe("API docs", () => {
     expect(response.body).toContain("withSignalMonitorRoute");
     expect(response.body).toContain("identifyTenant");
     expect(response.body).toContain("shallow-merge");
-    expect(response.body).toContain("Experiments and A/B tests");
+    expect(response.body).toContain("Experiments, flags, and surveys");
+    expect(response.body).toContain("submitSurvey");
     expect(response.body).toContain("checkout.exposed");
     expect(response.body).toContain("source-maps:upload");
     expect(response.body).toContain("BROWSER_CORS_ORIGINS");

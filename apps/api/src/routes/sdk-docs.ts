@@ -324,7 +324,7 @@ const sdkDocsHtml = `<!doctype html>
           <a href="#nextjs">Next.js App Router</a>
           <a href="#browser">Browser capture</a>
           <a href="#identity">Identify and traits</a>
-          <a href="#experiments">Experiments</a>
+          <a href="#experiments">Experiments and surveys</a>
           <a href="#traces">Traces and spans</a>
           <a href="#llm">LLM calls</a>
           <a href="#delivery">Delivery behavior</a>
@@ -715,7 +715,7 @@ await sigmon.flush();</code></pre>
           </section>
 
           <section id="experiments">
-            <h2>Experiments and A/B tests</h2>
+            <h2>Experiments, flags, and surveys</h2>
             <p>
               Sigmon experiments are derived from normal event telemetry. Create the experiment in the
               console, use the SDK to assign a stable subject to a weighted variant, and keep
@@ -819,6 +819,32 @@ if (flag.value === true) {
               flag variant, add user or tenant participants, and Sigmon syncs those participants into
               targeting rules. Application code still uses <code>evaluateFlag</code> with a safe
               fallback; adoption comes from normal event telemetry.
+            </div>
+            <h3>In-app surveys</h3>
+            <p>
+              Surveys live in the same console area. Create the survey definition, then submit answers
+              from a browser widget, server action, or product flow with <code>submitSurvey</code>.
+              Answers are keyed by question id and can be linked to user, tenant, session, trace,
+              source, release, and placement metadata.
+            </p>
+            <pre><code>sigmon.submitSurvey({
+  surveyId: "srv_activation_pulse",
+  actorType: "user",
+  actorId: "user_456",
+  answers: {
+    satisfaction: 5,
+    comment: "Great"
+  }
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456",
+  sessionId: "sess_789",
+  metadata: { placement: "checkout_success" }
+});</code></pre>
+            <div class="callout">
+              Browser survey submission uses <code>POST /v1/surveys/responses</code>. Configure the
+              monitored app origin in the browser-origin allowlist before posting directly from the
+              browser with a browser-scoped ingestion key.
             </div>
           </section>
 

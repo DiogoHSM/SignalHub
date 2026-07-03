@@ -84,6 +84,7 @@ import {
   startWarehouseExportScheduler,
   writePostgresWarehouseBatch
 } from "./warehouse-exports.js";
+import { recordSurveyResponse } from "@sigmon/db/repositories/surveys.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
@@ -107,6 +108,7 @@ const writer: TelemetryWriter = {
   insertClickEvent: (input) => insertClickEvent(db, input),
   insertSessionReplay: (input) => insertSessionReplay(db, input),
   insertProfile: (input) => insertProfile(db, input),
+  insertSurveyResponse: (input) => recordSurveyResponse(db, input).then(() => undefined),
   insertBreadcrumb: (input) => insertBreadcrumb(db, input)
 };
 

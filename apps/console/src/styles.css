@@ -7899,7 +7899,8 @@ input[type="file"]::file-selector-button {
   line-height: 1.35;
 }
 
-.experiments-form input {
+.experiments-form input,
+.experiments-form select {
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 8px;

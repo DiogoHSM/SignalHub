@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../api/client";
-import type { BetaProgram, BetaProgramAdoption, BetaProgramParticipant, Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
+import type {
+  BetaProgram,
+  BetaProgramAdoption,
+  BetaProgramParticipant,
+  Experiment,
+  ExperimentResultsResponse,
+  FeatureFlag,
+  Survey,
+  SurveyResultsResponse
+} from "../api/types";
 
 type Props = {
   client: ApiClient;
@@ -29,6 +38,14 @@ const defaultBetaDraft = {
   name: "Checkout beta",
   featureFlagId: "",
   participantId: ""
+};
+
+const defaultSurveyDraft = {
+  key: "activation_pulse",
+  name: "Activation pulse",
+  question: "How satisfied are you with this workflow?",
+  triggerEvent: "",
+  targetTenantId: ""
 };
 
 function formatPercent(value: number): string {
@@ -65,24 +82,35 @@ function formatFlagRollout(flag: FeatureFlag): string {
   return rollout ? `${rollout.percentage}% ${rollout.stickiness}` : "none";
 }
 
+function formatAnswerPreview(value: Record<string, unknown>): string {
+  const serialized = JSON.stringify(value);
+  return serialized.length > 90 ? `${serialized.slice(0, 87)}...` : serialized;
+}
+
 export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
   const [draft, setDraft] = useState(defaultDraft);
   const [flagDraft, setFlagDraft] = useState(defaultFlagDraft);
   const [betaDraft, setBetaDraft] = useState(defaultBetaDraft);
+  const [surveyDraft, setSurveyDraft] = useState(defaultSurveyDraft);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [betaPrograms, setBetaPrograms] = useState<BetaProgram[]>([]);
+  const [surveys, setSurveys] = useState<Survey[]>([]);
   const [betaParticipants, setBetaParticipants] = useState<BetaProgramParticipant[]>([]);
   const [betaAdoption, setBetaAdoption] = useState<BetaProgramAdoption | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [selectedBetaId, setSelectedBetaId] = useState("");
+  const [selectedSurveyId, setSelectedSurveyId] = useState("");
   const [results, setResults] = useState<ExperimentResultsResponse | null>(null);
+  const [surveyResults, setSurveyResults] = useState<SurveyResultsResponse | null>(null);
   const [state, setState] = useState<LoadState>("idle");
   const [flagsState, setFlagsState] = useState<LoadState>("idle");
   const [betaState, setBetaState] = useState<LoadState>("idle");
+  const [surveyState, setSurveyState] = useState<LoadState>("idle");
   const [error, setError] = useState("");
   const [flagError, setFlagError] = useState("");
   const [betaError, setBetaError] = useState("");
+  const [surveyError, setSurveyError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
@@ -112,6 +140,43 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
         setExperiments([]);
         setResults(null);
         setState("unavailable");
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, reloadToken]);
+
+  useEffect(() => {
+    if (!projectId || !environmentId) {
+      setSurveys([]);
+      setSelectedSurveyId("");
+      setSurveyResults(null);
+      setSurveyState("idle");
+      return;
+    }
+    if (!client.listSurveys) {
+      setSurveyState("unavailable");
+      return;
+    }
+
+    let cancelled = false;
+    setSurveyState("loading");
+    setSurveyError("");
+    void client.listSurveys({ projectId, environmentId }).then(
+      ({ surveys: rows }) => {
+        if (cancelled) return;
+        setSurveys(rows);
+        setSelectedSurveyId((current) => (rows.some((row) => row.id === current) ? current : rows[0]?.id ?? ""));
+        setSurveyState(rows.length > 0 ? "ready" : "empty");
+      },
+      () => {
+        if (cancelled) return;
+        setSurveys([]);
+        setSelectedSurveyId("");
+        setSurveyResults(null);
+        setSurveyState("unavailable");
       }
     );
 
@@ -189,6 +254,7 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
 
   const selected = useMemo(() => experiments.find((experiment) => experiment.id === selectedId) ?? null, [experiments, selectedId]);
   const selectedBeta = useMemo(() => betaPrograms.find((program) => program.id === selectedBetaId) ?? null, [betaPrograms, selectedBetaId]);
+  const selectedSurvey = useMemo(() => surveys.find((survey) => survey.id === selectedSurveyId) ?? null, [surveys, selectedSurveyId]);
 
   useEffect(() => {
     if (!projectId || !environmentId || !selected || !client.getExperimentResults) {
@@ -208,6 +274,25 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
       cancelled = true;
     };
   }, [client, environmentId, projectId, selected]);
+
+  useEffect(() => {
+    if (!projectId || !environmentId || !selectedSurvey || !client.getSurveyResults) {
+      setSurveyResults(null);
+      return;
+    }
+    let cancelled = false;
+    void client.getSurveyResults({ projectId, environmentId, surveyId: selectedSurvey.id, window: "30d", limit: 25 }).then(
+      ({ data }) => {
+        if (!cancelled) setSurveyResults(data);
+      },
+      () => {
+        if (!cancelled) setSurveyResults(null);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, environmentId, projectId, selectedSurvey]);
 
   useEffect(() => {
     if (!projectId || !environmentId || !selectedBeta) {
@@ -298,6 +383,52 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
     });
     setFlags((current) => [response.flag, ...current]);
     setFlagsState("ready");
+  }
+
+  async function createSurvey() {
+    if (!projectId || !environmentId || !client.createSurvey) return;
+    if (!surveyDraft.key.trim() || !surveyDraft.name.trim() || !surveyDraft.question.trim()) {
+      setSurveyError("Survey key, name, and question are required.");
+      return;
+    }
+    setSurveyError("");
+    const response = await client.createSurvey({
+      projectId,
+      environmentId,
+      key: surveyDraft.key,
+      name: surveyDraft.name,
+      status: "active",
+      actorType: "user",
+      triggerEvent: surveyDraft.triggerEvent.trim() || null,
+      questions: [
+        {
+          id: "satisfaction",
+          type: "rating",
+          label: surveyDraft.question,
+          required: true,
+          scale: { min: 1, max: 5, minLabel: "Hard", maxLabel: "Great" }
+        }
+      ],
+      targeting: surveyDraft.targetTenantId.trim() ? { tenantId: surveyDraft.targetTenantId.trim() } : {}
+    });
+    setSurveys((current) => [response.survey, ...current]);
+    setSelectedSurveyId(response.survey.id);
+    setSurveyState("ready");
+  }
+
+  async function pauseSurvey(survey: Survey) {
+    if (!projectId || !environmentId || !client.updateSurvey) return;
+    const nextStatus = survey.status === "active" ? "paused" : "active";
+    const response = await client.updateSurvey(survey.id, { projectId, environmentId }, { status: nextStatus });
+    setSurveys((current) => current.map((row) => (row.id === survey.id ? response.survey : row)));
+  }
+
+  async function archiveSurvey(survey: Survey) {
+    if (!projectId || !environmentId || !client.archiveSurvey) return;
+    await client.archiveSurvey(survey.id, { projectId, environmentId });
+    setSurveys((current) => current.filter((row) => row.id !== survey.id));
+    setSelectedSurveyId((current) => (current === survey.id ? surveys.find((row) => row.id !== survey.id)?.id ?? "" : current));
+    setSurveyState((current) => (surveys.length <= 1 ? "empty" : current));
   }
 
   async function pauseFlag(flag: FeatureFlag) {
@@ -472,6 +603,194 @@ export function ExperimentsPanel({ client, projectId, environmentId }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="experiments-readout" aria-label="In-app surveys">
+        <div className="panel-header">
+          <h2>In-app surveys</h2>
+          <span>{surveys.length} definitions</span>
+        </div>
+        <p className="muted-text">
+          Create lightweight product feedback prompts and collect browser-safe responses linked to users, tenants, sessions, and triggering events.
+        </p>
+
+        <div className="experiments-form">
+          <label>
+            Survey key
+            <span>Stable key used by the SDK or widget placement.</span>
+            <input aria-label="Survey key" value={surveyDraft.key} onChange={(event) => setSurveyDraft((current) => ({ ...current, key: event.target.value }))} />
+          </label>
+          <label>
+            Survey name
+            <span>Operator-facing label for this prompt.</span>
+            <input aria-label="Survey name" value={surveyDraft.name} onChange={(event) => setSurveyDraft((current) => ({ ...current, name: event.target.value }))} />
+          </label>
+          <label>
+            Rating question
+            <span>Shown as a 1-5 rating question in the first widget version.</span>
+            <input
+              aria-label="Survey question"
+              value={surveyDraft.question}
+              onChange={(event) => setSurveyDraft((current) => ({ ...current, question: event.target.value }))}
+            />
+          </label>
+          <label>
+            Trigger event
+            <span>Optional event name that should make the survey eligible.</span>
+            <input
+              aria-label="Survey trigger event"
+              value={surveyDraft.triggerEvent}
+              onChange={(event) => setSurveyDraft((current) => ({ ...current, triggerEvent: event.target.value }))}
+            />
+          </label>
+          <label>
+            Target tenant
+            <span>Optional tenant id for a narrow rollout.</span>
+            <input
+              aria-label="Survey target tenant"
+              value={surveyDraft.targetTenantId}
+              onChange={(event) => setSurveyDraft((current) => ({ ...current, targetTenantId: event.target.value }))}
+            />
+          </label>
+          <button type="button" onClick={() => void createSurvey()}>
+            Create survey
+          </button>
+        </div>
+
+        {surveyError ? <p className="status-box unavailable">{surveyError}</p> : null}
+        {surveyState === "loading" ? <p className="muted-text">Loading surveys</p> : null}
+        {surveyState === "unavailable" ? (
+          <div className="status-box unavailable">
+            <strong>Surveys unavailable</strong>
+            <button type="button" onClick={() => setReloadToken((current) => current + 1)}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {surveyState === "empty" ? <p className="muted-text">No surveys yet. Create one above, then submit responses through the SDK.</p> : null}
+
+        {surveys.length > 0 ? (
+          <div className="experiments-panel__grid">
+            <article>
+              <label className="experiments-picker">
+                Survey
+                <span>Feedback prompt configured for this environment.</span>
+                <select aria-label="Survey" value={selectedSurveyId} onChange={(event) => setSelectedSurveyId(event.target.value)}>
+                  {surveys.map((survey) => (
+                    <option key={survey.id} value={survey.id}>
+                      {survey.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {selectedSurvey ? (
+                <>
+                  <div className="experiments-summary" aria-label="Survey summary">
+                    <div>
+                      <span>Status</span>
+                      <strong>{selectedSurvey.status}</strong>
+                    </div>
+                    <div>
+                      <span>Trigger</span>
+                      <strong>{selectedSurvey.triggerEvent ?? "manual"}</strong>
+                    </div>
+                    <div>
+                      <span>Responses</span>
+                      <strong>{surveyResults?.totals.responses ?? 0}</strong>
+                    </div>
+                  </div>
+                  <div className="experiments-row-actions">
+                    <button type="button" onClick={() => void pauseSurvey(selectedSurvey)}>
+                      {selectedSurvey.status === "active" ? "Pause survey" : "Activate survey"}
+                    </button>
+                    <button type="button" onClick={() => void archiveSurvey(selectedSurvey)}>
+                      Archive survey
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </article>
+
+            <article>
+              <div className="panel-header">
+                <h3>Response report</h3>
+                <span>{surveyResults ? `${surveyResults.window} window` : "No report"}</span>
+              </div>
+              {surveyResults ? (
+                <>
+                  <div className="experiments-summary" aria-label="Survey response totals">
+                    <div>
+                      <span>Users</span>
+                      <strong>{surveyResults.totals.users}</strong>
+                    </div>
+                    <div>
+                      <span>Tenants</span>
+                      <strong>{surveyResults.totals.tenants}</strong>
+                    </div>
+                    <div>
+                      <span>Sessions</span>
+                      <strong>{surveyResults.totals.sessions}</strong>
+                    </div>
+                  </div>
+                  <div className="experiments-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Question</th>
+                          <th>Type</th>
+                          <th>Responses</th>
+                          <th>Average / choices</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {surveyResults.questions.map((question) => (
+                          <tr key={question.id}>
+                            <th scope="row">{question.label}</th>
+                            <td>{question.type}</td>
+                            <td>{question.responses}</td>
+                            <td>
+                              {question.average !== undefined
+                                ? question.average.toFixed(1)
+                                : question.choices?.map((choice) => `${choice.value}: ${choice.count}`).join(", ") ?? "none"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="experiments-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Submitted</th>
+                          <th>Actor</th>
+                          <th>Tenant</th>
+                          <th>Answers</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {surveyResults.recentResponses.map((response) => (
+                          <tr key={response.id}>
+                            <th scope="row">{new Date(response.submittedAt).toLocaleString()}</th>
+                            <td>
+                              {response.actorType} {response.actorId ?? "anonymous"}
+                            </td>
+                            <td>{response.tenantId ?? "none"}</td>
+                            <td>{formatAnswerPreview(response.answers)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {surveyResults.recentResponses.length === 0 ? <p className="muted-text">No responses in this window yet.</p> : null}
+                </>
+              ) : (
+                <p className="muted-text">Select a survey to inspect response quality, actors, and recent answers.</p>
+              )}
+            </article>
           </div>
         ) : null}
       </section>

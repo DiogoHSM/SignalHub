@@ -178,6 +178,30 @@ When you add or remove beta participants, Sigmon updates scoped targeting rules 
 Application code still reads the rollout through `evaluateFlag`, so early access fails closed with the
 same default/off variant as any other feature flag.
 
+In-app surveys are also managed in the Sigmon console. Use `submitSurvey` when a browser widget or
+product flow collects answers. The `answers` object is keyed by survey question id and is persisted
+with the same user, tenant, session, source, release, and metadata context as other telemetry:
+
+```ts
+sigmon.submitSurvey({
+  surveyId: "srv_activation_pulse",
+  actorType: "user",
+  actorId: "user_456",
+  answers: {
+    satisfaction: 5,
+    comment: "Great"
+  }
+}, {
+  tenantId: "tenant_123",
+  userId: "user_456",
+  sessionId: "sess_789",
+  metadata: { placement: "checkout_success" }
+});
+```
+
+Survey responses are sent to `POST /v1/surveys/responses`. Configure browser origins before calling
+this directly from the browser with a browser-scoped ingestion key.
+
 Click maps are separate from click breadcrumbs. Breadcrumbs tell the story around an error or session;
 click maps aggregate opt-in browser coordinates by route and safe selector. Add stable
 `data-sigmon-id` attributes to meaningful controls before enabling click capture.

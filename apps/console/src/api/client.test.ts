@@ -769,6 +769,59 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages surveys and fetches survey results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { surveys: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.listSurveys?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { survey: { id: "surv_1" } }));
+    await api.createSurvey?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      key: "activation_pulse",
+      name: "Activation pulse",
+      actorType: "user",
+      questions: [{ id: "satisfaction", type: "rating", label: "How satisfied are you?", required: true, scale: { min: 1, max: 5 } }]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { survey: { id: "surv_1" } }));
+    await api.updateSurvey?.("surv/1", { projectId: "prj_1", environmentId: "env_1" }, { status: "paused" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys/surv%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await api.archiveSurvey?.("surv/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/surveys/surv%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { data: { recentResponses: [] } }));
+    await api.getSurveyResults?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      surveyId: "surv/1",
+      window: "30d",
+      limit: 25
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/surveys/surv%2F1/results?project_id=prj_1&environment_id=env_1&window=30d&limit=25",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("manages feature flags and fetches audit/evaluation preview", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { flags: [] }));
     vi.stubGlobal("fetch", fetchMock);

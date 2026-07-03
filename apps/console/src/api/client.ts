@@ -26,6 +26,7 @@ import type {
   CreateBetaProgramInput,
   CreateExperimentInput,
   CreateFeatureFlagInput,
+  CreateSurveyInput,
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
   CreateWarehouseDestinationInput,
@@ -88,6 +89,9 @@ import type {
   SourceMapResolution,
   SourceMapUploadToken,
   SpanRecord,
+  Survey,
+  SurveyResultsQuery,
+  SurveyResultsResponse,
   SystemActionResponse,
   SystemHealthResponse,
   SystemHealthSampleResponse,
@@ -109,6 +113,7 @@ import type {
   UpdateBetaProgramInput,
   UpdateExperimentInput,
   UpdateFeatureFlagInput,
+  UpdateSurveyInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
   UpdateNotificationChannelInput,
@@ -340,6 +345,15 @@ export type ApiClient = {
   ) => Promise<{ experiment: Experiment }>;
   archiveExperiment?: (id: string, query: Pick<CreateExperimentInput, "projectId" | "environmentId">) => Promise<void>;
   getExperimentResults?: (query: ExperimentResultsQuery) => Promise<AggregateResponse<ExperimentResultsResponse>>;
+  listSurveys?: (query: Pick<CreateSurveyInput, "projectId" | "environmentId">) => Promise<{ surveys: Survey[] }>;
+  createSurvey?: (input: CreateSurveyInput) => Promise<{ survey: Survey }>;
+  updateSurvey?: (
+    id: string,
+    query: Pick<CreateSurveyInput, "projectId" | "environmentId">,
+    input: UpdateSurveyInput
+  ) => Promise<{ survey: Survey }>;
+  archiveSurvey?: (id: string, query: Pick<CreateSurveyInput, "projectId" | "environmentId">) => Promise<void>;
+  getSurveyResults?: (query: SurveyResultsQuery) => Promise<AggregateResponse<SurveyResultsResponse>>;
   listFeatureFlags?: (query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<{ flags: FeatureFlag[] }>;
   createFeatureFlag?: (input: CreateFeatureFlagInput) => Promise<{ flag: FeatureFlag }>;
   updateFeatureFlag?: (
@@ -905,6 +919,32 @@ function experimentResultsPath(query: ExperimentResultsQuery): string {
   return `/query/experiments/${encodePathSegment(query.experimentId)}/results?${params.toString()}`;
 }
 
+function surveysPath(query: Pick<CreateSurveyInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/surveys?${params.toString()}`;
+}
+
+function surveyScopedPath(id: string, query: Pick<CreateSurveyInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/surveys/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function surveyResultsPath(query: SurveyResultsQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  params.set("window", query.window);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/surveys/${encodePathSegment(query.surveyId)}/results?${params.toString()}`;
+}
+
 function featureFlagsPath(query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -1219,6 +1259,19 @@ export function createApiClient(
       request<void>(path(apiBasePath, experimentScopedPath(id, query)), { method: "DELETE" }),
     getExperimentResults: (query) =>
       request<AggregateResponse<ExperimentResultsResponse>>(path(apiBasePath, experimentResultsPath(query))),
+    listSurveys: (query) =>
+      request<{ surveys: Survey[] }>(path(apiBasePath, surveysPath(query))),
+    createSurvey: (input) =>
+      request<{ survey: Survey }>(path(apiBasePath, "/admin/surveys"), { method: "POST", body: input }),
+    updateSurvey: (id, query, input) =>
+      request<{ survey: Survey }>(path(apiBasePath, surveyScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveSurvey: (id, query) =>
+      request<void>(path(apiBasePath, surveyScopedPath(id, query)), { method: "DELETE" }),
+    getSurveyResults: (query) =>
+      request<AggregateResponse<SurveyResultsResponse>>(path(apiBasePath, surveyResultsPath(query))),
     listFeatureFlags: (query) =>
       request<{ flags: FeatureFlag[] }>(path(apiBasePath, featureFlagsPath(query))),
     createFeatureFlag: (input) =>

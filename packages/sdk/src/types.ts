@@ -164,6 +164,15 @@ export type RuntimeProfileInput = EventInput & {
   metadata?: SignalMetadata;
 };
 
+export type SurveyResponseActorType = "user" | "tenant" | "session" | "anonymous";
+
+export type SurveyResponseInput = EventInput & {
+  surveyId: string;
+  actorType?: SurveyResponseActorType;
+  actorId?: string;
+  answers: SignalMetadata;
+};
+
 export type ExperimentVariantInput = {
   key: string;
   weight: number;
@@ -307,6 +316,7 @@ export type SignalMonitorClient = {
   click: (input: ClickInput, context?: SignalContext) => void;
   replay: (input: SessionReplayInput, context?: SignalContext) => void;
   profile: (input: RuntimeProfileInput, context?: SignalContext) => void;
+  submitSurvey: (input: SurveyResponseInput, context?: SignalContext) => void;
   identify: (context: SignalContext) => void;
   identifyUser: (userId: string, traits?: SignalMetadata, context?: IdentifyUserInput) => void;
   identifyTenant: (tenantId: string, traits?: SignalMetadata, context?: IdentifyTenantInput) => void;
@@ -324,6 +334,7 @@ export type SignalKind =
   | "click"
   | "replay"
   | "profile"
+  | "survey_response"
   | "breadcrumb"
   | "identify_user"
   | "identify_tenant";

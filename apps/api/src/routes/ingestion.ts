@@ -9,6 +9,7 @@ import {
   profilePayloadSchema,
   sessionReplayPayloadSchema,
   spanPayloadSchema,
+  surveyResponsePayloadSchema,
   tracePayloadSchema,
   webVitalPayloadSchema
 } from "@sigmon/telemetry/ingestion-schemas";
@@ -38,6 +39,7 @@ const ingestionRoutes: IngestionRouteConfig[] = [
   { path: "/v1/clicks", kind: "click", idPrefix: "clk", schema: clickEventPayloadSchema },
   { path: "/v1/replays", kind: "replay", idPrefix: "rpl", schema: sessionReplayPayloadSchema },
   { path: "/v1/profiles", kind: "profile", idPrefix: "prf", schema: profilePayloadSchema },
+  { path: "/v1/surveys/responses", kind: "survey_response", idPrefix: "srs", schema: surveyResponsePayloadSchema },
   { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ];
 

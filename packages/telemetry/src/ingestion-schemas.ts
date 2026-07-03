@@ -224,6 +224,13 @@ export const profilePayloadSchema = sharedEnvelopeSchema
     }
   });
 
+export const surveyResponsePayloadSchema = sharedEnvelopeSchema.extend({
+  survey_id: shortTextSchema,
+  actor_type: z.enum(["user", "tenant", "session", "anonymous"]).default("user"),
+  actor_id: shortTextSchema.optional(),
+  answers: jsonObjectSchema
+});
+
 export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
   type: z.enum(["navigation", "click", "console", "network", "custom"]),
   category: shortTextSchema.optional(),
@@ -253,6 +260,7 @@ export type WebVitalPayload = z.infer<typeof webVitalPayloadSchema>;
 export type ClickEventPayload = z.infer<typeof clickEventPayloadSchema>;
 export type SessionReplayPayload = z.infer<typeof sessionReplayPayloadSchema>;
 export type ProfilePayload = z.infer<typeof profilePayloadSchema>;
+export type SurveyResponsePayload = z.infer<typeof surveyResponsePayloadSchema>;
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 export type UserIdentifyPayload = z.infer<typeof userIdentifyPayloadSchema>;
 export type TenantIdentifyPayload = z.infer<typeof tenantIdentifyPayloadSchema>;

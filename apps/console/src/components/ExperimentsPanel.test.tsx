@@ -2,7 +2,16 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
-import type { BetaProgram, BetaProgramAdoption, BetaProgramParticipant, Experiment, ExperimentResultsResponse, FeatureFlag } from "../api/types";
+import type {
+  BetaProgram,
+  BetaProgramAdoption,
+  BetaProgramParticipant,
+  Experiment,
+  ExperimentResultsResponse,
+  FeatureFlag,
+  Survey,
+  SurveyResultsResponse
+} from "../api/types";
 import { ExperimentsPanel } from "./ExperimentsPanel";
 
 const experiment: Experiment = {
@@ -96,6 +105,51 @@ const betaAdoption: BetaProgramAdoption = {
   samples: [{ actorId: "user_1", events: 3, lastSeenAt: "2026-01-01T00:00:00.000Z" }]
 };
 
+const survey: Survey = {
+  id: "surv_1",
+  projectId: "prj_1",
+  environmentId: "env_1",
+  key: "activation_pulse",
+  name: "Activation pulse",
+  description: null,
+  status: "active",
+  actorType: "user",
+  triggerEvent: "checkout.completed",
+  questions: [
+    {
+      id: "satisfaction",
+      type: "rating",
+      label: "How satisfied are you with this workflow?",
+      required: true,
+      scale: { min: 1, max: 5, minLabel: "Hard", maxLabel: "Great" }
+    }
+  ],
+  targeting: { tenantId: "tenant_1" },
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null
+};
+
+const surveyResults: SurveyResultsResponse = {
+  survey,
+  window: "30d",
+  totals: { responses: 2, users: 2, tenants: 1, sessions: 2 },
+  questions: [{ id: "satisfaction", label: "How satisfied are you with this workflow?", type: "rating", responses: 2, average: 4.5 }],
+  recentResponses: [
+    {
+      id: "srs_1",
+      surveyId: "surv_1",
+      actorType: "user",
+      actorId: "user_1",
+      tenantId: "tenant_1",
+      userId: "user_1",
+      sessionId: "sess_1",
+      answers: { satisfaction: 5 },
+      submittedAt: "2026-01-01T00:00:00.000Z"
+    }
+  ]
+};
+
 function client(overrides: Partial<ApiClient>): ApiClient {
   return {
     listEvents: vi.fn().mockResolvedValue({ data: [] }),
@@ -115,6 +169,11 @@ function client(overrides: Partial<ApiClient>): ApiClient {
     addBetaProgramParticipant: vi.fn().mockResolvedValue({ participant: betaParticipant }),
     removeBetaProgramParticipant: vi.fn().mockResolvedValue(undefined),
     getBetaProgramAdoption: vi.fn().mockResolvedValue({ adoption: betaAdoption }),
+    listSurveys: vi.fn().mockResolvedValue({ surveys: [] }),
+    createSurvey: vi.fn().mockResolvedValue({ survey }),
+    updateSurvey: vi.fn().mockResolvedValue({ survey }),
+    archiveSurvey: vi.fn().mockResolvedValue(undefined),
+    getSurveyResults: vi.fn().mockResolvedValue({ data: surveyResults }),
     ...overrides
   } as ApiClient;
 }
@@ -239,6 +298,44 @@ describe("ExperimentsPanel", () => {
         actorType: "user",
         actorId: "user_2",
         status: "active"
+      })
+    );
+  });
+
+  it("loads surveys, creates a rating survey, and shows response results", async () => {
+    const user = userEvent.setup();
+    const createSurvey = vi.fn().mockResolvedValue({ survey: { ...survey, id: "surv_2", key: "pricing_pulse", name: "Pricing pulse" } });
+    const api = client({
+      listSurveys: vi.fn().mockResolvedValue({ surveys: [survey] }),
+      getSurveyResults: vi.fn().mockResolvedValue({ data: surveyResults }),
+      createSurvey
+    });
+
+    render(<ExperimentsPanel client={api} environmentId="env_1" projectId="prj_1" />);
+
+    const surveysRegion = await screen.findByRole("region", { name: "In-app surveys" });
+    expect(within(surveysRegion).getByLabelText("Survey")).toHaveValue("surv_1");
+    await waitFor(() => expect(within(surveysRegion).getByText("4.5")).toBeInTheDocument());
+    expect(within(surveysRegion).getByText(/\"satisfaction\":5/)).toBeInTheDocument();
+
+    await user.clear(within(surveysRegion).getByLabelText("Survey key"));
+    await user.type(within(surveysRegion).getByLabelText("Survey key"), "pricing_pulse");
+    await user.clear(within(surveysRegion).getByLabelText("Survey name"));
+    await user.type(within(surveysRegion).getByLabelText("Survey name"), "Pricing pulse");
+    await user.clear(within(surveysRegion).getByLabelText("Survey trigger event"));
+    await user.type(within(surveysRegion).getByLabelText("Survey trigger event"), "pricing.viewed");
+    await user.click(within(surveysRegion).getByRole("button", { name: "Create survey" }));
+
+    expect(createSurvey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "pricing_pulse",
+        name: "Pricing pulse",
+        status: "active",
+        actorType: "user",
+        triggerEvent: "pricing.viewed",
+        questions: [expect.objectContaining({ id: "satisfaction", type: "rating", required: true })]
       })
     );
   });

@@ -75,6 +75,10 @@ export type ExperimentResultFilters = ApmFilters & {
   experimentId: string;
 };
 
+export type SurveyResultFilters = ApmFilters & {
+  surveyId: string;
+};
+
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
 
@@ -208,6 +212,7 @@ export type QueryDependencies = {
   getEventClickMap?: (filters: EventClickMapFilters) => Promise<unknown>;
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
   getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
+  getSurveyResults?: (filters: SurveyResultFilters) => Promise<unknown | null>;
   getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
   getEventPaths?: (
     filters: ApmFilters & {
@@ -866,6 +871,19 @@ function parseExperimentResultFilters(params: unknown, query: unknown): Experime
   return {
     ...base,
     experimentId: parsedParams.data.id
+  };
+}
+
+function parseSurveyResultFilters(params: unknown, query: unknown): SurveyResultFilters | undefined {
+  const parsedParams = experimentParamsSchema.safeParse(params);
+  const base = parseApmFilters(query);
+  if (!parsedParams.success || !base) {
+    return undefined;
+  }
+
+  return {
+    ...base,
+    surveyId: parsedParams.data.id
   };
 }
 
@@ -1712,6 +1730,32 @@ async function handleExperimentResultsRoute(request: FastifyRequest, reply: Fast
   }
 }
 
+async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.getSurveyResults) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseSurveyResultFilters(request.params, request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const result = await options.query.getSurveyResults(filters);
+    if (!result) {
+      return reply.status(404).send({ error: "survey_not_found" });
+    }
+    return reply.send({ data: result });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -2494,6 +2538,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/events/paths", (request, reply) => handleEventPathsRoute(request, reply, options));
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
   app.get("/query/experiments/:id/results", (request, reply) => handleExperimentResultsRoute(request, reply, options));
+  app.get("/query/surveys/:id/results", (request, reply) => handleSurveyResultsRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
   app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));

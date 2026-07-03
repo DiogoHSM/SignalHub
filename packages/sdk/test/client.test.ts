@@ -337,6 +337,51 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("submitSurvey enqueues a survey response", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        userId: "usr_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.submitSurvey({
+      surveyId: "srv_1",
+      actorType: "user",
+      actorId: "usr_1",
+      answers: {
+        satisfaction: 5,
+        comment: "Great"
+      },
+      timestamp: "2026-05-02T12:00:00.000Z"
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/surveys/responses", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      survey_id: "srv_1",
+      actor_type: "user",
+      actor_id: "usr_1",
+      answers: {
+        satisfaction: 5,
+        comment: "Great"
+      },
+      timestamp: "2026-05-02T12:00:00.000Z",
+      user_id: "usr_1",
+      tenant_id: "tenant_1",
+      session_id: "sess_1",
+      source: "browser",
+      metadata: {}
+    });
+  });
+
   it("retains retryable failures by default and discards them when requested", async () => {
     const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));

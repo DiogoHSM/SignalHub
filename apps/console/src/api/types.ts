@@ -321,6 +321,95 @@ export type ExperimentResultsResponse = {
   variants: ExperimentVariantResult[];
 };
 
+export type SurveyStatus = "draft" | "active" | "paused" | "archived";
+export type SurveyActorType = "user" | "tenant" | "session";
+export type SurveyQuestionType = "rating" | "choice" | "text";
+
+export type SurveyQuestion = {
+  id: string;
+  type: SurveyQuestionType;
+  label: string;
+  required: boolean;
+  scale?: { min: number; max: number; minLabel?: string; maxLabel?: string };
+  options?: string[];
+};
+
+export type SurveyTargeting = {
+  segmentId?: string;
+  userId?: string;
+  tenantId?: string;
+  eventName?: string;
+  sampleRate?: number;
+};
+
+export type Survey = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: SurveyStatus;
+  actorType: SurveyActorType;
+  triggerEvent: string | null;
+  questions: SurveyQuestion[];
+  targeting: SurveyTargeting;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateSurveyInput = {
+  projectId: string;
+  environmentId: string;
+  key: string;
+  name: string;
+  description?: string | null;
+  status?: SurveyStatus;
+  actorType?: SurveyActorType;
+  triggerEvent?: string | null;
+  questions: SurveyQuestion[];
+  targeting?: SurveyTargeting;
+};
+
+export type UpdateSurveyInput = Partial<Omit<CreateSurveyInput, "projectId" | "environmentId" | "key">>;
+
+export type SurveyResultsQuery = ApmQuery & {
+  surveyId: string;
+};
+
+export type SurveyResponse = {
+  id: string;
+  surveyId: string;
+  actorType: "user" | "tenant" | "session" | "anonymous";
+  actorId: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  answers: Record<string, unknown>;
+  submittedAt: string;
+};
+
+export type SurveyResultsResponse = {
+  survey: Survey;
+  window: ApmWindow;
+  totals: {
+    responses: number;
+    users: number;
+    tenants: number;
+    sessions: number;
+  };
+  questions: Array<{
+    id: string;
+    label: string;
+    type: SurveyQuestionType;
+    responses: number;
+    average?: number;
+    choices?: Array<{ value: string; count: number }>;
+  }>;
+  recentResponses: SurveyResponse[];
+};
+
 export type FeatureFlagStatus = "draft" | "active" | "paused" | "archived";
 export type FeatureFlagValue = string | number | boolean | null;
 

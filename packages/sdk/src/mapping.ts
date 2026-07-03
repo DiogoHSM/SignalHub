@@ -12,6 +12,7 @@ import type {
   SignalMetadata,
   SessionReplayInput,
   SpanInput,
+  SurveyResponseInput,
   TraceInput,
   WebVitalInput
 } from "./types.js";
@@ -337,6 +338,27 @@ export function createSessionReplaySignal(
   return {
     kind: "replay",
     endpointPath: "/v1/replays",
+    payload
+  };
+}
+
+export function createSurveyResponseSignal(
+  input: SurveyResponseInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const payload = {
+    ...mergeContext(defaultContext, { ...context, timestamp: input.timestamp }),
+    survey_id: input.surveyId,
+    actor_type: input.actorType ?? "user",
+    answers: input.answers
+  };
+
+  assignDefined(payload, "actor_id", input.actorId);
+
+  return {
+    kind: "survey_response",
+    endpointPath: "/v1/surveys/responses",
     payload
   };
 }

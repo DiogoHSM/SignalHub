@@ -17,6 +17,7 @@ import type {
   BetaProgramParticipantRecord,
   BetaProgramRecord
 } from "../../../packages/db/src/repositories/beta-programs.js";
+import type { SurveyRecord } from "../../../packages/db/src/repositories/surveys.js";
 import type { DataGovernancePolicy } from "../../../packages/db/src/repositories/data-governance.js";
 import type {
   WarehouseDestinationRecord,
@@ -157,6 +158,44 @@ function experiment(overrides: Partial<ExperimentRecord> = {}): ExperimentRecord
 function experimentResponse(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     ...experiment(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function survey(overrides: Partial<SurveyRecord> = {}): SurveyRecord {
+  return {
+    id: "surv_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    key: "activation_pulse",
+    name: "Activation pulse",
+    description: null,
+    status: "active",
+    actorType: "user",
+    triggerEvent: "checkout.completed",
+    questions: [
+      {
+        id: "satisfaction",
+        type: "rating",
+        label: "How satisfied are you?",
+        required: true,
+        scale: { min: 1, max: 5, minLabel: "Hard", maxLabel: "Great" }
+      }
+    ],
+    targeting: { tenantId: "tenant_1" },
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    archivedAt: null,
+    ...overrides
+  };
+}
+
+function surveyResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...survey(),
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: null,
@@ -1312,6 +1351,117 @@ describe("admin routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_experiment_request" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages surveys for admins with scoped mutations", async () => {
+    const list = vi.fn(async () => [survey()]);
+    const create = vi.fn(async (input) => survey(input));
+    const update = vi.fn(async (input) => survey({ ...input.patch, id: input.id }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        surveys: { list, create, update, archive }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/surveys?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ surveys: [surveyResponse()] });
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/surveys",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "activation_pulse",
+        name: "Activation pulse",
+        status: "active",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        questions: [
+          {
+            id: "satisfaction",
+            type: "rating",
+            label: "How satisfied are you?",
+            required: true,
+            scale: { min: 1, max: 5, minLabel: "Hard", maxLabel: "Great" }
+          }
+        ],
+        targeting: { tenantId: "tenant_1" }
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "activation_pulse",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        targeting: { tenantId: "tenant_1" }
+      })
+    );
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/surveys/surv_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "paused" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "surv_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { status: "paused" }
+    });
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/surveys/surv_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "surv_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects surveys without questions", async () => {
+    const create = vi.fn(async () => survey());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        surveys: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/surveys",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        key: "bad",
+        name: "Bad",
+        questions: []
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_survey_request" });
     expect(create).not.toHaveBeenCalled();
   });
 

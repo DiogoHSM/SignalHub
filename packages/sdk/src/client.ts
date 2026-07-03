@@ -9,6 +9,7 @@ import {
   createRuntimeProfileSignal,
   createSessionReplaySignal,
   createSpanSignal,
+  createSurveyResponseSignal,
   createTraceSignal,
   createWebVitalSignal
 } from "./mapping.js";
@@ -44,6 +45,7 @@ import type {
   SignalMetadata,
   SpanInput,
   StartTraceInput,
+  SurveyResponseInput,
   TraceInput,
   WebVitalInput
 } from "./types.js";
@@ -375,6 +377,10 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
 
     profile(input: RuntimeProfileInput, context?: SignalContext): void {
       enqueue(createRuntimeProfileSignal(input, context, defaultContext));
+    },
+
+    submitSurvey(input: SurveyResponseInput, context?: SignalContext): void {
+      enqueue(createSurveyResponseSignal(input, context, defaultContext));
     },
 
     identify(context: SignalContext): void {

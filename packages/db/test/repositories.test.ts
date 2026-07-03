@@ -56,6 +56,14 @@ import {
   archiveExperiment
 } from "../src/repositories/experiments.js";
 import {
+  archiveSurvey,
+  createSurvey,
+  getSurveyResults,
+  listSurveys,
+  recordSurveyResponse,
+  updateSurvey
+} from "../src/repositories/surveys.js";
+import {
   archiveFeatureFlag,
   createFeatureFlag,
   evaluateFeatureFlag,
@@ -10012,6 +10020,103 @@ describe("repositories", () => {
 
       await archiveExperiment(db, { id: experiment.id, projectId: project.id, environmentId: environment.id });
       await expect(listExperiments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages surveys and aggregates in-app survey responses", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Survey Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const submittedAt = new Date("2026-05-04T12:00:00.000Z");
+
+      const survey = await createSurvey(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "activation_pulse",
+        name: "Activation pulse",
+        status: "active",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        questions: [
+          { id: "satisfaction", type: "rating", label: "How satisfied are you?", required: true, scale: { min: 1, max: 5 } },
+          { id: "role", type: "choice", label: "Role", required: false, options: ["owner", "operator"] }
+        ],
+        targeting: { tenantId: "tenant_1", sampleRate: 0.5 }
+      });
+
+      expect(survey).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        key: "activation_pulse",
+        status: "active",
+        actorType: "user",
+        triggerEvent: "checkout.completed",
+        targeting: { tenantId: "tenant_1", sampleRate: 0.5 }
+      });
+
+      const paused = await updateSurvey(db, {
+        id: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        patch: { status: "paused" }
+      });
+      expect(paused?.status).toBe("paused");
+
+      await recordSurveyResponse(db, {
+        id: "srs_survey_1",
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_1",
+        userId: "user_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        answers: { satisfaction: 5, role: "owner" },
+        metadata: { source: "widget" },
+        submittedAt,
+        receivedAt: submittedAt
+      });
+      await recordSurveyResponse(db, {
+        id: "srs_survey_2",
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        actorType: "user",
+        actorId: "user_2",
+        userId: "user_2",
+        tenantId: "tenant_1",
+        sessionId: "sess_2",
+        answers: { satisfaction: 4, role: "operator" },
+        submittedAt: new Date("2026-05-04T12:05:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:05:00.000Z")
+      });
+
+      await expect(listSurveys(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: survey.id, key: "activation_pulse", status: "paused" })
+      ]);
+
+      const results = await getSurveyResults(db, {
+        surveyId: survey.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z")
+      });
+
+      expect(results).not.toBeUndefined();
+      if (!results) return;
+      expect(results.totals).toEqual({ responses: 2, users: 2, tenants: 1, sessions: 2 });
+      expect(results.questions).toEqual([
+        expect.objectContaining({ id: "satisfaction", responses: 2, average: 4.5 }),
+        expect.objectContaining({ id: "role", responses: 2, choices: [{ value: "owner", count: 1 }, { value: "operator", count: 1 }] })
+      ]);
+      expect(results.recentResponses.map((response) => response.id)).toEqual(["srs_survey_2", "srs_survey_1"]);
+
+      await archiveSurvey(db, { id: survey.id, projectId: project.id, environmentId: environment.id });
+      await expect(listSurveys(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
     });
   });
 

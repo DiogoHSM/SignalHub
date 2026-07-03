@@ -8,6 +8,7 @@ import {
   profilePayloadSchema,
   sessionReplayPayloadSchema,
   spanPayloadSchema,
+  surveyResponsePayloadSchema,
   tracePayloadSchema,
   webVitalPayloadSchema
 } from "@sigmon/telemetry/ingestion-schemas";
@@ -25,6 +26,7 @@ import type {
   InsertTraceInput,
   InsertWebVitalInput
 } from "@sigmon/db/repositories/telemetry-writes.js";
+import type { RecordSurveyResponseInput } from "@sigmon/db/repositories/surveys.js";
 import {
   applyDataGovernanceRules,
   emptyDataGovernancePolicy,
@@ -42,6 +44,7 @@ export type TelemetryWriter = {
   insertClickEvent(input: InsertClickEventInput): Promise<void>;
   insertSessionReplay(input: InsertSessionReplayInput): Promise<void>;
   insertProfile(input: InsertProfileInput): Promise<void>;
+  insertSurveyResponse?(input: RecordSurveyResponseInput): Promise<void>;
   insertBreadcrumb?(input: InsertBreadcrumbInput): Promise<void>;
 };
 
@@ -316,6 +319,34 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
           sampleCount: frame.sample_count
         })),
         summary: sanitizeValue(payload.summary)
+      });
+      return;
+    }
+
+    case "survey_response": {
+      if (!writer.insertSurveyResponse) {
+        throw new Error("Survey response writer unavailable");
+      }
+
+      const payload = surveyResponsePayloadSchema.parse(job.payload);
+      const base = baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt);
+      await writer.insertSurveyResponse({
+        id: base.id,
+        projectId: base.projectId,
+        environmentId: base.environmentId,
+        tenantId: base.tenantId,
+        userId: base.userId,
+        sessionId: base.sessionId,
+        traceId: base.traceId,
+        release: base.release,
+        source: base.source,
+        metadata: base.metadata as Record<string, unknown>,
+        submittedAt: base.timestamp,
+        receivedAt: base.receivedAt,
+        surveyId: payload.survey_id,
+        actorType: payload.actor_type,
+        actorId: payload.actor_id,
+        answers: sanitizeValue(applyDataGovernanceRules(payload.answers, policy, "event.properties")) as Record<string, unknown>
       });
       return;
     }
