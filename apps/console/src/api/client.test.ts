@@ -822,6 +822,50 @@ describe("createApiClient", () => {
     );
   });
 
+  it("manages feedback widget settings and feedback triage", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { settings: { enabled: false } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApiClient("/api");
+
+    await api.getFeedbackWidgetSettings?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feedback-widget?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { settings: { enabled: true } }));
+    await api.updateFeedbackWidgetSettings?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      enabled: true,
+      title: "Send feedback",
+      prompt: "Tell us what happened.",
+      placeholder: "Write your feedback...",
+      buttonLabel: "Feedback",
+      accentColor: "#66e38a",
+      allowScreenshot: false,
+      privacyNote: null
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/feedback-widget",
+      expect.objectContaining({ method: "PUT" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { feedback: [] }));
+    await api.listFeedbackItems?.({ projectId: "prj_1", environmentId: "env_1", status: "open", tenantId: "tenant_1", limit: 10 });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/feedback?project_id=prj_1&environment_id=env_1&status=open&tenant_id=tenant_1&limit=10",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { feedback: { id: "fbk_1", status: "reviewed" } }));
+    await api.updateFeedbackStatus?.("fbk/1", { projectId: "prj_1", environmentId: "env_1" }, "reviewed");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/feedback/fbk%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "reviewed" }) })
+    );
+  });
+
   it("manages feature flags and fetches audit/evaluation preview", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { flags: [] }));
     vi.stubGlobal("fetch", fetchMock);

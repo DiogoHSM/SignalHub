@@ -27,6 +27,7 @@ import type {
   CodeIntegrationRecord,
   ReleaseMetadataRecord
 } from "../../../packages/db/src/repositories/code-integrations.js";
+import type { FeedbackWidgetSettings } from "../../../packages/db/src/repositories/feedback-widget.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -199,6 +200,33 @@ function surveyResponse(overrides: Partial<Record<string, unknown>> = {}) {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     archivedAt: null,
+    ...overrides
+  };
+}
+
+function feedbackWidgetSettings(overrides: Partial<FeedbackWidgetSettings> = {}): FeedbackWidgetSettings {
+  return {
+    projectId: "prj_1",
+    environmentId: "env_1",
+    enabled: true,
+    title: "Send feedback",
+    prompt: "Tell us what happened.",
+    placeholder: "Write your feedback...",
+    buttonLabel: "Feedback",
+    accentColor: "#66e38a",
+    allowScreenshot: false,
+    privacyNote: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function feedbackWidgetSettingsResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...feedbackWidgetSettings(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };
 }
@@ -1463,6 +1491,55 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_survey_request" });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("manages feedback widget settings for a scoped environment", async () => {
+    const getSettings = vi.fn(async () => feedbackWidgetSettings());
+    const upsertSettings = vi.fn(async (input) => feedbackWidgetSettings(input));
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        feedbackWidget: { getSettings, upsertSettings }
+      }
+    });
+
+    const getResponse = await app.inject({
+      method: "GET",
+      url: "/admin/feedback-widget?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({ settings: feedbackWidgetSettingsResponse() });
+    expect(getSettings).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const updateResponse = await app.inject({
+      method: "PUT",
+      url: "/admin/feedback-widget",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        enabled: true,
+        title: "Report feedback",
+        prompt: "What should we improve?",
+        placeholder: "Tell us what happened...",
+        buttonLabel: "Feedback",
+        accentColor: "#00aa66",
+        allowScreenshot: false,
+        privacyNote: "Do not include secrets."
+      }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(upsertSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        title: "Report feedback",
+        privacyNote: "Do not include secrets."
+      })
+    );
   });
 
   it("manages feature flags for admins with audit history and evaluation preview", async () => {

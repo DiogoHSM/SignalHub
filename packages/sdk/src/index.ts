@@ -22,6 +22,7 @@ export type {
   FeatureFlagRuleMatch,
   FeatureFlagValue,
   FeatureFlagVariantInput,
+  FeedbackInput,
   FlushOptions,
   FlushResult,
   IdentifyTenantInput,
@@ -68,6 +69,7 @@ export {
   createClickSignal,
   createErrorSignal,
   createEventSignal,
+  createFeedbackSignal,
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
@@ -92,6 +94,14 @@ export type {
 export {
   installBrowserClickCapture
 } from "./browser-clicks.js";
+export type {
+  FeedbackWidgetOptions,
+  FeedbackWidgetPosition,
+  StopFeedbackWidget
+} from "./browser-feedback-widget.js";
+export {
+  installFeedbackWidget
+} from "./browser-feedback-widget.js";
 export type {
   BrowserReplayRecorder,
   BrowserReplayRecorderOptions

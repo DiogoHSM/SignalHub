@@ -5,6 +5,7 @@ import {
   clickEventPayloadSchema,
   errorPayloadSchema,
   eventPayloadSchema,
+  feedbackPayloadSchema,
   llmCallPayloadSchema,
   profilePayloadSchema,
   sessionReplayPayloadSchema,
@@ -40,6 +41,7 @@ const ingestionRoutes: IngestionRouteConfig[] = [
   { path: "/v1/replays", kind: "replay", idPrefix: "rpl", schema: sessionReplayPayloadSchema },
   { path: "/v1/profiles", kind: "profile", idPrefix: "prf", schema: profilePayloadSchema },
   { path: "/v1/surveys/responses", kind: "survey_response", idPrefix: "srs", schema: surveyResponsePayloadSchema },
+  { path: "/v1/feedback", kind: "feedback", idPrefix: "fbk", schema: feedbackPayloadSchema },
   { path: "/v1/breadcrumbs", kind: "breadcrumb", idPrefix: "brd", schema: breadcrumbPayloadSchema }
 ];
 

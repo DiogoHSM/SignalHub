@@ -1872,6 +1872,124 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards feedback list and status update filters", async () => {
+    const receivedListFilters: unknown[] = [];
+    const receivedStatusUpdates: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listFeedbackItems: async (filters) => {
+          receivedListFilters.push(filters);
+          return [
+            {
+              id: "fbk_1",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              status: "open",
+              message: "The export button is unclear.",
+              category: "ux",
+              pageUrl: "https://app.example.com/reports",
+              path: "/reports",
+              userAgent: "Vitest",
+              tenantId: "tenant_1",
+              userId: "user_1",
+              sessionId: null,
+              traceId: null,
+              metadata: { surface: "reports" },
+              submittedAt: new Date("2026-01-01T00:00:00.000Z"),
+              updatedAt: new Date("2026-01-01T00:00:00.000Z")
+            }
+          ];
+        },
+        updateFeedbackStatus: async (input) => {
+          receivedStatusUpdates.push(input);
+          return {
+            id: input.id,
+            projectId: input.projectId,
+            environmentId: input.environmentId,
+            status: input.status,
+            message: "The export button is unclear.",
+            category: "ux",
+            pageUrl: "https://app.example.com/reports",
+            path: "/reports",
+            userAgent: "Vitest",
+            tenantId: "tenant_1",
+            userId: "user_1",
+            sessionId: null,
+            traceId: null,
+            metadata: {},
+            submittedAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: new Date("2026-01-01T00:05:00.000Z")
+          };
+        }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/query/feedback?project_id=prj_1&environment_id=env_1&status=open&tenant_id=tenant_1&limit=10"
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({
+      feedback: [
+        {
+          id: "fbk_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status: "open",
+          message: "The export button is unclear.",
+          category: "ux",
+          pageUrl: "https://app.example.com/reports",
+          path: "/reports",
+          userAgent: "Vitest",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          sessionId: null,
+          traceId: null,
+          metadata: { surface: "reports" },
+          submittedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    });
+    expect(receivedListFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        status: "open",
+        tenantId: "tenant_1",
+        userId: undefined,
+        limit: 10
+      }
+    ]);
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/query/feedback/fbk_1?project_id=prj_1&environment_id=env_1",
+      payload: { status: "reviewed" }
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json()).toMatchObject({
+      feedback: {
+        id: "fbk_1",
+        status: "reviewed",
+        updatedAt: "2026-01-01T00:05:00.000Z"
+      }
+    });
+    expect(receivedStatusUpdates).toEqual([
+      {
+        id: "fbk_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        status: "reviewed"
+      }
+    ]);
+  });
+
   it("forwards event pathfinder query filters", async () => {
     const receivedFilters: unknown[] = [];
 

@@ -294,6 +294,68 @@ export const openApiDocument = {
           timestamp: { type: "string", format: "date-time" }
         }
       },
+      FeedbackPayload: {
+        type: "object",
+        required: ["message"],
+        properties: {
+          message: { type: "string", examples: ["The export button is confusing."] },
+          category: { type: "string", examples: ["ux"] },
+          page_url: { type: "string", format: "uri", examples: ["https://app.example.com/reports"] },
+          path: { type: "string", examples: ["/reports?tab=exports"] },
+          tenant_id: { type: "string" },
+          user_id: { type: "string" },
+          session_id: { type: "string" },
+          trace_id: { type: "string" },
+          source: { type: "string", examples: ["browser"] },
+          release: { type: "string", examples: ["2026.06.01"] },
+          user_agent: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+          timestamp: { type: "string", format: "date-time" }
+        }
+      },
+      FeedbackWidgetSettings: {
+        type: "object",
+        required: ["projectId", "environmentId", "enabled", "title", "prompt", "placeholder", "buttonLabel", "accentColor", "allowScreenshot"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          enabled: { type: "boolean" },
+          title: { type: "string" },
+          prompt: { type: "string" },
+          placeholder: { type: "string" },
+          buttonLabel: { type: "string" },
+          accentColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+          allowScreenshot: { type: "boolean", description: "Reserved for a future privacy-safe screenshot flow." },
+          privacyNote: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      FeedbackItem: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "status", "message", "metadata", "submittedAt", "receivedAt", "updatedAt"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          status: { type: "string", enum: ["open", "reviewed", "archived"] },
+          message: { type: "string" },
+          category: { type: ["string", "null"] },
+          pageUrl: { type: ["string", "null"] },
+          path: { type: ["string", "null"] },
+          tenantId: { type: ["string", "null"] },
+          userId: { type: ["string", "null"] },
+          sessionId: { type: ["string", "null"] },
+          traceId: { type: ["string", "null"] },
+          release: { type: ["string", "null"] },
+          source: { type: ["string", "null"] },
+          userAgent: { type: ["string", "null"] },
+          metadata: { type: "object", additionalProperties: true },
+          submittedAt: { type: "string", format: "date-time" },
+          receivedAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
       SurveyResults: {
         type: "object",
         required: ["survey", "window", "totals", "questions", "recentResponses"],
@@ -1182,6 +1244,25 @@ export const openApiDocument = {
         }
       )
     },
+    "/v1/feedback": {
+      post: ingestionOperation(
+        "Ingest product feedback",
+        "Track text feedback collected by the Sigmon browser feedback widget or a custom product flow. Feedback is scoped to the ingestion key and can include page, actor, release, and metadata context.",
+        "FeedbackPayload",
+        {
+          message: "The export button is confusing.",
+          category: "ux",
+          tenant_id: "tenant_123",
+          user_id: "user_456",
+          session_id: "sess_789",
+          source: "browser",
+          release: "2026.06.01",
+          page_url: "https://app.example.com/reports",
+          path: "/reports?tab=exports",
+          metadata: { surface: "reports" }
+        }
+      )
+    },
     "/v1/errors": {
       post: ingestionOperation("Ingest an error", "Track exceptions, crashes, and grouped error occurrences. Include stack, release, source, and identity fields to unlock issue detail, source-map resolution, and tenant/user drilldowns.", "ErrorPayload", {
         message: "Payment provider timeout",
@@ -1497,6 +1578,66 @@ export const openApiDocument = {
         ],
         responses: {
           "204": { description: "Survey archived" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/feedback-widget": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "Get feedback widget settings",
+        description: "Read project/environment feedback widget settings used by browser SDK installations.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Feedback widget settings",
+            content: { "application/json": { schema: { type: "object", properties: { settings: { $ref: "#/components/schemas/FeedbackWidgetSettings" } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      put: {
+        tags: ["Session authenticated"],
+        summary: "Update feedback widget settings",
+        description: "Enable/disable the browser feedback widget and update its copy and privacy note for one project environment.",
+        security: [{ sessionCookie: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["projectId", "environmentId", "enabled"],
+                properties: {
+                  projectId: { type: "string" },
+                  environmentId: { type: "string" },
+                  enabled: { type: "boolean" },
+                  title: { type: "string" },
+                  prompt: { type: "string" },
+                  placeholder: { type: "string" },
+                  buttonLabel: { type: "string" },
+                  accentColor: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+                  allowScreenshot: { type: "boolean", description: "Reserved for a future privacy-safe screenshot flow." },
+                  privacyNote: { type: ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Feedback widget settings",
+            content: { "application/json": { schema: { type: "object", properties: { settings: { $ref: "#/components/schemas/FeedbackWidgetSettings" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -2603,6 +2744,57 @@ export const openApiDocument = {
           "401": { $ref: "#/components/responses/Unauthorized" },
           "403": { $ref: "#/components/responses/Forbidden" },
           "404": { description: "Survey not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/feedback": {
+      get: {
+        ...sessionRoute(
+          "List feedback submissions",
+          "Read recent product feedback submissions for a project environment. Query with project_id, environment_id, optional status=open|reviewed|archived, and optional limit."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", required: false, schema: { type: "string", enum: ["open", "reviewed", "archived"] } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 200, default: 50 } }
+        ],
+        responses: {
+          "200": {
+            description: "Feedback submissions",
+            content: { "application/json": { schema: { type: "object", properties: { feedback: { type: "array", items: { $ref: "#/components/schemas/FeedbackItem" } } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/feedback/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Update feedback status",
+        description: "Mark a feedback submission as open, reviewed, or archived.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", required: ["status"], properties: { status: { type: "string", enum: ["open", "reviewed", "archived"] } } } } }
+        },
+        responses: {
+          "200": {
+            description: "Feedback updated",
+            content: { "application/json": { schema: { type: "object", properties: { feedback: { $ref: "#/components/schemas/FeedbackItem" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Feedback not found" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }

@@ -202,6 +202,12 @@ import {
   updateSurvey
 } from "@sigmon/db/repositories/surveys.js";
 import {
+  getFeedbackWidgetSettings,
+  listFeedbackItems,
+  updateFeedbackItemStatus,
+  upsertFeedbackWidgetSettings
+} from "@sigmon/db/repositories/feedback-widget.js";
+import {
   assignIncident,
   addTriageNote,
   silenceIncident,
@@ -693,6 +699,10 @@ const app = await buildApp({
       update: (input) => updateSurvey(db, input),
       archive: (input) => archiveSurvey(db, input)
     },
+    feedbackWidget: {
+      getSettings: (input) => getFeedbackWidgetSettings(db, input),
+      upsertSettings: (input) => upsertFeedbackWidgetSettings(db, input)
+    },
     featureFlags: {
       list: (filters) => listFeatureFlags(db, filters),
       create: (input) => createFeatureFlag(db, input),
@@ -798,6 +808,8 @@ const app = await buildApp({
     getEventFunnel: (filters) => getEventFunnel(db, filters),
     getExperimentResults: (filters) => getExperimentResults(db, filters),
     getSurveyResults: (filters) => getSurveyResults(db, filters),
+    listFeedbackItems: (filters) => listFeedbackItems(db, filters),
+    updateFeedbackStatus: (input) => updateFeedbackItemStatus(db, input),
     getEventPaths: (filters) => getEventPaths(db, filters),
     getEventRetention: (filters) => getEventRetention(db, filters),
     getApmEndpoints: (filters) => getApmEndpoints(db, filters),

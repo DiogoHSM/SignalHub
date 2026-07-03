@@ -231,6 +231,14 @@ export const surveyResponsePayloadSchema = sharedEnvelopeSchema.extend({
   answers: jsonObjectSchema
 });
 
+export const feedbackPayloadSchema = sharedEnvelopeSchema.extend({
+  message: mediumTextSchema,
+  category: shortTextSchema.optional(),
+  page_url: z.string().url().max(MEDIUM_TEXT_MAX).optional(),
+  path: z.string().max(MEDIUM_TEXT_MAX).optional(),
+  user_agent: z.string().max(MEDIUM_TEXT_MAX).optional()
+});
+
 export const breadcrumbPayloadSchema = sharedEnvelopeSchema.extend({
   type: z.enum(["navigation", "click", "console", "network", "custom"]),
   category: shortTextSchema.optional(),
@@ -261,6 +269,7 @@ export type ClickEventPayload = z.infer<typeof clickEventPayloadSchema>;
 export type SessionReplayPayload = z.infer<typeof sessionReplayPayloadSchema>;
 export type ProfilePayload = z.infer<typeof profilePayloadSchema>;
 export type SurveyResponsePayload = z.infer<typeof surveyResponsePayloadSchema>;
+export type FeedbackPayload = z.infer<typeof feedbackPayloadSchema>;
 export type BreadcrumbPayload = z.infer<typeof breadcrumbPayloadSchema>;
 export type UserIdentifyPayload = z.infer<typeof userIdentifyPayloadSchema>;
 export type TenantIdentifyPayload = z.infer<typeof tenantIdentifyPayloadSchema>;

@@ -238,6 +238,45 @@ export interface SurveyResponsesTable {
   received_at: Timestamp;
 }
 
+export type FeedbackItemStatus = "open" | "reviewed" | "archived";
+
+export interface FeedbackWidgetSettingsTable {
+  project_id: string;
+  environment_id: string;
+  enabled: DefaultedBoolean;
+  title: string;
+  prompt: string;
+  placeholder: string;
+  button_label: string;
+  accent_color: string;
+  allow_screenshot: DefaultedBoolean;
+  privacy_note: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface FeedbackItemsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  status: ColumnType<FeedbackItemStatus, FeedbackItemStatus | undefined, FeedbackItemStatus>;
+  message: string;
+  category: string | null;
+  page_url: string | null;
+  path: string | null;
+  tenant_id: string | null;
+  user_id: string | null;
+  session_id: string | null;
+  trace_id: string | null;
+  release: string | null;
+  source: string | null;
+  user_agent: string | null;
+  metadata: JsonColumn;
+  submitted_at: Timestamp;
+  received_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 export interface DataGovernancePoliciesTable {
   project_id: string;
   environment_id: string;
@@ -894,6 +933,8 @@ export interface Database {
   beta_program_participants: BetaProgramParticipantsTable;
   surveys: SurveysTable;
   survey_responses: SurveyResponsesTable;
+  feedback_widget_settings: FeedbackWidgetSettingsTable;
+  feedback_items: FeedbackItemsTable;
   data_governance_policies: DataGovernancePoliciesTable;
   warehouse_destinations: WarehouseDestinationsTable;
   warehouse_export_runs: WarehouseExportRunsTable;

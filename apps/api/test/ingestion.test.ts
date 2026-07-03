@@ -101,6 +101,33 @@ describe("ingestion routes", () => {
     expect(response.headers.vary).toContain("Origin");
   });
 
+  it("allows browser preflight requests for feedback ingestion", async () => {
+    app = await buildApp({
+      readiness,
+      browserCorsOrigins: ["https://app.controledaempresa.com"],
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/feedback",
+      headers: {
+        origin: "https://app.controledaempresa.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,content-type"
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("https://app.controledaempresa.com");
+    expect(response.headers["access-control-allow-methods"]).toContain("POST");
+    expect(response.headers["access-control-allow-headers"]).toContain("Authorization");
+    expect(response.headers.vary).toContain("Origin");
+  });
+
   it("allows browser preflight requests for persisted project origins", async () => {
     const isBrowserCorsOriginAllowed = vi.fn().mockResolvedValue(true);
 
@@ -259,6 +286,56 @@ describe("ingestion routes", () => {
         actor_id: "user_1",
         tenant_id: "tenant_1",
         answers: { satisfaction: 5, comment: "Great" }
+      }
+    });
+  });
+
+  it("accepts a valid feedback payload and enqueues it", async () => {
+    const enqueued: EnqueuedJob[] = [];
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/feedback",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        message: "Export wording is unclear",
+        category: "ux",
+        tenant_id: "tenant_1",
+        user_id: "user_1",
+        page_url: "https://app.example.com/reports",
+        path: "/reports",
+        metadata: { surface: "reports" }
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body).toMatchObject({ accepted: true });
+    expect(body.id).toMatch(/^fbk_/);
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]).toMatchObject({
+      kind: "feedback",
+      id: body.id,
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        message: "Export wording is unclear",
+        category: "ux",
+        tenant_id: "tenant_1",
+        user_id: "user_1",
+        page_url: "https://app.example.com/reports",
+        path: "/reports",
+        metadata: { surface: "reports" }
       }
     });
   });

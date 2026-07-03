@@ -42,6 +42,10 @@ import type {
   FeatureFlag,
   FeatureFlagAudit,
   FeatureFlagEvaluation,
+  FeedbackItem,
+  FeedbackListQuery,
+  FeedbackStatus,
+  FeedbackWidgetSettings,
   ErrorGroupIncident,
   ErrorGroupIncidentQuery,
   ErrorGroupQuery,
@@ -113,6 +117,7 @@ import type {
   UpdateBetaProgramInput,
   UpdateExperimentInput,
   UpdateFeatureFlagInput,
+  UpdateFeedbackWidgetSettingsInput,
   UpdateSurveyInput,
   UpdateErrorGroupStatusInput,
   UpdateErrorGroupTriageInput,
@@ -354,6 +359,14 @@ export type ApiClient = {
   ) => Promise<{ survey: Survey }>;
   archiveSurvey?: (id: string, query: Pick<CreateSurveyInput, "projectId" | "environmentId">) => Promise<void>;
   getSurveyResults?: (query: SurveyResultsQuery) => Promise<AggregateResponse<SurveyResultsResponse>>;
+  getFeedbackWidgetSettings?: (query: Pick<UpdateFeedbackWidgetSettingsInput, "projectId" | "environmentId">) => Promise<{ settings: FeedbackWidgetSettings }>;
+  updateFeedbackWidgetSettings?: (input: UpdateFeedbackWidgetSettingsInput) => Promise<{ settings: FeedbackWidgetSettings }>;
+  listFeedbackItems?: (query: FeedbackListQuery) => Promise<{ feedback: FeedbackItem[] }>;
+  updateFeedbackStatus?: (
+    id: string,
+    query: Pick<FeedbackListQuery, "projectId" | "environmentId">,
+    status: FeedbackStatus
+  ) => Promise<{ feedback: FeedbackItem }>;
   listFeatureFlags?: (query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">) => Promise<{ flags: FeatureFlag[] }>;
   createFeatureFlag?: (input: CreateFeatureFlagInput) => Promise<{ flag: FeatureFlag }>;
   updateFeatureFlag?: (
@@ -945,6 +958,34 @@ function surveyResultsPath(query: SurveyResultsQuery): string {
   return `/query/surveys/${encodePathSegment(query.surveyId)}/results?${params.toString()}`;
 }
 
+function feedbackWidgetPath(query: Pick<UpdateFeedbackWidgetSettingsInput, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/admin/feedback-widget?${params.toString()}`;
+}
+
+function feedbackItemsPath(query: FeedbackListQuery): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  if (query.status) params.set("status", query.status);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.userId) params.set("user_id", query.userId);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+  return `/query/feedback?${params.toString()}`;
+}
+
+function feedbackItemPath(id: string, query: Pick<FeedbackListQuery, "projectId" | "environmentId">): string {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return `/query/feedback/${encodePathSegment(id)}?${params.toString()}`;
+}
+
 function featureFlagsPath(query: Pick<CreateFeatureFlagInput, "projectId" | "environmentId">): string {
   const params = new URLSearchParams();
   params.set("project_id", query.projectId);
@@ -1272,6 +1313,17 @@ export function createApiClient(
       request<void>(path(apiBasePath, surveyScopedPath(id, query)), { method: "DELETE" }),
     getSurveyResults: (query) =>
       request<AggregateResponse<SurveyResultsResponse>>(path(apiBasePath, surveyResultsPath(query))),
+    getFeedbackWidgetSettings: (query) =>
+      request<{ settings: FeedbackWidgetSettings }>(path(apiBasePath, feedbackWidgetPath(query))),
+    updateFeedbackWidgetSettings: (input) =>
+      request<{ settings: FeedbackWidgetSettings }>(path(apiBasePath, "/admin/feedback-widget"), { method: "PUT", body: input }),
+    listFeedbackItems: (query) =>
+      request<{ feedback: FeedbackItem[] }>(path(apiBasePath, feedbackItemsPath(query))),
+    updateFeedbackStatus: (id, query, status) =>
+      request<{ feedback: FeedbackItem }>(path(apiBasePath, feedbackItemPath(id, query)), {
+        method: "PATCH",
+        body: { status }
+      }),
     listFeatureFlags: (query) =>
       request<{ flags: FeatureFlag[] }>(path(apiBasePath, featureFlagsPath(query))),
     createFeatureFlag: (input) =>

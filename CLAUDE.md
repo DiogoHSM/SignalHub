@@ -2,7 +2,7 @@
 
 SignalMonitor is a self-hosted telemetry core for product analytics, errors, LLM calls, traces, and spans. It was formerly developed as SignalHub. Keep project-facing documentation in English.
 
-- Current phase: Phase 6E SignalMonitor Rename.
+- Current phase: Phase 6G product hardening and documentation reconciliation.
 
 ## Canonical Docs
 
@@ -30,6 +30,7 @@ SignalMonitor is a self-hosted telemetry core for product analytics, errors, LLM
 - Use `pnpm smoke:compose` as the local-first release smoke gate for the Docker Compose install path.
 - Keep GitHub Actions CI focused on tests, build, Docker Compose config validation, and the Compose smoke gate until a dedicated release-management phase expands it.
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
+- Feedback widget ingestion is browser-safe text/context only for now; do not add screenshot capture until masking and explicit consent controls are designed.
 
 ## Verification
 

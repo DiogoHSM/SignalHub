@@ -3,6 +3,7 @@ import type {
   ClickInput,
   ErrorInput,
   EventInput,
+  FeedbackInput,
   IdentifyTenantInput,
   IdentifyUserInput,
   LlmInput,
@@ -359,6 +360,36 @@ export function createSurveyResponseSignal(
   return {
     kind: "survey_response",
     endpointPath: "/v1/surveys/responses",
+    payload
+  };
+}
+
+export function createFeedbackSignal(
+  input: FeedbackInput,
+  context?: SignalContext,
+  defaultContext?: SignalContext
+): QueuedSignal {
+  const mergedContext = {
+    ...context,
+    timestamp: input.timestamp,
+    metadata: {
+      ...(context?.metadata ?? {}),
+      ...(input.metadata ?? {})
+    }
+  };
+  const payload = {
+    ...mergeContext(defaultContext, mergedContext),
+    message: input.message
+  };
+
+  assignDefined(payload, "category", input.category);
+  assignDefined(payload, "page_url", input.pageUrl);
+  assignDefined(payload, "path", input.path);
+  assignDefined(payload, "user_agent", input.userAgent);
+
+  return {
+    kind: "feedback",
+    endpointPath: "/v1/feedback",
     payload
   };
 }

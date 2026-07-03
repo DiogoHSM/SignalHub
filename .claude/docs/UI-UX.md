@@ -135,6 +135,13 @@ SignalMonitor includes an admin-only Integration Console.
 - Survey controls should make units and linkage explicit: answers are keyed by question id, browser submission uses the project browser-origin allowlist, and response reports are derived from `POST /v1/surveys/responses` / SDK `submitSurvey`.
 - Experiment surfaces should remain dark, compact, and operational, with no white table rows or detached form islands.
 
+## Feedback UX
+
+- Feedback Widget configuration lives in Project Settings for the selected project/environment because it is runtime setup, not analysis.
+- Operators can enable/disable the browser feedback widget, edit button/panel copy, choose an accent color, and inspect recent submissions without leaving Project Settings.
+- Recent feedback rows expose compact triage actions for reviewed and archived states. The workflow is intentionally lightweight and should not imply a full support inbox.
+- Feedback copy should make privacy posture clear: the current widget accepts textual feedback and browser-safe context only. Screenshot capture remains disabled until masking and explicit consent controls are designed.
+
 ## Operations UX
 
 - `Global Home` is now the default console entry point. It is installation-wide and should not show project or environment selectors.

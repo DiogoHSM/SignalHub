@@ -4,6 +4,7 @@ import {
   clickEventPayloadSchema,
   eventPayloadSchema,
   errorPayloadSchema,
+  feedbackPayloadSchema,
   llmCallPayloadSchema,
   profilePayloadSchema,
   sessionReplayPayloadSchema,
@@ -27,6 +28,7 @@ import type {
   InsertWebVitalInput
 } from "@sigmon/db/repositories/telemetry-writes.js";
 import type { RecordSurveyResponseInput } from "@sigmon/db/repositories/surveys.js";
+import type { RecordFeedbackItemInput } from "@sigmon/db/repositories/feedback-widget.js";
 import {
   applyDataGovernanceRules,
   emptyDataGovernancePolicy,
@@ -45,6 +47,7 @@ export type TelemetryWriter = {
   insertSessionReplay(input: InsertSessionReplayInput): Promise<void>;
   insertProfile(input: InsertProfileInput): Promise<void>;
   insertSurveyResponse?(input: RecordSurveyResponseInput): Promise<void>;
+  insertFeedbackItem?(input: RecordFeedbackItemInput): Promise<void>;
   insertBreadcrumb?(input: InsertBreadcrumbInput): Promise<void>;
 };
 
@@ -347,6 +350,35 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         actorType: payload.actor_type,
         actorId: payload.actor_id,
         answers: sanitizeValue(applyDataGovernanceRules(payload.answers, policy, "event.properties")) as Record<string, unknown>
+      });
+      return;
+    }
+
+    case "feedback": {
+      if (!writer.insertFeedbackItem) {
+        throw new Error("Feedback writer unavailable");
+      }
+
+      const payload = feedbackPayloadSchema.parse(job.payload);
+      const base = baseInput(job, { ...payload, metadata: governedMetadata(payload, policy) }, receivedAt);
+      await writer.insertFeedbackItem({
+        id: base.id,
+        projectId: base.projectId,
+        environmentId: base.environmentId,
+        tenantId: base.tenantId,
+        userId: base.userId,
+        sessionId: base.sessionId,
+        traceId: base.traceId,
+        release: base.release,
+        source: base.source,
+        metadata: base.metadata as Record<string, unknown>,
+        submittedAt: base.timestamp,
+        receivedAt: base.receivedAt,
+        message: sanitizePreviewText(payload.message) ?? "Feedback",
+        category: payload.category,
+        pageUrl: payload.page_url,
+        path: payload.path,
+        userAgent: sanitizePreviewText(payload.user_agent)
       });
       return;
     }

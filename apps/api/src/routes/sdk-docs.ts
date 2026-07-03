@@ -846,6 +846,38 @@ if (flag.value === true) {
               monitored app origin in the browser-origin allowlist before posting directly from the
               browser with a browser-scoped ingestion key.
             </div>
+            <h3>Feedback widget</h3>
+            <p>
+              Use surveys for structured answers and the feedback widget for free-form product
+              feedback. Enable the widget in project settings, then install the browser helper. The
+              helper records page URL/path and sends feedback to <code>POST /v1/feedback</code> with
+              normal user, tenant, session, source, release, and metadata context.
+            </p>
+            <pre><code>import { createSignalMonitorClient, installFeedbackWidget } from "@sigmon/sdk/browser";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT!,
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY!,
+  defaultContext: {
+    source: "browser",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+installFeedbackWidget(sigmonBrowser, {
+  buttonLabel: "Feedback",
+  category: "ux",
+  flush: true,
+  context: () => ({
+    tenantId: currentTenantId(),
+    userId: currentUserId(),
+    sessionId: currentSessionId()
+  })
+});</code></pre>
+            <div class="callout">
+              Screenshot capture remains disabled until masking and explicit consent controls are
+              available.
+            </div>
           </section>
 
           <section id="traces">

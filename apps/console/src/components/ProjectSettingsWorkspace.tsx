@@ -7,6 +7,8 @@ import type {
   DataGovernancePropertyRuleTarget,
   DataGovernanceRetentionCategory,
   Environment,
+  FeedbackItem,
+  FeedbackWidgetSettings,
   Project,
   WarehouseDataset,
   WarehouseDestination,
@@ -60,6 +62,11 @@ const sections = [
     id: "browser-origins",
     label: "Browser origins",
     description: "Review allowed browser origins for client-side ingestion."
+  },
+  {
+    id: "feedback-widget",
+    label: "Feedback widget",
+    description: "Enable the browser feedback widget and triage recent submissions."
   },
   {
     id: "data-governance",
@@ -765,6 +772,220 @@ function WarehouseSyncPanel({
   );
 }
 
+function FeedbackWidgetPanel({
+  activeEnvironmentId,
+  client,
+  projectId
+}: {
+  activeEnvironmentId?: string;
+  client: ApiClient;
+  projectId: string;
+}) {
+  const [settings, setSettings] = useState<FeedbackWidgetSettings | undefined>();
+  const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
+  const [draft, setDraft] = useState({
+    enabled: false,
+    title: "Send feedback",
+    prompt: "Tell us what happened or what could be better.",
+    placeholder: "Write your feedback...",
+    buttonLabel: "Feedback",
+    accentColor: "#66e38a",
+    privacyNote: ""
+  });
+  const [error, setError] = useState<string | undefined>();
+  const [isSaving, setIsSaving] = useState(false);
+  const [isBusyId, setIsBusyId] = useState<string | undefined>();
+  const canUseApi = Boolean(
+    activeEnvironmentId &&
+      client.getFeedbackWidgetSettings &&
+      client.updateFeedbackWidgetSettings &&
+      client.listFeedbackItems &&
+      client.updateFeedbackStatus
+  );
+
+  async function load() {
+    if (!activeEnvironmentId || !client.getFeedbackWidgetSettings || !client.listFeedbackItems) return;
+    const [settingsResponse, feedbackResponse] = await Promise.all([
+      client.getFeedbackWidgetSettings({ projectId, environmentId: activeEnvironmentId }),
+      client.listFeedbackItems({ projectId, environmentId: activeEnvironmentId, limit: 25 })
+    ]);
+    setSettings(settingsResponse.settings);
+    setDraft({
+      enabled: settingsResponse.settings.enabled,
+      title: settingsResponse.settings.title,
+      prompt: settingsResponse.settings.prompt,
+      placeholder: settingsResponse.settings.placeholder,
+      buttonLabel: settingsResponse.settings.buttonLabel,
+      accentColor: settingsResponse.settings.accentColor,
+      privacyNote: settingsResponse.settings.privacyNote ?? ""
+    });
+    setFeedback(feedbackResponse.feedback);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeEnvironmentId || !canUseApi) return () => {
+      cancelled = true;
+    };
+
+    void load().catch(() => {
+      if (!cancelled) setError("Could not load feedback widget settings.");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEnvironmentId, canUseApi, client, projectId]);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeEnvironmentId || !client.updateFeedbackWidgetSettings || isSaving) return;
+    setError(undefined);
+    setIsSaving(true);
+    try {
+      const response = await client.updateFeedbackWidgetSettings({
+        projectId,
+        environmentId: activeEnvironmentId,
+        enabled: draft.enabled,
+        title: draft.title,
+        prompt: draft.prompt,
+        placeholder: draft.placeholder,
+        buttonLabel: draft.buttonLabel,
+        accentColor: draft.accentColor,
+        allowScreenshot: false,
+        privacyNote: draft.privacyNote || null
+      });
+      setSettings(response.settings);
+    } catch {
+      setError("Could not save feedback widget settings.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function updateStatus(item: FeedbackItem, status: FeedbackItem["status"]) {
+    if (!activeEnvironmentId || !client.updateFeedbackStatus) return;
+    setIsBusyId(item.id);
+    setError(undefined);
+    try {
+      const response = await client.updateFeedbackStatus(item.id, { projectId, environmentId: activeEnvironmentId }, status);
+      setFeedback((current) => current.map((entry) => (entry.id === item.id ? response.feedback : entry)));
+    } catch {
+      setError("Could not update feedback status.");
+    } finally {
+      setIsBusyId(undefined);
+    }
+  }
+
+  if (!activeEnvironmentId) {
+    return <EmptyState description="Select an environment before configuring the feedback widget." title="No environment selected" />;
+  }
+
+  return (
+    <section className="panel feedback-widget-panel">
+      <div className="panel-header">
+        <div>
+          <h2>Feedback widget</h2>
+          <p className="muted-text">
+            Configure the browser widget shown by <code>installFeedbackWidget()</code> and triage recent user feedback.
+          </p>
+        </div>
+        {settings ? <span className={`status-pill ${settings.enabled ? "status-pill--success" : ""}`}>{settings.enabled ? "Enabled" : "Disabled"}</span> : null}
+      </div>
+      {!canUseApi ? <p className="form-error">Feedback widget management is unavailable in this deployment.</p> : null}
+      {error ? <p className="form-error">{error}</p> : null}
+      <div className="settings-grid settings-grid--two">
+        <form className="subpanel compact-form" onSubmit={save}>
+          <h3>Widget copy and behavior</h3>
+          <label className="checkbox-row">
+            <input
+              checked={draft.enabled}
+              onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))}
+              type="checkbox"
+            />
+            Enable widget for this environment
+          </label>
+          <label>
+            Button label
+            <input onChange={(event) => setDraft((current) => ({ ...current, buttonLabel: event.target.value }))} value={draft.buttonLabel} />
+          </label>
+          <label>
+            Panel title
+            <input onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} value={draft.title} />
+          </label>
+          <label>
+            Prompt
+            <textarea onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} value={draft.prompt} />
+          </label>
+          <label>
+            Placeholder
+            <input onChange={(event) => setDraft((current) => ({ ...current, placeholder: event.target.value }))} value={draft.placeholder} />
+          </label>
+          <label>
+            Accent color
+            <input onChange={(event) => setDraft((current) => ({ ...current, accentColor: event.target.value }))} type="color" value={draft.accentColor} />
+          </label>
+          <label>
+            Privacy note
+            <textarea
+              onChange={(event) => setDraft((current) => ({ ...current, privacyNote: event.target.value }))}
+              placeholder="Optional note shown in your own UI or docs."
+              value={draft.privacyNote}
+            />
+          </label>
+          <p className="muted-text">Screenshot capture remains disabled until masking and consent controls are available.</p>
+          <button disabled={!canUseApi || isSaving} type="submit">
+            {isSaving ? "Saving" : "Save widget"}
+          </button>
+        </form>
+
+        <section className="subpanel">
+          <div className="panel-header">
+            <div>
+              <h3>Recent feedback</h3>
+              <p className="muted-text">Latest widget submissions for this environment.</p>
+            </div>
+            <button disabled={!canUseApi} onClick={() => void load()} type="button">
+              Refresh
+            </button>
+          </div>
+          {feedback.length === 0 ? (
+            <p className="muted-text">No feedback received yet.</p>
+          ) : (
+            <ul className="key-list">
+              {feedback.map((item) => (
+                <li className="key-list-item" key={item.id}>
+                  <div>
+                    <strong>{item.message}</strong>
+                    <span>
+                      {item.status} · {item.path ?? item.pageUrl ?? "unknown page"} · {new Date(item.submittedAt).toLocaleString()}
+                    </span>
+                    <span>
+                      user {item.userId ?? "none"} · tenant {item.tenantId ?? "none"}
+                    </span>
+                  </div>
+                  <div className="key-list-item__actions">
+                    {item.status !== "reviewed" ? (
+                      <button disabled={isBusyId === item.id} onClick={() => void updateStatus(item, "reviewed")} type="button">
+                        Mark reviewed
+                      </button>
+                    ) : null}
+                    {item.status !== "archived" ? (
+                      <button className="button-danger" disabled={isBusyId === item.id} onClick={() => void updateStatus(item, "archived")} type="button">
+                        Archive
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
 export function ProjectSettingsWorkspace({
   activeEnvironment,
   activeProject,
@@ -820,6 +1041,14 @@ export function ProjectSettingsWorkspace({
         );
       case "browser-origins":
         return <BrowserOriginsPanel client={client} projectId={activeProjectId} />;
+      case "feedback-widget":
+        return (
+          <FeedbackWidgetPanel
+            activeEnvironmentId={activeEnvironmentId}
+            client={client}
+            projectId={activeProjectId}
+          />
+        );
       case "data-governance":
         return (
           <DataGovernancePanel

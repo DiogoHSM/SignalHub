@@ -410,6 +410,67 @@ export type SurveyResultsResponse = {
   recentResponses: SurveyResponse[];
 };
 
+export type FeedbackStatus = "open" | "reviewed" | "archived";
+
+export type FeedbackWidgetSettings = {
+  projectId: string;
+  environmentId: string;
+  enabled: boolean;
+  title: string;
+  prompt: string;
+  placeholder: string;
+  buttonLabel: string;
+  accentColor: string;
+  allowScreenshot: boolean;
+  privacyNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpdateFeedbackWidgetSettingsInput = {
+  projectId: string;
+  environmentId: string;
+  enabled: boolean;
+  title?: string;
+  prompt?: string;
+  placeholder?: string;
+  buttonLabel?: string;
+  accentColor?: string;
+  allowScreenshot?: boolean;
+  privacyNote?: string | null;
+};
+
+export type FeedbackItem = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  status: FeedbackStatus;
+  message: string;
+  category: string | null;
+  pageUrl: string | null;
+  path: string | null;
+  tenantId: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  traceId: string | null;
+  release: string | null;
+  source: string | null;
+  userAgent: string | null;
+  metadata: Record<string, unknown>;
+  submittedAt: string;
+  receivedAt: string;
+  updatedAt: string;
+};
+
+export type FeedbackListQuery = {
+  projectId: string;
+  environmentId: string;
+  status?: FeedbackStatus;
+  tenantId?: string;
+  userId?: string;
+  limit?: number;
+};
+
 export type FeatureFlagStatus = "draft" | "active" | "paused" | "archived";
 export type FeatureFlagValue = string | number | boolean | null;
 

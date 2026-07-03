@@ -73,6 +73,7 @@ const browserIngestionCorsPaths = new Set([
   "/v1/spans",
   "/v1/profiles",
   "/v1/surveys/responses",
+  "/v1/feedback",
   "/v1/identify/user",
   "/v1/identify/tenant"
 ]);

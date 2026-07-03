@@ -12,7 +12,7 @@ SignalMonitor is a self-hosted operational core with five runtime components:
 
 Ingestion:
 
-1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/surveys/responses`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, or `/v1/spans`.
+1. Client calls `POST /v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/surveys/responses`, `/v1/feedback`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, or `/v1/spans`.
 2. API extracts the bearer API key and verifies the stored hash with `API_KEY_PEPPER`.
 3. API validates the JSON payload with Zod.
 4. API generates a signal id, attaches project and environment scope from the API key, enqueues the job, and returns `202 Accepted`.
@@ -64,6 +64,8 @@ Operational tables:
 - `analytics_dashboards`
 - `experiments`
 - `surveys`
+- `feedback_widget_settings`
+- `feedback_items`
 - `data_governance_policies`
 - `warehouse_destinations`
 - `warehouse_export_runs`
@@ -112,6 +114,8 @@ Web Vitals are stored in the `web_vitals` telemetry table. Browser SDK helpers s
 
 Runtime profiles are stored in the `profiles` telemetry table. Node SDK helpers send bounded opt-in CPU and memory snapshots through `POST /v1/profiles`; custom runtimes can use the same REST contract directly. `GET /query/apm/profiles` aggregates CPU profile count, memory profile count, average duration, latest memory usage, recent profiles, and hot functions for the Traces/APM workspace. Profiles are designed for targeted investigations rather than always-on raw profiler dumps.
 
+Feedback widget settings are stored per project/environment in `feedback_widget_settings`; submissions are stored in `feedback_items`. `POST /v1/feedback` accepts short browser-safe user feedback with optional category, page URL, path, user agent, identifiers, and metadata. The JavaScript SDK exposes `installFeedbackWidget()` for a lightweight textual widget, while screenshot capture remains intentionally disabled until masking and explicit consent controls exist. Operators configure copy/enablement and triage open/reviewed/archived submissions from Project Settings.
+
 ## API Surface
 
 Health:
@@ -153,6 +157,7 @@ Admin:
 - `/admin/analytics-dashboards/:id`
 - `/admin/surveys`
 - `/admin/surveys/:id`
+- `/admin/feedback-widget`
 - `/admin/data-governance`
 - `/admin/warehouse-destinations`
 - `/admin/warehouse-destinations/:id`
@@ -171,6 +176,7 @@ Ingestion:
 - `POST /v1/clicks`
 - `POST /v1/replays`
 - `POST /v1/surveys/responses`
+- `POST /v1/feedback`
 - `POST /v1/identify/user`
 - `POST /v1/identify/tenant`
 - `POST /v1/llm`
@@ -205,6 +211,8 @@ Query:
 - `GET /query/overview`
 - `GET /query/reports/dashboards/:id`
 - `GET /query/surveys/:id/results`
+- `GET /query/feedback`
+- `PATCH /query/feedback/:id`
 - `GET /query/operations`
 - `GET /query/apm/endpoints`
 - `GET /query/apm/service-map`

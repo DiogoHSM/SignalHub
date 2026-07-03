@@ -3,6 +3,7 @@ import {
   createClickSignal,
   createErrorSignal,
   createEventSignal,
+  createFeedbackSignal,
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
@@ -24,6 +25,7 @@ import type {
   EndTraceInput,
   ErrorInput,
   EventInput,
+  FeedbackInput,
   ExperimentAssignment,
   ExperimentAssignmentInput,
   FeatureFlagEvaluation,
@@ -381,6 +383,10 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
 
     submitSurvey(input: SurveyResponseInput, context?: SignalContext): void {
       enqueue(createSurveyResponseSignal(input, context, defaultContext));
+    },
+
+    feedback(input: FeedbackInput, context?: SignalContext): void {
+      enqueue(createFeedbackSignal(input, context, defaultContext));
     },
 
     identify(context: SignalContext): void {

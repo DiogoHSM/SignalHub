@@ -382,6 +382,48 @@ describe("createSignalMonitorClient", () => {
     });
   });
 
+  it("feedback enqueues browser feedback with context", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(202));
+    const client = createSignalMonitorClient({
+      endpoint: "https://api.sigmon.test",
+      apiKey: "test_api_key",
+      fetch: fetchImpl,
+      maxRetries: 0,
+      defaultContext: {
+        userId: "usr_1",
+        tenantId: "tenant_1",
+        sessionId: "sess_1",
+        source: "browser"
+      }
+    });
+
+    client.feedback({
+      message: "The export button is confusing",
+      category: "ux",
+      pageUrl: "https://app.example.com/reports",
+      path: "/reports",
+      userAgent: "Vitest",
+      metadata: { component: "exports" },
+      timestamp: "2026-05-02T12:30:00.000Z"
+    });
+
+    await expect(client.flush()).resolves.toMatchObject({ sent: 1, failed: 0 });
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sigmon.test/v1/feedback", expect.any(Object));
+    expect(decodeBody(fetchImpl.mock.calls[0])).toEqual({
+      message: "The export button is confusing",
+      category: "ux",
+      page_url: "https://app.example.com/reports",
+      path: "/reports",
+      user_agent: "Vitest",
+      timestamp: "2026-05-02T12:30:00.000Z",
+      user_id: "usr_1",
+      tenant_id: "tenant_1",
+      session_id: "sess_1",
+      source: "browser",
+      metadata: { component: "exports" }
+    });
+  });
+
   it("retains retryable failures by default and discards them when requested", async () => {
     const onError = vi.fn<(error: SignalMonitorError) => void>();
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response(503));

@@ -202,6 +202,37 @@ sigmon.submitSurvey({
 Survey responses are sent to `POST /v1/surveys/responses`. Configure browser origins before calling
 this directly from the browser with a browser-scoped ingestion key.
 
+For free-form product feedback, enable the Feedback widget in project settings and install the browser
+helper. It renders a small opt-in button, captures the current page URL/path, and sends text feedback
+to `POST /v1/feedback` with the same user, tenant, session, source, release, and metadata context.
+
+```ts
+import { createSignalMonitorClient, installFeedbackWidget } from "@sigmon/sdk/browser";
+
+const sigmonBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT!,
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY!,
+  defaultContext: {
+    source: "browser",
+    release: process.env.NEXT_PUBLIC_APP_VERSION
+  }
+});
+
+installFeedbackWidget(sigmonBrowser, {
+  buttonLabel: "Feedback",
+  category: "ux",
+  flush: true,
+  context: () => ({
+    tenantId: currentTenantId(),
+    userId: currentUserId(),
+    sessionId: currentSessionId()
+  })
+});
+```
+
+Screenshot capture is intentionally not enabled in the SDK until masking and explicit consent controls
+are available.
+
 Click maps are separate from click breadcrumbs. Breadcrumbs tell the story around an error or session;
 click maps aggregate opt-in browser coordinates by route and safe selector. Add stable
 `data-sigmon-id` attributes to meaningful controls before enabling click capture.

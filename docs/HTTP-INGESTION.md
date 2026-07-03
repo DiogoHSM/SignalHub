@@ -47,6 +47,7 @@ Content-Type: application/json
 | Browser click maps | `POST /v1/clicks` | Ingestion API key |
 | Privacy-safe session replays | `POST /v1/replays` | Ingestion API key |
 | In-app survey responses | `POST /v1/surveys/responses` | Ingestion API key |
+| Product feedback | `POST /v1/feedback` | Ingestion API key |
 | LLM calls | `POST /v1/llm` | Ingestion API key |
 | Web Vitals | `POST /v1/web-vitals` | Ingestion API key |
 | Runtime profiles | `POST /v1/profiles` | Ingestion API key |
@@ -249,6 +250,33 @@ curl -i https://sigmon.example.com/v1/surveys/responses \
 Configure browser origins before posting survey responses directly from the browser. Survey answers
 go through the same worker-side data-governance rules and built-in secret redaction as other browser
 telemetry.
+
+### Product feedback
+
+Use feedback for free-form comments collected by the browser SDK widget or a custom product flow.
+Feedback is listed in the console and can be marked open, reviewed, or archived.
+
+```bash
+curl -i https://sigmon.example.com/v1/feedback \
+  -H "Authorization: Bearer sh_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "The export button is confusing.",
+    "category": "ux",
+    "tenant_id": "tenant_123",
+    "user_id": "user_456",
+    "session_id": "sess_789",
+    "source": "browser",
+    "page_url": "https://app.example.com/reports",
+    "path": "/reports?tab=exports",
+    "metadata": {
+      "surface": "reports"
+    }
+  }'
+```
+
+Configure browser origins before posting feedback directly from the browser. Screenshot capture is
+reserved for a future privacy-safe widget flow with masking and explicit consent controls.
 
 ### Retention curves
 

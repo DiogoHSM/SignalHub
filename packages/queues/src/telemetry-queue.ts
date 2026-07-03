@@ -12,7 +12,8 @@ export type TelemetryJobKind =
   | "click"
   | "replay"
   | "profile"
-  | "survey_response";
+  | "survey_response"
+  | "feedback";
 
 export type TelemetryJobPayload = {
   kind: TelemetryJobKind;

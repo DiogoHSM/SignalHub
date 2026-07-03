@@ -64,6 +64,13 @@ import {
   updateSurvey
 } from "../src/repositories/surveys.js";
 import {
+  getFeedbackWidgetSettings,
+  listFeedbackItems,
+  recordFeedbackItem,
+  updateFeedbackItemStatus,
+  upsertFeedbackWidgetSettings
+} from "../src/repositories/feedback-widget.js";
+import {
   archiveFeatureFlag,
   createFeatureFlag,
   evaluateFeatureFlag,
@@ -10117,6 +10124,63 @@ describe("repositories", () => {
 
       await archiveSurvey(db, { id: survey.id, projectId: project.id, environmentId: environment.id });
       await expect(listSurveys(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("manages feedback widget settings and triages feedback submissions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Feedback Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await expect(getFeedbackWidgetSettings(db, { projectId: project.id, environmentId: environment.id })).resolves.toMatchObject({
+        enabled: false,
+        title: "Send feedback"
+      });
+
+      const settings = await upsertFeedbackWidgetSettings(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        enabled: true,
+        title: "Tell us",
+        buttonLabel: "Feedback",
+        accentColor: "#66e38a",
+        privacyNote: "Do not include secrets."
+      });
+      expect(settings).toMatchObject({
+        enabled: true,
+        title: "Tell us",
+        privacyNote: "Do not include secrets."
+      });
+
+      const item = await recordFeedbackItem(db, {
+        id: "fbk_test_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Export wording is unclear",
+        category: "ux",
+        pageUrl: "https://app.example.com/reports",
+        path: "/reports",
+        tenantId: "tenant_1",
+        userId: "user_1",
+        metadata: { surface: "reports" },
+        submittedAt: new Date("2026-05-04T12:00:00.000Z"),
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      });
+      expect(item).toMatchObject({ id: "fbk_test_1", status: "open", category: "ux" });
+
+      await expect(listFeedbackItems(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({ id: "fbk_test_1", message: "Export wording is unclear" })
+      ]);
+
+      const reviewed = await updateFeedbackItemStatus(db, {
+        id: item.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        status: "reviewed"
+      });
+      expect(reviewed?.status).toBe("reviewed");
+      await expect(listFeedbackItems(db, { projectId: project.id, environmentId: environment.id, status: "open" })).resolves.toEqual([]);
     });
   });
 

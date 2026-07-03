@@ -44,6 +44,25 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
     listBrowserOrigins: vi.fn().mockResolvedValue({ origins: [] }),
     createBrowserOrigin: vi.fn(),
     archiveBrowserOrigin: vi.fn(),
+    getFeedbackWidgetSettings: vi.fn().mockResolvedValue({
+      settings: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        enabled: false,
+        title: "Send feedback",
+        prompt: "Tell us what happened or what could be better.",
+        placeholder: "Write your feedback...",
+        buttonLabel: "Feedback",
+        accentColor: "#66e38a",
+        allowScreenshot: false,
+        privacyNote: null,
+        createdAt: "2026-05-01T00:00:00.000Z",
+        updatedAt: "2026-05-01T00:00:00.000Z"
+      }
+    }),
+    updateFeedbackWidgetSettings: vi.fn(),
+    listFeedbackItems: vi.fn().mockResolvedValue({ feedback: [] }),
+    updateFeedbackStatus: vi.fn(),
     listEvents: vi.fn(),
     listErrors: vi.fn(),
     listTraces: vi.fn().mockResolvedValue({ data: [] }),
@@ -150,6 +169,7 @@ describe("ProjectSettingsWorkspace", () => {
       "Environments",
       "API keys",
       "Browser origins",
+      "Feedback widget",
       "Data governance",
       "Warehouse sync",
       "SDK snippets",
@@ -393,6 +413,109 @@ describe("ProjectSettingsWorkspace", () => {
     expect(screen.queryByText("https://app.example.com")).not.toBeInTheDocument();
 
     confirmSpy.mockRestore();
+  });
+
+  it("configures the feedback widget and triages recent feedback", async () => {
+    const api = client({
+      getFeedbackWidgetSettings: vi.fn().mockResolvedValue({
+        settings: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          enabled: true,
+          title: "Send feedback",
+          prompt: "Tell us what happened.",
+          placeholder: "Write your feedback...",
+          buttonLabel: "Feedback",
+          accentColor: "#66e38a",
+          allowScreenshot: false,
+          privacyNote: null,
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z"
+        }
+      }),
+      updateFeedbackWidgetSettings: vi.fn().mockResolvedValue({
+        settings: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          enabled: true,
+          title: "Report feedback",
+          prompt: "Tell us what happened.",
+          placeholder: "Write your feedback...",
+          buttonLabel: "Feedback",
+          accentColor: "#66e38a",
+          allowScreenshot: false,
+          privacyNote: null,
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:05:00.000Z"
+        }
+      }),
+      listFeedbackItems: vi.fn().mockResolvedValue({
+        feedback: [
+          {
+            id: "fbk_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            status: "open",
+            message: "The export button is unclear.",
+            category: "ux",
+            pageUrl: "https://app.example.com/reports",
+            path: "/reports",
+            userAgent: "Vitest",
+            tenantId: "tenant_1",
+            userId: "user_1",
+            sessionId: null,
+            traceId: null,
+            metadata: {},
+            submittedAt: "2026-05-01T00:00:00.000Z",
+            updatedAt: "2026-05-01T00:00:00.000Z"
+          }
+        ]
+      }),
+      updateFeedbackStatus: vi.fn().mockResolvedValue({
+        feedback: {
+          id: "fbk_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status: "reviewed",
+          message: "The export button is unclear.",
+          category: "ux",
+          pageUrl: "https://app.example.com/reports",
+          path: "/reports",
+          userAgent: "Vitest",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          sessionId: null,
+          traceId: null,
+          metadata: {},
+          submittedAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:05:00.000Z"
+        }
+      })
+    });
+
+    renderWorkspace({ client: api });
+
+    await userEvent.click(screen.getByRole("button", { name: "Feedback widget" }));
+
+    expect(await screen.findByRole("heading", { name: "Feedback widget" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Enable widget for this environment")).toBeChecked();
+    expect(await screen.findByText("The export button is unclear.")).toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText("Panel title"));
+    await userEvent.type(screen.getByLabelText("Panel title"), "Report feedback");
+    await userEvent.click(screen.getByRole("button", { name: "Save widget" }));
+
+    expect(api.updateFeedbackWidgetSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        title: "Report feedback",
+        allowScreenshot: false
+      })
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark reviewed" }));
+    expect(api.updateFeedbackStatus).toHaveBeenCalledWith("fbk_1", { projectId: "prj_1", environmentId: "env_1" }, "reviewed");
   });
 
   it("labels console user access as installation-level, not project membership", async () => {

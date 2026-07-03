@@ -79,6 +79,10 @@ export type SurveyResultFilters = ApmFilters & {
   surveyId: string;
 };
 
+export type FeedbackListFilters = Pick<ApmFilters, "projectId" | "environmentId" | "limit"> & {
+  status?: "open" | "reviewed" | "archived";
+};
+
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 export type EventPathActorType = "auto" | "user" | "tenant" | "session" | "trace";
 
@@ -213,6 +217,8 @@ export type QueryDependencies = {
   getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
   getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
   getSurveyResults?: (filters: SurveyResultFilters) => Promise<unknown | null>;
+  listFeedbackItems?: (filters: FeedbackListFilters) => Promise<unknown>;
+  updateFeedbackStatus?: (input: FeedbackListFilters & { id: string; status: "open" | "reviewed" | "archived" }) => Promise<unknown | null>;
   getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
   getEventPaths?: (
     filters: ApmFilters & {
@@ -884,6 +890,27 @@ function parseSurveyResultFilters(params: unknown, query: unknown): SurveyResult
   return {
     ...base,
     surveyId: parsedParams.data.id
+  };
+}
+
+function parseFeedbackListFilters(query: unknown): FeedbackListFilters | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  if (!projectId || !environmentId) {
+    return undefined;
+  }
+
+  const status = optionalNonEmpty(raw, "status");
+  if (status !== undefined && status !== "open" && status !== "reviewed" && status !== "archived") {
+    return undefined;
+  }
+
+  return {
+    projectId,
+    environmentId,
+    limit: parseLimit(raw),
+    ...(status ? { status } : {})
   };
 }
 
@@ -1756,6 +1783,64 @@ async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyR
   }
 }
 
+const feedbackStatusBodySchema = z.object({
+  status: z.enum(["open", "reviewed", "archived"])
+});
+
+async function handleFeedbackListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.listFeedbackItems) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const filters = parseFeedbackListFilters(request.query);
+  if (!filters) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    return reply.send({ feedback: await options.query.listFeedbackItems(filters) });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleFeedbackStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) {
+    return reply;
+  }
+
+  if (!options.query?.updateFeedbackStatus) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = experimentParamsSchema.safeParse(request.params);
+  const filters = parseFeedbackListFilters(request.query);
+  const body = feedbackStatusBodySchema.safeParse(request.body);
+  if (!params.success || !filters || !body.success) {
+    return reply.status(400).send({ error: "invalid_query" });
+  }
+
+  try {
+    const feedback = await options.query.updateFeedbackStatus({
+      ...filters,
+      id: params.data.id,
+      status: body.data.status
+    });
+    if (!feedback) {
+      return reply.status(404).send({ error: "feedback_not_found" });
+    }
+    return reply.send({ feedback });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
 async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
@@ -2539,6 +2624,8 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/events/funnel", (request, reply) => handleEventFunnelRoute(request, reply, options));
   app.get("/query/experiments/:id/results", (request, reply) => handleExperimentResultsRoute(request, reply, options));
   app.get("/query/surveys/:id/results", (request, reply) => handleSurveyResultsRoute(request, reply, options));
+  app.get("/query/feedback", (request, reply) => handleFeedbackListRoute(request, reply, options));
+  app.patch("/query/feedback/:id", (request, reply) => handleFeedbackStatusRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
   app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));

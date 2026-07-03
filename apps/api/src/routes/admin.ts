@@ -98,6 +98,10 @@ import type {
   SurveyTargeting,
   UpdateSurveyInput
 } from "@sigmon/db/repositories/surveys.js";
+import type {
+  FeedbackWidgetSettings,
+  UpsertFeedbackWidgetSettingsInput
+} from "@sigmon/db/repositories/feedback-widget.js";
 
 export interface AdminProject {
   id: string;
@@ -187,6 +191,7 @@ export type AdminResourceDependencies = {
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
   experiments?: ExperimentAdministrationDependencies;
   surveys?: SurveyAdministrationDependencies;
+  feedbackWidget?: FeedbackWidgetAdministrationDependencies;
   featureFlags?: FeatureFlagAdministrationDependencies;
   betaPrograms?: BetaProgramAdministrationDependencies;
   dataGovernance?: DataGovernanceAdministrationDependencies;
@@ -236,6 +241,11 @@ export type SurveyAdministrationDependencies = {
     patch: UpdateSurveyInput;
   }) => Promise<SurveyRecord | null | undefined>;
   archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
+export type FeedbackWidgetAdministrationDependencies = {
+  getSettings: (input: { projectId: string; environmentId: string }) => Promise<FeedbackWidgetSettings>;
+  upsertSettings: (input: UpsertFeedbackWidgetSettingsInput) => Promise<FeedbackWidgetSettings>;
 };
 
 export type FeatureFlagAdministrationDependencies = {
@@ -1013,6 +1023,21 @@ type UpdateSurveyBody = z.infer<typeof updateSurveySchema> & {
   questions?: SurveyQuestion[];
   targeting?: SurveyTargeting;
 };
+
+const feedbackWidgetSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  enabled: z.boolean().default(false),
+  title: z.string().trim().min(1).max(240).optional(),
+  prompt: z.string().trim().min(1).max(500).optional(),
+  placeholder: z.string().trim().min(1).max(240).optional(),
+  buttonLabel: z.string().trim().min(1).max(80).optional(),
+  accentColor: z.string().trim().regex(/^#[0-9a-f]{6}$/i).optional(),
+  allowScreenshot: z.boolean().default(false),
+  privacyNote: z.string().trim().max(1000).nullable().optional()
+});
+type FeedbackWidgetBody = z.infer<typeof feedbackWidgetSchema>;
+
 const featureFlagStatusSchema = z.enum(["draft", "active", "paused", "archived"]);
 const featureFlagValueSchema = z.union([z.string().max(512), z.number(), z.boolean(), z.null()]);
 const featureFlagVariantSchema = z.object({
@@ -2305,6 +2330,55 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(204).send();
     } catch {
       return reply.status(503).send({ error: "surveys_unavailable" });
+    }
+  });
+
+  app.get("/admin/feedback-widget", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.feedbackWidget) {
+      return reply.status(501).send({ error: "feedback_widget_repository_unavailable" });
+    }
+
+    const query = surveyScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_feedback_widget_request" });
+    }
+
+    try {
+      const settings = await options.adminResources.feedbackWidget.getSettings({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ settings });
+    } catch {
+      return reply.status(503).send({ error: "feedback_widget_unavailable" });
+    }
+  });
+
+  app.put("/admin/feedback-widget", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.adminResources?.feedbackWidget) {
+      return reply.status(501).send({ error: "feedback_widget_repository_unavailable" });
+    }
+
+    const parsed = feedbackWidgetSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_feedback_widget_request" });
+    }
+
+    try {
+      const settings = await options.adminResources.feedbackWidget.upsertSettings(parsed.data as FeedbackWidgetBody);
+      return reply.send({ settings });
+    } catch {
+      return reply.status(503).send({ error: "feedback_widget_unavailable" });
     }
   });
 
