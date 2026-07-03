@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Command } from "lucide-react";
 import type { ApiClient } from "../api/client";
 import type { Environment, User } from "../api/types";
+import { CommandPalette, type CommandPaletteItem } from "../components/CommandPalette";
 import { NavRail } from "./shell/NavRail";
 import { TopBar } from "./shell/TopBar";
 import { HealthRail } from "./shell/HealthRail";
@@ -94,7 +94,6 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   // Command palette
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [commandQuery, setCommandQuery] = useState("");
 
   // ─── hooks ────────────────────────────────────────────────────────────────
 
@@ -320,12 +319,11 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     { section: "settings", title: "Settings", description: "Project and environment settings" },
   ];
 
-  const normalizedQuery = commandQuery.trim().toLowerCase();
-  const filteredCommands = normalizedQuery
-    ? commandDestinations.filter((d) =>
-        `${d.title} ${d.description}`.toLowerCase().includes(normalizedQuery)
-      )
-    : commandDestinations;
+  const commandItems: CommandPaletteItem[] = commandDestinations.map((destination) => ({
+    id: destination.section,
+    title: destination.title,
+    description: destination.description
+  }));
 
   return (
     <div className="sh-v2">
@@ -391,59 +389,16 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
         <ToastStack toasts={toasts} onDismiss={dismiss} />
       </div>
 
-      {/* Command palette — reuses the legacy markup pattern from ConsoleShell */}
       {isCommandPaletteOpen ? (
-        <div
-          aria-label="Command palette"
-          aria-modal="true"
-          className="command-palette"
-          role="dialog"
-        >
-          <div
-            className="command-palette__backdrop"
-            onClick={() => {
-              setIsCommandPaletteOpen(false);
-              setCommandQuery("");
-            }}
-          />
-          <section className="command-palette__panel">
-            <label className="command-palette__search">
-              <Command aria-hidden="true" size={16} />
-              <input
-                aria-label="Search commands"
-                autoFocus
-                onChange={(e) => setCommandQuery(e.target.value)}
-                placeholder="Jump to section…"
-                value={commandQuery}
-              />
-              <kbd>Esc</kbd>
-            </label>
-            <div className="command-palette__list">
-              {filteredCommands.length === 0 ? (
-                <p className="muted-text">No commands match this search.</p>
-              ) : (
-                filteredCommands.map((d) => (
-                  <button
-                    aria-label={`Open ${d.title}`}
-                    className="command-palette__item"
-                    key={d.section}
-                    onClick={() => {
-                      navigate(d.section);
-                      setIsCommandPaletteOpen(false);
-                      setCommandQuery("");
-                    }}
-                    type="button"
-                  >
-                    <span>
-                      <strong>Open {d.title}</strong>
-                      <small>{d.description}</small>
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </section>
-        </div>
+        <CommandPalette
+          items={commandItems}
+          onClose={() => setIsCommandPaletteOpen(false)}
+          onSelect={(item) => {
+            navigate(item.id as NavSection);
+            setIsCommandPaletteOpen(false);
+          }}
+          placeholder="Jump to section..."
+        />
       ) : null}
     </div>
   );

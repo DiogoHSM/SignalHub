@@ -4,6 +4,7 @@ import type { ApiClient } from "../api/client";
 import type { Environment, OperationsResponse, Project, User } from "../api/types";
 import { ArtifactsPanel } from "./ArtifactsPanel";
 import { ConsoleModeTabs, type ConsoleMode } from "./ConsoleModeTabs";
+import { CommandPalette, type CommandPaletteItem } from "./CommandPalette";
 import { GlobalHomeDashboard, type GlobalProjectSignal, type GlobalProjectStatus } from "./GlobalHomeDashboard";
 import { IncidentView } from "./IncidentView";
 import { AlertsPanel } from "./AlertsPanel";
@@ -213,7 +214,6 @@ export function ConsoleShell({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [commandQuery, setCommandQuery] = useState("");
   const activeProjectIdRef = useRef<string | undefined>(undefined);
   const activeEnvironmentRef = useRef<Environment | undefined>(undefined);
   const environmentsRef = useRef<Environment[]>([]);
@@ -467,7 +467,6 @@ export function ConsoleShell({
     }
     setActiveMode(mode);
     setIsCommandPaletteOpen(false);
-    setCommandQuery("");
   }
 
   function openErrorGroupIncident(groupId: string, options?: { errorId?: string }) {
@@ -602,15 +601,13 @@ export function ConsoleShell({
   const isIncidentViewActive = activeMode === "errors" && incidentRoute.kind === "error-group";
   const activeModeLabel = activeMode === "setup" ? "Setup" : isIncidentViewActive ? "Incident" : modeLabel(activeMode);
   const userInitials = initials(user?.email);
-  const normalizedCommandQuery = commandQuery.trim().toLowerCase();
-  const filteredCommands = normalizedCommandQuery
-    ? commandDestinations.filter((destination) =>
-        [destination.title, destination.scope, destination.description, ...destination.keywords]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedCommandQuery)
-      )
-    : commandDestinations;
+  const commandItems: CommandPaletteItem[] = commandDestinations.map((destination) => ({
+    id: destination.mode,
+    title: destination.title,
+    description: destination.description,
+    meta: destination.scope,
+    keywords: destination.keywords
+  }));
 
   return (
     <main className="console-layout console-shell">
@@ -735,43 +732,12 @@ export function ConsoleShell({
           </div>
         </header>
         {isCommandPaletteOpen ? (
-          <div aria-label="Command palette" aria-modal="true" className="command-palette" role="dialog">
-            <div className="command-palette__backdrop" onClick={() => setIsCommandPaletteOpen(false)} />
-            <section className="command-palette__panel">
-              <label className="command-palette__search">
-                <Command aria-hidden="true" size={16} />
-                <input
-                  aria-label="Search commands"
-                  autoFocus
-                  onChange={(event) => setCommandQuery(event.target.value)}
-                  placeholder="Jump to project, error, monitor, settings..."
-                  value={commandQuery}
-                />
-                <kbd>Esc</kbd>
-              </label>
-              <div className="command-palette__list">
-                {filteredCommands.length === 0 ? (
-                  <p className="muted-text">No commands match this search.</p>
-                ) : (
-                  filteredCommands.map((destination) => (
-                    <button
-                      aria-label={`Open ${destination.title}`}
-                      className="command-palette__item"
-                      key={destination.mode}
-                      onClick={() => navigateToMode(destination.mode)}
-                      type="button"
-                    >
-                      <span>
-                        <strong>Open {destination.title}</strong>
-                        <small>{destination.description}</small>
-                      </span>
-                      <em>{destination.scope}</em>
-                    </button>
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
+          <CommandPalette
+            items={commandItems}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            onSelect={(item) => navigateToMode(item.id as ConsoleMode)}
+            placeholder="Jump to project, error, monitor, settings..."
+          />
         ) : null}
         <div className="workspace">
           {isIncidentViewActive ? (

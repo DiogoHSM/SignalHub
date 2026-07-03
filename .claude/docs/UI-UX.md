@@ -165,6 +165,7 @@ SignalMonitor includes an admin-only Integration Console.
 - The anomaly detection section must stay explainable: show observed value, previous-window baseline, percent change, sample sizes, threshold, and the suggested alert rule when applicable. Avoid opaque "AI says so" language.
 - The predictive risk section must stay explainable and operational. Show probability, risk score, severity, confidence, current-vs-baseline validation, sample sizes, and the top weighted factors with plain-language reasons. High and critical predictions should feed the recommended actions area and route to the most relevant drilldown.
 - Operations command cards should stay compact and scannable, with stable dimensions and no nested cards.
+- The command palette is a shared shell component across legacy and v2 console paths so navigation search, empty states, keyboard affordances, and destination copy remain consistent while both shells coexist.
 
 ## Traces / APM UX
 
