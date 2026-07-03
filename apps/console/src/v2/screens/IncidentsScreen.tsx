@@ -8,6 +8,7 @@ import {
   Icon,
   PageHead,
   PriorityPill,
+  Sparkline,
   StatusPill,
 } from "../../components/ui/v2";
 
@@ -147,9 +148,14 @@ function IncidentRow({ row, ctx }: { row: IncidentRowVM; ctx: ScreenCtx }) {
           <strong style={{ color: "var(--fg)" }}>{formatCompact(row.affectedTenantsCount)}</strong>{" "}
           tenants
         </span>
-        {/* The design renders a trend Sparkline here; the VM has no trend series,
-            so the spacer flexes to fill the gap instead. */}
         <div style={{ flex: 1 }} />
+        <div
+          data-testid="incident-trend-sparkline"
+          aria-label="12 bucket occurrence trend"
+          style={{ width: 132, minWidth: 96 }}
+        >
+          <Sparkline data={row.trend.length > 0 ? row.trend : [0]} color={sevColor} height={28} fill={false} />
+        </div>
         <span className="sh-btn ghost" style={{ pointerEvents: "none" }}>
           Open <Icon name="arrow" size={12} />
         </span>

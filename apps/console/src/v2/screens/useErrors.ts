@@ -36,6 +36,7 @@ export type ErrorRowVM = {
   users: number | null;
   tenants: number | null;
   last: string;
+  trend: number[];
 };
 
 export type ErrorsVM = {
@@ -199,7 +200,8 @@ export function useErrors({
           events: g.occurrenceCount,
           users: g.affectedUsersCount,
           tenants: g.affectedTenantsCount,
-          last: relativeTime(g.lastSeenAt)
+          last: relativeTime(g.lastSeenAt),
+          trend: g.trend ?? []
         }));
 
         setData({ tabs, summary, volume, rows });

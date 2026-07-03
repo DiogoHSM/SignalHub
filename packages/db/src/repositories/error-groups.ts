@@ -48,6 +48,7 @@ export type ErrorGroupRecord = {
   assignedToUserId: string | null;
   silencedUntil: Date | null;
   incidentNumber: string | null;
+  trend?: number[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -105,6 +106,8 @@ type UpsertErrorGroupOptions = {
 const uuidPattern = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const longNumberPattern = /\b\d{5,}\b/g;
 const browserStackFramePattern = /^(?:[^\s@]*@)?(?:https?:\/\/|file:\/\/|webpack:\/\/|\/).+:\d+:\d+$/;
+const ERROR_GROUP_TREND_BUCKETS = 12;
+const DEFAULT_ERROR_GROUP_TREND_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function normalizeErrorGroupingInput(value: string | null | undefined): string {
   return (value ?? "")
@@ -176,6 +179,61 @@ export function toGroup(row: ErrorGroupRow): ErrorGroupRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function resolveTrendWindow(groups: ErrorGroupRecord[], filters: ErrorGroupFilters): { from: Date; to: Date } {
+  const latestSeenAt = groups.reduce(
+    (latest, group) => Math.max(latest, group.lastSeenAt.getTime()),
+    0
+  );
+  const fallbackTo = new Date((latestSeenAt || Date.now()) + 1);
+  const to = filters.to ?? fallbackTo;
+  const from = filters.from ?? new Date(to.getTime() - DEFAULT_ERROR_GROUP_TREND_WINDOW_MS);
+
+  if (to.getTime() > from.getTime()) {
+    return { from, to };
+  }
+
+  return { from, to: new Date(from.getTime() + 1) };
+}
+
+async function attachErrorGroupTrends(
+  db: Db,
+  groups: ErrorGroupRecord[],
+  filters: ErrorGroupFilters
+): Promise<ErrorGroupRecord[]> {
+  if (groups.length === 0) return groups;
+
+  const groupIds = groups.map((group) => group.id);
+  const { from, to } = resolveTrendWindow(groups, filters);
+  const bucketMs = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / ERROR_GROUP_TREND_BUCKETS));
+  const trends = new Map<string, number[]>(
+    groupIds.map((groupId) => [groupId, Array(ERROR_GROUP_TREND_BUCKETS).fill(0) as number[]])
+  );
+
+  const rows = await db
+    .selectFrom("errors")
+    .select(["error_group_id", "timestamp"])
+    .where("project_id", "=", filters.projectId)
+    .where("environment_id", "=", filters.environmentId)
+    .where("error_group_id", "in", groupIds)
+    .where("timestamp", ">=", from)
+    .where("timestamp", "<=", to)
+    .execute();
+
+  for (const row of rows) {
+    if (row.error_group_id == null) continue;
+    const trend = trends.get(row.error_group_id);
+    if (!trend) continue;
+    const offset = row.timestamp.getTime() - from.getTime();
+    const index = Math.min(ERROR_GROUP_TREND_BUCKETS - 1, Math.max(0, Math.floor(offset / bucketMs)));
+    trend[index] += 1;
+  }
+
+  return groups.map((group) => ({
+    ...group,
+    trend: trends.get(group.id) ?? Array(ERROR_GROUP_TREND_BUCKETS).fill(0)
+  }));
 }
 
 function resolveLimit(limit: number | undefined): number {
@@ -421,7 +479,7 @@ export async function listErrorGroups(db: Db, filters: ErrorGroupFilters): Promi
     .limit(resolveLimit(filters.limit))
     .execute();
 
-  return rows.map(toGroup);
+  return attachErrorGroupTrends(db, rows.map(toGroup), filters);
 }
 
 export async function listErrorGroupsPage(db: Db, filters: ErrorGroupFilters): Promise<ErrorGroupPage> {
@@ -507,7 +565,7 @@ export async function listErrorGroupsPage(db: Db, filters: ErrorGroupFilters): P
   const lastRow = pageRows.at(-1);
 
   return {
-    data: pageRows.map(toGroup),
+    data: await attachErrorGroupTrends(db, pageRows.map(toGroup), filters),
     cursor: rows.length > limit && lastRow ? encodeErrorGroupCursor(lastRow, filters) : undefined
   };
 }

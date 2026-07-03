@@ -31,6 +31,7 @@ function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord 
     occurrenceCount: 42,
     affectedUsersCount: 7,
     affectedTenantsCount: 3,
+    trend: [0, 1, 1, 2, 3, 5, 8, 13, 8, 5, 3, 1],
     latestErrorId: "err_1",
     latestRelease: "v1.2.0",
     resolvedAt: null,
@@ -206,14 +207,25 @@ describe("useErrors", () => {
     expect(row.last).toMatch(/ago|just now|s ago|m ago|h ago|d ago/i);
   });
 
-  it("row has no 'trend' field", async () => {
-    const client = makeClient([GROUP_1]);
+  it("row preserves per-group trend buckets", async () => {
+    const trend = [0, 0, 1, 2, 4, 8, 4, 2, 1, 0, 0, 0];
+    const group = makeGroup({ trend });
+    const client = makeClient([group]);
     const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
 
     await waitFor(() => expect(result.current.status).toBe("ok"));
 
-    const row = result.current.data!.rows[0];
-    expect("trend" in row).toBe(false);
+    expect(result.current.data!.rows[0].trend).toEqual(trend);
+  });
+
+  it("row defaults trend to an empty series when omitted", async () => {
+    const { trend: _trend, ...groupWithoutTrend } = GROUP_1;
+    const client = makeClient([groupWithoutTrend]);
+    const { result } = renderHook(() => useErrors({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.rows[0].trend).toEqual([]);
   });
 
   it("summary.errors24h = kpis.errors from overview", async () => {

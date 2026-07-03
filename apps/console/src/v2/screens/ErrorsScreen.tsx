@@ -11,6 +11,7 @@ import {
   Icon,
   PriorityPill,
   Segmented,
+  Sparkline,
   StatusPill,
   SummaryStat,
 } from "../../components/ui/v2";
@@ -104,7 +105,7 @@ function ErrorRow({ row, ctx }: { row: ErrorRowVM; ctx: ScreenCtx }) {
       className="sh-row sh-row--btn"
       aria-label={row.message}
       style={{
-        gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 84px 28px",
+        gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 120px 84px 28px",
         width: "100%",
         textAlign: "left",
         background: rowBg,
@@ -190,6 +191,11 @@ function ErrorRow({ row, ctx }: { row: ErrorRowVM; ctx: ScreenCtx }) {
       {/* tenants */}
       <span className="sh-muted" style={{ fontVariantNumeric: "tabular-nums" }}>
         {row.tenants ?? "—"}
+      </span>
+
+      {/* trend */}
+      <span data-testid="error-group-trend-sparkline" aria-label="12 bucket error group trend">
+        <Sparkline data={row.trend.length > 0 ? row.trend : [0]} color={sevColor} height={24} fill={false} />
       </span>
 
       {/* last */}
@@ -374,7 +380,7 @@ export function ErrorsScreen({
         <div
           className="sh-row sh-row__head"
           style={{
-            gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 84px 28px",
+            gridTemplateColumns: "minmax(320px,2.2fr) 116px 100px 80px 64px 64px 120px 84px 28px",
           }}
         >
           <span>Error</span>
@@ -383,6 +389,7 @@ export function ErrorsScreen({
           <span>Events</span>
           <span>Users</span>
           <span>Tenants</span>
+          <span>Trend</span>
           <span>Last</span>
           <span />
         </div>

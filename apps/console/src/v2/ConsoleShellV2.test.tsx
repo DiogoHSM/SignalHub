@@ -289,6 +289,7 @@ describe("ConsoleShellV2", () => {
           users: null as null,
           tenants: null as null,
           last: "5m ago",
+          trend: [],
         },
       ],
     };

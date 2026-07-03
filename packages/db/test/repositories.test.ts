@@ -4963,6 +4963,49 @@ describe("repositories", () => {
     });
   });
 
+  it("returns 12-bucket occurrence trends for listed error groups", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await sql`insert into projects (id, name) values ('prj_group_trend', 'Group Trend')`.execute(db);
+      await sql`insert into environments (id, project_id, name) values ('env_group_trend', 'prj_group_trend', 'production')`.execute(db);
+
+      await insertError(db, {
+        id: "err_group_trend_1",
+        projectId: "prj_group_trend",
+        environmentId: "env_group_trend",
+        timestamp: new Date("2026-06-01T00:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T00:00:01.000Z"),
+        message: "Trend grouped error",
+        type: "TrendError",
+        severity: "error",
+        fingerprint: "trend-fingerprint"
+      });
+      await insertError(db, {
+        id: "err_group_trend_2",
+        projectId: "prj_group_trend",
+        environmentId: "env_group_trend",
+        timestamp: new Date("2026-06-01T12:00:00.000Z"),
+        receivedAt: new Date("2026-06-01T12:00:01.000Z"),
+        message: "Trend grouped error",
+        type: "TrendError",
+        severity: "error",
+        fingerprint: "trend-fingerprint"
+      });
+
+      const groups = await listErrorGroups(db, {
+        projectId: "prj_group_trend",
+        environmentId: "env_group_trend"
+      });
+
+      expect(groups).toHaveLength(1);
+      const trend = groups[0]!.trend;
+      expect(trend).toBeDefined();
+      expect(trend!).toHaveLength(12);
+      expect(trend!.reduce((sum, value) => sum + value, 0)).toBe(2);
+      expect(trend!.some((value) => value > 0)).toBe(true);
+    });
+  });
+
   it("paginates error groups with scoped stable cursors", async () => {
     await withDb(async (db) => {
       await migrate(db);

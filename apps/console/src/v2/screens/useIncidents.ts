@@ -24,6 +24,7 @@ export type IncidentRowVM = {
   occurrenceCount: number;
   affectedUsersCount: number;
   affectedTenantsCount: number;
+  trend: number[];
 };
 
 export type IncidentsVM = {
@@ -171,7 +172,8 @@ export function useIncidents({
             assignee,
             occurrenceCount: g.occurrenceCount,
             affectedUsersCount: g.affectedUsersCount,
-            affectedTenantsCount: g.affectedTenantsCount
+            affectedTenantsCount: g.affectedTenantsCount,
+            trend: g.trend ?? []
           };
         });
 

@@ -43,6 +43,7 @@ const ERRORS_VM: ErrorsVM = {
       users: 1,
       tenants: 1,
       last: "2s ago",
+      trend: [0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1],
     },
     {
       id: "err_grp_8a2f",
@@ -55,6 +56,7 @@ const ERRORS_VM: ErrorsVM = {
       users: 38,
       tenants: 2,
       last: "8s ago",
+      trend: [4, 8, 13, 21, 34, 55, 89, 144, 112, 76, 52, 33],
     },
     {
       id: "err_grp_4c1d",
@@ -67,6 +69,7 @@ const ERRORS_VM: ErrorsVM = {
       users: 22,
       tenants: 1,
       last: "32s ago",
+      trend: [0, 3, 5, 8, 13, 21, 34, 55, 34, 21, 13, 8],
     },
     {
       id: "err_grp_2a8c",
@@ -79,6 +82,7 @@ const ERRORS_VM: ErrorsVM = {
       users: null,
       tenants: null,
       last: "12m ago",
+      trend: [0, 0, 1, 1, 2, 3, 5, 8, 5, 2, 1, 0],
     },
     {
       id: "err_grp_0e91",
@@ -91,6 +95,7 @@ const ERRORS_VM: ErrorsVM = {
       users: 8,
       tenants: 2,
       last: "4h ago",
+      trend: [1, 0, 0, 2, 0, 1, 0, 3, 0, 2, 1, 2],
     },
   ],
 };
@@ -372,7 +377,7 @@ describe("ErrorsScreen", () => {
   });
 
   describe("error table", () => {
-    it("renders table header with expected columns (no sparkline)", () => {
+    it("renders table header with expected columns including trend", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       // Use getAllByText for headers that may appear multiple times (tab bar + column)
@@ -387,9 +392,8 @@ describe("ErrorsScreen", () => {
       expect(usersTexts.length).toBeGreaterThanOrEqual(1);
       const tenantsTexts = screen.getAllByText(/^tenants$/i);
       expect(tenantsTexts.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/^trend$/i)).toBeInTheDocument();
       expect(screen.getByText(/^last$/i)).toBeInTheDocument();
-      // No "Trend" column header
-      expect(screen.queryByText(/^trend/i)).not.toBeInTheDocument();
     });
 
     it("renders error row messages", () => {
@@ -438,6 +442,7 @@ describe("ErrorsScreen", () => {
             users: null,
             tenants: null,
             last: "1h ago",
+            trend: [],
           },
         ],
       };
@@ -463,12 +468,10 @@ describe("ErrorsScreen", () => {
       expect(dashes.length).toBeGreaterThanOrEqual(1);
     });
 
-    it("does NOT render a sparkline/trend cell in table rows", () => {
+    it("renders a sparkline/trend cell in table rows", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-      // No SVG paths with strokeWidth=1.6 for inline trend sparklines in rows
-      // We check for absence of trend column header
-      expect(screen.queryByText(/trend/i)).not.toBeInTheDocument();
+      expect(screen.getAllByTestId("error-group-trend-sparkline")).toHaveLength(ERRORS_VM.rows.length);
     });
 
     it("calls ctx.drill('incident', {groupId}) when a row is clicked", async () => {

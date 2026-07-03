@@ -26,6 +26,7 @@ const INCIDENTS_VM: IncidentsVM = {
       occurrenceCount: 412,
       affectedUsersCount: 38,
       affectedTenantsCount: 2,
+      trend: [0, 2, 6, 9, 12, 18, 24, 35, 52, 74, 96, 84],
     },
     {
       id: "err_grp_4c1d",
@@ -39,6 +40,7 @@ const INCIDENTS_VM: IncidentsVM = {
       occurrenceCount: 184,
       affectedUsersCount: 22,
       affectedTenantsCount: 1,
+      trend: [0, 1, 1, 2, 5, 8, 13, 21, 18, 10, 6, 2],
     },
     {
       id: "err_grp_2a8c",
@@ -52,6 +54,7 @@ const INCIDENTS_VM: IncidentsVM = {
       occurrenceCount: 28,
       affectedUsersCount: 4,
       affectedTenantsCount: 1,
+      trend: [0, 0, 0, 1, 2, 2, 4, 6, 5, 4, 3, 1],
     },
   ],
 };
@@ -285,17 +288,15 @@ describe("IncidentsScreen", () => {
     });
   });
 
-  describe("no sparkline", () => {
-    it("does not render any chart svg inside a row", () => {
+  describe("trend sparkline", () => {
+    it("renders a compact 12-bucket trend inside each incident row", () => {
       mockUseIncidents(INCIDENTS_VM);
       const { container } = render(<IncidentsScreen ctx={makeMockCtx()} />);
-      // The only svgs allowed in a row are inline Icons (generic avatar, arrow).
-      // A Sparkline would render a <polyline> or <path> chart inside the row body.
       const rows = container.querySelectorAll(".sh-row.sh-stripe");
       rows.forEach((r) => {
-        expect(r.querySelector("polyline")).toBeNull();
+        expect(r.querySelector('[data-testid="incident-trend-sparkline"]')).not.toBeNull();
       });
-      expect(screen.queryByTestId("sparkline")).not.toBeInTheDocument();
+      expect(screen.getAllByTestId("incident-trend-sparkline")).toHaveLength(INCIDENTS_VM.rows.length);
     });
   });
 

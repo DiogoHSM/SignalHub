@@ -1065,6 +1065,7 @@ export type ErrorGroupRecord = {
   assignedToUserId: string | null;
   incidentNumber: string | null;
   silencedUntil: string | null;
+  trend?: number[];
   createdAt: string;
   updatedAt: string;
 };

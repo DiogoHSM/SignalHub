@@ -32,6 +32,7 @@ function makeGroup(overrides: Partial<ErrorGroupRecord> = {}): ErrorGroupRecord 
     occurrenceCount: 5,
     affectedUsersCount: 2,
     affectedTenantsCount: 1,
+    trend: [0, 1, 2, 3, 5, 8, 13, 8, 5, 3, 2, 1],
     latestErrorId: null,
     latestRelease: null,
     resolvedAt: null,
@@ -146,6 +147,23 @@ describe("useIncidents", () => {
     const statuses = calls.map((c: Array<{ status?: string }>) => c[0]?.status);
     expect(statuses).toContain("open");
     expect(statuses).toContain("investigating");
+  });
+
+  it("preserves the per-group trend series for incident rows", async () => {
+    const trend = [0, 0, 1, 2, 4, 8, 16, 8, 4, 2, 1, 0];
+    const group = makeGroup({ id: "trend-group", status: "open", trend });
+    const { client } = makeFakeClient({ openGroups: [group] });
+
+    const { result } = renderHook(() =>
+      useIncidents({ client, projectId: "proj-1", environmentId: "env-1" })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows[0]).toMatchObject({
+      id: "trend-group",
+      trend
+    });
   });
 
   it("passes limit:100 and projectId/environmentId to each listErrorGroups call", async () => {
