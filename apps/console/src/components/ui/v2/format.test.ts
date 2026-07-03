@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { formatCompact, formatDurationShort, formatUtcTimestamp, formatClockUtc } from "./format";
+import { formatCompact, formatCompactNumber, formatDurationShort, formatNumber, formatUtcTimestamp, formatClockUtc } from "./format";
+
+describe("formatNumber", () => {
+  it("formats exact numbers with locale separators", () => {
+    expect(formatNumber(0)).toBe("0");
+    expect(formatNumber(42)).toBe("42");
+    expect(formatNumber(1234567)).toBe("1,234,567");
+  });
+});
+
+describe("formatCompactNumber", () => {
+  it("keeps small values exact and compacts dashboard-scale values", () => {
+    expect(formatCompactNumber(999)).toBe("999");
+    expect(formatCompactNumber(1000)).toBe("1K");
+    expect(formatCompactNumber(1500)).toBe("1.5K");
+    expect(formatCompactNumber(1_250_000)).toBe("1.3M");
+  });
+
+  it("preserves negative signs for deltas", () => {
+    expect(formatCompactNumber(-1500)).toBe("-1.5K");
+  });
+});
 
 describe("formatCompact", () => {
   it("formats numbers below 10,000 with locale separators", () => {

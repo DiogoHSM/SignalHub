@@ -12,6 +12,7 @@ import {
   Segmented,
   Sparkline,
 } from "../../components/ui/v2";
+import { formatCompactNumber } from "../../components/ui/v2/format";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -190,17 +191,11 @@ function AllClearBanner({
 // KPI helpers
 // ---------------------------------------------------------------------------
 
-function fmtNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
 function buildHealthItems(kpis: KpisVM, openIncidents: number): KpiItem[] {
   return [
     {
       label: "Errors (24h)",
-      value: fmtNum(kpis.errors),
+      value: formatCompactNumber(kpis.errors),
       spark: kpis.errorsSparkline.length > 0 ? kpis.errorsSparkline : undefined,
       color: "var(--sev-critical)",
     },
@@ -219,13 +214,13 @@ function buildUsageItems(kpis: KpisVM): KpiItem[] {
   return [
     {
       label: "Events",
-      value: fmtNum(kpis.events),
+      value: formatCompactNumber(kpis.events),
       spark: kpis.usageSparkline.length > 0 ? kpis.usageSparkline : undefined,
       color: "var(--accent)",
     },
     { label: "Active users", value: String(kpis.activeUsers) },
     { label: "Active tenants", value: String(kpis.activeTenants) },
-    { label: "Traces", value: fmtNum(kpis.traces) },
+    { label: "Traces", value: formatCompactNumber(kpis.traces) },
     {
       label: "p95 trace",
       value: kpis.p95TraceDurationMs != null ? `${kpis.p95TraceDurationMs} ms` : "—",
@@ -243,7 +238,7 @@ function buildAiItems(kpis: KpisVM): KpiItem[] {
   return [
     {
       label: "LLM calls",
-      value: fmtNum(kpis.llmCalls),
+      value: formatCompactNumber(kpis.llmCalls),
       spark: kpis.aiCostSparkline.length > 0 ? kpis.aiCostSparkline : undefined,
       color: "var(--sev-violet)",
     },

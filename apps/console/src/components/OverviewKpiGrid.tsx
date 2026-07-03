@@ -1,4 +1,5 @@
 import type { OverviewResponse } from "../api/types";
+import { formatNumber } from "./ui/v2/format";
 
 type Props = {
   kpis: OverviewResponse["kpis"];
@@ -6,10 +7,6 @@ type Props = {
 };
 
 type OverviewDelta = NonNullable<OverviewResponse["deltas"]>[keyof NonNullable<OverviewResponse["deltas"]>];
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
-}
 
 function formatDuration(value: number | null): string {
   if (value === null) return "0 ms";
