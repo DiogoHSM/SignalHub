@@ -169,6 +169,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Overview number formatting uses shared exact and compact helpers so KPI cards, deltas, chart legends, and Console v2 summaries do not drift in thresholds or separators.
 - Console v2 Overview should drill directly into real detail screens when identifiers are available: top tenant rows open Tenant detail, incident banners open Incident detail, and recent error activity opens Incident detail with a fallback to the incident list when grouping is unavailable.
 - Error group lists should expose compact 12-bucket occurrence trends. The S2 Errors table uses a dedicated Trend column, and S4 Incidents cards keep a small inline sparkline beside occurrence/user/tenant counts so operators can spot rising incidents before opening detail.
+- S4 Incidents keeps active triage and resolved/ignored history in one screen: the History action toggles the fetched status set, and the Filters panel applies priority, status, and assignee filters without leaving the selected project/environment.
 
 ## Traces / APM UX
 

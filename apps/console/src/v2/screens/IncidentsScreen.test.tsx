@@ -94,7 +94,7 @@ function makeMockCtx(): ScreenCtx {
 }
 
 function mockUseIncidents(vm: IncidentsVM | null, status: "loading" | "ok" | "error" = "ok") {
-  vi.spyOn(useIncidentsModule, "useIncidents").mockReturnValue({
+  return vi.spyOn(useIncidentsModule, "useIncidents").mockReturnValue({
     data: vm,
     status,
     reload: vi.fn(),
@@ -310,20 +310,37 @@ describe("IncidentsScreen", () => {
       expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "err_grp_8a2f" });
     });
 
-    it("pushes a toast when History is clicked", async () => {
-      mockUseIncidents(INCIDENTS_VM);
+    it("toggles between active incidents and history", async () => {
+      const spy = mockUseIncidents(INCIDENTS_VM);
       const ctx = makeMockCtx();
       render(<IncidentsScreen ctx={ctx} />);
       await userEvent.click(screen.getByRole("button", { name: /history/i }));
-      expect(ctx.pushToast).toHaveBeenCalledWith("Incident history is not yet available");
+      expect(ctx.pushToast).not.toHaveBeenCalled();
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ view: "history", statusFilter: "all" })
+      );
+      expect(screen.getByRole("button", { name: /active/i })).toBeInTheDocument();
     });
 
-    it("pushes a toast when Filters is clicked", async () => {
-      mockUseIncidents(INCIDENTS_VM);
+    it("opens real filters and passes priority/status/assignee to the hook", async () => {
+      const spy = mockUseIncidents(INCIDENTS_VM);
       const ctx = makeMockCtx();
       render(<IncidentsScreen ctx={ctx} />);
       await userEvent.click(screen.getByRole("button", { name: /filters/i }));
-      expect(ctx.pushToast).toHaveBeenCalledWith("Incident filtering is not yet available");
+      expect(ctx.pushToast).not.toHaveBeenCalled();
+      expect(screen.getByText("Incident filters")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "P1" }));
+      await userEvent.click(screen.getByRole("button", { name: "investigating" }));
+      await userEvent.click(screen.getByRole("button", { name: "assigned" }));
+
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          priorityFilter: "P1",
+          statusFilter: "investigating",
+          assigneeFilter: "assigned"
+        })
+      );
     });
   });
 

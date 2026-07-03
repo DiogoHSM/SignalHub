@@ -1,6 +1,14 @@
+import { useState } from "react";
 import type { ScreenCtx } from "./registry";
 import { useIncidents } from "./useIncidents";
-import type { IncidentAssignee, IncidentRowVM } from "./useIncidents";
+import type {
+  IncidentAssignee,
+  IncidentAssigneeFilter,
+  IncidentPriorityFilter,
+  IncidentRowVM,
+  IncidentStatusFilter,
+  IncidentView,
+} from "./useIncidents";
 import {
   BigKpi,
   EmptyHint,
@@ -8,6 +16,7 @@ import {
   Icon,
   PageHead,
   PriorityPill,
+  Segmented,
   Sparkline,
   StatusPill,
 } from "../../components/ui/v2";
@@ -171,11 +180,20 @@ function IncidentRow({ row, ctx }: { row: IncidentRowVM; ctx: ScreenCtx }) {
 export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
+  const [view, setView] = useState<IncidentView>("active");
+  const [showFilters, setShowFilters] = useState(false);
+  const [priorityFilter, setPriorityFilter] = useState<IncidentPriorityFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<IncidentStatusFilter>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<IncidentAssigneeFilter>("all");
 
   const { data, status } = useIncidents({
     client: ctx.client,
     projectId,
     environmentId,
+    view,
+    priorityFilter,
+    statusFilter,
+    assigneeFilter,
   });
 
   // Defensive guard: shell should prevent renders without project/env, but
@@ -215,6 +233,10 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
   }
 
   const { kpis, rows } = data;
+  const statusOptions = view === "history"
+    ? ["all", "resolved", "ignored"]
+    : ["all", "open", "investigating"];
+  const modeLabel = view === "history" ? `${rows.length} historical.` : `${kpis.active} active.`;
 
   return (
     <>
@@ -226,28 +248,74 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
             <strong style={{ color: "var(--fg)" }}>
               {ctx.project.name} · {ctx.environment.name}
             </strong>{" "}
-            — {kpis.active} active.
+            — {modeLabel}
           </>
         }
         actions={
           <>
             <button
               className="sh-btn"
-              onClick={() => ctx.pushToast("Incident history is not yet available")}
+              onClick={() => {
+                setStatusFilter("all");
+                setView((current) => (current === "active" ? "history" : "active"));
+              }}
             >
               <Icon name="history" size={14} />
-              History
+              {view === "active" ? "History" : "Active"}
             </button>
             <button
               className="sh-btn"
-              onClick={() => ctx.pushToast("Incident filtering is not yet available")}
+              onClick={() => setShowFilters((current) => !current)}
             >
               <Icon name="filter" size={14} />
-              Filters
+              {showFilters ? "Hide filters" : "Filters"}
             </button>
           </>
         }
       />
+
+      {showFilters ? (
+        <div
+          className="sh-card"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.2fr 1.4fr 1fr",
+            gap: 16,
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <h2 className="sh-h2">Incident filters</h2>
+            <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+              Narrow the list without leaving the project environment.
+            </p>
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <span className="sh-eyebrow">Priority</span>
+            <Segmented
+              options={["all", "P1", "P2", "P3", "P4", "none"]}
+              value={priorityFilter}
+              onChange={(value) => setPriorityFilter(value as IncidentPriorityFilter)}
+            />
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            <span className="sh-eyebrow">Assignee</span>
+            <Segmented
+              options={["all", "assigned", "unassigned"]}
+              value={assigneeFilter}
+              onChange={(value) => setAssigneeFilter(value as IncidentAssigneeFilter)}
+            />
+          </div>
+          <div style={{ gridColumn: "2 / span 2", display: "grid", gap: 8 }}>
+            <span className="sh-eyebrow">Status</span>
+            <Segmented
+              options={statusOptions}
+              value={statusFilter}
+              onChange={(value) => setStatusFilter(value as IncidentStatusFilter)}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
         <BigKpi label="Active" value={String(kpis.active)} color="var(--sev-critical)" />
@@ -268,8 +336,12 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
           {rows.length === 0 ? (
             <EmptyHint
               icon="check"
-              title="No active incidents"
-              sub="No open or investigating incidents right now."
+              title={view === "history" ? "No historical incidents" : "No active incidents"}
+              sub={
+                view === "history"
+                  ? "No resolved or ignored incidents match these filters."
+                  : "No open or investigating incidents match these filters."
+              }
             />
           ) : (
             rows.map((row) => <IncidentRow key={row.id} row={row} ctx={ctx} />)

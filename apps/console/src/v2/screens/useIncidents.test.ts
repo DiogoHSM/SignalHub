@@ -52,6 +52,8 @@ const USER_BOB: User = { id: "user-bob", email: "bob@example.com", isAdmin: true
 function makeFakeClient(overrides: {
   openGroups?: ErrorGroupRecord[];
   investigatingGroups?: ErrorGroupRecord[];
+  resolvedGroups?: ErrorGroupRecord[];
+  ignoredGroups?: ErrorGroupRecord[];
   users?: User[] | "reject" | "reject-403";
   mttrMs?: number | null | "omit";
   resolvedCount?: number;
@@ -60,6 +62,8 @@ function makeFakeClient(overrides: {
   const {
     openGroups = [],
     investigatingGroups = [],
+    resolvedGroups = [],
+    ignoredGroups = [],
     users = [],
     mttrMs = null,
     resolvedCount = 0,
@@ -74,6 +78,12 @@ function makeFakeClient(overrides: {
       }
       if (status === "investigating") {
         return Promise.resolve({ data: investigatingGroups });
+      }
+      if (status === "resolved") {
+        return Promise.resolve({ data: resolvedGroups });
+      }
+      if (status === "ignored") {
+        return Promise.resolve({ data: ignoredGroups });
       }
       return Promise.resolve({ data: [] });
     }
@@ -164,6 +174,73 @@ describe("useIncidents", () => {
       id: "trend-group",
       trend
     });
+  });
+
+  it("history view fetches resolved and ignored incidents", async () => {
+    const resolved = makeGroup({ id: "resolved-1", status: "resolved" });
+    const ignored = makeGroup({ id: "ignored-1", status: "ignored" });
+    const { client, listErrorGroups } = makeFakeClient({
+      resolvedGroups: [resolved],
+      ignoredGroups: [ignored]
+    });
+
+    const { result } = renderHook(() =>
+      useIncidents({ client, projectId: "proj-1", environmentId: "env-1", view: "history" })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows.map((row) => row.id)).toEqual(["resolved-1", "ignored-1"]);
+    expect(listErrorGroups.mock.calls.map((call: Array<{ status?: string }>) => call[0]?.status)).toEqual([
+      "resolved",
+      "ignored"
+    ]);
+  });
+
+  it("statusFilter fetches only the requested incident status", async () => {
+    const resolved = makeGroup({ id: "resolved-only", status: "resolved" });
+    const { client, listErrorGroups } = makeFakeClient({ resolvedGroups: [resolved] });
+
+    const { result } = renderHook(() =>
+      useIncidents({
+        client,
+        projectId: "proj-1",
+        environmentId: "env-1",
+        view: "history",
+        statusFilter: "resolved"
+      })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows.map((row) => row.id)).toEqual(["resolved-only"]);
+    expect(listErrorGroups).toHaveBeenCalledTimes(1);
+    expect(listErrorGroups).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "resolved", limit: 100 })
+    );
+  });
+
+  it("filters rows locally by priority and assignee", async () => {
+    const groups = [
+      makeGroup({ id: "urgent-assigned", priority: "urgent", assignedToUserId: "user-alice" }),
+      makeGroup({ id: "urgent-unassigned", priority: "urgent", assignedToUserId: null }),
+      makeGroup({ id: "high-assigned", priority: "high", assignedToUserId: "user-bob" })
+    ];
+    const { client } = makeFakeClient({ openGroups: groups, users: [USER_ALICE, USER_BOB] });
+
+    const { result } = renderHook(() =>
+      useIncidents({
+        client,
+        projectId: "proj-1",
+        environmentId: "env-1",
+        priorityFilter: "P1",
+        assigneeFilter: "assigned"
+      })
+    );
+
+    await act(async () => {});
+
+    expect(result.current.data!.rows.map((row) => row.id)).toEqual(["urgent-assigned"]);
   });
 
   it("passes limit:100 and projectId/environmentId to each listErrorGroups call", async () => {
