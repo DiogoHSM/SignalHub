@@ -161,4 +161,25 @@ describe("useFleet", () => {
       resolve(successResponse);
     });
   });
+
+  it("updates fallback projects when seed projects change after a failed fleet fetch", async () => {
+    const fetchFleet = vi.fn().mockRejectedValue(new Error("offline"));
+    const initialSeeds = [seedProject("prj_1", "Alpha")];
+    const nextSeeds = [seedProject("prj_1", "Alpha"), seedProject("prj_2", "Beta")];
+
+    const { result, rerender } = renderHook(
+      ({ seeds }) => useFleet({ fetchFleet, seedProjects: seeds }),
+      { initialProps: { seeds: initialSeeds } }
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("fallback"));
+    expect(result.current.projects.map((project) => project.id)).toEqual(["prj_1"]);
+
+    rerender({ seeds: nextSeeds });
+
+    await waitFor(() => {
+      expect(result.current.projects.map((project) => project.id)).toEqual(["prj_1", "prj_2"]);
+    });
+    expect(fetchFleet).toHaveBeenCalledTimes(1);
+  });
 });

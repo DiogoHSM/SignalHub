@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FleetProject, FleetResponse, FleetRollup } from "../api/client";
 import type { Project } from "../api/types";
 
@@ -53,17 +53,28 @@ function buildFallbackRollup(projects: FleetProject[]): FleetRollup {
 }
 
 export function useFleet({ fetchFleet, seedProjects }: UseFleetOptions): UseFleetResult {
-  const fallbackProjects = buildFallbackProjects(seedProjects);
+  const fallbackProjects = useMemo(() => buildFallbackProjects(seedProjects), [seedProjects]);
+  const fallbackRollup = useMemo(() => buildFallbackRollup(fallbackProjects), [fallbackProjects]);
+  const fallbackRef = useRef({ projects: fallbackProjects, rollup: fallbackRollup });
 
-  const [result, setResult] = useState<UseFleetResult>({
+  const [result, setResult] = useState<UseFleetResult>(() => ({
     projects: fallbackProjects,
-    rollup: buildFallbackRollup(fallbackProjects),
+    rollup: fallbackRollup,
     status: "fallback",
     lastUpdated: 0
-  });
+  }));
 
   // Keep a stable ref of lastUpdated for the interval
   const lastUpdatedRef = useRef(0);
+
+  useEffect(() => {
+    fallbackRef.current = { projects: fallbackProjects, rollup: fallbackRollup };
+    setResult((prev) => {
+      if (prev.status !== "fallback") return prev;
+      if (prev.projects === fallbackProjects && prev.rollup === fallbackRollup) return prev;
+      return { ...prev, projects: fallbackProjects, rollup: fallbackRollup };
+    });
+  }, [fallbackProjects, fallbackRollup]);
 
   // Fetch on mount
   useEffect(() => {
@@ -82,11 +93,12 @@ export function useFleet({ fetchFleet, seedProjects }: UseFleetOptions): UseFlee
       .catch(() => {
         if (cancelled) return;
         // Already in fallback state from initial — no change needed for status,
-        // but update projects from current seed in case seedProjects changed
+        // but update projects from the latest seed in case seedProjects changed
+        const fallback = fallbackRef.current;
         setResult((prev) => ({
           ...prev,
-          projects: buildFallbackProjects(seedProjects),
-          rollup: buildFallbackRollup(buildFallbackProjects(seedProjects)),
+          projects: fallback.projects,
+          rollup: fallback.rollup,
           status: "fallback"
         }));
       });
