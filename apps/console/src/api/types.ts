@@ -895,6 +895,7 @@ export type ErrorGroupIncident = {
   assignedTo: { id: string; email: string } | null;
   silencedUntil: string | null;
   notes: { id: string; authorEmail: string; body: string; createdAt: string }[];
+  externalIssues?: IncidentExternalLink[];
 };
 
 export type TriageNoteRecord = {
@@ -1235,8 +1236,53 @@ export type ReleaseSummary = {
   traces: number;
   failedTraces: number;
   llmCalls: number;
+  code: {
+    commitSha: string | null;
+    commitUrl: string | null;
+    pullRequestNumber: number | null;
+    pullRequestUrl: string | null;
+    deployedBy: string | null;
+  } | null;
   firstSeenAt: string;
   lastSeenAt: string;
+};
+
+export type CodeIntegrationProvider = "github" | "gitlab";
+
+export type CodeIntegration = {
+  id: string;
+  projectId: string;
+  provider: CodeIntegrationProvider;
+  name: string;
+  owner: string;
+  repo: string;
+  webBaseUrl: string;
+  createdAt: string;
+  updatedAt: string;
+  revokedAt: string | null;
+};
+
+export type IncidentExternalLink = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  errorGroupId: string;
+  integrationId: string | null;
+  provider: CodeIntegrationProvider;
+  externalKey: string;
+  title: string;
+  url: string;
+  state: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IncidentIssueDraft = {
+  provider: CodeIntegrationProvider;
+  integrationId: string;
+  title: string;
+  body: string;
+  url: string;
 };
 
 export type ReleaseListQuery = {

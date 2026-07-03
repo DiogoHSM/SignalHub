@@ -427,10 +427,13 @@ function ReleasesPanel({
       ) : (
         releases.map((release) => {
           const selected = release.release === selectedRelease;
+          const shortCommit = release.code?.commitSha ? release.code.commitSha.slice(0, 7) : null;
           return (
-            <button
+            <div
               key={release.release}
               className="sh-row sh-row--btn"
+              role="button"
+              tabIndex={0}
               aria-label={`${release.release} release`}
               style={{
                 gridTemplateColumns: "minmax(0, 1fr) auto",
@@ -439,8 +442,12 @@ function ReleasesPanel({
                 background: selected ? "var(--accent-bg-subtle)" : "transparent",
                 border: "none",
                 borderBottom: "1px solid var(--border-subtle)",
+                cursor: "pointer",
               }}
               onClick={() => onSelectRelease(release.release)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") onSelectRelease(release.release);
+              }}
             >
               <div style={{ minWidth: 0 }}>
                 <strong className="sh-mono" style={{ fontSize: 12 }}>
@@ -449,11 +456,28 @@ function ReleasesPanel({
                 <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
                   {release.events} events · {release.errors} errors · {release.traces} traces
                 </div>
+                {release.code ? (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 5 }}>
+                    {release.code.commitUrl && shortCommit ? (
+                      <a className="sh-tag mono" href={release.code.commitUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                        commit {shortCommit}
+                      </a>
+                    ) : shortCommit ? (
+                      <span className="sh-tag mono">commit {shortCommit}</span>
+                    ) : null}
+                    {release.code.pullRequestUrl ? (
+                      <a className="sh-tag mono" href={release.code.pullRequestUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                        PR {release.code.pullRequestNumber ? `#${release.code.pullRequestNumber}` : ""}
+                      </a>
+                    ) : null}
+                    {release.code.deployedBy ? <span className="sh-tag">by {release.code.deployedBy}</span> : null}
+                  </div>
+                ) : null}
               </div>
               <span className={release.failedTraces > 0 || release.errors > 0 ? "sh-tag warn" : "sh-tag ok"}>
                 {release.failedTraces} failed
               </span>
-            </button>
+            </div>
           );
         })
       )}

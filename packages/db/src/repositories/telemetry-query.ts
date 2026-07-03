@@ -706,6 +706,13 @@ export interface ReleaseSummary {
   traces: number;
   failedTraces: number;
   llmCalls: number;
+  code: {
+    commitSha: string | null;
+    commitUrl: string | null;
+    pullRequestNumber: number | null;
+    pullRequestUrl: string | null;
+    deployedBy: string | null;
+  } | null;
   firstSeenAt: string;
   lastSeenAt: string;
 }
@@ -3343,6 +3350,11 @@ export async function listReleases(db: Db, filters: ReleaseListFilters): Promise
     traces: unknown;
     failed_traces: unknown;
     llm_calls: unknown;
+    commit_sha: string | null;
+    commit_url: string | null;
+    pull_request_number: number | null;
+    pull_request_url: string | null;
+    deployed_by: string | null;
     first_seen_at: Date | string;
     last_seen_at: Date | string;
   }>`
@@ -3380,17 +3392,26 @@ export async function listReleases(db: Db, filters: ReleaseListFilters): Promise
         and release is not null
     )
     select
-      release,
+      release_signals.release as release,
       count(*) filter (where kind = 'event') as events,
       count(*) filter (where kind = 'error') as errors,
       count(*) filter (where kind = 'trace') as traces,
       count(*) filter (where kind = 'trace' and status <> 'success') as failed_traces,
       count(*) filter (where kind = 'llm') as llm_calls,
+      release_metadata.commit_sha,
+      release_metadata.commit_url,
+      release_metadata.pull_request_number,
+      release_metadata.pull_request_url,
+      release_metadata.deployed_by,
       min(timestamp) as first_seen_at,
       max(timestamp) as last_seen_at
     from release_signals
-    group by release
-    order by last_seen_at desc, release asc
+    left join release_metadata
+      on release_metadata.project_id = ${filters.projectId}
+      and release_metadata.environment_id = ${filters.environmentId}
+      and release_metadata.release = release_signals.release
+    group by release_signals.release, release_metadata.commit_sha, release_metadata.commit_url, release_metadata.pull_request_number, release_metadata.pull_request_url, release_metadata.deployed_by
+    order by last_seen_at desc, release_signals.release asc
     limit ${limit}
   `.execute(db);
 
@@ -3412,6 +3433,16 @@ export async function listReleases(db: Db, filters: ReleaseListFilters): Promise
       traces: toNumber(row.traces),
       failedTraces: toNumber(row.failed_traces),
       llmCalls: toNumber(row.llm_calls),
+      code:
+        row.commit_sha || row.commit_url || row.pull_request_url || row.deployed_by
+          ? {
+              commitSha: row.commit_sha,
+              commitUrl: row.commit_url,
+              pullRequestNumber: row.pull_request_number,
+              pullRequestUrl: row.pull_request_url,
+              deployedBy: row.deployed_by
+            }
+          : null,
       firstSeenAt: toIso(row.first_seen_at),
       lastSeenAt: toIso(row.last_seen_at)
     }))

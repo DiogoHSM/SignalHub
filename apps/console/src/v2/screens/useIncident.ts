@@ -3,6 +3,7 @@ import type { ApiClient, ErrorGroupApiClient } from "../../api/client";
 import type {
   ErrorGroupIncident,
   ErrorGroupPriority,
+  IncidentExternalLink,
   IncidentReplay,
   IncidentTimelineItem,
   SourceMapResolution,
@@ -56,6 +57,7 @@ export type IncidentVM = {
   breadcrumbs: { kind: string; timeRelative: string; title: string }[];
   related: RelVM[];
   notes: { initials: string; authorEmail: string; timeRelative: string; body: string }[];
+  externalIssues: IncidentExternalLink[];
 };
 
 // ---------------------------------------------------------------------------
@@ -342,7 +344,8 @@ function buildVM(incident: ErrorGroupIncident, resolution: SourceMapResolution |
     sourceMapDiagnostic: sourceMapDiagnostic(incident, resolution),
     breadcrumbs: mapBreadcrumbs(stronglyRelated.items),
     related: mapRelated(incident),
-    notes
+    notes,
+    externalIssues: incident.externalIssues ?? []
   };
 }
 

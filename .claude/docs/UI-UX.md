@@ -83,6 +83,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Incident view starts with a hero triage summary containing severity/status/priority, group, release, observed duration, assignee state, impact metrics, and only backend-supported primary actions such as resolve, ignore, and copy link.
 - Incident view uses a split investigation layout: technical primary occurrence details, stack, source-map status, context, and metadata on the left; operational triage, related identifiers, strongly related activity, and nearby context on the right. It stacks before the console layout becomes cramped.
 - Incident view includes a Replay panel when an error links to a privacy-safe `replay_id`. The panel shows route, masked state, duration, event count, and a compact masked event timeline; it should not imply video/screenshot playback or expose raw DOM, text, HTML, or input values.
+- Incident view includes code-hosting actions when a project has a GitHub or GitLab repository configured. Operators can open a prefilled external issue draft, paste an already-created issue URL, and see linked external issues from the incident side panel. The MVP is tokenless and never implies SignalMonitor can create repository issues directly.
 - Incident replay highlights the primary error moment in the masked timeline and keeps the stack-at-error plus preceding breadcrumbs visible in the same workspace, so operators can connect the user action path to the crash without leaving the incident.
 - Event detail includes a Replay panel when the selected event links to a privacy-safe `replay_id`. It should show masked replay events and product-event markers in timestamp order so operators can see what happened around a product action without leaving investigation context.
 - Incident view uses the same dark operational surface system as the console shell; it should not introduce light cards or browser-default controls inside the dark app.
@@ -196,12 +197,14 @@ SignalMonitor includes an admin-only Integration Console.
 - Data governance retention copy must explain that project/environment windows can shorten installation-level retention; installation-level retention remains the maximum retention boundary.
 - Sensitive property rules use dot paths and explicit actions: `mask` keeps the key with `[REDACTED]`; `block` removes the key before persistence. The UI should keep this distinction visible beside the rule list and add form.
 - Warehouse Sync is a Project Settings section for the selected project/environment. It shows destination health, redacted connection details, selected datasets, batch size, pause/resume, archive, manual run, and recent export runs so operators can verify external analytics exports without leaving the console.
+- Code Hosting is a Project Settings section for the selected project. It stores tokenless GitHub/GitLab repository references used for issue-draft links and incident external issue linkage. Rows should expose provider, owner/group, repository, repository URL, and a compact disconnect action.
 
 ## Releases UX
 
 - Overview includes a compact Releases panel that lists recently observed deploy versions for the selected project/environment.
 - Selecting a release filters Overview KPIs and trend context to that exact release while keeping the release list available for comparison.
 - Release rows should show release id, event count, error count, trace count, and failed trace count in a dark operational row, not a white table.
+- Release rows can show optional deployment metadata supplied by automation: commit SHA/link, pull request link, and deployed-by label. These hints should be compact and secondary to operational signal counts.
 - The empty state should explain that release values come from SDK/server telemetry and are useful for deploy-scoped incident and source-map workflows.
 
 ## Artifacts UX

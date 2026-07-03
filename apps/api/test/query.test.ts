@@ -2544,10 +2544,28 @@ describe("query routes", () => {
   });
 
   it("gets an error group incident by id", async () => {
+    const listIncidentExternalIssues = vi.fn(async () => [
+      {
+        id: "iext_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        errorGroupId: "egrp_1",
+        integrationId: "cint_1",
+        provider: "github" as const,
+        externalKey: "42",
+        title: "Fix checkout",
+        url: "https://github.com/acme/web/issues/42",
+        state: "open",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z")
+      }
+    ]);
+
     app = await buildApp({
       readiness,
       auth: humanAuth,
       query: {
+        listIncidentExternalIssues,
         getErrorGroupIncident: async (id, filters) => ({
           group: { id, projectId: filters.projectId, environmentId: filters.environmentId },
           primaryOccurrence: { id: filters.errorId ?? "err_latest", errorGroupId: id },
@@ -2571,8 +2589,98 @@ describe("query routes", () => {
       data: {
         group: { id: "egrp_1" },
         primaryOccurrence: { id: "err_1" },
-        suggestedPriority: "urgent"
+        suggestedPriority: "urgent",
+        externalIssues: [
+          expect.objectContaining({
+            id: "iext_1",
+            url: "https://github.com/acme/web/issues/42"
+          })
+        ]
       }
+    });
+    expect(listIncidentExternalIssues).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorGroupId: "egrp_1"
+    });
+  });
+
+  it("links external issues and creates incident issue drafts", async () => {
+    const linkIncidentExternalIssue = vi.fn(async (input) => ({
+      id: "iext_1",
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      errorGroupId: input.errorGroupId,
+      integrationId: input.integrationId ?? null,
+      provider: input.provider,
+      externalKey: input.externalKey,
+      title: input.title,
+      url: input.url,
+      state: input.state ?? "open",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z")
+    }));
+    const buildIncidentIssueDraft = vi.fn(async (input) => ({
+      provider: "github" as const,
+      integrationId: input.integrationId,
+      title: "[Sigmon] error",
+      body: "Incident body",
+      url: "https://github.com/acme/web/issues/new?title=Sigmon"
+    }));
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        linkIncidentExternalIssue,
+        buildIncidentIssueDraft
+      }
+    });
+
+    const linkResponse = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/external-issues?project_id=prj_1&environment_id=env_1",
+      payload: {
+        integrationId: "cint_1",
+        provider: "github",
+        externalKey: "42",
+        title: "Fix checkout",
+        url: "https://github.com/acme/web/issues/42"
+      }
+    });
+    expect(linkResponse.statusCode).toBe(201);
+    expect(linkIncidentExternalIssue).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorGroupId: "egrp_1",
+      integrationId: "cint_1",
+      provider: "github",
+      externalKey: "42",
+      title: "Fix checkout",
+      url: "https://github.com/acme/web/issues/42"
+    });
+
+    const draftResponse = await app.inject({
+      method: "POST",
+      url: "/query/incidents/error-groups/egrp_1/external-issues/draft?project_id=prj_1&environment_id=env_1",
+      payload: { integrationId: "cint_1", incidentUrl: "https://my.sigmon.app/console/incidents/1" }
+    });
+    expect(draftResponse.statusCode).toBe(201);
+    expect(draftResponse.json()).toEqual({
+      draft: {
+        provider: "github",
+        integrationId: "cint_1",
+        title: "[Sigmon] error",
+        body: "Incident body",
+        url: "https://github.com/acme/web/issues/new?title=Sigmon"
+      }
+    });
+    expect(buildIncidentIssueDraft).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      errorGroupId: "egrp_1",
+      integrationId: "cint_1",
+      incidentUrl: "https://my.sigmon.app/console/incidents/1"
     });
   });
 

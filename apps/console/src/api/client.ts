@@ -12,6 +12,8 @@ import type {
   BetaProgramAdoption,
   BetaProgramParticipant,
   BrowserOrigin,
+  CodeIntegration,
+  CodeIntegrationProvider,
   AlertEventListQuery,
   AlertEventResponse,
   AlertRuleListQuery,
@@ -45,6 +47,8 @@ import type {
   ErrorGroupRecord,
   IncidentMttrQuery,
   IncidentMttrResult,
+  IncidentExternalLink,
+  IncidentIssueDraft,
   IncidentReplay,
   ErrorRecord,
   EventClickMapQuery,
@@ -227,6 +231,23 @@ export type ErrorGroupApiClient = {
   updateErrorGroupTriage: (id: string, input: UpdateErrorGroupTriageInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
   addTriageNote: (id: string, input: AddTriageNoteInput) => Promise<AggregateResponse<TriageNoteRecord>>;
   silenceIncident: (id: string, input: SilenceIncidentInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
+  linkIncidentExternalIssue?: (
+    id: string,
+    query: Pick<ErrorGroupIncidentQuery, "projectId" | "environmentId">,
+    input: {
+      integrationId?: string | null;
+      provider: CodeIntegrationProvider;
+      externalKey: string;
+      title: string;
+      url: string;
+      state?: string;
+    }
+  ) => Promise<{ link: IncidentExternalLink }>;
+  createIncidentIssueDraft?: (
+    id: string,
+    query: Pick<ErrorGroupIncidentQuery, "projectId" | "environmentId">,
+    input: { integrationId: string; incidentUrl?: string }
+  ) => Promise<{ draft: IncidentIssueDraft }>;
 };
 
 export type SourceMapUploadInput = Pick<SourceMapArtifactQuery, "projectId" | "environmentId"> & {
@@ -362,6 +383,25 @@ export type ApiClient = {
   listBrowserOrigins?: (projectId: string) => Promise<{ origins: BrowserOrigin[] }>;
   createBrowserOrigin?: (projectId: string, input: { origin: string }) => Promise<{ origin: BrowserOrigin }>;
   archiveBrowserOrigin?: (id: string) => Promise<void>;
+  listCodeIntegrations?: (projectId: string) => Promise<{ integrations: CodeIntegration[] }>;
+  createCodeIntegration?: (
+    projectId: string,
+    input: { provider: CodeIntegrationProvider; name: string; owner: string; repo: string }
+  ) => Promise<{ integration: CodeIntegration }>;
+  revokeCodeIntegration?: (projectId: string, id: string) => Promise<void>;
+  upsertReleaseMetadata?: (
+    projectId: string,
+    input: {
+      environmentId: string;
+      release: string;
+      integrationId?: string | null;
+      commitSha?: string | null;
+      commitUrl?: string | null;
+      pullRequestNumber?: number | null;
+      pullRequestUrl?: string | null;
+      deployedBy?: string | null;
+    }
+  ) => Promise<{ metadata: unknown }>;
   listEvents: (filters: QueryFilters) => Promise<QueryListResponse<EventRecord>>;
   listErrors: (filters: QueryFilters) => Promise<QueryListResponse<ErrorRecord>>;
   listTraces: (filters: QueryFilters) => Promise<QueryListResponse<TraceRecord>>;
@@ -616,6 +656,14 @@ function triageNotePath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "
 
 function silenceIncidentPath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
   return `/query/incidents/error-groups/${encodePathSegment(id)}/silence?${errorGroupScopeParams(scope).toString()}`;
+}
+
+function incidentExternalIssuesPath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
+  return `/query/incidents/error-groups/${encodePathSegment(id)}/external-issues?${errorGroupScopeParams(scope).toString()}`;
+}
+
+function incidentExternalIssueDraftPath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
+  return `/query/incidents/error-groups/${encodePathSegment(id)}/external-issues/draft?${errorGroupScopeParams(scope).toString()}`;
 }
 
 function sourceMapScopeParams(query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): URLSearchParams {
@@ -1233,6 +1281,25 @@ export function createApiClient(
       }),
     archiveBrowserOrigin: (id) =>
       request<void>(path(apiBasePath, `/admin/browser-origins/${encodePathSegment(id)}`), { method: "DELETE" }),
+    listCodeIntegrations: (projectId) =>
+      request<{ integrations: CodeIntegration[] }>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/code-integrations`)
+      ),
+    createCodeIntegration: (projectId, input) =>
+      request<{ integration: CodeIntegration }>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/code-integrations`),
+        { method: "POST", body: input }
+      ),
+    revokeCodeIntegration: (projectId, id) =>
+      request<void>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/code-integrations/${encodePathSegment(id)}`),
+        { method: "DELETE" }
+      ),
+    upsertReleaseMetadata: (projectId, input) =>
+      request<{ metadata: unknown }>(
+        path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/release-metadata`),
+        { method: "POST", body: input }
+      ),
     listEvents: (filters) =>
       request<QueryListResponse<EventRecord>>(path(apiBasePath, queryPath("/query/events", filters, { includeEventName: true }))),
     listErrors: (filters) =>
@@ -1265,6 +1332,16 @@ export function createApiClient(
       request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, silenceIncidentPath(id, input)), {
         method: "POST",
         body: { minutes: input.minutes }
+      }),
+    linkIncidentExternalIssue: (id, query, input) =>
+      request<{ link: IncidentExternalLink }>(path(apiBasePath, incidentExternalIssuesPath(id, query)), {
+        method: "POST",
+        body: input
+      }),
+    createIncidentIssueDraft: (id, query, input) =>
+      request<{ draft: IncidentIssueDraft }>(path(apiBasePath, incidentExternalIssueDraftPath(id, query)), {
+        method: "POST",
+        body: input
       }),
     listSourceMapArtifacts: async (query) => {
       const response = await request<{ artifacts: SourceMapArtifact[] }>(path(apiBasePath, sourceMapArtifactsPath(query)));

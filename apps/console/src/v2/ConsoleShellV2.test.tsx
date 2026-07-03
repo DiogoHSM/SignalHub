@@ -295,6 +295,7 @@ describe("ConsoleShellV2", () => {
       breadcrumbs: [],
       related: [],
       notes: [],
+      externalIssues: [],
     };
 
     function setupDrillMocks() {
@@ -478,13 +479,13 @@ describe("ConsoleShellV2", () => {
         expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
       });
 
-      // Click Create issue — this calls ctx.pushToast which should put a toast in the stack
+      // Click Create issue without code integration support — this calls ctx.pushToast.
       await user.click(screen.getByRole("button", { name: /create issue/i }));
 
       // Toast should appear in the DOM via ToastStack
       await waitFor(() => {
         expect(document.querySelector(".toast__title")).toBeInTheDocument();
-        expect(document.querySelector(".toast__title")?.textContent).toMatch(/github issue creation is not available yet/i);
+        expect(document.querySelector(".toast__title")?.textContent).toMatch(/code integrations are not available/i);
       });
     });
 

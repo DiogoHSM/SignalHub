@@ -83,6 +83,12 @@ import type {
   WarehouseExportRunRecord,
   WarehouseExportRunTrigger
 } from "@sigmon/db/repositories/warehouse-exports.js";
+import type {
+  CodeIntegrationRecord,
+  CreateCodeIntegrationInput,
+  ReleaseMetadataRecord,
+  UpsertReleaseMetadataInput
+} from "@sigmon/db/repositories/code-integrations.js";
 
 export interface AdminProject {
   id: string;
@@ -155,11 +161,19 @@ export type BrowserOriginAdministrationDependencies = {
   archive: (id: string) => Promise<void>;
 };
 
+export type CodeIntegrationAdministrationDependencies = {
+  list: (projectId: string) => Promise<CodeIntegrationRecord[]>;
+  create: (input: CreateCodeIntegrationInput) => Promise<CodeIntegrationRecord>;
+  revoke: (input: { projectId: string; integrationId: string }) => Promise<CodeIntegrationRecord | undefined>;
+  upsertReleaseMetadata: (input: UpsertReleaseMetadataInput) => Promise<ReleaseMetadataRecord>;
+};
+
 export type AdminResourceDependencies = {
   projects?: ProjectAdministrationDependencies;
   environments?: EnvironmentAdministrationDependencies;
   apiKeys?: ApiKeyAdministrationDependencies;
   browserOrigins?: BrowserOriginAdministrationDependencies;
+  codeIntegrations?: CodeIntegrationAdministrationDependencies;
   analyticsSegments?: AnalyticsSegmentAdministrationDependencies;
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
   experiments?: ExperimentAdministrationDependencies;
@@ -468,6 +482,26 @@ function isValidBrowserOrigin(origin: string): boolean {
 
 const createBrowserOriginSchema = z.object({
   origin: z.string().trim().min(1).max(2048).refine(isValidBrowserOrigin)
+});
+
+const codeIntegrationProviderSchema = z.enum(["github", "gitlab"]);
+
+const codeIntegrationSchema = z.object({
+  provider: codeIntegrationProviderSchema,
+  name: z.string().trim().min(1).max(256),
+  owner: z.string().trim().min(1).max(256),
+  repo: z.string().trim().min(1).max(256)
+});
+
+const releaseMetadataSchema = z.object({
+  environmentId: z.string().trim().min(1),
+  release: z.string().trim().min(1).max(512),
+  integrationId: z.string().trim().min(1).nullable().optional(),
+  commitSha: z.string().trim().min(7).max(128).nullable().optional(),
+  commitUrl: z.string().trim().url().max(2048).nullable().optional(),
+  pullRequestNumber: z.number().int().positive().nullable().optional(),
+  pullRequestUrl: z.string().trim().url().max(2048).nullable().optional(),
+  deployedBy: z.string().trim().max(256).nullable().optional()
 });
 
 const analyticsSegmentWindowSchema = z.enum(["24h", "7d", "30d"]);
@@ -1646,6 +1680,86 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     await options.adminResources.browserOrigins.archive(params.data.id);
     return reply.status(204).send();
+  });
+
+  app.get("/admin/projects/:projectId/code-integrations", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+
+    if (!options.adminResources?.codeIntegrations) {
+      return reply.status(501).send({ error: "code_integrations_repository_unavailable" });
+    }
+
+    const params = projectIdParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_code_integration_request" });
+    }
+
+    const integrations = await options.adminResources.codeIntegrations.list(params.data.projectId);
+    return reply.send({ integrations });
+  });
+
+  app.post("/admin/projects/:projectId/code-integrations", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+
+    if (!options.adminResources?.codeIntegrations) {
+      return reply.status(501).send({ error: "code_integrations_repository_unavailable" });
+    }
+
+    const params = projectIdParamsSchema.safeParse(request.params);
+    const parsed = codeIntegrationSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_code_integration_request" });
+    }
+
+    const integration = await options.adminResources.codeIntegrations.create({
+      projectId: params.data.projectId,
+      ...parsed.data
+    });
+    return reply.status(201).send({ integration });
+  });
+
+  app.delete("/admin/projects/:projectId/code-integrations/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+
+    if (!options.adminResources?.codeIntegrations) {
+      return reply.status(501).send({ error: "code_integrations_repository_unavailable" });
+    }
+
+    const params = projectIdParamsSchema.extend({ id: z.string().min(1) }).safeParse(request.params);
+    if (!params.success) {
+      return reply.status(400).send({ error: "invalid_code_integration_request" });
+    }
+
+    const integration = await options.adminResources.codeIntegrations.revoke({
+      projectId: params.data.projectId,
+      integrationId: params.data.id
+    });
+    if (!integration) return reply.status(404).send({ error: "code_integration_not_found" });
+    return reply.status(204).send();
+  });
+
+  app.post("/admin/projects/:projectId/release-metadata", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+
+    if (!options.adminResources?.codeIntegrations) {
+      return reply.status(501).send({ error: "code_integrations_repository_unavailable" });
+    }
+
+    const params = projectIdParamsSchema.safeParse(request.params);
+    const parsed = releaseMetadataSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_release_metadata_request" });
+    }
+
+    const metadata = await options.adminResources.codeIntegrations.upsertReleaseMetadata({
+      projectId: params.data.projectId,
+      ...parsed.data
+    });
+    return reply.status(201).send({ metadata });
   });
 
   app.get("/admin/analytics-segments", async (request, reply) => {

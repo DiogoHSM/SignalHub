@@ -406,6 +406,69 @@ export const openApiDocument = {
           updatedAt: { type: "string", format: "date-time" }
         }
       },
+      CodeIntegration: {
+        type: "object",
+        required: ["id", "projectId", "provider", "name", "owner", "repo", "webBaseUrl"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          provider: { type: "string", enum: ["github", "gitlab"] },
+          name: { type: "string", examples: ["Web app"] },
+          owner: { type: "string", examples: ["acme"] },
+          repo: { type: "string", examples: ["web"] },
+          webBaseUrl: { type: "string", format: "uri" },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          revokedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      IncidentExternalLink: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "errorGroupId", "provider", "externalKey", "title", "url", "state"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          errorGroupId: { type: "string" },
+          integrationId: { type: ["string", "null"] },
+          provider: { type: "string", enum: ["github", "gitlab"] },
+          externalKey: { type: "string", examples: ["42"] },
+          title: { type: "string" },
+          url: { type: "string", format: "uri" },
+          state: { type: "string", examples: ["open"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      IncidentIssueDraft: {
+        type: "object",
+        required: ["provider", "integrationId", "title", "body", "url"],
+        properties: {
+          provider: { type: "string", enum: ["github", "gitlab"] },
+          integrationId: { type: "string" },
+          title: { type: "string" },
+          body: { type: "string" },
+          url: { type: "string", format: "uri" }
+        }
+      },
+      ReleaseMetadata: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "release"],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          release: { type: "string", examples: ["web@1.2.3"] },
+          integrationId: { type: ["string", "null"] },
+          commitSha: { type: ["string", "null"] },
+          commitUrl: { type: ["string", "null"], format: "uri" },
+          pullRequestNumber: { type: ["integer", "null"] },
+          pullRequestUrl: { type: ["string", "null"], format: "uri" },
+          deployedBy: { type: ["string", "null"] },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
       WarehouseDestination: {
         type: "object",
         required: [
@@ -1653,6 +1716,116 @@ export const openApiDocument = {
         }
       }
     },
+    "/admin/projects/{projectId}/code-integrations": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List code hosting integrations",
+        description: "List GitHub/GitLab repository links configured for a project. No provider token is stored by this MVP.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "Code integrations",
+            content: { "application/json": { schema: { type: "object", properties: { integrations: { type: "array", items: { $ref: "#/components/schemas/CodeIntegration" } } } } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Connect a GitHub/GitLab repository",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["provider", "name", "owner", "repo"],
+                properties: {
+                  provider: { type: "string", enum: ["github", "gitlab"] },
+                  name: { type: "string" },
+                  owner: { type: "string", examples: ["acme", "platform/team"] },
+                  repo: { type: "string", examples: ["web"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Code integration created",
+            content: { "application/json": { schema: { type: "object", properties: { integration: { $ref: "#/components/schemas/CodeIntegration" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/projects/{projectId}/code-integrations/{id}": {
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Disconnect a code hosting integration",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "projectId", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Code integration disconnected" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Code integration not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/projects/{projectId}/release-metadata": {
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Upsert release code metadata",
+        description: "Attach commit/PR/deployer metadata to a release so Overview can show deploy context.",
+        security: [{ sessionCookie: [] }],
+        parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["environmentId", "release"],
+                properties: {
+                  environmentId: { type: "string" },
+                  release: { type: "string" },
+                  integrationId: { type: ["string", "null"] },
+                  commitSha: { type: ["string", "null"] },
+                  commitUrl: { type: ["string", "null"], format: "uri" },
+                  pullRequestNumber: { type: ["integer", "null"] },
+                  pullRequestUrl: { type: ["string", "null"], format: "uri" },
+                  deployedBy: { type: ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Release metadata saved",
+            content: { "application/json": { schema: { type: "object", properties: { metadata: { $ref: "#/components/schemas/ReleaseMetadata" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/admin/warehouse-destinations": {
       get: {
         tags: ["Session authenticated"],
@@ -2171,6 +2344,85 @@ export const openApiDocument = {
     },
     "/query/errors": {
       get: sessionRoute("Query errors", "Read project/environment scoped raw error telemetry.")
+    },
+    "/query/incidents/error-groups/{id}/external-issues": {
+      post: {
+        ...sessionRoute(
+          "Link an external issue to an incident",
+          "Attach a GitHub/GitLab issue URL to a Sigmon error-group incident. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["provider", "externalKey", "title", "url"],
+                properties: {
+                  integrationId: { type: ["string", "null"] },
+                  provider: { type: "string", enum: ["github", "gitlab"] },
+                  externalKey: { type: "string" },
+                  title: { type: "string" },
+                  url: { type: "string", format: "uri" },
+                  state: { type: "string", default: "open" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "External issue linked",
+            content: { "application/json": { schema: { type: "object", properties: { link: { $ref: "#/components/schemas/IncidentExternalLink" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/incidents/error-groups/{id}/external-issues/draft": {
+      post: {
+        ...sessionRoute(
+          "Create an external issue draft URL",
+          "Build a prefilled GitHub/GitLab new-issue URL from a Sigmon incident. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["integrationId"],
+                properties: {
+                  integrationId: { type: "string" },
+                  incidentUrl: { type: "string", format: "uri" }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "201": {
+            description: "Issue draft URL",
+            content: { "application/json": { schema: { type: "object", properties: { draft: { $ref: "#/components/schemas/IncidentIssueDraft" } } } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Code integration not found" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/query/llm-calls": {
       get: sessionRoute("Query LLM calls", "Read project/environment scoped LLM call telemetry.")

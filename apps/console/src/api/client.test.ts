@@ -2046,4 +2046,84 @@ describe("createApiClient", () => {
       }
     );
   });
+
+  it("calls code integration and release metadata admin routes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { integrations: [] }))
+      .mockResolvedValueOnce(jsonResponse(201, { integration: { id: "cint_1" } }))
+      .mockResolvedValueOnce(jsonResponse(201, { metadata: { id: "relm_1" } }))
+      .mockResolvedValueOnce(emptyResponse(204));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.listCodeIntegrations!("prj/1");
+    await client.createCodeIntegration!("prj/1", {
+      provider: "github",
+      name: "Web",
+      owner: "acme",
+      repo: "web"
+    });
+    await client.upsertReleaseMetadata!("prj/1", {
+      environmentId: "env 1",
+      release: "web@1.2.3",
+      integrationId: "cint_1",
+      commitSha: "abcdef"
+    });
+    await client.revokeCodeIntegration!("prj/1", "cint/1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/admin/projects/prj%2F1/code-integrations", expect.objectContaining({ method: "GET" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/admin/projects/prj%2F1/code-integrations",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ provider: "github", name: "Web", owner: "acme", repo: "web" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/admin/projects/prj%2F1/release-metadata",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ environmentId: "env 1", release: "web@1.2.3", integrationId: "cint_1", commitSha: "abcdef" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/admin/projects/prj%2F1/code-integrations/cint%2F1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("calls incident external issue routes with scoped query params", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, { link: { id: "iext_1" } }))
+      .mockResolvedValueOnce(jsonResponse(201, { draft: { url: "https://github.com/acme/web/issues/new" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.linkIncidentExternalIssue!("egrp/1", { projectId: "prj/1", environmentId: "env 1" }, {
+      provider: "github",
+      externalKey: "42",
+      title: "Fix",
+      url: "https://github.com/acme/web/issues/42"
+    });
+    await client.createIncidentIssueDraft!("egrp/1", { projectId: "prj/1", environmentId: "env 1" }, {
+      integrationId: "cint_1",
+      incidentUrl: "https://my.sigmon.app/console/incidents/1"
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/query/incidents/error-groups/egrp%2F1/external-issues?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/query/incidents/error-groups/egrp%2F1/external-issues/draft?project_id=prj%2F1&environment_id=env+1",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
 });

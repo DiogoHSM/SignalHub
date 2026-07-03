@@ -56,6 +56,7 @@ const MOCK_VM: IncidentVM = {
     { initials: "A", authorEmail: "ana@acme.dev", timeRelative: "8 min ago", body: "Provider degradation confirmed" },
     { initials: "M", authorEmail: "marco@acme.dev", timeRelative: "2 min ago", body: "Reduced timeout to 8s" },
   ],
+  externalIssues: [],
 };
 
 const SILENCED_VM: IncidentVM = {

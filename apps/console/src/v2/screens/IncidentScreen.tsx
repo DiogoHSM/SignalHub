@@ -148,6 +148,7 @@ export function IncidentScreen({
   const [bcOpen, setBcOpen] = useState(true);
   const [noteBody, setNoteBody] = useState("");
   const [reassignOpen, setReassignOpen] = useState(false);
+  const [issueBusy, setIssueBusy] = useState(false);
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (status === "loading" && !vm) {
@@ -175,6 +176,7 @@ export function IncidentScreen({
       </div>
     );
   }
+  const incidentVm = vm;
 
   // ── Silence state ─────────────────────────────────────────────────────────
   const now = Date.now();
@@ -192,6 +194,63 @@ export function IncidentScreen({
       ctx.navigate(rel.target.section as NavSection);
     } else if (rel.target.kind === "drill") {
       ctx.drill("incident", { groupId: rel.target.groupId });
+    }
+  }
+
+  async function createExternalIssueDraft() {
+    if (!ctx.client.listCodeIntegrations || !ctx.client.createIncidentIssueDraft) {
+      ctx.pushToast("Code integrations are not available in this build");
+      return;
+    }
+    setIssueBusy(true);
+    try {
+      const response = await ctx.client.listCodeIntegrations(projectId);
+      const integration = response.integrations[0];
+      if (!integration) {
+        ctx.pushToast("Connect a GitHub or GitLab repository in Setup first");
+        return;
+      }
+      const draft = await ctx.client.createIncidentIssueDraft(groupId, { projectId, environmentId }, {
+        integrationId: integration.id,
+        incidentUrl: window.location.href
+      });
+      window.open(draft.draft.url, "_blank", "noopener,noreferrer");
+      ctx.pushToast("Issue draft opened");
+    } catch (err) {
+      console.error(err);
+      ctx.pushToast("Could not create issue draft");
+    } finally {
+      setIssueBusy(false);
+    }
+  }
+
+  async function linkExternalIssue() {
+    if (!ctx.client.linkIncidentExternalIssue) {
+      ctx.pushToast("External issue linking is not available in this build");
+      return;
+    }
+    const url = window.prompt("Paste the GitHub or GitLab issue URL");
+    if (!url) return;
+    const provider = url.includes("gitlab") ? "gitlab" : "github";
+    const externalKey = url.match(/\/issues\/(\d+)/)?.[1] ?? url.split("/").filter(Boolean).at(-1) ?? "external";
+    const fallbackTitle = incidentVm.title;
+    const title = window.prompt("Issue title", fallbackTitle) ?? fallbackTitle;
+    setIssueBusy(true);
+    try {
+      await ctx.client.linkIncidentExternalIssue(groupId, { projectId, environmentId }, {
+        provider,
+        externalKey,
+        title,
+        url,
+        state: "open"
+      });
+      ctx.pushToast("External issue linked");
+      reload();
+    } catch (err) {
+      console.error(err);
+      ctx.pushToast("Could not link external issue");
+    } finally {
+      setIssueBusy(false);
     }
   }
 
@@ -413,17 +472,17 @@ export function IncidentScreen({
           </button>
         )}
 
-        {/* Create issue (stub) */}
         <button
           className="sh-btn"
-          onClick={() =>
-            ctx.pushToast(
-              "GitHub issue creation is not available yet"
-            )
-          }
+          disabled={issueBusy}
+          onClick={() => void createExternalIssueDraft()}
         >
           <Icon name="git" size={14} />
           Create issue
+        </button>
+        <button className="sh-btn ghost" disabled={issueBusy} onClick={() => void linkExternalIssue()}>
+          <Icon name="link" size={14} />
+          Link issue
         </button>
 
         {/* Copy link */}
@@ -724,6 +783,32 @@ export function IncidentScreen({
                     rel={rel}
                     onClick={rel.target ? () => handleRelClick(rel) : undefined}
                   />
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="sh-card">
+            <div className="sh-card__head">
+              <h2 className="sh-h2">External issues</h2>
+              <span className="sh-tag">{vm.externalIssues.length}</span>
+            </div>
+            <div className="sh-card__body" style={{ display: "grid", gap: 8 }}>
+              {vm.externalIssues.length === 0 ? (
+                <div className="sh-muted" style={{ fontSize: 12 }}>
+                  No GitHub or GitLab issue linked yet.
+                </div>
+              ) : (
+                vm.externalIssues.map((issue) => (
+                  <a key={issue.id} className="sh-row" href={issue.url} target="_blank" rel="noreferrer" style={{ gridTemplateColumns: "1fr auto", textDecoration: "none" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <strong style={{ fontSize: 12.5 }}>{issue.title}</strong>
+                      <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
+                        {issue.provider} · {issue.externalKey}
+                      </div>
+                    </div>
+                    <span className="sh-tag">{issue.state}</span>
+                  </a>
                 ))
               )}
             </div>

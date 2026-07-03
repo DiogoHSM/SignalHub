@@ -22,6 +22,10 @@ import type {
   WarehouseDestinationRecord,
   WarehouseExportRunRecord
 } from "../../../packages/db/src/repositories/warehouse-exports.js";
+import type {
+  CodeIntegrationRecord,
+  ReleaseMetadataRecord
+} from "../../../packages/db/src/repositories/code-integrations.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -272,6 +276,58 @@ function warehouseExportRunResponse(overrides: Partial<Record<string, unknown>> 
     startedAt: "2026-01-01T00:00:00.000Z",
     finishedAt: "2026-01-01T00:00:01.000Z",
     createdAt: "2026-01-01T00:00:01.000Z",
+    ...overrides
+  };
+}
+
+function codeIntegration(overrides: Partial<CodeIntegrationRecord> = {}): CodeIntegrationRecord {
+  return {
+    id: "cint_1",
+    projectId: "prj_1",
+    provider: "github",
+    name: "Web",
+    owner: "acme",
+    repo: "web",
+    webBaseUrl: "https://github.com/acme/web",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    revokedAt: null,
+    ...overrides
+  };
+}
+
+function codeIntegrationResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...codeIntegration(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+function releaseMetadata(overrides: Partial<ReleaseMetadataRecord> = {}): ReleaseMetadataRecord {
+  return {
+    id: "relm_1",
+    projectId: "prj_1",
+    environmentId: "env_1",
+    release: "web@1.2.3",
+    integrationId: "cint_1",
+    commitSha: "abcdef123456",
+    commitUrl: "https://github.com/acme/web/commit/abcdef123456",
+    pullRequestNumber: 42,
+    pullRequestUrl: "https://github.com/acme/web/pull/42",
+    deployedBy: "github-actions",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides
+  };
+}
+
+function releaseMetadataResponse(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ...releaseMetadata(),
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides
   };
 }
@@ -891,6 +947,72 @@ describe("admin routes", () => {
     const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_1" });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archivedOriginIds).toEqual(["borg_1"]);
+  });
+
+  it("manages project code integrations and release metadata", async () => {
+    const list = vi.fn(async () => [codeIntegration()]);
+    const create = vi.fn(async (input) => codeIntegration({ ...input, id: "cint_2" }));
+    const revoke = vi.fn(async () => codeIntegration());
+    const upsertReleaseMetadata = vi.fn(async (input) => releaseMetadata(input));
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        codeIntegrations: { list, create, revoke, upsertReleaseMetadata }
+      }
+    });
+
+    const listResponse = await app.inject({ method: "GET", url: "/admin/projects/prj_1/code-integrations" });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json()).toEqual({ integrations: [codeIntegrationResponse()] });
+    expect(list).toHaveBeenCalledWith("prj_1");
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/code-integrations",
+      payload: { provider: "gitlab", name: "API", owner: "platform/team", repo: "api" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      provider: "gitlab",
+      name: "API",
+      owner: "platform/team",
+      repo: "api"
+    });
+
+    const releaseResponse = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/release-metadata",
+      payload: {
+        environmentId: "env_1",
+        release: "web@1.2.3",
+        integrationId: "cint_1",
+        commitSha: "abcdef123456",
+        commitUrl: "https://github.com/acme/web/commit/abcdef123456",
+        pullRequestNumber: 42,
+        pullRequestUrl: "https://github.com/acme/web/pull/42",
+        deployedBy: "github-actions"
+      }
+    });
+    expect(releaseResponse.statusCode).toBe(201);
+    expect(releaseResponse.json()).toEqual({ metadata: releaseMetadataResponse() });
+    expect(upsertReleaseMetadata).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      release: "web@1.2.3",
+      integrationId: "cint_1",
+      commitSha: "abcdef123456",
+      commitUrl: "https://github.com/acme/web/commit/abcdef123456",
+      pullRequestNumber: 42,
+      pullRequestUrl: "https://github.com/acme/web/pull/42",
+      deployedBy: "github-actions"
+    });
+
+    const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/projects/prj_1/code-integrations/cint_1" });
+    expect(deleteResponse.statusCode).toBe(204);
+    expect(revoke).toHaveBeenCalledWith({ projectId: "prj_1", integrationId: "cint_1" });
   });
 
   it("manages analytics segments for admins", async () => {

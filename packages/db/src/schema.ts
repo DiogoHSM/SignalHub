@@ -37,6 +37,51 @@ export interface ProjectBrowserOriginsTable {
   archived_at: NullableTimestamp;
 }
 
+export type CodeIntegrationProvider = "github" | "gitlab";
+
+export interface ProjectCodeIntegrationsTable {
+  id: string;
+  project_id: string;
+  provider: CodeIntegrationProvider;
+  name: string;
+  owner: string;
+  repo: string;
+  web_base_url: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  revoked_at: NullableTimestamp;
+}
+
+export interface IncidentExternalLinksTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  error_group_id: string;
+  integration_id: string | null;
+  provider: CodeIntegrationProvider;
+  external_key: string;
+  title: string;
+  url: string;
+  state: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface ReleaseMetadataTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  release: string;
+  integration_id: string | null;
+  commit_sha: string | null;
+  commit_url: string | null;
+  pull_request_number: number | null;
+  pull_request_url: string | null;
+  deployed_by: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
 export type AnalyticsSegmentActorType = "user" | "tenant";
 
 export interface AnalyticsSegmentsTable {
@@ -797,6 +842,9 @@ export interface Database {
   users: UsersTable;
   projects: ProjectsTable;
   project_browser_origins: ProjectBrowserOriginsTable;
+  project_code_integrations: ProjectCodeIntegrationsTable;
+  incident_external_links: IncidentExternalLinksTable;
+  release_metadata: ReleaseMetadataTable;
   analytics_segments: AnalyticsSegmentsTable;
   analytics_dashboards: AnalyticsDashboardsTable;
   experiments: ExperimentsTable;

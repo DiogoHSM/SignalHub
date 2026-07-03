@@ -6,6 +6,7 @@ import type { AuthDependencies } from "./auth.js";
 import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
 import type { AddTriageNoteResult, AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
 import type { AnalyticsDashboardRecord, AnalyticsDashboardWidget } from "@sigmon/db/repositories/analytics-dashboards.js";
+import type { CodeIntegrationProvider, IncidentExternalLinkRecord, IssueDraft } from "@sigmon/db/repositories/code-integrations.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -240,6 +241,25 @@ export type QueryDependencies = {
     id: string,
     filters: ErrorGroupScope & { errorId?: string }
   ) => Promise<unknown | null>;
+  listIncidentExternalIssues?: (input: { projectId: string; environmentId: string; errorGroupId: string }) => Promise<IncidentExternalLinkRecord[]>;
+  linkIncidentExternalIssue?: (input: {
+    projectId: string;
+    environmentId: string;
+    errorGroupId: string;
+    integrationId?: string | null;
+    provider: CodeIntegrationProvider;
+    externalKey: string;
+    title: string;
+    url: string;
+    state?: string;
+  }) => Promise<IncidentExternalLinkRecord>;
+  buildIncidentIssueDraft?: (input: {
+    projectId: string;
+    environmentId: string;
+    errorGroupId: string;
+    integrationId: string;
+    incidentUrl?: string;
+  }) => Promise<IssueDraft | null>;
   updateErrorGroupTriage?: (
     id: string,
     input: ErrorGroupScope & { status?: ErrorGroupStatus; priority?: ErrorGroupPriority | null }
@@ -313,6 +333,20 @@ const triageNoteBodySchema = z.object({
 
 const silenceBodySchema = z.object({
   minutes: z.number().int().nonnegative().nullable()
+});
+
+const externalIssueLinkBodySchema = z.object({
+  integrationId: z.string().trim().min(1).nullable().optional(),
+  provider: z.enum(["github", "gitlab"]),
+  externalKey: z.string().trim().min(1).max(128),
+  title: z.string().trim().min(1).max(512),
+  url: z.string().trim().url().max(2048),
+  state: z.string().trim().min(1).max(64).optional()
+});
+
+const externalIssueDraftBodySchema = z.object({
+  integrationId: z.string().trim().min(1),
+  incidentUrl: z.string().trim().url().max(2048).optional()
 });
 
 type RawQuery = Record<string, unknown>;
@@ -2024,7 +2058,69 @@ async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: Fas
 
   try {
     const incident = await options.query.getErrorGroupIncident(params.data.id, scope);
-    return incident ? reply.send({ data: incident }) : reply.status(404).send({ error: "incident_not_found" });
+    if (!incident) return reply.status(404).send({ error: "incident_not_found" });
+    const externalIssues = options.query.listIncidentExternalIssues
+      ? await options.query.listIncidentExternalIssues({
+          projectId: scope.projectId,
+          environmentId: scope.environmentId,
+          errorGroupId: params.data.id
+        })
+      : [];
+    return reply.send({ data: { ...(incident as Record<string, unknown>), externalIssues } });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleIncidentExternalIssueLinkRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) return reply;
+  if (!options.query?.linkIncidentExternalIssue) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupIncidentScope(request.query);
+  const body = externalIssueLinkBodySchema.safeParse(request.body);
+  if (!params.success || !scope || !body.success) {
+    return reply.status(400).send({ error: "invalid_external_issue_request" });
+  }
+
+  try {
+    const link = await options.query.linkIncidentExternalIssue({
+      projectId: scope.projectId,
+      environmentId: scope.environmentId,
+      errorGroupId: params.data.id,
+      ...body.data
+    });
+    return reply.status(201).send({ link });
+  } catch {
+    return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+async function handleIncidentExternalIssueDraftRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) return reply;
+  if (!options.query?.buildIncidentIssueDraft) {
+    return reply.status(501).send({ error: "query_method_unavailable" });
+  }
+
+  const params = errorGroupParamsSchema.safeParse(request.params);
+  const scope = parseErrorGroupIncidentScope(request.query);
+  const body = externalIssueDraftBodySchema.safeParse(request.body);
+  if (!params.success || !scope || !body.success) {
+    return reply.status(400).send({ error: "invalid_external_issue_request" });
+  }
+
+  try {
+    const draft = await options.query.buildIncidentIssueDraft({
+      projectId: scope.projectId,
+      environmentId: scope.environmentId,
+      errorGroupId: params.data.id,
+      ...body.data
+    });
+    return draft ? reply.status(201).send({ draft }) : reply.status(404).send({ error: "code_integration_not_found" });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
   }
@@ -2413,6 +2509,12 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   );
   app.post("/query/incidents/error-groups/:id/notes", (request, reply) =>
     handleTriageNoteRoute(request, reply, options)
+  );
+  app.post("/query/incidents/error-groups/:id/external-issues", (request, reply) =>
+    handleIncidentExternalIssueLinkRoute(request, reply, options)
+  );
+  app.post("/query/incidents/error-groups/:id/external-issues/draft", (request, reply) =>
+    handleIncidentExternalIssueDraftRoute(request, reply, options)
   );
   app.post("/query/incidents/error-groups/:id/silence", (request, reply) =>
     handleSilenceIncidentRoute(request, reply, options)

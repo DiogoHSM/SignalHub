@@ -186,6 +186,15 @@ import {
 } from "@sigmon/db/repositories/error-groups.js";
 import { getErrorGroupIncident } from "@sigmon/db/repositories/incidents.js";
 import {
+  buildIncidentIssueDraft,
+  createCodeIntegration,
+  linkIncidentExternalIssue,
+  listCodeIntegrations,
+  listIncidentExternalIssues,
+  revokeCodeIntegration,
+  upsertReleaseMetadata
+} from "@sigmon/db/repositories/code-integrations.js";
+import {
   assignIncident,
   addTriageNote,
   silenceIncident,
@@ -645,6 +654,12 @@ const app = await buildApp({
       create: (input) => createProjectBrowserOrigin(db, input),
       archive: (id) => archiveProjectBrowserOrigin(db, id)
     },
+    codeIntegrations: {
+      list: (projectId) => listCodeIntegrations(db, projectId),
+      create: (input) => createCodeIntegration(db, input),
+      revoke: (input) => revokeCodeIntegration(db, input),
+      upsertReleaseMetadata: (input) => upsertReleaseMetadata(db, input)
+    },
     analyticsSegments: {
       list: (filters) => listAnalyticsSegments(db, filters),
       create: (input) => createAnalyticsSegment(db, input),
@@ -747,6 +762,9 @@ const app = await buildApp({
     listErrorGroups: (filters) => listErrorGroupsPage(db, filters),
     getErrorGroup: (id, filters) => getErrorGroup(db, { id, ...filters }),
     getErrorGroupIncident: (id, filters) => getErrorGroupIncident(db, { groupId: id, ...filters }),
+    listIncidentExternalIssues: (input) => listIncidentExternalIssues(db, input),
+    linkIncidentExternalIssue: (input) => linkIncidentExternalIssue(db, input),
+    buildIncidentIssueDraft: (input) => buildIncidentIssueDraft(db, input),
     updateErrorGroupTriage: (id, input) => updateErrorGroupTriage(db, { id, ...input }),
     updateErrorGroupStatus: (id, input) => updateErrorGroupStatus(db, { id, ...input }),
     listLlmCalls: (filters) => listLlmCalls(db, filters),

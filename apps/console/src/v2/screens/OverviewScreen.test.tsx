@@ -47,6 +47,7 @@ const ALL_CLEAR_VM: OverviewVM = {
       traces: 80,
       failedTraces: 2,
       llmCalls: 12,
+      code: null,
       firstSeenAt: "2026-06-21T23:00:00Z",
       lastSeenAt: "2026-06-22T00:05:00Z",
     },
