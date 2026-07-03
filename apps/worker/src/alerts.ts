@@ -49,7 +49,8 @@ export type AlertEvaluationRuntime = {
     rule: AlertRuleRecord,
     windowStart: Date,
     windowEnd: Date
-  ) => Promise<{ observedValue: string }>;
+  ) => Promise<{ observedValue: string; errorGroupId?: string | null }>;
+  isErrorGroupSilenced?: (input: { errorGroupId: string; now: Date }) => Promise<boolean>;
   recordAlertEvent: (input: {
     rule: AlertRuleRecord;
     triggeredAt: Date;
@@ -134,6 +135,14 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
 
         const observed = await runtime.evaluateRule(rule, windowStart, windowEnd);
         if (Number(observed.observedValue) < Number(rule.threshold)) {
+          await runtime.updateRuleEvaluation({ ruleId: rule.id, evaluatedAt: now });
+          continue;
+        }
+        if (
+          observed.errorGroupId &&
+          runtime.isErrorGroupSilenced &&
+          (await runtime.isErrorGroupSilenced({ errorGroupId: observed.errorGroupId, now }))
+        ) {
           await runtime.updateRuleEvaluation({ ruleId: rule.id, evaluatedAt: now });
           continue;
         }

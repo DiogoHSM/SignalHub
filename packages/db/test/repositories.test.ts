@@ -106,6 +106,7 @@ import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
+  isErrorGroupSilenced,
   listAlertEscalationsDue,
   listActiveAlertRules,
   listAlertEvents,
@@ -5604,6 +5605,7 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(criticalResult.observedValue).toBe("1");
+      expect(criticalResult.errorGroupId).toEqual(expect.any(String));
 
       const errorCountResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -5613,6 +5615,7 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(errorCountResult.observedValue).toBe("2");
+      expect(errorCountResult.errorGroupId).toEqual(expect.any(String));
 
       const latencyResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -5640,6 +5643,7 @@ describe("repositories", () => {
         windowEnd: new Date("2026-05-06T12:00:00.000Z")
       });
       expect(errorRateResult.observedValue).toBe("200");
+      expect(errorRateResult.errorGroupId).toEqual(expect.any(String));
 
       const deadLetterResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -11507,11 +11511,17 @@ describe("repositories", () => {
       const silenced = await silenceIncident(db, { errorGroupId: group.id, until, projectId: project.id, environmentId: environment.id });
       expect(silenced).not.toBeNull();
       expect(silenced!.silencedUntil).toEqual(until);
+      await expect(
+        isErrorGroupSilenced(db, { errorGroupId: group.id, now: new Date("2026-06-08T09:59:59.000Z") })
+      ).resolves.toBe(true);
 
       // Clear silence
       const cleared = await silenceIncident(db, { errorGroupId: group.id, until: null, projectId: project.id, environmentId: environment.id });
       expect(cleared).not.toBeNull();
       expect(cleared!.silencedUntil).toBeNull();
+      await expect(
+        isErrorGroupSilenced(db, { errorGroupId: group.id, now: new Date("2026-06-08T09:59:59.000Z") })
+      ).resolves.toBe(false);
     });
   });
 

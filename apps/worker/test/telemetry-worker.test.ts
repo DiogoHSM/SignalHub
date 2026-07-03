@@ -1816,6 +1816,60 @@ describe("runAlertEvaluationOnce", () => {
     ]);
   });
 
+  it("suppresses attributable alert events when the triggering error group is silenced", async () => {
+    const now = new Date("2026-05-06T12:00:00.000Z");
+    const eventInputs: unknown[] = [];
+    const updates: unknown[] = [];
+
+    const result = await runAlertEvaluationOnce({
+      now: () => now,
+      withLock: async (run) => ({ locked: true, result: await run() }),
+      listActiveRules: async () => [
+        {
+          id: "rule_silenced",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          notificationChannelId: null,
+          escalationChannelId: null,
+          name: "Errors",
+          type: "error_count",
+          severity: "warning",
+          windowMinutes: 10,
+          threshold: "1",
+          cooldownMinutes: 30,
+          escalationMinutes: null,
+          routePattern: null,
+          minimumSampleSize: 1,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null
+        }
+      ],
+      getNotificationChannel: async () => null,
+      evaluateRule: async () => ({ observedValue: "4", errorGroupId: "egrp_silenced" }),
+      isErrorGroupSilenced: async (input) => {
+        expect(input).toEqual({ errorGroupId: "egrp_silenced", now });
+        return true;
+      },
+      recordAlertEvent: async (input) => {
+        eventInputs.push(input);
+        return { id: "evt_suppressed" };
+      },
+      updateRuleEvaluation: async (input) => {
+        updates.push(input);
+      },
+      deliver: async () => ({ status: "success", responseStatus: 204, errorMessage: null }),
+      recordDelivery: async () => {}
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, evaluated: 1, triggered: 0 });
+    expect(eventInputs).toEqual([]);
+    expect(updates).toEqual([{ ruleId: "rule_silenced", evaluatedAt: now }]);
+  });
+
   it("delivers due escalations once for unacknowledged alert events", async () => {
     const now = new Date("2026-05-06T12:10:00.000Z");
     const deliveries: unknown[] = [];

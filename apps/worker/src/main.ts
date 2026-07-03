@@ -34,6 +34,7 @@ import {
 import {
   evaluateAlertRule,
   getNotificationChannel,
+  isErrorGroupSilenced,
   listAlertEscalationsDue,
   listActiveAlertRules,
   markAlertEventEscalated,
@@ -233,6 +234,7 @@ const stopAlerts = runsScheduler && config.alerts.enabled
             }),
           recordAlertEvent: (input) => recordAlertEvent(db, input),
           updateRuleEvaluation: (input) => updateAlertRuleEvaluation(db, input),
+          isErrorGroupSilenced: (input) => isErrorGroupSilenced(db, input),
           listEscalationsDue: (input) => listAlertEscalationsDue(db, input),
           markEscalated: (id, escalatedAt) => markAlertEventEscalated(db, id, escalatedAt),
           deliver: (channel, payload) =>

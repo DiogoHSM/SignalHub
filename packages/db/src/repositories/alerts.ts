@@ -657,34 +657,40 @@ export async function evaluateAlertRule(
     routePattern?: string | null;
     minimumSampleSize?: number;
   }
-): Promise<{ observedValue: string }> {
+): Promise<{ observedValue: string; errorGroupId?: string | null }> {
   const minimumSampleSize = input.minimumSampleSize ?? 1;
 
   if (input.type === "critical_errors") {
-    const row = await db
-      .selectFrom("errors")
-      .select(({ fn }) => fn.countAll<string>().as("value"))
-      .where("project_id", "=", input.projectId)
-      .where("environment_id", "=", input.environmentId)
-      .where("timestamp", ">=", input.windowStart)
-      .where("timestamp", "<", input.windowEnd)
-      .where("severity", "in", ["critical", "fatal"])
-      .executeTakeFirstOrThrow();
+    const [row, errorGroupId] = await Promise.all([
+      db
+        .selectFrom("errors")
+        .select(({ fn }) => fn.countAll<string>().as("value"))
+        .where("project_id", "=", input.projectId)
+        .where("environment_id", "=", input.environmentId)
+        .where("timestamp", ">=", input.windowStart)
+        .where("timestamp", "<", input.windowEnd)
+        .where("severity", "in", ["critical", "fatal"])
+        .executeTakeFirstOrThrow(),
+      getTopErrorGroupId(db, input, { criticalOnly: true })
+    ]);
 
-    return { observedValue: normalizeNumeric(row.value ?? "0") };
+    return { observedValue: normalizeNumeric(row.value ?? "0"), errorGroupId };
   }
 
   if (input.type === "error_count") {
-    const row = await db
-      .selectFrom("errors")
-      .select(({ fn }) => fn.countAll<string>().as("value"))
-      .where("project_id", "=", input.projectId)
-      .where("environment_id", "=", input.environmentId)
-      .where("timestamp", ">=", input.windowStart)
-      .where("timestamp", "<", input.windowEnd)
-      .executeTakeFirstOrThrow();
+    const [row, errorGroupId] = await Promise.all([
+      db
+        .selectFrom("errors")
+        .select(({ fn }) => fn.countAll<string>().as("value"))
+        .where("project_id", "=", input.projectId)
+        .where("environment_id", "=", input.environmentId)
+        .where("timestamp", ">=", input.windowStart)
+        .where("timestamp", "<", input.windowEnd)
+        .executeTakeFirstOrThrow(),
+      getTopErrorGroupId(db, input)
+    ]);
 
-    return { observedValue: normalizeNumeric(row.value ?? "0") };
+    return { observedValue: normalizeNumeric(row.value ?? "0"), errorGroupId };
   }
 
   if (input.type === "trace_p95_latency") {
@@ -710,7 +716,8 @@ export async function evaluateAlertRule(
   }
 
   if (input.type === "error_rate") {
-    const result = await sql<{ value: string }>`
+    const [result, errorGroupId] = await Promise.all([
+      sql<{ value: string }>`
       with scoped_traces as (
         select trace_id
         from traces
@@ -745,9 +752,11 @@ export async function evaluateAlertRule(
         else trim_scale(((numerator.value / denominator.value) * 100)::numeric(18, 6))::text
       end as value
       from numerator, denominator
-    `.execute(db);
+    `.execute(db),
+      getTopErrorGroupId(db, input)
+    ]);
 
-    return { observedValue: result.rows[0]?.value ?? "0" };
+    return { observedValue: result.rows[0]?.value ?? "0", errorGroupId };
   }
 
   if (input.type === "llm_cost") {
@@ -775,6 +784,63 @@ export async function evaluateAlertRule(
   }
 
   throw new Error(`unsupported_alert_rule_type:${input.type}`);
+}
+
+async function getTopErrorGroupId(
+  db: AlertDb,
+  input: {
+    projectId: string;
+    environmentId: string;
+    windowStart: Date;
+    windowEnd: Date;
+    routePattern?: string | null;
+  },
+  options: { criticalOnly?: boolean } = {}
+): Promise<string | null> {
+  const result = await sql<{ error_group_id: string | null }>`
+    with scoped_errors as (
+      select errors.error_group_id, errors.timestamp
+      from errors
+      where errors.project_id = ${input.projectId}
+        and errors.environment_id = ${input.environmentId}
+        and errors.timestamp >= ${input.windowStart}
+        and errors.timestamp < ${input.windowEnd}
+        and errors.error_group_id is not null
+        and (${options.criticalOnly === true}::boolean = false or errors.severity in ('critical', 'fatal'))
+        and (
+          ${input.routePattern ?? null}::text is null
+          or exists (
+            select 1
+            from traces
+            where traces.project_id = errors.project_id
+              and traces.environment_id = errors.environment_id
+              and traces.trace_id = errors.trace_id
+              and traces.name = ${input.routePattern ?? null}
+          )
+        )
+    )
+    select error_group_id
+    from scoped_errors
+    group by error_group_id
+    order by count(*) desc, max(timestamp) desc, error_group_id asc
+    limit 1
+  `.execute(db);
+
+  return result.rows[0]?.error_group_id ?? null;
+}
+
+export async function isErrorGroupSilenced(
+  db: AlertDb,
+  input: { errorGroupId: string; now: Date }
+): Promise<boolean> {
+  const row = await db
+    .selectFrom("error_groups")
+    .select("id")
+    .where("id", "=", input.errorGroupId)
+    .where("silenced_until", ">", input.now)
+    .executeTakeFirst();
+
+  return row !== undefined;
 }
 
 export async function recordAlertEvent(
