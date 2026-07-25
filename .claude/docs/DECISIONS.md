@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-25: Event funnel keeps the auto actor-key fallback, computed entirely in SQL
+
+Decision: `getEventFunnel` was rewritten as a single SQL aggregation (materialized CTE over matched step events plus one `LEFT JOIN LATERAL` per step, backed by a new `events(project_id, environment_id, name, timestamp DESC)` index) instead of pulling event rows into Node. The actor key stays the existing `coalesce(user_id, tenant_id, session_id, trace_id)` fallback ("auto" mode) rather than introducing a selectable `actor` param (`user|tenant|session|trace|auto`) in this pass.
+
+Rationale: the actor-key change is orthogonal to the OOM/performance problem this rewrite solves, and changing it now would silently reprocess the semantics of every funnel already relied on by operators. A dedicated `actor` override is left for a future issue (also relevant to PER-440/PER-442, which reuse the same actor-key helper) so it can be designed and tested on its own.
+
 ## 2026-07-02: Keep messaging campaigns native but measurement-first
 
 Decision: SignalMonitor adds native message campaign definitions, campaign event measurement, and opt-out visibility, but does not yet send messages automatically from the scheduler/worker.
