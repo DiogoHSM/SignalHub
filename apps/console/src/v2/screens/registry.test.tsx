@@ -9,6 +9,7 @@ import * as useErrorsModule from "./useErrors";
 import * as useIncidentsModule from "./useIncidents";
 import * as useLlmModule from "./useLlm";
 import * as useTracesModule from "./useTraces";
+import * as useTenantsModule from "./useTenants";
 import * as useAlertsModule from "./useAlerts";
 import * as useSystemHealthModule from "./useSystemHealth";
 import * as useSetupModule from "./useSetup";
@@ -45,6 +46,7 @@ function makeClient(): ApiClient {
     listTraces: vi.fn().mockResolvedValue({ traces: [], total: 0 }),
     getTrace: vi.fn(),
     listLlmCalls: vi.fn().mockResolvedValue({ calls: [], total: 0 }),
+    listEntityTenants: vi.fn().mockResolvedValue({ data: { tenants: [] } }),
     listAlertRules: vi.fn().mockResolvedValue({ rules: [] }),
     createAlertRule: vi.fn(),
     updateAlertRule: vi.fn(),
@@ -100,7 +102,7 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
 
 describe("screen registry", () => {
   it("has an entry for every nav section", () => {
-    for (const s of ["overview","investigate","incidents","llm","traces","alerts","monitors","system","settings"] as const)
+    for (const s of ["overview","investigate","incidents","llm","traces","entities","alerts","monitors","system","settings"] as const)
       expect(SCREENS[s]).toBeDefined();
   });
 
@@ -200,6 +202,26 @@ describe("screen registry", () => {
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it("routes entities to a v2 screen", () => {
+    expect(SCREENS.entities.kind).toBe("v2");
+  });
+
+  it("renders the v2 Tenants (entities) screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useTenantsModule, "useTenants").mockReturnValue({
+      data: null,
+      status: "loading",
+      reload: vi.fn(),
+      loadMore: vi.fn(),
+      loadingMore: false,
+    });
+    const ctx = makeCtx();
+    const node = renderSection("entities", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    vi.restoreAllMocks();
   });
 
   it("routes alerts to a v2 screen", () => {

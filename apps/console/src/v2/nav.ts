@@ -6,6 +6,7 @@ export type NavSection =
   | "incidents"
   | "llm"
   | "traces"
+  | "entities"
   | "alerts"
   | "monitors"
   | "system"

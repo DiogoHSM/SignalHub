@@ -278,7 +278,7 @@ export function ErrorsScreen({
     { label: "Errors", icon: "error", count: formatCompact(tabs.errors), active: true },
     { label: "Traces", icon: "waterfall", count: formatCompact(tabs.traces), dest: "traces" },
     { label: "LLM", icon: "sparkles", count: formatCompact(tabs.llm), dest: "llm" },
-    { label: "Tenants", icon: "cube", count: formatCompact(tabs.tenants), dest: "investigate" },
+    { label: "Entities", icon: "cube", count: formatCompact(tabs.tenants), dest: "entities" },
     { label: "Users", icon: "users", count: formatCompact(tabs.users), dest: "investigate" },
   ];
 
