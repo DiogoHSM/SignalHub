@@ -3,6 +3,7 @@ import type { ApiClient, ErrorGroupApiClient } from "../../api/client";
 import type {
   ErrorGroupIncident,
   ErrorGroupPriority,
+  ErrorGroupStatus,
   IncidentExternalLink,
   IncidentReplay,
   IncidentTimelineItem,
@@ -89,6 +90,8 @@ export type UseIncidentResult = {
   status: "loading" | "ready" | "error";
   reload: () => void;
   resolve: () => Promise<void>;
+  setPriority: (priority: "P1" | "P2" | "P3" | "P4" | null) => Promise<void>;
+  setStatus: (status: ErrorGroupStatus) => Promise<void>;
   reassign: (userId: string | null) => Promise<void>;
   silence: (minutes: number | null) => Promise<void>;
   addNote: (body: string) => Promise<void>;
@@ -110,6 +113,18 @@ const PRIORITY_MAP: Record<ErrorGroupPriority, "P1" | "P2" | "P3" | "P4"> = {
 function mapPriority(p: ErrorGroupPriority | null): "P1" | "P2" | "P3" | "P4" | null {
   if (p == null) return null;
   return PRIORITY_MAP[p] ?? null;
+}
+
+const VM_PRIORITY_TO_API: Record<"P1" | "P2" | "P3" | "P4", ErrorGroupPriority> = {
+  P1: "urgent",
+  P2: "high",
+  P3: "normal",
+  P4: "low"
+};
+
+function priorityToApi(p: "P1" | "P2" | "P3" | "P4" | null): ErrorGroupPriority | null {
+  if (p == null) return null;
+  return VM_PRIORITY_TO_API[p];
 }
 
 function mapSeverityColor(severity: string): string {
@@ -440,6 +455,30 @@ export function useIncident({
     onResolved();
   }, [client, groupId, projectId, environmentId, onResolved]);
 
+  const setPriority = useCallback(
+    async (priority: "P1" | "P2" | "P3" | "P4" | null) => {
+      await client.updateErrorGroupTriage(groupId, {
+        projectId,
+        environmentId,
+        priority: priorityToApi(priority)
+      });
+      reload();
+    },
+    [client, groupId, projectId, environmentId, reload]
+  );
+
+  const setStatus = useCallback(
+    async (status: ErrorGroupStatus) => {
+      await client.updateErrorGroupTriage(groupId, {
+        projectId,
+        environmentId,
+        status
+      });
+      reload();
+    },
+    [client, groupId, projectId, environmentId, reload]
+  );
+
   const reassign = useCallback(
     async (userId: string | null) => {
       await client.updateErrorGroupTriage(groupId, {
@@ -468,5 +507,17 @@ export function useIncident({
     [client, groupId, projectId, environmentId, reload]
   );
 
-  return { data, status: hookStatus, reload, resolve, reassign, silence, addNote, users, canReassign };
+  return {
+    data,
+    status: hookStatus,
+    reload,
+    resolve,
+    setPriority,
+    setStatus,
+    reassign,
+    silence,
+    addNote,
+    users,
+    canReassign
+  };
 }

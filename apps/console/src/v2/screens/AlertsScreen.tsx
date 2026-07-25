@@ -602,6 +602,91 @@ function statusTone(status: AlertEventRowVM["status"]): "critical" | "warn" | ""
   return "";
 }
 
+function QueueRow({
+  event,
+  busy,
+  onTriage,
+}: {
+  event: AlertEventRowVM;
+  busy: boolean;
+  onTriage: OnCallQueueProps["onTriage"];
+}) {
+  const [note, setNote] = useState("");
+  const done = event.status === "resolved";
+
+  function triage(input: { status: AlertEventRowVM["status"]; snoozedUntil?: string | null }) {
+    const trimmed = note.trim();
+    setNote("");
+    onTriage(event.id, { ...input, note: trimmed ? trimmed : undefined });
+  }
+
+  return (
+    <div
+      className="sh-row"
+      style={{
+        gridTemplateColumns: "1.4fr 92px 110px 1fr 150px 280px",
+        alignItems: "center",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <strong style={{ fontSize: 12.5 }}>{event.message}</strong>
+        <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
+          {event.sourceLabel} · {event.triggeredAtLabel}
+        </div>
+      </div>
+      <span className={`sh-tag ${statusTone(event.status)}`}>{event.status}</span>
+      <span className={`sh-tag ${event.severity === "critical" ? "critical" : event.severity === "warning" ? "warn" : ""}`}>
+        {event.severity}
+      </span>
+      <span className="sh-faint" style={{ fontSize: 12 }}>
+        {event.deliveryLabel} · {event.escalationLabel}
+      </span>
+      <span className="sh-mono" style={{ fontSize: 12 }}>
+        {event.observedLabel}
+      </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+        <input
+          className="sh-input"
+          aria-label={`Note for ${event.message}`}
+          placeholder="Note (optional)"
+          value={note}
+          disabled={busy || done}
+          onChange={(e) => setNote(e.target.value)}
+          style={{ fontSize: 11.5, padding: "4px 8px", width: "100%" }}
+        />
+        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+          <button
+            className="sh-btn ghost"
+            style={{ padding: "5px 9px", fontSize: 12 }}
+            disabled={busy || done}
+            onClick={() => triage({ status: "acknowledged" })}
+          >
+            Ack
+          </button>
+          <button
+            className="sh-btn ghost"
+            style={{ padding: "5px 9px", fontSize: 12 }}
+            disabled={busy || done}
+            onClick={() =>
+              triage({ status: "snoozed", snoozedUntil: new Date(Date.now() + 30 * 60 * 1000).toISOString() })
+            }
+          >
+            Snooze 30m
+          </button>
+          <button
+            className="sh-btn primary"
+            style={{ padding: "5px 9px", fontSize: 12 }}
+            disabled={busy || done}
+            onClick={() => triage({ status: "resolved" })}
+          >
+            Resolve
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OnCallQueue({ events, busy, onTriage }: OnCallQueueProps) {
   return (
     <div className="sh-card">
@@ -615,64 +700,9 @@ function OnCallQueue({ events, busy, onTriage }: OnCallQueueProps) {
         {events.length === 0 ? (
           <EmptyHint icon="bell" title="No alert events" sub="No alert activity in the selected window." />
         ) : (
-          events.map((event) => {
-            const done = event.status === "resolved";
-            const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-
-            return (
-              <div
-                key={event.id}
-                className="sh-row"
-                style={{
-                  gridTemplateColumns: "1.4fr 92px 110px 1fr 150px 260px",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <strong style={{ fontSize: 12.5 }}>{event.message}</strong>
-                  <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
-                    {event.sourceLabel} · {event.triggeredAtLabel}
-                  </div>
-                </div>
-                <span className={`sh-tag ${statusTone(event.status)}`}>{event.status}</span>
-                <span className={`sh-tag ${event.severity === "critical" ? "critical" : event.severity === "warning" ? "warn" : ""}`}>
-                  {event.severity}
-                </span>
-                <span className="sh-faint" style={{ fontSize: 12 }}>
-                  {event.deliveryLabel} · {event.escalationLabel}
-                </span>
-                <span className="sh-mono" style={{ fontSize: 12 }}>
-                  {event.observedLabel}
-                </span>
-                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                  <button
-                    className="sh-btn ghost"
-                    style={{ padding: "5px 9px", fontSize: 12 }}
-                    disabled={busy || done}
-                    onClick={() => onTriage(event.id, { status: "acknowledged" })}
-                  >
-                    Ack
-                  </button>
-                  <button
-                    className="sh-btn ghost"
-                    style={{ padding: "5px 9px", fontSize: 12 }}
-                    disabled={busy || done}
-                    onClick={() => onTriage(event.id, { status: "snoozed", snoozedUntil })}
-                  >
-                    Snooze 30m
-                  </button>
-                  <button
-                    className="sh-btn primary"
-                    style={{ padding: "5px 9px", fontSize: 12 }}
-                    disabled={busy || done}
-                    onClick={() => onTriage(event.id, { status: "resolved" })}
-                  >
-                    Resolve
-                  </button>
-                </div>
-              </div>
-            );
-          })
+          events.map((event) => (
+            <QueueRow key={event.id} event={event} busy={busy} onTriage={onTriage} />
+          ))
         )}
       </div>
     </div>

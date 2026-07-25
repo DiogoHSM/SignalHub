@@ -362,6 +362,8 @@ describe("ConsoleShellV2", () => {
         status: "ready" as const,
         reload: vi.fn(),
         resolve: vi.fn().mockResolvedValue(undefined),
+        setPriority: vi.fn().mockResolvedValue(undefined),
+        setStatus: vi.fn().mockResolvedValue(undefined),
         reassign: vi.fn().mockResolvedValue(undefined),
         silence: vi.fn().mockResolvedValue(undefined),
         addNote: vi.fn().mockResolvedValue(undefined),

@@ -3,7 +3,7 @@ import type { NavSection } from "../nav";
 import type { ScreenCtx } from "./registry";
 import { useErrors } from "./useErrors";
 import type { ErrorRowVM } from "./useErrors";
-import type { OverviewWindow } from "../../api/types";
+import type { ErrorGroupStatus, OverviewWindow } from "../../api/types";
 import {
   Bars,
   Divider,
@@ -24,6 +24,14 @@ import { formatCompact, formatDurationShort } from "../../components/ui/v2/forma
 type NavigateFn = (section: NavSection) => void;
 
 type SeverityFilter = "all" | "fatal" | "critical" | "error" | "warning";
+
+const STATUS_FILTER_OPTIONS: { value: ErrorGroupStatus | "all"; label: string }[] = [
+  { value: "all", label: "All statuses" },
+  { value: "open", label: "Open" },
+  { value: "investigating", label: "Investigating" },
+  { value: "resolved", label: "Resolved" },
+  { value: "ignored", label: "Ignored" },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -223,6 +231,10 @@ export function ErrorsScreen({
 }) {
   const [window, setWindow] = useState<OverviewWindow>("24h");
   const [severity, setSeverity] = useState<SeverityFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<ErrorGroupStatus | "all">("all");
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [releaseText, setReleaseText] = useState("");
+  const [releaseFilter, setReleaseFilter] = useState<string | undefined>(undefined);
 
   const projectId = ctx.project?.id ?? "";
   const environmentId = ctx.environment?.id ?? "";
@@ -233,7 +245,14 @@ export function ErrorsScreen({
     environmentId,
     window,
     severity: severity === "all" ? undefined : severity,
+    status: statusFilter === "all" ? undefined : statusFilter,
+    release: releaseFilter,
   });
+
+  function applyReleaseFilter() {
+    const trimmed = releaseText.trim();
+    setReleaseFilter(trimmed === "" ? undefined : trimmed);
+  }
 
   // Defensive guard: shell should prevent renders without project/env, but
   // protect against the initial project-load window to avoid spurious 400s.
@@ -307,14 +326,64 @@ export function ErrorsScreen({
             </button>
           ))}
         </div>
-        {/* TODO(PER-349 follow-up): wire status/release filters */}
-        <button className="sh-btn" disabled>
-          <Icon name="filter" size={13} />
-          status: open, investigating
-        </button>
-        <button className="sh-btn" disabled>
-          <Icon name="filter" size={13} />
-          release: any
+        <div style={{ position: "relative" }}>
+          <button className="sh-btn" onClick={() => setStatusMenuOpen((o) => !o)}>
+            <Icon name="filter" size={13} />
+            status: {statusFilter === "all" ? "all" : statusFilter}
+          </button>
+          {statusMenuOpen ? (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                zIndex: 100,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 8,
+                minWidth: 160,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                marginTop: 4,
+              }}
+            >
+              {STATUS_FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "8px 14px",
+                    background: "transparent",
+                    border: "none",
+                    borderBottom: "1px solid var(--border-subtle)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                  onClick={() => {
+                    setStatusFilter(opt.value);
+                    setStatusMenuOpen(false);
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <input
+          className="sh-input"
+          aria-label="Filter by release"
+          placeholder="Filter by release"
+          value={releaseText}
+          onChange={(e) => setReleaseText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") applyReleaseFilter();
+          }}
+          style={{ width: 160 }}
+        />
+        <button className="sh-btn" onClick={applyReleaseFilter}>
+          Apply
         </button>
         <div style={{ flex: 1 }} />
         <Segmented options={["Grouped", "Raw"]} value="Grouped" />
