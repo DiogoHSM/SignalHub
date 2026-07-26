@@ -4,7 +4,7 @@ import type { ApmWindow } from "./telemetry-query.js";
 
 export type SegmentOperator = "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "in" | "exists";
 export type SegmentActorType = "user" | "tenant";
-export type SegmentLeafValue = string | number | string[];
+export type SegmentLeafValue = string | number | boolean | string[];
 
 export interface SegmentPropertyCondition {
   name: string;
@@ -191,6 +191,22 @@ function compileJsonScalarCondition(
   }
 
   if (operator === "eq" && options.containmentEq) {
+    // Trait values are persisted preserving their native JSON type (see
+    // packages/telemetry/src/sanitization.ts). The right-hand side of the
+    // containment check must carry that same native type — a number/boolean
+    // trait forced through a ::text cast produces a JSON string, which the
+    // GIN-indexable `@>` never matches against a stored number/boolean
+    // (PER-450 / PER-441 F1). The value is still always a bind parameter,
+    // never a concatenated literal — only the cast changes by typeof.
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) {
+        throw new SegmentDefinitionError("segment_invalid_definition");
+      }
+      return sql<boolean>`${column} @> jsonb_build_object(${name}::text, ${value}::numeric)`;
+    }
+    if (typeof value === "boolean") {
+      return sql<boolean>`${column} @> jsonb_build_object(${name}::text, ${value}::boolean)`;
+    }
     const text = typeof value === "string" ? value : String(value ?? "");
     return sql<boolean>`${column} @> jsonb_build_object(${name}::text, ${text}::text)`;
   }

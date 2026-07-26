@@ -580,7 +580,12 @@ const analyticsSegmentActorTypeSchema = z.enum(["user", "tenant"]);
 // operator string so an unknown operator surfaces the compiler's named
 // "segment_invalid_operator" error instead of a generic validation failure.
 const segmentOperatorSchema = z.string().trim().min(1).max(32);
-const segmentLeafValueSchema = z.union([z.string().max(1024), z.number(), z.array(z.string().max(1024)).max(64)]);
+const segmentLeafValueSchema = z.union([
+  z.string().max(1024),
+  z.number(),
+  z.boolean(),
+  z.array(z.string().max(1024)).max(64)
+]);
 
 const segmentPropertyConditionSchema = z.object({
   name: z.string().trim().min(1).max(128),
