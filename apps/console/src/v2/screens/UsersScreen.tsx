@@ -374,7 +374,7 @@ export function UsersScreen({ ctx }: { ctx: ScreenCtx }) {
   const projectId = ctx.project?.id ?? "";
   const environmentId = ctx.environment?.id ?? "";
 
-  const { data, status } = useUsers({
+  const { data, status, loadMore, loadingMore } = useUsers({
     client: ctx.client,
     projectId,
     environmentId,
@@ -409,7 +409,7 @@ export function UsersScreen({ ctx }: { ctx: ScreenCtx }) {
     );
   }
 
-  const { rows } = data;
+  const { rows, hasMore } = data;
   const selectedRow = rows.find((r) => r.key === selectedKey) ?? null;
 
   return (
@@ -471,6 +471,14 @@ export function UsersScreen({ ctx }: { ctx: ScreenCtx }) {
               ))
             )}
           </div>
+
+          {rows.length > 0 && hasMore ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
+              <button className="sh-btn" disabled={loadingMore} onClick={loadMore}>
+                {loadingMore ? "Loading more…" : "Load more"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {selectedRow ? (

@@ -30,6 +30,7 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
 }
 
 const USERS_VM: UsersVM = {
+  hasMore: false,
   rows: [
     {
       key: "user_8420", userId: "user_8420", label: "Jane Doe", isAnonymous: false,
@@ -75,8 +76,19 @@ function detailResult(over: Partial<UseUserDetailResult> = {}): UseUserDetailRes
   };
 }
 
-function mockUseUsers(data: UsersVM | null, status: "loading" | "ok" | "error" = "ok") {
-  vi.spyOn(useUsersModule, "useUsers").mockReturnValue({ data, status, reload: vi.fn() });
+function mockUseUsers(
+  data: UsersVM | null,
+  status: "loading" | "ok" | "error" = "ok",
+  over: Partial<useUsersModule.UseUsersResult> = {}
+) {
+  vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
+    data,
+    status,
+    reload: vi.fn(),
+    loadMore: vi.fn(),
+    loadingMore: false,
+    ...over,
+  });
 }
 
 function mockUseUserDetail(result: UseUserDetailResult) {
@@ -168,7 +180,9 @@ describe("UsersScreen", () => {
   });
 
   it("applies search and tenant draft filters on demand", async () => {
-    const spy = vi.spyOn(useUsersModule, "useUsers").mockReturnValue({ data: USERS_VM, status: "ok", reload: vi.fn() });
+    const spy = vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
+      data: USERS_VM, status: "ok", reload: vi.fn(), loadMore: vi.fn(), loadingMore: false,
+    });
     render(<UsersScreen ctx={makeCtx()} />);
     await userEvent.type(screen.getByLabelText("Search"), "acme");
     await userEvent.type(screen.getByLabelText("Tenant"), "tenant_acme");
@@ -177,14 +191,33 @@ describe("UsersScreen", () => {
   });
 
   it("changing sort re-invokes useUsers with the new sort", async () => {
-    const spy = vi.spyOn(useUsersModule, "useUsers").mockReturnValue({ data: USERS_VM, status: "ok", reload: vi.fn() });
+    const spy = vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
+      data: USERS_VM, status: "ok", reload: vi.fn(), loadMore: vi.fn(), loadingMore: false,
+    });
     render(<UsersScreen ctx={makeCtx()} />);
     await userEvent.click(screen.getByRole("button", { name: "LLM cost" }));
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "llmCost" }));
   });
 
+  it("shows Load more when hasMore is true and wires loadMore", async () => {
+    const loadMore = vi.fn();
+    mockUseUsers({ ...USERS_VM, hasMore: true }, "ok", { loadMore });
+    mockUseUserDetail(detailResult({ data: null, status: "ok" }));
+    render(<UsersScreen ctx={makeCtx()} />);
+    const btn = screen.getByText("Load more");
+    await userEvent.click(btn);
+    expect(loadMore).toHaveBeenCalled();
+  });
+
+  it("shows Loading more… and disables the button while loadingMore", () => {
+    mockUseUsers({ ...USERS_VM, hasMore: true }, "ok", { loadingMore: true });
+    mockUseUserDetail(detailResult({ data: null, status: "ok" }));
+    render(<UsersScreen ctx={makeCtx()} />);
+    expect(screen.getByText("Loading more…")).toBeDisabled();
+  });
+
   it("empty list shows a hint", () => {
-    mockUseUsers({ rows: [] });
+    mockUseUsers({ rows: [], hasMore: false });
     render(<UsersScreen ctx={makeCtx()} />);
     expect(screen.getByText("No user activity")).toBeInTheDocument();
   });

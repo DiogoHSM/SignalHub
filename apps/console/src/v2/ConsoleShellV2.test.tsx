@@ -580,6 +580,7 @@ describe("ConsoleShellV2", () => {
     function setupUsersDrillMocks() {
       vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
         data: {
+          hasMore: false,
           rows: [
             {
               key: "user_1", userId: "user_1", label: "User One", isAnonymous: false,
@@ -590,6 +591,8 @@ describe("ConsoleShellV2", () => {
         },
         status: "ok",
         reload: vi.fn(),
+        loadMore: vi.fn(),
+        loadingMore: false,
       });
       vi.spyOn(useUserDetailModule, "useUserDetail").mockReturnValue({
         data: {

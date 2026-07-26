@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { EntityWindow, TenantSummary } from "../../api/types";
+import type { ActivitySort, EntityWindow, TenantListQuery, TenantSummary } from "../../api/types";
 import { formatImpactScore, relativeTime } from "../../components/ui/v2";
 
 // ---------------------------------------------------------------------------
@@ -63,21 +63,9 @@ export function tenantKey(t: TenantSummary): string {
   return t.isUnassigned ? "_unassigned" : (t.tenantId ?? "_unassigned");
 }
 
-function sortValue(t: TenantSummary, sort: TenantSort): number {
-  if (sort === "impact") return t.impactScore;
-  if (sort === "usage") return t.events;
-  if (sort === "errors") return t.errors;
-  if (sort === "llmCost") return Number(t.llmCostUsd) || 0;
-  return t.lastSeenAt ? new Date(t.lastSeenAt).getTime() : 0;
-}
-
-/** Client-side sort — the list endpoint has no `sort` query param (types.ts TenantListQuery). */
-function sortTenants(tenants: TenantSummary[], sort: TenantSort): TenantSummary[] {
-  return [...tenants].sort((left, right) => {
-    const byMetric = sortValue(right, sort) - sortValue(left, sort);
-    if (byMetric !== 0) return byMetric;
-    return left.label.localeCompare(right.label);
-  });
+/** Maps the view-level sort id to the server's wire-level sort value (the only mismatch is llmCost/llm_cost). */
+function toServerSort(sort: TenantSort): ActivitySort {
+  return sort === "llmCost" ? "llm_cost" : sort;
 }
 
 function buildRow(t: TenantSummary): TenantRowVM {
@@ -112,7 +100,7 @@ export function useTenants({
 }: UseTenantsArgs): UseTenantsResult {
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [raw, setRaw] = useState<TenantSummary[] | null>(null);
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
@@ -126,7 +114,7 @@ export function useTenants({
     const gen = ++genRef.current;
     setStatus("loading");
     setLoadingMore(false);
-    setLimit(PAGE_SIZE);
+    setCursor(undefined);
 
     client
       .listEntityTenants({
@@ -134,11 +122,13 @@ export function useTenants({
         environmentId,
         window,
         limit: PAGE_SIZE,
+        sort: toServerSort(sort),
         ...(trimmedSearch ? { search: trimmedSearch } : {}),
       })
       .then((res) => {
         if (gen !== genRef.current) return;
         setRaw(res.data.tenants);
+        setCursor(res.data.cursor);
         setStatus("ok");
       })
       .catch((err) => {
@@ -152,13 +142,12 @@ export function useTenants({
       ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, environmentId, window, trimmedSearch, tick]);
+  }, [projectId, environmentId, window, trimmedSearch, sort, tick]);
 
   const loadMore = useCallback(() => {
-    if (!projectId || !environmentId || loadingMore || raw === null) return;
+    if (!projectId || !environmentId || !cursor || loadingMore || raw === null) return;
 
     const gen = ++genRef.current;
-    const nextLimit = limit + PAGE_SIZE;
     setLoadingMore(true);
 
     client
@@ -166,13 +155,15 @@ export function useTenants({
         projectId,
         environmentId,
         window,
-        limit: nextLimit,
+        limit: PAGE_SIZE,
+        sort: toServerSort(sort),
+        cursor,
         ...(trimmedSearch ? { search: trimmedSearch } : {}),
       })
       .then((res) => {
         if (gen !== genRef.current) return;
-        setLimit(nextLimit);
-        setRaw(res.data.tenants);
+        setRaw((current) => (current ? [...current, ...res.data.tenants] : res.data.tenants));
+        setCursor(res.data.cursor);
         setLoadingMore(false);
       })
       .catch((err) => {
@@ -180,16 +171,11 @@ export function useTenants({
         console.error(err);
         setLoadingMore(false);
       });
-  }, [client, projectId, environmentId, window, trimmedSearch, limit, loadingMore, raw]);
+  }, [client, projectId, environmentId, window, trimmedSearch, sort, cursor, loadingMore, raw]);
 
-  const data: TenantsVM | null = useMemo(() => {
-    if (raw === null) return null;
-    return {
-      window,
-      rows: sortTenants(raw, sort).map(buildRow),
-      hasMore: raw.length > 0 && raw.length >= limit,
-    };
-  }, [raw, sort, window, limit]);
+  const data: TenantsVM | null = raw
+    ? { window, rows: raw.map(buildRow), hasMore: Boolean(cursor) }
+    : null;
 
   return { data, status, reload, loadMore, loadingMore };
 }

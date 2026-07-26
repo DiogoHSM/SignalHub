@@ -2101,12 +2101,16 @@ export type TenantSummary = {
   activeSessions: number;
 };
 
+export type ActivitySort = "impact" | "usage" | "errors" | "llm_cost" | "recent";
+
 export type TenantListQuery = {
   projectId: string;
   environmentId: string;
   window: EntityWindow;
   search?: string;
   limit?: number;
+  sort?: ActivitySort;
+  cursor?: string;
 };
 
 export type TenantDetailQuery = {
@@ -2185,6 +2189,7 @@ export type TenantListResponse = {
   scope: { projectId: string; environmentId: string };
   range: { from: string; to: string };
   tenants: TenantSummary[];
+  cursor?: string;
 };
 
 export type TenantDetailResponse = {
@@ -2232,6 +2237,8 @@ export type UserListQuery = {
   search?: string;
   tenantId?: string;
   limit?: number;
+  sort?: ActivitySort;
+  cursor?: string;
 };
 
 export type UserDetailQuery = {
@@ -2312,6 +2319,7 @@ export type UserListResponse = {
   scope: { projectId: string; environmentId: string };
   range: { from: string; to: string };
   users: UserSummary[];
+  cursor?: string;
 };
 
 export type UserDetailResponse = {
