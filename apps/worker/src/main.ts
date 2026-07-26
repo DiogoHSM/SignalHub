@@ -57,6 +57,13 @@ import {
   updateWarehouseDestinationCursor,
   withWarehouseExportLock
 } from "@sigmon/db/repositories/warehouse-exports.js";
+import {
+  getEventRollupWatermark,
+  setEventRollupWatermark,
+  upsertEventActorDaily,
+  withEventRollupLock,
+  EVENT_ACTOR_DAILY_ROLLUP
+} from "@sigmon/db/repositories/event-rollups.js";
 import { deliverNotification, runAlertEvaluationOnce, startAlertScheduler } from "./alerts.js";
 import { runBackupOnce, startBackupScheduler } from "./backups.js";
 import { startHeartbeat } from "./heartbeat.js";
@@ -73,6 +80,7 @@ import {
   type TelemetryWriter
 } from "./telemetry-worker.js";
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
+import { runEventRollupOnce, startEventRollupScheduler } from "./event-rollups.js";
 import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
 import { runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import {
@@ -139,6 +147,7 @@ const heartbeatMetadata = {
   monitors: runsScheduler && config.monitors.enabled,
   warehouseExports: runsScheduler && config.warehouseExports.enabled,
   retention: runsScheduler && config.retention.enabled,
+  eventRollups: runsScheduler && config.eventRollups.enabled,
   backups: runsScheduler && config.backups.enabled
 };
 const stopWorkerHeartbeat = runsQueue
@@ -209,6 +218,24 @@ const stopRetention = runsScheduler && config.retention.enabled
               softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
             }),
           recordRetentionRun: (input) => recordRetentionRun(db, input)
+        })
+    })
+  : async () => {};
+
+const stopEventRollups = runsScheduler && config.eventRollups.enabled
+  ? startEventRollupScheduler({
+      intervalMinutes: config.eventRollups.intervalMinutes,
+      runOnce: () =>
+        runEventRollupOnce({
+          now: () => new Date(),
+          lookbackDays: config.eventRollups.lookbackDays,
+          maintenanceWindowDays: 2,
+          maxDaysPerTick: 60,
+          withLock: (run) => withEventRollupLock(db, run),
+          readWatermark: () => getEventRollupWatermark(db, { rollup: EVENT_ACTOR_DAILY_ROLLUP }),
+          writeWatermark: (watermarkAt) =>
+            setEventRollupWatermark(db, { rollup: EVENT_ACTOR_DAILY_ROLLUP, watermarkAt }),
+          rollupDay: ({ from, to }) => upsertEventActorDaily(db, { from, to })
         })
     })
   : async () => {};
@@ -400,6 +427,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "stopMonitors", run: () => stopMonitors() },
       { name: "stopAlerts", run: () => stopAlerts() },
       { name: "stopRetention", run: () => stopRetention() },
+      { name: "stopEventRollups", run: () => stopEventRollups() },
       { name: "stopSchedulerHeartbeat", run: () => stopSchedulerHeartbeat() },
       { name: "stopWorkerHeartbeat", run: () => stopWorkerHeartbeat() },
       { name: "worker.close", run: () => worker?.close() ?? Promise.resolve() },

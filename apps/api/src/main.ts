@@ -829,7 +829,8 @@ const app = await buildApp({
     listFeedbackItems: (filters) => listFeedbackItems(db, filters),
     updateFeedbackStatus: (input) => updateFeedbackItemStatus(db, input),
     getEventPaths: (filters) => getEventPaths(db, filters),
-    getEventRetention: (filters) => getEventRetention(db, filters),
+    getEventRetention: (filters) =>
+      getEventRetention(db, { ...filters, retentionEventsDays: config.retention.eventsDays }),
     getApmEndpoints: (filters) => getApmEndpoints(db, filters),
     getServiceMap: (filters) => getServiceMap(db, filters),
     getWebVitals: (filters) => getWebVitals(db, filters),

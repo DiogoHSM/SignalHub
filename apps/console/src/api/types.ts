@@ -923,10 +923,13 @@ export type EventFunnelResponse = {
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 
 export type EventRetentionQuery = ApmQuery & {
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent?: string;
+  /** Absent means "any event" counts as retained (unbounded retention). */
+  returnEvent?: string;
   period?: EventRetentionPeriod;
   intervals?: number;
+  /** Overrides the window-derived range with `now - rangeDays .. now`. 1..730. */
+  rangeDays?: number;
 };
 
 export type EventRetentionInterval = {
@@ -954,10 +957,12 @@ export type EventRetentionResponse = {
     from: string;
     to: string;
   };
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent: string | null;
+  returnEvent: string | null;
   period: EventRetentionPeriod;
   intervals: number;
+  /** "rollup" when the range was served from the event_actor_daily daily rollup. */
+  source: "raw" | "rollup";
   totals: {
     cohorts: number;
     entrants: number;

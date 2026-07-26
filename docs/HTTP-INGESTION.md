@@ -286,7 +286,9 @@ reserved for a future privacy-safe widget flow with masking and explicit consent
 
 ### Retention curves
 
-Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Retention uses the first `entry_event` per actor as the cohort start, then counts actors who later emit `return_event` across daily, weekly, or monthly intervals.
+Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Cohorts are anchored on each actor's `user_profiles.first_seen_at` (their real first appearance), not the minimum `entry_event` timestamp inside the queried window — an actor who existed before the window but re-fires the entry event inside it does not start a new cohort. `entry_event` is an optional cohort eligibility filter; `return_event` is optional and, when absent, any event counts as retained activity across daily, weekly, or monthly intervals.
+
+An optional `range_days` (1..730) overrides the `window`-derived range for long lookback queries. Ranges older than the configured raw event retention window (`RETENTION_EVENTS_DAYS`) are served from the `event_actor_daily` daily rollup instead of raw events, and the response reports `source: "raw" | "rollup"` accordingly.
 
 Example query:
 

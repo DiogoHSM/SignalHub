@@ -3158,7 +3158,7 @@ export const openApiDocument = {
     "/query/events/retention": {
       get: sessionRoute(
         "Query event retention curves",
-        "Analyze retention cohorts for a project environment. Query with project_id, environment_id, window=24h|7d|30d, entry_event, return_event, optional period=daily|weekly|monthly, and optional intervals=2..12."
+        "Analyze retention cohorts for a project environment. Cohorts are anchored on each actor's user_profiles.first_seen_at, not the minimum entry_event timestamp inside the queried window. Query with project_id, environment_id, window=24h|7d|30d, optional entry_event (cohort eligibility filter), optional return_event (absent means any event counts as retained), optional period=daily|weekly|monthly, optional intervals=2..12, and optional range_days=1..730 to override the window-derived range for long lookback queries. Ranges older than the configured raw event retention window are served from the event_actor_daily rollup, reported as source=raw|rollup in the response."
       )
     },
     "/query/events/click-map": {

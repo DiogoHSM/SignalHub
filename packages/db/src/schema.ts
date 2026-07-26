@@ -9,6 +9,7 @@ type DefaultedInteger = ColumnType<number, number | undefined, number>;
 type NumericString = ColumnType<string, string | number | undefined, string | number>;
 type RequiredNumericString = ColumnType<string, string | number, string | number>;
 type NullableNumericString = ColumnType<string | null, string | number | null | undefined, string | number | null>;
+type DateColumn = ColumnType<Date, Date | string | undefined, Date | string>;
 
 export interface UsersTable {
   id: string;
@@ -412,6 +413,27 @@ export interface TenantProfilesTable {
   traits: JsonColumn;
   first_seen_at: Timestamp;
   last_seen_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export type EventActorDailyActorType = "user" | "tenant" | "session" | "trace";
+
+export interface EventActorDailyTable {
+  project_id: string;
+  environment_id: string;
+  day: DateColumn;
+  actor_type: ColumnType<EventActorDailyActorType, EventActorDailyActorType | undefined, EventActorDailyActorType>;
+  actor_id: string;
+  event_name: string;
+  events: RequiredNumericString;
+  updated_at: Timestamp;
+}
+
+export interface EventRollupStateTable {
+  project_id: string;
+  environment_id: string;
+  rollup: string;
+  watermark_at: Timestamp;
   updated_at: Timestamp;
 }
 
@@ -1002,6 +1024,8 @@ export interface Database {
   environments: EnvironmentsTable;
   user_profiles: UserProfilesTable;
   tenant_profiles: TenantProfilesTable;
+  event_actor_daily: EventActorDailyTable;
+  event_rollup_state: EventRollupStateTable;
   api_keys: ApiKeysTable;
   source_map_upload_tokens: SourceMapUploadTokensTable;
   events: EventsTable;

@@ -130,6 +130,27 @@ describe("loadConfig", () => {
     });
   });
 
+  it("loads event rollup defaults and overrides", () => {
+    const defaults = loadConfig(baseEnv());
+    expect(defaults.eventRollups).toEqual({
+      enabled: true,
+      intervalMinutes: 60,
+      lookbackDays: 400
+    });
+
+    const custom = loadConfig({
+      ...validEnv,
+      EVENT_ROLLUPS_ENABLED: "false",
+      EVENT_ROLLUPS_INTERVAL_MINUTES: "30",
+      EVENT_ROLLUPS_LOOKBACK_DAYS: "200"
+    });
+    expect(custom.eventRollups).toEqual({
+      enabled: false,
+      intervalMinutes: 30,
+      lookbackDays: 200
+    });
+  });
+
   it("loads breadcrumb retention config with defaults and overrides", () => {
     const defaults = loadConfig(baseEnv());
     expect(defaults.retention.breadcrumbsDays).toBe(30);

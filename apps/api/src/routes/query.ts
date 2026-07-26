@@ -250,7 +250,15 @@ export type QueryDependencies = {
   getNpsResults?: (filters: NpsResultFilters) => Promise<unknown | null>;
   listFeedbackItems?: (filters: FeedbackListFilters) => Promise<unknown>;
   updateFeedbackStatus?: (input: FeedbackListFilters & { id: string; status: "open" | "reviewed" | "archived" }) => Promise<unknown | null>;
-  getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
+  getEventRetention?: (
+    filters: ApmFilters & {
+      entryEvent?: string;
+      returnEvent?: string;
+      period: EventRetentionPeriod;
+      intervals: number;
+      rangeDays?: number;
+    }
+  ) => Promise<unknown>;
   getEventPaths?: (
     filters: ApmFilters & {
       startEvent?: string;
@@ -1179,21 +1187,28 @@ function parseEventFunnelFilters(
 
 function parseEventRetentionFilters(
   query: unknown
-): (ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) | undefined {
+): (ApmFilters & {
+    entryEvent?: string;
+    returnEvent?: string;
+    period: EventRetentionPeriod;
+    intervals: number;
+    rangeDays?: number;
+  })
+  | undefined {
   const filters = parseApmFilters(query);
   if (!filters) {
     return undefined;
   }
 
   const raw = (query ?? {}) as RawQuery;
+  // entry_event and return_event are both optional: absent entry_event means the cohort has no
+  // eligibility filter, and absent return_event means "any event" counts as retained (unbounded).
   const entryEvent = optionalNonEmpty(raw, "entry_event");
   const returnEvent = optionalNonEmpty(raw, "return_event");
   const rawPeriod = optionalNonEmpty(raw, "period") ?? "weekly";
   const rawIntervals = optionalNonEmpty(raw, "intervals");
+  const rawRangeDays = optionalNonEmpty(raw, "range_days");
 
-  if (!entryEvent || !returnEvent) {
-    return undefined;
-  }
   if (rawPeriod !== "daily" && rawPeriod !== "weekly" && rawPeriod !== "monthly") {
     return undefined;
   }
@@ -1207,12 +1222,25 @@ function parseEventRetentionFilters(
     return undefined;
   }
 
+  let rangeDays: number | undefined;
+  if (rawRangeDays !== undefined) {
+    const parsedRangeDays = Number(rawRangeDays);
+    if (!Number.isFinite(parsedRangeDays)) {
+      return undefined;
+    }
+    rangeDays = Math.trunc(parsedRangeDays);
+    if (rangeDays < 1 || rangeDays > 730) {
+      return undefined;
+    }
+  }
+
   return {
     ...filters,
-    entryEvent,
-    returnEvent,
+    ...(entryEvent ? { entryEvent } : {}),
+    ...(returnEvent ? { returnEvent } : {}),
     period: rawPeriod,
-    intervals
+    intervals,
+    ...(rangeDays !== undefined ? { rangeDays } : {})
   };
 }
 

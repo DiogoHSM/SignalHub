@@ -2333,11 +2333,49 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards event retention query filters with return_event absent and range_days present", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventRetention: async (filters) => {
+          receivedFilters.push(filters);
+          return { cohorts: [] };
+        }
+      }
+    });
+
+    // return_event absent means "any event" counts as retained (unbounded retention).
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/retention?project_id=prj_1&environment_id=env_1&window=30d&entry_event=signup.started&period=daily&intervals=7&limit=20&range_days=200"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { cohorts: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        entryEvent: "signup.started",
+        period: "daily",
+        intervals: 7,
+        rangeDays: 200
+      }
+    ]);
+  });
+
   it.each([
-    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started",
     "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&period=yearly",
     "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=1",
-    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=13"
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=13",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&range_days=0",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&range_days=731",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&range_days=not-a-number"
   ])("rejects invalid event retention query %s", async (url) => {
     const getEventRetention = vi.fn(async () => ({ cohorts: [] }));
 
