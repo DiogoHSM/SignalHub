@@ -9,6 +9,8 @@ import {
   deliverWebhook,
   runAlertEvaluationOnce,
   startAlertScheduler,
+  toDiscordPayload,
+  toSlackPayload,
   validateWebhookTarget
 } from "../src/alerts.js";
 import { runBackupOnce } from "../src/backups.js";
@@ -2994,6 +2996,143 @@ describe("deliverWebhook", () => {
       expect(requestImpl, secretHeaderName).not.toHaveBeenCalled();
     }
   });
+
+  it("sends the raw alert payload unchanged for generic webhook channels (regression)", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
+
+    await deliverWebhook({
+      channel: {
+        id: "chn_1",
+        name: "Webhook",
+        type: "webhook",
+        url: "https://hooks.example.com/sigmon",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      retryDelayMs: 0
+    });
+
+    expect(requestImpl).toHaveBeenCalledWith(expect.objectContaining({ body: JSON.stringify(payload) }));
+  });
+
+  it("formats the request body as a Slack message for slack channels", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
+
+    await deliverWebhook({
+      channel: {
+        id: "chn_slack",
+        name: "Slack",
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      retryDelayMs: 0
+    });
+
+    expect(requestImpl).toHaveBeenCalledWith(
+      expect.objectContaining({ body: JSON.stringify(toSlackPayload(payload)) })
+    );
+  });
+
+  it("formats the request body as a Discord embed for discord channels", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
+
+    await deliverWebhook({
+      channel: {
+        id: "chn_discord",
+        name: "Discord",
+        type: "discord",
+        url: "https://discord.com/api/webhooks/1/token",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null
+      },
+      payload,
+      timeoutMs: 5000,
+      nodeEnv: "production",
+      resolveHostname: resolvePublicHostname,
+      requestImpl,
+      retryDelayMs: 0
+    });
+
+    expect(requestImpl).toHaveBeenCalledWith(
+      expect.objectContaining({ body: JSON.stringify(toDiscordPayload(payload)) })
+    );
+  });
+});
+
+describe("toSlackPayload / toDiscordPayload", () => {
+  const payload = {
+    alertEventId: "evt_1",
+    ruleId: "rule_1",
+    ruleName: "Errors",
+    ruleType: "error_count" as const,
+    severity: "critical" as const,
+    projectId: "prj_1",
+    environmentId: "env_1",
+    triggeredAt: "2026-05-06T12:00:00.000Z",
+    window: { from: "2026-05-06T11:50:00.000Z", to: "2026-05-06T12:00:00.000Z", minutes: 10 },
+    observedValue: "2",
+    threshold: "1",
+    message: "Errors threshold reached: 2 >= 1",
+    sigmon: { source: "sigmon" as const }
+  };
+
+  it("builds a Slack message with text and a mrkdwn section block", () => {
+    const slackPayload = toSlackPayload(payload);
+
+    expect(slackPayload.text).toContain(payload.ruleName);
+    expect(slackPayload.text).toContain(payload.message);
+    expect(slackPayload.text).toContain("CRITICAL");
+    expect(slackPayload.blocks[0]).toMatchObject({
+      type: "section",
+      text: { type: "mrkdwn" }
+    });
+  });
+
+  it("builds a Discord payload with a severity-colored embed", () => {
+    const discordPayload = toDiscordPayload(payload);
+
+    expect(discordPayload.embeds).toHaveLength(1);
+    expect(discordPayload.embeds[0]).toMatchObject({
+      title: payload.ruleName,
+      description: payload.message,
+      timestamp: payload.triggeredAt
+    });
+    expect(discordPayload.embeds[0].color).toBe(0xe01e5a);
+  });
+
+  it("prefixes escalation messages with 'Escalation:' in both formats", () => {
+    const escalationPayload = { ...payload, message: `Escalation: ${payload.message} (channel chn_1)` };
+
+    expect(toSlackPayload(escalationPayload).text).toContain("Escalation:");
+    expect(toDiscordPayload(escalationPayload).embeds[0].description).toContain("Escalation:");
+  });
 });
 
 describe("deliverEmail", () => {
@@ -3057,9 +3196,84 @@ describe("deliverEmail", () => {
       expect.objectContaining({
         from: "Sigmon <alerts@example.com>",
         to: ["diogo@example.com"],
-        subject: expect.stringContaining("Sigmon")
+        subject: expect.stringContaining("Sigmon"),
+        text: expect.stringContaining("Errors threshold reached"),
+        html: expect.stringContaining("Errors threshold reached")
       })
     );
+  });
+
+  it("sends an HTML body without a console link when publicEndpoint is not configured", async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "msg_1" });
+    await deliverEmail({
+      channel: emailChannel(),
+      smtp: {
+        enabled: true,
+        host: "smtp.example.com",
+        port: 587,
+        username: "user",
+        password: "password",
+        from: "Sigmon <alerts@example.com>",
+        secure: false
+      },
+      payload: alertPayload(),
+      timeoutMs: 2500,
+      transportFactory: () => ({ sendMail }) as never
+    });
+
+    const call = sendMail.mock.calls[0][0];
+    expect(call.html).toContain("<table");
+    expect(call.html).not.toContain("View in Sigmon");
+    expect(call.text).not.toContain("View in Sigmon");
+  });
+
+  it("includes a deep link to the console when publicEndpoint is configured", async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "msg_1" });
+    await deliverEmail({
+      channel: emailChannel(),
+      smtp: {
+        enabled: true,
+        host: "smtp.example.com",
+        port: 587,
+        username: "user",
+        password: "password",
+        from: "Sigmon <alerts@example.com>",
+        secure: false
+      },
+      payload: alertPayload(),
+      timeoutMs: 2500,
+      transportFactory: () => ({ sendMail }) as never,
+      publicEndpoint: "https://sigmon.example.com/"
+    });
+
+    const call = sendMail.mock.calls[0][0];
+    const expectedUrl = "https://sigmon.example.com/console#/alerts/evt_1";
+    expect(call.text).toContain(expectedUrl);
+    expect(call.html).toContain(expectedUrl);
+    expect(call.html).toContain("View in Sigmon");
+  });
+
+  it("escapes HTML-sensitive characters in the message body", async () => {
+    const sendMail = vi.fn().mockResolvedValue({ messageId: "msg_1" });
+    await deliverEmail({
+      channel: emailChannel(),
+      smtp: {
+        enabled: true,
+        host: "smtp.example.com",
+        port: 587,
+        username: "user",
+        password: "password",
+        from: "Sigmon <alerts@example.com>",
+        secure: false
+      },
+      payload: { ...alertPayload(), message: `<script>alert("x")</script>` },
+      timeoutMs: 2500,
+      transportFactory: () => ({ sendMail }) as never
+    });
+
+    const call = sendMail.mock.calls[0][0];
+    expect(call.html).not.toContain("<script>");
+    expect(call.html).toContain("&lt;script&gt;");
   });
 
   it("records failed email delivery when SMTP is not configured", async () => {

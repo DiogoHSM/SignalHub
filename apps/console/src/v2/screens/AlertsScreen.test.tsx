@@ -433,4 +433,42 @@ describe("AlertsScreen — channels panel", () => {
     await userEvent.click(confirmBtn);
     expect(archiveChannel).toHaveBeenCalledWith(expect.any(String));
   });
+
+  it("creates a native Slack channel with the selected type and URL", async () => {
+    const createChannel = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage: vi.fn().mockResolvedValue(true),
+      createChannel,
+      updateChannel: vi.fn().mockResolvedValue(true),
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+
+    await userEvent.click(screen.getAllByRole("button", { name: /channels/i })[0]);
+    await userEvent.click(screen.getByRole("button", { name: "slack" }));
+    expect(screen.getByText("Slack Incoming Webhook URL")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText("Slack #incidents"), "Slack alerts");
+    await userEvent.type(
+      screen.getByPlaceholderText("https://hooks.slack.com/services/..."),
+      "https://hooks.slack.com/services/T0/xyz",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(createChannel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "slack",
+        name: "Slack alerts",
+        url: "https://hooks.slack.com/services/T0/xyz",
+      }),
+    );
+  });
 });

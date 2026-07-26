@@ -500,6 +500,73 @@ describe("admin alert routes", () => {
     ]);
   });
 
+  it("creates native Slack and Discord notification channels", async () => {
+    const receivedInputs: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        createNotificationChannel: async (input) => {
+          receivedInputs.push(input);
+          return notificationChannel(input as Partial<NotificationChannelRecord>);
+        }
+      }
+    });
+
+    const slackResponse = await app.inject({
+      method: "POST",
+      url: "/admin/notification-channels",
+      payload: {
+        name: "Slack #incidents",
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        enabled: true
+      }
+    });
+    expect(slackResponse.statusCode).toBe(201);
+    expect(slackResponse.json().channel).toMatchObject({ type: "slack" });
+
+    const discordResponse = await app.inject({
+      method: "POST",
+      url: "/admin/notification-channels",
+      payload: {
+        name: "Discord #alerts",
+        type: "discord",
+        url: "https://discord.com/api/webhooks/1/token",
+        enabled: true
+      }
+    });
+    expect(discordResponse.statusCode).toBe(201);
+    expect(discordResponse.json().channel).toMatchObject({ type: "discord" });
+
+    expect(receivedInputs).toEqual([
+      { name: "Slack #incidents", type: "slack", url: "https://hooks.slack.com/services/T0/xyz", enabled: true },
+      { name: "Discord #alerts", type: "discord", url: "https://discord.com/api/webhooks/1/token", enabled: true }
+    ]);
+  });
+
+  it("rejects unsafe production webhook URLs for Slack and Discord channels", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      nodeEnv: "production",
+      alerts: {
+        createNotificationChannel: async () => notificationChannel()
+      }
+    });
+
+    for (const type of ["slack", "discord"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/notification-channels",
+        payload: { name: "Ops", type, url: "http://127.0.0.1/hook", enabled: true }
+      });
+
+      expect(response.statusCode, type).toBe(400);
+      expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+    }
+  });
+
   it("returns 503 without leaking repository errors when creating notification channels fails", async () => {
     app = await buildApp({
       readiness,

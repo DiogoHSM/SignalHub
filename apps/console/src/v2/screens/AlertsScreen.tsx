@@ -501,7 +501,34 @@ type ChannelEditorProps = {
   busy: boolean;
 };
 
-type ChannelType = "webhook" | "email";
+type ChannelType = "webhook" | "slack" | "discord" | "email";
+
+const WEBHOOK_LIKE_CHANNEL_TYPES: Array<Exclude<ChannelType, "email">> = ["webhook", "slack", "discord"];
+
+const CHANNEL_URL_HELP: Record<Exclude<ChannelType, "email">, { label: string; placeholder: string; help: string }> = {
+  webhook: {
+    label: "Webhook URL",
+    placeholder: "https://example.com/hooks/sigmon",
+    help: "Generic HTTP endpoint that receives a POST with the alert JSON payload.",
+  },
+  slack: {
+    label: "Slack Incoming Webhook URL",
+    placeholder: "https://hooks.slack.com/services/...",
+    help: "Create an Incoming Webhook in your Slack app settings and paste its URL here.",
+  },
+  discord: {
+    label: "Discord Webhook URL",
+    placeholder: "https://discord.com/api/webhooks/...",
+    help: "Create a webhook under the target channel's Integrations settings and paste its URL here.",
+  },
+};
+
+const CHANNEL_NAME_PLACEHOLDER: Record<ChannelType, string> = {
+  webhook: "Ops webhook",
+  slack: "Slack #incidents",
+  discord: "Discord #alerts",
+  email: "Ops email",
+};
 
 function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
   const [channelType, setChannelType] = useState<ChannelType>("webhook");
@@ -512,23 +539,24 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
   const [emailRecipients, setEmailRecipients] = useState("");
 
   function handleSave() {
-    if (channelType === "webhook") {
-      onSave({
-        type: "webhook",
-        name,
-        url,
-        secretHeaderName: secretHeaderName || null,
-        secretHeaderValue: secretHeaderValue || null,
-      });
-    } else {
+    if (channelType === "email") {
       const recipients = emailRecipients.split(",").map((e) => e.trim()).filter(Boolean);
       onSave({ type: "email", name, emailRecipients: recipients });
+      return;
     }
+
+    onSave({
+      type: channelType,
+      name,
+      url,
+      secretHeaderName: secretHeaderName || null,
+      secretHeaderValue: secretHeaderValue || null,
+    });
   }
 
   const valid =
     name.trim().length > 0 &&
-    (channelType === "webhook" ? url.trim().length > 0 : emailRecipients.trim().length > 0);
+    (channelType === "email" ? emailRecipients.trim().length > 0 : url.trim().length > 0);
 
   return (
     <div className="sh-card">
@@ -541,20 +569,38 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
       <div className="sh-card__body" style={{ display: "grid", gap: 12, padding: 16 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Segmented
-            options={["webhook", "email"]}
+            options={[...WEBHOOK_LIKE_CHANNEL_TYPES, "email"]}
             value={channelType}
             onChange={(v) => setChannelType(v as ChannelType)}
           />
         </div>
         <label style={{ display: "grid", gap: 4 }}>
           <span className="sh-eyebrow">Name</span>
-          <input className="sh-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Slack #incidents" />
+          <input
+            className="sh-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={CHANNEL_NAME_PLACEHOLDER[channelType]}
+          />
         </label>
-        {channelType === "webhook" ? (
+        {channelType === "email" ? (
+          <label style={{ display: "grid", gap: 4 }}>
+            <span className="sh-eyebrow">Recipients (comma-separated)</span>
+            <input className="sh-input sh-mono" value={emailRecipients} onChange={(e) => setEmailRecipients(e.target.value)} placeholder="ops@example.com, sre@example.com" />
+          </label>
+        ) : (
           <>
             <label style={{ display: "grid", gap: 4 }}>
-              <span className="sh-eyebrow">Webhook URL</span>
-              <input className="sh-input sh-mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
+              <span className="sh-eyebrow">{CHANNEL_URL_HELP[channelType].label}</span>
+              <input
+                className="sh-input sh-mono"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder={CHANNEL_URL_HELP[channelType].placeholder}
+              />
+              <span className="sh-faint" style={{ fontSize: 10.5, lineHeight: 1.4 }}>
+                {CHANNEL_URL_HELP[channelType].help}
+              </span>
             </label>
             <label style={{ display: "grid", gap: 4 }}>
               <span className="sh-eyebrow">Secret header name (optional)</span>
@@ -567,11 +613,6 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
               </label>
             )}
           </>
-        ) : (
-          <label style={{ display: "grid", gap: 4 }}>
-            <span className="sh-eyebrow">Recipients (comma-separated)</span>
-            <input className="sh-input sh-mono" value={emailRecipients} onChange={(e) => setEmailRecipients(e.target.value)} placeholder="ops@example.com, sre@example.com" />
-          </label>
         )}
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button className="sh-btn primary" disabled={!valid || busy} onClick={handleSave}>

@@ -595,14 +595,20 @@ const updateAnalyticsSegmentSchema = analyticsSegmentSchema
 const notificationChannelNameSchema = z.string().trim().min(1).max(256);
 const notificationChannelEmailRecipientsSchema = z.array(z.string().trim().email()).min(1).max(10);
 
-const webhookNotificationChannelSchema = z.object({
-  name: notificationChannelNameSchema,
-  type: z.literal("webhook"),
-  url: z.string().url(),
-  secretHeaderName: z.string().trim().min(1).max(128).nullable().optional(),
-  secretHeaderValue: z.string().trim().min(1).max(4096).nullable().optional(),
-  enabled: z.boolean().default(true)
-});
+function webhookLikeNotificationChannelSchema<T extends "webhook" | "slack" | "discord">(type: T) {
+  return z.object({
+    name: notificationChannelNameSchema,
+    type: z.literal(type),
+    url: z.string().url(),
+    secretHeaderName: z.string().trim().min(1).max(128).nullable().optional(),
+    secretHeaderValue: z.string().trim().min(1).max(4096).nullable().optional(),
+    enabled: z.boolean().default(true)
+  });
+}
+
+const webhookNotificationChannelSchema = webhookLikeNotificationChannelSchema("webhook");
+const slackNotificationChannelSchema = webhookLikeNotificationChannelSchema("slack");
+const discordNotificationChannelSchema = webhookLikeNotificationChannelSchema("discord");
 
 const emailNotificationChannelSchema = z.object({
   name: notificationChannelNameSchema,
@@ -612,15 +618,20 @@ const emailNotificationChannelSchema = z.object({
 });
 
 const notificationChannelSchema = z
-  .discriminatedUnion("type", [webhookNotificationChannelSchema, emailNotificationChannelSchema])
-  .refine((input) => input.type !== "webhook" || !input.secretHeaderValue || Boolean(input.secretHeaderName), {
+  .discriminatedUnion("type", [
+    webhookNotificationChannelSchema,
+    slackNotificationChannelSchema,
+    discordNotificationChannelSchema,
+    emailNotificationChannelSchema
+  ])
+  .refine((input) => input.type === "email" || !input.secretHeaderValue || Boolean(input.secretHeaderName), {
     message: "secret_header_name_required"
   });
 
 const updateNotificationChannelSchema = z
   .object({
     name: notificationChannelNameSchema.optional(),
-    type: z.enum(["webhook", "email"]).optional(),
+    type: z.enum(["webhook", "slack", "discord", "email"]).optional(),
     url: z.string().url().nullable().optional(),
     emailRecipients: notificationChannelEmailRecipientsSchema.optional(),
     secretHeaderName: z.string().trim().min(1).max(128).nullable().optional(),

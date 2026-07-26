@@ -97,6 +97,34 @@ const emailChannel: NotificationChannelResponse = {
   archivedAt: null,
 };
 
+const slackChannel: NotificationChannelResponse = {
+  id: "c3",
+  name: "Slack native · #incidents",
+  type: "slack",
+  url: "https://hooks.slack.com/services/T0/native",
+  emailRecipients: [],
+  secretHeaderName: null,
+  hasSecret: false,
+  enabled: true,
+  createdAt: "2026-06-01T00:00:00.000Z",
+  updatedAt: "2026-06-01T00:00:00.000Z",
+  archivedAt: null,
+};
+
+const discordChannel: NotificationChannelResponse = {
+  id: "c4",
+  name: "Discord · #alerts",
+  type: "discord",
+  url: "https://discord.com/api/webhooks/1/token",
+  emailRecipients: [],
+  secretHeaderName: null,
+  hasSecret: false,
+  enabled: true,
+  createdAt: "2026-06-01T00:00:00.000Z",
+  updatedAt: "2026-06-01T00:00:00.000Z",
+  archivedAt: null,
+};
+
 describe("buildAlertsVM", () => {
   it("maps a rule row with severity tag, subLabel, resolved channel, fires7d", () => {
     const vm = buildAlertsVM(
@@ -167,6 +195,27 @@ describe("buildAlertsVM", () => {
       icon: "mail",
       target: "finance@acme.dev, cfo@acme.dev",
       ok: false,
+    });
+  });
+
+  it("maps native slack and discord channel rows with their own icon and URL", () => {
+    const vm = buildAlertsVM(
+      { rules: [], events: [], channels: [slackChannel, discordChannel] },
+      NOW,
+    );
+    expect(vm.channels[0]).toMatchObject({
+      icon: "slack",
+      type: "slack",
+      target: "https://hooks.slack.com/services/T0/native",
+      url: "https://hooks.slack.com/services/T0/native",
+      ok: true,
+    });
+    expect(vm.channels[1]).toMatchObject({
+      icon: "discord",
+      type: "discord",
+      target: "https://discord.com/api/webhooks/1/token",
+      url: "https://discord.com/api/webhooks/1/token",
+      ok: true,
     });
   });
 

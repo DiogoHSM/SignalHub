@@ -3534,6 +3534,49 @@ describe("repositories", () => {
     });
   });
 
+  it("creates and updates native Slack and Discord notification channels", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const slack = await createNotificationChannel(db, {
+        name: "Slack #incidents",
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        enabled: true
+      });
+      expect(slack).toMatchObject({
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        emailRecipients: [],
+        hasSecret: false
+      });
+
+      const discord = await createNotificationChannel(db, {
+        name: "Discord #alerts",
+        type: "discord",
+        url: "https://discord.com/api/webhooks/1/token",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "secret-value",
+        enabled: true
+      });
+      expect(discord).toMatchObject({
+        type: "discord",
+        url: "https://discord.com/api/webhooks/1/token",
+        hasSecret: true
+      });
+
+      await expect(updateNotificationChannel(db, slack.id, { url: null })).rejects.toThrow(
+        "webhook_url_required"
+      );
+
+      const retyped = await updateNotificationChannel(db, slack.id, {
+        type: "discord",
+        url: "https://discord.com/api/webhooks/2/other"
+      });
+      expect(retyped).toMatchObject({ type: "discord", url: "https://discord.com/api/webhooks/2/other" });
+    });
+  });
+
   it("creates channels rules alert events and deliveries", async () => {
     await withDb(async (db) => {
       await migrate(db);

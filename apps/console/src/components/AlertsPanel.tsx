@@ -16,7 +16,7 @@ type AlertsPanelProps = {
 };
 
 type ChannelForm = {
-  type: "webhook" | "email";
+  type: "webhook" | "slack" | "discord" | "email";
   name: string;
   url: string;
   emailRecipients: string;
@@ -340,7 +340,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
             })
           : await client.updateNotificationChannel(editingChannelId, {
               name,
-              type: "webhook",
+              type: channelForm.type,
               url,
               secretHeaderName: secretHeaderName || null,
               ...(secretHeaderValue ? { secretHeaderValue } : {}),
@@ -355,7 +355,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
             })
           : await client.createNotificationChannel({
               name,
-              type: "webhook",
+              type: channelForm.type,
               url,
               secretHeaderName: secretHeaderName || null,
               secretHeaderValue: secretHeaderValue || null,
@@ -390,9 +390,9 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     setChannelForm({
       type: channel.type,
       name: channel.name,
-      url: channel.type === "webhook" ? channel.url : "",
+      url: channel.type === "email" ? "" : channel.url,
       emailRecipients: channel.type === "email" ? channel.emailRecipients.join(", ") : "",
-      secretHeaderName: channel.type === "webhook" ? (channel.secretHeaderName ?? "") : "",
+      secretHeaderName: channel.type === "email" ? "" : (channel.secretHeaderName ?? ""),
       secretHeaderValue: ""
     });
   }
@@ -737,6 +737,8 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                 value={channelForm.type}
               >
                 <option value="webhook">Webhook</option>
+                <option value="slack">Slack</option>
+                <option value="discord">Discord</option>
                 <option value="email">Email</option>
               </select>
             </label>
@@ -761,7 +763,11 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
             ) : (
               <>
                 <label>
-                  Webhook URL
+                  {channelForm.type === "slack"
+                    ? "Slack Incoming Webhook URL"
+                    : channelForm.type === "discord"
+                      ? "Discord Webhook URL"
+                      : "Webhook URL"}
                   <input
                     onChange={(event) => setChannelForm((current) => ({ ...current, url: event.target.value }))}
                     placeholder="https://hooks.example.com"

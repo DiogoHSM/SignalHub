@@ -30,11 +30,13 @@ const ALERT_EVALUATION_LOCK_ID = 927380402915;
 const MAX_EMAIL_RECIPIENTS = 10;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+export type WebhookLikeChannelType = "webhook" | "slack" | "discord";
+
 export type NotificationChannelRecord =
   | {
       id: string;
       name: string;
-      type: "webhook";
+      type: WebhookLikeChannelType;
       url: string;
       emailRecipients: [];
       secretHeaderName: string | null;
@@ -63,7 +65,7 @@ export type NotificationChannelRecord =
 export type CreateNotificationChannelInput =
   | {
       name: string;
-      type: "webhook";
+      type: WebhookLikeChannelType;
       url: string;
       secretHeaderName?: string | null;
       secretHeaderValue?: string | null;
@@ -78,7 +80,7 @@ export type CreateNotificationChannelInput =
 
 export type UpdateNotificationChannelInput = {
   name?: string;
-  type?: "webhook" | "email";
+  type?: WebhookLikeChannelType | "email";
   url?: string | null;
   emailRecipients?: string[];
   secretHeaderName?: string | null;
@@ -410,12 +412,13 @@ export async function updateNotificationChannel(
   }
 
   const targetType = input.type ?? current.type;
+  const targetIsWebhookLike = targetType !== "email";
   const emailRecipients =
     input.emailRecipients !== undefined ? normalizeEmailRecipients(input.emailRecipients) : undefined;
   if (input.type === "email" && emailRecipients === undefined) {
     throw new Error("email_recipients_required");
   }
-  if (input.type === "webhook" && !input.url) {
+  if (input.type !== undefined && input.type !== "email" && !input.url) {
     throw new Error("webhook_url_required");
   }
   if (
@@ -426,10 +429,10 @@ export async function updateNotificationChannel(
   ) {
     throw new Error("invalid_email_notification_channel");
   }
-  if (targetType === "webhook" && input.url === null) {
+  if (targetIsWebhookLike && input.url === null) {
     throw new Error("webhook_url_required");
   }
-  if (targetType === "webhook" && input.emailRecipients !== undefined) {
+  if (targetIsWebhookLike && input.emailRecipients !== undefined) {
     throw new Error("invalid_webhook_notification_channel");
   }
 
@@ -438,15 +441,15 @@ export async function updateNotificationChannel(
     .set({
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.type !== undefined ? { type: input.type } : {}),
-      ...(targetType === "webhook" && input.url !== undefined ? { url: input.url } : {}),
+      ...(targetIsWebhookLike && input.url !== undefined ? { url: input.url } : {}),
       ...(targetType === "email" && emailRecipients !== undefined ? { email_recipients: jsonb(emailRecipients) } : {}),
-      ...(targetType === "webhook" && input.secretHeaderName !== undefined
+      ...(targetIsWebhookLike && input.secretHeaderName !== undefined
         ? { secret_header_name: input.secretHeaderName }
         : {}),
-      ...(targetType === "webhook" && input.secretHeaderValue !== undefined
+      ...(targetIsWebhookLike && input.secretHeaderValue !== undefined
         ? { secret_header_value: input.secretHeaderValue }
         : {}),
-      ...(targetType === "webhook" ? { email_recipients: jsonb([]) } : {}),
+      ...(targetIsWebhookLike ? { email_recipients: jsonb([]) } : {}),
       ...(targetType === "email"
         ? {
             url: null,
