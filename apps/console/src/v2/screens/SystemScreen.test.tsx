@@ -49,10 +49,19 @@ const vm: SystemVM = {
     rows: [{ label: "Events", retentionLabel: "30d", deleted: 120 }, { label: "Errors", retentionLabel: "90d", deleted: 4 }],
   },
   backups: { subLabel: "every 24h · keep 14d · S3 on", latest: { filename: "backup-2026-06-23.sql.gz", meta: "6h ago · 1.5 MB" }, failure: null, stale: false },
+  dlq: { status: "ok", jobs: [] },
 };
 
 function mockHook(over: Partial<hookModule.UseSystemHealthResult>) {
-  vi.spyOn(hookModule, "useSystemHealth").mockReturnValue({ data: null, status: "loading", reload: vi.fn(), ...over });
+  vi.spyOn(hookModule, "useSystemHealth").mockReturnValue({
+    data: null,
+    status: "loading",
+    reload: vi.fn(),
+    replayDeadLetterJob: vi.fn().mockResolvedValue({ ok: true }),
+    deleteDeadLetterJob: vi.fn().mockResolvedValue({ ok: true }),
+    loadDeadLetterJobDetail: vi.fn().mockResolvedValue(null),
+    ...over,
+  });
 }
 
 describe("SystemScreen", () => {
@@ -134,5 +143,117 @@ describe("SystemScreen", () => {
     mockHook({ status: "ok", data: { ...vm, backups: { ...vm.backups, latest: null, failure: null } } });
     render(<SystemScreen ctx={makeCtx()} />);
     expect(screen.getByText(/No backups yet/i)).toBeTruthy();
+  });
+
+  describe("dead-letter queue section", () => {
+    const dlqJob = { id: "dlj_1", queueName: "telemetry", jobName: "event", errorMessage: "boom failed", ageLabel: "2h ago" };
+
+    it("shows the clean-queue empty state when there are no jobs", () => {
+      mockHook({ status: "ok", data: vm });
+      render(<SystemScreen ctx={makeCtx()} />);
+      expect(screen.getByText("Dead-letter queue")).toBeTruthy();
+      expect(screen.getByText(/Queue is clean/i)).toBeTruthy();
+    });
+
+    it("shows an error hint when the dlq list failed to load", () => {
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "error", jobs: [] } } });
+      render(<SystemScreen ctx={makeCtx()} />);
+      expect(screen.getByText(/Could not load dead-letter jobs/i)).toBeTruthy();
+    });
+
+    it("renders a dead-letter job row with queue, job, reason and age", () => {
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } } });
+      render(<SystemScreen ctx={makeCtx()} />);
+      const section = screen.getByText("Dead-letter queue").closest(".sh-card") as HTMLElement;
+      expect(within(section).getByText("telemetry")).toBeTruthy();
+      expect(within(section).getByText("event")).toBeTruthy();
+      expect(within(section).getByText("boom failed")).toBeTruthy();
+      expect(within(section).getByText("2h ago")).toBeTruthy();
+    });
+
+    it("expands a row and loads payload + action history on demand", async () => {
+      const loadDeadLetterJobDetail = vi.fn().mockResolvedValue({
+        payload: { hello: "world" },
+        actions: [{ id: "act_1", action: "replayed", actorEmail: "ops@example.com", ageLabel: "1h ago" }],
+      });
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } }, loadDeadLetterJobDetail });
+      render(<SystemScreen ctx={makeCtx()} />);
+
+      await userEvent.click(screen.getByText("boom failed"));
+
+      expect(loadDeadLetterJobDetail).toHaveBeenCalledWith("dlj_1");
+      expect(await screen.findByText(/"hello": "world"/)).toBeTruthy();
+      expect(await screen.findByText(/replayed by ops@example.com/)).toBeTruthy();
+    });
+
+    it("does not refetch detail on a second expand of the same row", async () => {
+      const loadDeadLetterJobDetail = vi.fn().mockResolvedValue({ payload: { a: 1 }, actions: [] });
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } }, loadDeadLetterJobDetail });
+      render(<SystemScreen ctx={makeCtx()} />);
+
+      await userEvent.click(screen.getByText("boom failed"));
+      await screen.findByText(/"a": 1/);
+      await userEvent.click(screen.getByText("boom failed")); // collapse
+      await userEvent.click(screen.getByText("boom failed")); // expand again
+
+      expect(loadDeadLetterJobDetail).toHaveBeenCalledTimes(1);
+    });
+
+    it("replays a dead-letter job via ConfirmButton and shows a toast", async () => {
+      const replayDeadLetterJob = vi.fn().mockResolvedValue({ ok: true });
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } }, replayDeadLetterJob });
+      const ctx = makeCtx();
+      render(<SystemScreen ctx={ctx} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /^Replay$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+      expect(replayDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+      expect(ctx.pushToast).toHaveBeenCalledWith("Dead-letter job re-enqueued for replay.");
+    });
+
+    it("deletes a dead-letter job via ConfirmButton and shows a toast", async () => {
+      const deleteDeadLetterJob = vi.fn().mockResolvedValue({ ok: true });
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } }, deleteDeadLetterJob });
+      const ctx = makeCtx();
+      render(<SystemScreen ctx={ctx} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /^Delete$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+      expect(deleteDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+      expect(ctx.pushToast).toHaveBeenCalledWith("Dead-letter job deleted.");
+    });
+
+    it("shows a failure toast when replay is rejected by the hook", async () => {
+      const replayDeadLetterJob = vi.fn().mockResolvedValue({ ok: false, error: "Failed to replay the dead-letter job." });
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } }, replayDeadLetterJob });
+      const ctx = makeCtx();
+      render(<SystemScreen ctx={ctx} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /^Replay$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+      expect(ctx.pushToast).toHaveBeenCalledWith("Failed to replay the dead-letter job.");
+    });
+
+    it("guards against a double-click firing the mutation twice while pending", async () => {
+      let resolveReplay: (v: { ok: true }) => void = () => {};
+      const pending = new Promise<{ ok: true }>((resolve) => {
+        resolveReplay = resolve;
+      });
+      const replayDeadLetterJob = vi.fn().mockReturnValue(pending);
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } }, replayDeadLetterJob });
+      render(<SystemScreen ctx={makeCtx()} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /^Replay$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+      // While the first call is still pending, arm + confirm again.
+      await userEvent.click(screen.getByRole("button", { name: /Replaying/i }));
+      await userEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+
+      expect(replayDeadLetterJob).toHaveBeenCalledTimes(1);
+      resolveReplay({ ok: true });
+    });
   });
 });

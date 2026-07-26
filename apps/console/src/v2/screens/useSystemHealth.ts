@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
 import type { IconName } from "../../components/ui/v2";
 import { formatCompact } from "../../components/ui/v2";
-import type { SystemHealthResponse, SystemHealthSampleResponse, SystemStatus } from "../../api/types";
+import type {
+  DeadLetterJobActionResponse,
+  DeadLetterJobResponse,
+  SystemHealthResponse,
+  SystemHealthSampleResponse,
+  SystemStatus,
+} from "../../api/types";
 
 // ---------------------------------------------------------------------------
 // View-model types
@@ -40,6 +46,31 @@ export type BackupsVM = {
   stale: boolean;
 };
 
+export type DeadLetterJobVM = {
+  id: string;
+  queueName: string;
+  jobName: string;
+  errorMessage: string;
+  ageLabel: string;
+};
+
+export type DeadLetterJobActionVM = {
+  id: string;
+  action: "deleted" | "replayed" | "expired";
+  actorEmail: string;
+  ageLabel: string;
+};
+
+export type DeadLetterDetailVM = {
+  payload: unknown;
+  actions: DeadLetterJobActionVM[];
+};
+
+export type DlqVM = {
+  status: "loading" | "ok" | "error";
+  jobs: DeadLetterJobVM[];
+};
+
 export type SystemVM = {
   header: SystemHeaderVM;
   banner: SystemBannerVM | null;
@@ -47,12 +78,18 @@ export type SystemVM = {
   queues: QueueRowVM[];
   retention: RetentionVM;
   backups: BackupsVM;
+  dlq: DlqVM;
 };
+
+export type MutationResult = { ok: true } | { ok: false; error: string };
 
 export type UseSystemHealthResult = {
   data: SystemVM | null;
   status: "loading" | "ok" | "error";
   reload: () => void;
+  replayDeadLetterJob: (id: string) => Promise<MutationResult>;
+  deleteDeadLetterJob: (id: string) => Promise<MutationResult>;
+  loadDeadLetterJobDetail: (id: string) => Promise<DeadLetterDetailVM | null>;
 };
 
 // ---------------------------------------------------------------------------
@@ -117,6 +154,27 @@ const SERVICE_DETAIL: Record<string, string> = {
   Redis: "Redis ping failed — cache and queue backing unavailable.",
 };
 
+function buildDeadLetterJobVM(job: DeadLetterJobResponse, nowMs: number): DeadLetterJobVM {
+  return {
+    id: job.id,
+    queueName: job.queueName,
+    jobName: job.jobName,
+    errorMessage: job.errorMessage,
+    ageLabel: relativeTimeFrom(job.createdAt, nowMs),
+  };
+}
+
+function buildDeadLetterActionVM(action: DeadLetterJobActionResponse, nowMs: number): DeadLetterJobActionVM {
+  return {
+    id: action.id,
+    action: action.action,
+    actorEmail: action.actorEmail,
+    ageLabel: relativeTimeFrom(action.createdAt, nowMs),
+  };
+}
+
+const EMPTY_DLQ_VM: DlqVM = { status: "loading", jobs: [] };
+
 // ---------------------------------------------------------------------------
 // Pure VM builder
 // ---------------------------------------------------------------------------
@@ -125,6 +183,7 @@ export function buildSystemVM(
   health: SystemHealthResponse,
   history: SystemHealthSampleResponse[],
   nowMs: number,
+  dlq: DlqVM = EMPTY_DLQ_VM,
 ): SystemVM {
   const { api, worker, scheduler, postgres, redis } = health.services;
 
@@ -217,7 +276,7 @@ export function buildSystemVM(
     banner = { tone: "warn", title: `${degraded.name} degraded`, detail: `${degraded.name} is reporting degraded performance.` };
   }
 
-  return { header, banner, services, queues, retention, backups };
+  return { header, banner, services, queues, retention, backups, dlq };
 }
 
 // ---------------------------------------------------------------------------
@@ -228,17 +287,28 @@ type UseSystemHealthArgs = {
   client: {
     getSystemHealth: ApiClient["getSystemHealth"];
     getSystemHealthHistory: ApiClient["getSystemHealthHistory"];
+    listDeadLetterJobs?: ApiClient["listDeadLetterJobs"];
+    getDeadLetterJob?: ApiClient["getDeadLetterJob"];
+    listDeadLetterJobActions?: ApiClient["listDeadLetterJobActions"];
+    replayDeadLetterJob?: ApiClient["replayDeadLetterJob"];
+    deleteDeadLetterJob?: ApiClient["deleteDeadLetterJob"];
   };
 };
 
 export function useSystemHealth({ client }: UseSystemHealthArgs): UseSystemHealthResult {
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
-  const [data, setData] = useState<SystemVM | null>(null);
+  const [health, setHealth] = useState<SystemHealthResponse | null>(null);
+  const [history, setHistory] = useState<SystemHealthSampleResponse[]>([]);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
 
+  const [dlqStatus, setDlqStatus] = useState<"loading" | "ok" | "error">("loading");
+  const [dlqJobs, setDlqJobs] = useState<DeadLetterJobVM[]>([]);
+  const dlqGenRef = useRef(0);
+
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
+  // Health + history — drives the top-level status/data of the screen.
   useEffect(() => {
     const gen = ++genRef.current;
     setStatus("loading");
@@ -246,13 +316,14 @@ export function useSystemHealth({ client }: UseSystemHealthArgs): UseSystemHealt
     Promise.all([client.getSystemHealth(), client.getSystemHealthHistory({ limit: 48 })])
       .then(([healthRes, historyRes]) => {
         if (gen !== genRef.current) return;
-        setData(buildSystemVM(healthRes.data, historyRes.data, Date.now()));
+        setHealth(healthRes.data);
+        setHistory(historyRes.data);
         setStatus("ok");
       })
       .catch((err) => {
         if (gen !== genRef.current) return;
         console.error(err);
-        setData(null);
+        setHealth(null);
         setStatus("error");
       });
 
@@ -262,5 +333,100 @@ export function useSystemHealth({ client }: UseSystemHealthArgs): UseSystemHealt
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
-  return { data, status, reload };
+  // Dead-letter job list — fetched independently so a failure here never
+  // takes down the rest of the screen (fan-out tolerant).
+  useEffect(() => {
+    const gen = ++dlqGenRef.current;
+
+    if (!client.listDeadLetterJobs) {
+      setDlqStatus("ok");
+      setDlqJobs([]);
+      return;
+    }
+
+    setDlqStatus("loading");
+    client
+      .listDeadLetterJobs({ limit: 50 })
+      .then((res) => {
+        if (gen !== dlqGenRef.current) return;
+        setDlqJobs(res.deadLetterJobs.map((job) => buildDeadLetterJobVM(job, Date.now())));
+        setDlqStatus("ok");
+      })
+      .catch((err) => {
+        if (gen !== dlqGenRef.current) return;
+        console.error(err);
+        setDlqJobs([]);
+        setDlqStatus("error");
+      });
+
+    return () => {
+      ++dlqGenRef.current;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
+
+  const data = useMemo(() => {
+    if (!health) return null;
+    return buildSystemVM(health, history, Date.now(), { status: dlqStatus, jobs: dlqJobs });
+  }, [health, history, dlqStatus, dlqJobs]);
+
+  const replayDeadLetterJob = useCallback(
+    async (id: string): Promise<MutationResult> => {
+      if (!client.replayDeadLetterJob) {
+        return { ok: false, error: "Replay is not available in this deployment." };
+      }
+      try {
+        await client.replayDeadLetterJob(id);
+        reload();
+        return { ok: true };
+      } catch (err) {
+        console.error(err);
+        return { ok: false, error: "Failed to replay the dead-letter job." };
+      }
+    },
+    [client, reload],
+  );
+
+  const deleteDeadLetterJob = useCallback(
+    async (id: string): Promise<MutationResult> => {
+      if (!client.deleteDeadLetterJob) {
+        return { ok: false, error: "Delete is not available in this deployment." };
+      }
+      try {
+        await client.deleteDeadLetterJob(id);
+        reload();
+        return { ok: true };
+      } catch (err) {
+        console.error(err);
+        return { ok: false, error: "Failed to delete the dead-letter job." };
+      }
+    },
+    [client, reload],
+  );
+
+  const loadDeadLetterJobDetail = useCallback(
+    async (id: string): Promise<DeadLetterDetailVM | null> => {
+      if (!client.getDeadLetterJob) return null;
+
+      const [jobResult, actionsResult] = await Promise.allSettled([
+        client.getDeadLetterJob(id),
+        client.listDeadLetterJobActions ? client.listDeadLetterJobActions(id) : Promise.resolve({ actions: [] }),
+      ]);
+
+      if (jobResult.status !== "fulfilled") {
+        console.error(jobResult.reason);
+        return null;
+      }
+
+      const actions =
+        actionsResult.status === "fulfilled"
+          ? actionsResult.value.actions.map((a) => buildDeadLetterActionVM(a, Date.now()))
+          : [];
+
+      return { payload: jobResult.value.deadLetterJob.payload, actions };
+    },
+    [client],
+  );
+
+  return { data, status, reload, replayDeadLetterJob, deleteDeadLetterJob, loadDeadLetterJobDetail };
 }
