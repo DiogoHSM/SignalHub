@@ -676,6 +676,130 @@ describe("useIncident", () => {
     expect(onResolved).toHaveBeenCalledTimes(1);
   });
 
+  it("setPriority(P2) calls updateErrorGroupTriage with priority:high then reload", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    const initialCallCount = client.getErrorGroupIncident.mock.calls.length;
+
+    await act(async () => {
+      await result.current.setPriority("P2");
+    });
+
+    expect(client.updateErrorGroupTriage).toHaveBeenCalledWith(
+      "eg_1",
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        priority: "high"
+      })
+    );
+    expect(client.getErrorGroupIncident.mock.calls.length).toBeGreaterThan(initialCallCount);
+  });
+
+  it.each([
+    ["P1", "urgent"],
+    ["P2", "high"],
+    ["P3", "normal"],
+    ["P4", "low"]
+  ] as const)("setPriority(%s) maps to priority:%s", async (vmPriority, apiPriority) => {
+    const client = makeClient();
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await result.current.setPriority(vmPriority);
+    });
+
+    expect(client.updateErrorGroupTriage).toHaveBeenCalledWith(
+      "eg_1",
+      expect.objectContaining({ priority: apiPriority })
+    );
+  });
+
+  it("setPriority(null) calls updateErrorGroupTriage with priority:null (clears priority) then reload", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    const initialCallCount = client.getErrorGroupIncident.mock.calls.length;
+
+    await act(async () => {
+      await result.current.setPriority(null);
+    });
+
+    expect(client.updateErrorGroupTriage).toHaveBeenCalledWith(
+      "eg_1",
+      expect.objectContaining({
+        projectId: "prj_1",
+        environmentId: "env_1",
+        priority: null
+      })
+    );
+    expect(client.getErrorGroupIncident.mock.calls.length).toBeGreaterThan(initialCallCount);
+  });
+
+  it.each(["open", "investigating", "resolved", "ignored"] as const)(
+    "setStatus(%s) calls updateErrorGroupTriage with that status then reload (no onResolved)",
+    async (status) => {
+      const onResolved = vi.fn();
+      const client = makeClient();
+      const { result } = renderHook(() =>
+        useIncident({
+          client,
+          projectId: "prj_1",
+          environmentId: "env_1",
+          groupId: "eg_1",
+          onResolved
+        })
+      );
+      await waitFor(() => expect(result.current.status).toBe("ready"));
+
+      const initialCallCount = client.getErrorGroupIncident.mock.calls.length;
+
+      await act(async () => {
+        await result.current.setStatus(status);
+      });
+
+      expect(client.updateErrorGroupTriage).toHaveBeenCalledWith(
+        "eg_1",
+        expect.objectContaining({
+          projectId: "prj_1",
+          environmentId: "env_1",
+          status
+        })
+      );
+      expect(client.getErrorGroupIncident.mock.calls.length).toBeGreaterThan(initialCallCount);
+      // setStatus stays on the incident (only the ConfirmButton "resolve" shortcut navigates away)
+      expect(onResolved).not.toHaveBeenCalled();
+    }
+  );
+
   it("reassign(userId) calls updateErrorGroupTriage with assignedToUserId then reload", async () => {
     const client = makeClient();
     const { result } = renderHook(() =>

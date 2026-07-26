@@ -167,6 +167,8 @@ function mockUseIncident(
     status: vm ? "ready" : "loading",
     reload: vi.fn(),
     resolve: vi.fn().mockResolvedValue(undefined),
+    setPriority: vi.fn().mockResolvedValue(undefined),
+    setStatus: vi.fn().mockResolvedValue(undefined),
     reassign: vi.fn().mockResolvedValue(undefined),
     silence: vi.fn().mockResolvedValue(undefined),
     addNote: vi.fn().mockResolvedValue(undefined),
@@ -348,15 +350,49 @@ describe("IncidentScreen", () => {
     it("renders Silence button when not silenced", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      expect(screen.getByRole("button", { name: /silence/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^silence$/i })).toBeInTheDocument();
     });
 
-    it("calls silence(60) when Silence clicked", async () => {
+    it("does not show the duration menu until Silence is clicked", () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.queryByRole("button", { name: /^30m$/i })).not.toBeInTheDocument();
+    });
+
+    it("opens a duration menu with 30m/1h/4h/24h/custom options when Silence clicked", async () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^silence$/i }));
+      expect(screen.getByRole("button", { name: /^30m$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^1h$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^4h$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^24h$/i })).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/custom.*min/i)).toBeInTheDocument();
+    });
+
+    it.each([
+      ["30m", 30],
+      ["1h", 60],
+      ["4h", 240],
+      ["24h", 1440]
+    ] as const)("calls silence(%2i) when %s clicked", async (label, minutes) => {
       const silence = vi.fn().mockResolvedValue(undefined);
       mockUseIncident(MOCK_VM, { silence });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      await userEvent.click(screen.getByRole("button", { name: /^silence/i }));
-      expect(silence).toHaveBeenCalledWith(60);
+      await userEvent.click(screen.getByRole("button", { name: /^silence$/i }));
+      await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${label}$`, "i") }));
+      expect(silence).toHaveBeenCalledWith(minutes);
+    });
+
+    it("calls silence(custom minutes) when a custom duration is entered and applied", async () => {
+      const silence = vi.fn().mockResolvedValue(undefined);
+      mockUseIncident(MOCK_VM, { silence });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^silence$/i }));
+      const customInput = screen.getByPlaceholderText(/custom.*min/i);
+      await userEvent.type(customInput, "90");
+      await userEvent.click(screen.getByRole("button", { name: /^apply$/i }));
+      expect(silence).toHaveBeenCalledWith(90);
     });
 
     it("shows 'Silenced until' text when silencedUntil is in the future", () => {
@@ -446,6 +482,68 @@ describe("IncidentScreen", () => {
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.getAllByText(/412/).length).toBeGreaterThanOrEqual(1);
     });
+
+    it("renders 'No priority' when priority is null", () => {
+      mockUseIncident({ ...MOCK_VM, priority: null });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByText(/no priority/i)).toBeInTheDocument();
+    });
+
+    it("opens a priority menu with P1-P4 and 'No priority' options when the priority control is clicked", async () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+      expect(screen.getByRole("button", { name: /^P1$/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^P2$/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^P3$/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^P4$/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /no priority/i })).toBeInTheDocument();
+    });
+
+    it.each(["P1", "P2", "P3", "P4"] as const)(
+      "calls setPriority(%s) when %s is chosen from the priority menu",
+      async (p) => {
+        const setPriority = vi.fn().mockResolvedValue(undefined);
+        mockUseIncident(MOCK_VM, { setPriority });
+        render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+        await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+        await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${p}$`) }));
+        expect(setPriority).toHaveBeenCalledWith(p);
+      }
+    );
+
+    it("calls setPriority(null) when 'No priority' is chosen from the priority menu", async () => {
+      const setPriority = vi.fn().mockResolvedValue(undefined);
+      mockUseIncident(MOCK_VM, { setPriority });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /no priority/i }));
+      expect(setPriority).toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe("header — editable status", () => {
+    it("opens a status menu with open/investigating/resolved/ignored options when the status control is clicked", async () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^status$/i }));
+      expect(screen.getByRole("button", { name: /^open$/i })).toBeInTheDocument();
+      expect(screen.getAllByText(/investigating/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByRole("button", { name: /^resolved$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^ignored$/i })).toBeInTheDocument();
+    });
+
+    it.each(["open", "investigating", "resolved", "ignored"] as const)(
+      "calls setStatus(%s) when %s is chosen from the status menu",
+      async (s) => {
+        const setStatus = vi.fn().mockResolvedValue(undefined);
+        mockUseIncident(MOCK_VM, { setStatus });
+        render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+        await userEvent.click(screen.getByRole("button", { name: /^status$/i }));
+        await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${s}$`, "i") }));
+        expect(setStatus).toHaveBeenCalledWith(s);
+      }
+    );
   });
 
   describe("occurrences summary (no bars)", () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import type { NavSection } from "../nav";
 import type { ScreenCtx } from "./registry";
 import { useIncident } from "./useIncident";
@@ -33,6 +33,48 @@ const REL_BG: Record<string, string> = {
   ok: "var(--accent-bg-subtle)",
   violet: "var(--sev-violet-bg)",
   neutral: "var(--bg-surface-2)",
+};
+
+const STATUS_OPTIONS: ("open" | "investigating" | "resolved" | "ignored")[] = [
+  "open",
+  "investigating",
+  "resolved",
+  "ignored",
+];
+
+const PRIORITY_OPTIONS: ("P1" | "P2" | "P3" | "P4")[] = ["P1", "P2", "P3", "P4"];
+
+const SILENCE_OPTIONS: { minutes: number; label: string }[] = [
+  { minutes: 30, label: "30m" },
+  { minutes: 60, label: "1h" },
+  { minutes: 240, label: "4h" },
+  { minutes: 1440, label: "24h" },
+];
+
+const MENU_STYLE: CSSProperties = {
+  position: "absolute",
+  top: "100%",
+  left: 0,
+  zIndex: 100,
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border-subtle)",
+  borderRadius: 8,
+  minWidth: 160,
+  boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+  marginTop: 4,
+};
+
+const MENU_ITEM_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  width: "100%",
+  textAlign: "left",
+  padding: "8px 14px",
+  background: "transparent",
+  border: "none",
+  borderBottom: "1px solid var(--border-subtle)",
+  cursor: "pointer",
+  fontSize: 12,
 };
 
 function sourceMapTone(status: string): "ok" | "warn" | "error" {
@@ -135,8 +177,19 @@ export function IncidentScreen({
   const projectId = ctx.project?.id ?? "";
   const environmentId = ctx.environment?.id ?? "";
 
-  const { data: vm, status, reload, resolve, reassign, silence, addNote, users, canReassign } =
-    useIncident({
+  const {
+    data: vm,
+    status,
+    reload,
+    resolve,
+    setPriority,
+    setStatus,
+    reassign,
+    silence,
+    addNote,
+    users,
+    canReassign,
+  } = useIncident({
       client: ctx.client,
       projectId,
       environmentId,
@@ -150,6 +203,10 @@ export function IncidentScreen({
   const [noteBody, setNoteBody] = useState("");
   const [reassignOpen, setReassignOpen] = useState(false);
   const [issueBusy, setIssueBusy] = useState(false);
+  const [priorityOpen, setPriorityOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [silenceOpen, setSilenceOpen] = useState(false);
+  const [customSilenceMinutes, setCustomSilenceMinutes] = useState("");
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (status === "loading" && !vm) {
@@ -286,9 +343,36 @@ export function IncidentScreen({
           >
             ● {vm.severity}
           </span>
-          <StatusPill
-            status={vm.status as "open" | "investigating" | "resolved" | "ignored"}
-          />
+          <div style={{ position: "relative" }}>
+            <button
+              className="sh-btn ghost"
+              aria-label="Status"
+              style={{ padding: "2px 6px", gap: 4 }}
+              onClick={() => setStatusOpen((o) => !o)}
+            >
+              <StatusPill
+                status={vm.status as "open" | "investigating" | "resolved" | "ignored"}
+              />
+              <Icon name="chevd" size={10} />
+            </button>
+            {statusOpen ? (
+              <div className="sh-menu" style={MENU_STYLE}>
+                {STATUS_OPTIONS.map((s) => (
+                  <button
+                    key={s}
+                    className="sh-menu__item"
+                    style={MENU_ITEM_STYLE}
+                    onClick={() => {
+                      void setStatus(s);
+                      setStatusOpen(false);
+                    }}
+                  >
+                    <StatusPill status={s} />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <span className="sh-tag mono">{vm.groupId}</span>
           {vm.release ? (
             <span className="sh-tag mono">release {vm.release}</span>
@@ -467,10 +551,54 @@ export function IncidentScreen({
             </button>
           </>
         ) : (
-          <button className="sh-btn" onClick={() => void silence(60)}>
-            <Icon name="bell" size={14} />
-            Silence 1h
-          </button>
+          <div style={{ position: "relative" }}>
+            <button className="sh-btn" onClick={() => setSilenceOpen((o) => !o)}>
+              <Icon name="bell" size={14} />
+              Silence
+            </button>
+            {silenceOpen ? (
+              <div className="sh-menu" style={MENU_STYLE}>
+                {SILENCE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.minutes}
+                    style={MENU_ITEM_STYLE}
+                    onClick={() => {
+                      void silence(opt.minutes);
+                      setSilenceOpen(false);
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                <div style={{ display: "flex", gap: 6, padding: "8px 14px", alignItems: "center" }}>
+                  <input
+                    className="sh-input"
+                    type="number"
+                    min={1}
+                    placeholder="Custom (min)"
+                    style={{ width: 90, fontSize: 12 }}
+                    value={customSilenceMinutes}
+                    onChange={(e) => setCustomSilenceMinutes(e.target.value)}
+                  />
+                  <button
+                    className="sh-btn primary"
+                    style={{ padding: "5px 9px", fontSize: 12 }}
+                    disabled={!customSilenceMinutes || Number(customSilenceMinutes) <= 0}
+                    onClick={() => {
+                      const minutes = Number(customSilenceMinutes);
+                      if (minutes > 0) {
+                        void silence(minutes);
+                        setCustomSilenceMinutes("");
+                        setSilenceOpen(false);
+                      }
+                    }}
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         )}
 
         <button
@@ -507,7 +635,42 @@ export function IncidentScreen({
         <div style={{ flex: 1 }} />
 
         {/* Right-side tags */}
-        {vm.priority ? <PriorityPill p={vm.priority} /> : null}
+        <div style={{ position: "relative" }}>
+          <button
+            className="sh-btn ghost"
+            aria-label="Priority"
+            style={{ padding: "2px 6px", gap: 4 }}
+            onClick={() => setPriorityOpen((o) => !o)}
+          >
+            {vm.priority ? <PriorityPill p={vm.priority} /> : <span className="sh-tag">No priority</span>}
+            <Icon name="chevd" size={10} />
+          </button>
+          {priorityOpen ? (
+            <div className="sh-menu" style={{ ...MENU_STYLE, left: "auto", right: 0 }}>
+              {PRIORITY_OPTIONS.map((p) => (
+                <button
+                  key={p}
+                  style={MENU_ITEM_STYLE}
+                  onClick={() => {
+                    void setPriority(p);
+                    setPriorityOpen(false);
+                  }}
+                >
+                  <PriorityPill p={p} />
+                </button>
+              ))}
+              <button
+                style={{ ...MENU_ITEM_STYLE, borderBottom: "none" }}
+                onClick={() => {
+                  void setPriority(null);
+                  setPriorityOpen(false);
+                }}
+              >
+                No priority
+              </button>
+            </div>
+          ) : null}
+        </div>
         <span className="sh-tag">
           {vm.occurrenceCount} occurrences
         </span>

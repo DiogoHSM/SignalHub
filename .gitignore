@@ -7,3 +7,5 @@ coverage/
 .env.*
 !.env.example
 /SECRETS.md
+.claude/work/
+.claude/memory/

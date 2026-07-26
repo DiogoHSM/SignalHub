@@ -322,6 +322,115 @@ describe("ErrorsScreen", () => {
     });
   });
 
+  describe("status filter", () => {
+    it("renders a status filter control defaulting to 'all'", () => {
+      mockUseErrors(ERRORS_VM);
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(screen.getByRole("button", { name: /status: all/i })).toBeInTheDocument();
+    });
+
+    it("does not pass a status filter to useErrors by default", () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(spy.mock.calls[0][0].status).toBeUndefined();
+    });
+
+    it("opens a menu with All/Open/Investigating/Resolved/Ignored options", async () => {
+      mockUseErrors(ERRORS_VM);
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      await userEvent.click(screen.getByRole("button", { name: /status: all/i }));
+      expect(screen.getByRole("button", { name: /^all statuses$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^open$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^investigating$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^resolved$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^ignored$/i })).toBeInTheDocument();
+    });
+
+    it("calls useErrors with status:'open' when Open is chosen", async () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      await userEvent.click(screen.getByRole("button", { name: /status: all/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^open$/i }));
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall.status).toBe("open");
+      });
+    });
+
+    it("clears the status filter (status:undefined) when 'All statuses' is chosen again", async () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      await userEvent.click(screen.getByRole("button", { name: /status: all/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^resolved$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /status: resolved/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^all statuses$/i }));
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall.status).toBeUndefined();
+      });
+    });
+  });
+
+  describe("release filter", () => {
+    it("renders a 'Filter by release' input defaulting to no filter", () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(screen.getByPlaceholderText(/filter by release/i)).toBeInTheDocument();
+      expect(spy.mock.calls[0][0].release).toBeUndefined();
+    });
+
+    it("calls useErrors with the typed release when Apply is clicked", async () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      await userEvent.type(screen.getByPlaceholderText(/filter by release/i), "v2026.05.14");
+      await userEvent.click(screen.getByRole("button", { name: /^apply$/i }));
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall.release).toBe("v2026.05.14");
+      });
+    });
+
+    it("calls useErrors with the typed release when Enter is pressed", async () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      await userEvent.type(screen.getByPlaceholderText(/filter by release/i), "v1.2.0{enter}");
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall.release).toBe("v1.2.0");
+      });
+    });
+
+    it("clears the release filter (release:undefined) when the filter text is emptied and applied", async () => {
+      mockUseErrors(ERRORS_VM);
+      const spy = vi.spyOn(useErrorsModule, "useErrors");
+      render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      const input = screen.getByPlaceholderText(/filter by release/i);
+      await userEvent.type(input, "v1.2.0{enter}");
+      await userEvent.clear(input);
+      await userEvent.click(screen.getByRole("button", { name: /^apply$/i }));
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1][0];
+        expect(lastCall.release).toBeUndefined();
+      });
+    });
+  });
+
   describe("summary strip", () => {
     it("renders Errors (24h) count", () => {
       mockUseErrors(ERRORS_VM);
