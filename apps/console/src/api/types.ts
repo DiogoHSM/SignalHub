@@ -867,6 +867,10 @@ export type EventClickMapResponse = {
 
 export type EventFunnelQuery = ApmQuery & {
   steps: string[];
+  conversionWindow?: string;
+  breakdownProperty?: string;
+  tenantId?: string;
+  segmentId?: string;
 };
 
 export type EventFunnelStep = {
@@ -883,6 +887,16 @@ export type EventFunnelActor = {
   reachedStepIndex: number;
   reachedStepName: string;
   lastSeenAt: string;
+};
+
+export type EventFunnelBreakdownSeries = {
+  value: string;
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
 };
 
 export type EventFunnelResponse = {
@@ -903,6 +917,7 @@ export type EventFunnelResponse = {
   };
   steps: EventFunnelStep[];
   sampleActors: EventFunnelActor[];
+  breakdown?: EventFunnelBreakdownSeries[];
 };
 
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";

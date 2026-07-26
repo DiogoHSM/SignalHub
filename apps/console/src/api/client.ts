@@ -850,6 +850,10 @@ function eventFunnelPath(query: EventFunnelQuery): string {
   params.set("window", query.window);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   params.set("steps", query.steps.join(","));
+  if (query.conversionWindow) params.set("conversion_window", query.conversionWindow);
+  if (query.breakdownProperty) params.set("breakdown_property", query.breakdownProperty);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.segmentId) params.set("segment_id", query.segmentId);
 
   return `/query/events/funnel?${params.toString()}`;
 }

@@ -3014,7 +3014,7 @@ export const openApiDocument = {
     "/query/events/funnel": {
       get: sessionRoute(
         "Query event conversion funnel",
-        "Analyze ordered event-step conversion for a project environment. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2+ event names, and optional limit for sample actors."
+        "Analyze ordered event-step conversion for a project environment, aggregated entirely in SQL. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2-12 event names, and optional limit for sample actors. Optional conversion_window (e.g. 30m, 24h, 7d) bounds elapsed time from funnel entry to each step. Optional breakdown_property splits results into up to 20 series by an event property value. Optional tenant_id and segment_id further scope which actors are counted."
       )
     },
     "/query/experiments/{id}/results": {

@@ -235,7 +235,15 @@ export type QueryDependencies = {
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
   getEventClickMap?: (filters: EventClickMapFilters) => Promise<unknown>;
-  getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
+  getEventFunnel?: (
+    filters: ApmFilters & {
+      steps: string[];
+      conversionWindowSeconds?: number;
+      breakdownProperty?: string;
+      tenantId?: string;
+      segmentId?: string;
+    }
+  ) => Promise<unknown>;
   getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
   getSurveyResults?: (filters: SurveyResultFilters) => Promise<unknown | null>;
   getMessageCampaignResults?: (filters: MessageCampaignResultFilters) => Promise<unknown | null>;
@@ -1082,7 +1090,54 @@ function parseEventPathFilters(
   };
 }
 
-function parseEventFunnelFilters(query: unknown): (ApmFilters & { steps: string[] }) | undefined {
+const APM_WINDOW_SECONDS: Record<ApmWindow, number> = {
+  "24h": 24 * 60 * 60,
+  "7d": 7 * 24 * 60 * 60,
+  "30d": 30 * 24 * 60 * 60
+};
+
+const CONVERSION_WINDOW_PATTERN = /^(\d{1,6})(s|m|h|d)$/;
+const CONVERSION_WINDOW_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 60 * 60, d: 24 * 60 * 60 };
+const BREAKDOWN_PROPERTY_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+// Returns undefined when the query param is absent, a parsed integer-seconds value when valid, or
+// null to signal a 400 (unparsable format or exceeds the containing window).
+function parseConversionWindowSeconds(raw: RawQuery, windowSeconds: number): number | null | undefined {
+  const value = optionalNonEmpty(raw, "conversion_window");
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const match = CONVERSION_WINDOW_PATTERN.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  const unitSeconds = CONVERSION_WINDOW_UNIT_SECONDS[match[2]!];
+  if (!Number.isFinite(amount) || !unitSeconds) {
+    return null;
+  }
+
+  const seconds = amount * unitSeconds;
+  if (seconds <= 0 || seconds > windowSeconds) {
+    return null;
+  }
+
+  return seconds;
+}
+
+function parseEventFunnelFilters(
+  query: unknown
+):
+  | (ApmFilters & {
+      steps: string[];
+      conversionWindowSeconds?: number;
+      breakdownProperty?: string;
+      tenantId?: string;
+      segmentId?: string;
+    })
+  | undefined {
   const filters = parseApmFilters(query);
   if (!filters) {
     return undefined;
@@ -1099,9 +1154,26 @@ function parseEventFunnelFilters(query: unknown): (ApmFilters & { steps: string[
     return undefined;
   }
 
+  const conversionWindowSeconds = parseConversionWindowSeconds(raw, APM_WINDOW_SECONDS[filters.window]);
+  if (conversionWindowSeconds === null) {
+    return undefined;
+  }
+
+  const breakdownProperty = optionalNonEmpty(raw, "breakdown_property");
+  if (breakdownProperty !== undefined && !BREAKDOWN_PROPERTY_PATTERN.test(breakdownProperty)) {
+    return undefined;
+  }
+
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const segmentId = optionalNonEmpty(raw, "segment_id");
+
   return {
     ...filters,
-    steps
+    steps,
+    ...(conversionWindowSeconds !== undefined ? { conversionWindowSeconds } : {}),
+    ...(breakdownProperty !== undefined ? { breakdownProperty } : {}),
+    ...(tenantId !== undefined ? { tenantId } : {}),
+    ...(segmentId !== undefined ? { segmentId } : {})
   };
 }
 

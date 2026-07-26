@@ -138,12 +138,14 @@ Use stable property names and stable value types so dashboards, filters, and fut
 
 ### Conversion funnels
 
-Operators can analyze ordered event funnels with `GET /query/events/funnel`. Funnel analysis is based on stable actor IDs, so send at least one of `user_id`, `tenant_id`, `session_id`, or `trace_id` on product events that should participate in conversion analysis.
+Operators can analyze ordered event funnels with `GET /query/events/funnel`. Funnel analysis is based on stable actor IDs, so send at least one of `user_id`, `tenant_id`, `session_id`, or `trace_id` on product events that should participate in conversion analysis. The whole funnel is aggregated in SQL (no per-actor row data leaves Postgres), so it stays cheap even for large event volumes.
+
+Optional query params, all backward compatible: `conversion_window` (compact duration like `30m`, `24h`, or `7d`; bounds elapsed time from an actor's first step to each later step, rejecting values that exceed the requested `window`), `breakdown_property` (splits results into up to 20 series by an event property value), `tenant_id` (restricts matched events to one tenant), and `segment_id` (restricts matched actors to a saved analytics segment).
 
 Example query:
 
 ```http
-GET /query/events/funnel?project_id=prj_123&environment_id=env_123&window=7d&steps=signup.started,project.created,key.created
+GET /query/events/funnel?project_id=prj_123&environment_id=env_123&window=7d&steps=signup.started,project.created,key.created&conversion_window=24h&breakdown_property=plan
 ```
 
 ### Experiments

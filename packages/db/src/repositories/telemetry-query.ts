@@ -222,6 +222,10 @@ export interface EventClickMapResponse {
 
 export interface EventFunnelFilters extends ApmFilters {
   steps: string[];
+  conversionWindowSeconds?: number;
+  breakdownProperty?: string;
+  tenantId?: string;
+  segmentId?: string;
 }
 
 export interface EventFunnelStep {
@@ -238,6 +242,16 @@ export interface EventFunnelActor {
   reachedStepIndex: number;
   reachedStepName: string;
   lastSeenAt: string;
+}
+
+export interface EventFunnelBreakdownSeries {
+  value: string;
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
 }
 
 export interface EventFunnelResponse {
@@ -258,6 +272,7 @@ export interface EventFunnelResponse {
   };
   steps: EventFunnelStep[];
   sampleActors: EventFunnelActor[];
+  breakdown?: EventFunnelBreakdownSeries[];
 }
 
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
@@ -1926,79 +1941,35 @@ function percentage(part: number, whole: number): number {
   return Math.round((part / whole) * 100);
 }
 
-export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
-  const { from, to } = resolveOverviewRange(filters.window, filters.now);
-  const limit = resolveLimit(filters.limit);
-  const steps = filters.steps.map((step) => step.trim()).filter(Boolean);
+const MAX_FUNNEL_STEPS = 12;
+const FUNNEL_BREAKDOWN_LIMIT = 20;
 
-  if (steps.length < 2) {
-    throw new Error("event_funnel_requires_two_steps");
-  }
+// Shared actor-identity fallback used by getEventFunnel and (per PER-439's decision log) intended for
+// reuse by PER-440/PER-442. A dedicated `actor` param (user|tenant|session|trace|auto) is deferred to a
+// future issue; today's behavior is always the "auto" coalesce below.
+function actorKeySql() {
+  return sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`;
+}
 
-  const rows = await db
-    .selectFrom("events")
-    .select([
-      "name",
-      "timestamp",
-      sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`.as("actor_id"),
-      sql<"user" | "tenant" | "session" | "trace">`
-        case
-          when user_id is not null then 'user'
-          when tenant_id is not null then 'tenant'
-          when session_id is not null then 'session'
-          else 'trace'
-        end
-      `.as("actor_type")
-    ])
-    .where("project_id", "=", filters.projectId)
-    .where("environment_id", "=", filters.environmentId)
-    .where("timestamp", ">=", from)
-    .where("timestamp", "<", to)
-    .where("name", "in", steps)
-    .where(sql<boolean>`coalesce(user_id, tenant_id, session_id, trace_id) is not null`)
-    .orderBy("actor_id", "asc")
-    .orderBy("timestamp", "asc")
-    .execute();
+function actorTypeSql() {
+  return sql<"user" | "tenant" | "session" | "trace">`
+    case
+      when user_id is not null then 'user'
+      when tenant_id is not null then 'tenant'
+      when session_id is not null then 'session'
+      else 'trace'
+    end
+  `;
+}
 
-  const actors = new Map<
-    string,
-    {
-      actorId: string;
-      actorType: "user" | "tenant" | "session" | "trace";
-      nextStepIndex: number;
-      reachedStepIndex: number;
-      reachedStepName: string;
-      lastSeenAt: Date | string;
-    }
-  >();
-
-  for (const row of rows) {
-    const actorId = row.actor_id;
-    if (!actorId) continue;
-    const actor = actors.get(actorId) ?? {
-      actorId,
-      actorType: row.actor_type,
-      nextStepIndex: 0,
-      reachedStepIndex: -1,
-      reachedStepName: "",
-      lastSeenAt: row.timestamp
-    };
-
-    if (row.name === steps[actor.nextStepIndex]) {
-      actor.reachedStepIndex = actor.nextStepIndex;
-      actor.reachedStepName = row.name;
-      actor.nextStepIndex += 1;
-      actor.lastSeenAt = row.timestamp;
-    }
-
-    actors.set(actorId, actor);
-  }
-
-  const reachedActors = Array.from(actors.values()).filter((actor) => actor.reachedStepIndex >= 0);
-  const entrantCount = reachedActors.length;
-  const funnelSteps = steps.map((name, index) => {
-    const actorsAtStep = reachedActors.filter((actor) => actor.reachedStepIndex >= index).length;
-    const previousActors = index === 0 ? actorsAtStep : reachedActors.filter((actor) => actor.reachedStepIndex >= index - 1).length;
+function buildFunnelStepsFromCounts(
+  stepNames: string[],
+  counts: number[]
+): { steps: EventFunnelStep[]; totals: { entrants: number; completed: number; conversionPercent: number } } {
+  const entrantCount = counts[0] ?? 0;
+  const steps = stepNames.map((name, index) => {
+    const actorsAtStep = counts[index] ?? 0;
+    const previousActors = index === 0 ? actorsAtStep : counts[index - 1] ?? 0;
     return {
       index,
       name,
@@ -2007,7 +1978,249 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
       dropOffFromPreviousPercent: index === 0 ? 0 : percentage(previousActors - actorsAtStep, previousActors)
     };
   });
-  const completed = funnelSteps[funnelSteps.length - 1]?.actors ?? 0;
+  const completed = steps[steps.length - 1]?.actors ?? 0;
+  return {
+    steps,
+    totals: {
+      entrants: entrantCount,
+      completed,
+      conversionPercent: percentage(completed, entrantCount)
+    }
+  };
+}
+
+interface FunnelChainParams {
+  projectId: string;
+  environmentId: string;
+  from: Date;
+  to: Date;
+  steps: string[];
+  breakdownProperty: string | null;
+  conversionWindowSeconds: number | null;
+  tenantId: string | null;
+  segmentActorColumn: "user_id" | "tenant_id" | null;
+  segmentActorIds: string[] | null;
+}
+
+// Builds the `matched` / `s0` / `chain` CTE chain described in the PER-439 plan: `matched` is a
+// materialized scan restricted to the step names (backed by the events_scope_name_time_idx index),
+// `s0` anchors each actor's first occurrence of step 0, and `chain` walks forward through the
+// remaining steps with one LEFT JOIN LATERAL per step so timestamps stay strictly increasing and
+// the optional conversion window is anchored on entry (s0.t0). A recursive CTE cannot express this
+// because Postgres forbids aggregates (min()) referencing the recursive term.
+function buildFunnelChainCte(params: FunnelChainParams) {
+  const {
+    projectId,
+    environmentId,
+    from,
+    to,
+    steps,
+    breakdownProperty,
+    conversionWindowSeconds,
+    tenantId,
+    segmentActorColumn,
+    segmentActorIds
+  } = params;
+
+  const tenantPredicate = tenantId ? sql`AND tenant_id = ${tenantId}` : sql``;
+  const segmentPredicate =
+    segmentActorColumn && segmentActorIds ? sql`AND ${sql.ref(segmentActorColumn)} = ANY(${segmentActorIds})` : sql``;
+
+  const matchedCte = sql`
+    matched AS MATERIALIZED (
+      SELECT
+        ${actorKeySql()} AS actor_id,
+        ${actorTypeSql()} AS actor_type,
+        name,
+        timestamp,
+        properties ->> ${breakdownProperty} AS breakdown_value
+      FROM events
+      WHERE project_id = ${projectId}
+        AND environment_id = ${environmentId}
+        AND timestamp >= ${from}
+        AND timestamp < ${to}
+        AND name = ANY(${steps})
+        AND ${actorKeySql()} IS NOT NULL
+        ${tenantPredicate}
+        ${segmentPredicate}
+    )
+  `;
+
+  const s0Cte = sql`
+    s0 AS (
+      SELECT actor_id, actor_type, breakdown_value, min(timestamp) AS t0
+      FROM matched
+      WHERE name = ${steps[0]}
+      GROUP BY actor_id, actor_type, breakdown_value
+    )
+  `;
+
+  const selectCols = [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.breakdown_value"), sql.raw("s0.t0")];
+  const lateralFragments: ReturnType<typeof sql>[] = [];
+
+  for (let index = 1; index < steps.length; index += 1) {
+    const alias = `s${index}`;
+    const col = `t${index}`;
+    const prevAlias = index === 1 ? "s0" : `s${index - 1}`;
+    const prevCol = index === 1 ? "t0" : `t${index - 1}`;
+
+    lateralFragments.push(sql`
+      LEFT JOIN LATERAL (
+        SELECT min(m.timestamp) AS ${sql.raw(col)}
+        FROM matched m
+        WHERE m.actor_id = s0.actor_id
+          AND m.name = ${steps[index]}
+          AND m.timestamp > ${sql.raw(`${prevAlias}.${prevCol}`)}
+          AND (${conversionWindowSeconds}::int IS NULL OR m.timestamp <= s0.t0 + make_interval(secs => ${conversionWindowSeconds}))
+      ) ${sql.raw(alias)} ON true
+    `);
+    selectCols.push(sql.raw(`${alias}.${col}`));
+  }
+
+  const chainCte = sql`
+    chain AS (
+      SELECT ${sql.join(selectCols, sql`, `)}
+      FROM s0
+      ${sql.join(lateralFragments, sql` `)}
+    )
+  `;
+
+  return sql`${matchedCte}, ${s0Cte}, ${chainCte}`;
+}
+
+function emptyEventFunnelResponse(filters: EventFunnelFilters, steps: string[], from: Date, to: Date): EventFunnelResponse {
+  const { steps: funnelSteps, totals } = buildFunnelStepsFromCounts(steps, []);
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    totals,
+    steps: funnelSteps,
+    sampleActors: [],
+    ...(filters.breakdownProperty ? { breakdown: [] } : {})
+  };
+}
+
+export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+  const steps = filters.steps
+    .map((step) => step.trim())
+    .filter(Boolean)
+    .slice(0, MAX_FUNNEL_STEPS);
+
+  if (steps.length < 2) {
+    throw new Error("event_funnel_requires_two_steps");
+  }
+
+  const conversionWindowSeconds = filters.conversionWindowSeconds ?? null;
+  const breakdownProperty = filters.breakdownProperty?.trim() || null;
+  const tenantId = filters.tenantId ?? null;
+
+  let segmentActorColumn: "user_id" | "tenant_id" | null = null;
+  let segmentActorIds: string[] | null = null;
+
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) {
+      return emptyEventFunnelResponse(filters, steps, from, to);
+    }
+    // TODO(PER-441): replace this materialized actor-id list with an EXISTS-based segment filter
+    // once saved segments can be expressed directly as a SQL predicate.
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, to);
+    if (actorIds.length === 0) {
+      return emptyEventFunnelResponse(filters, steps, from, to);
+    }
+    segmentActorColumn = segment.actorType === "tenant" ? "tenant_id" : "user_id";
+    segmentActorIds = actorIds;
+  }
+
+  const chainParams: FunnelChainParams = {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    from,
+    to,
+    steps,
+    breakdownProperty,
+    conversionWindowSeconds,
+    tenantId,
+    segmentActorColumn,
+    segmentActorIds
+  };
+
+  const countColumns = steps.map((_, index) =>
+    index === 0 ? sql`count(*) AS step0_actors` : sql.raw(`count(t${index}) AS step${index}_actors`)
+  );
+
+  const totalsResult = await sql<Record<string, string>>`
+    WITH ${buildFunnelChainCte(chainParams)}
+    SELECT ${sql.join(countColumns, sql`, `)}
+    FROM chain
+  `.execute(db);
+
+  const counts = steps.map((_, index) => toNumber(totalsResult.rows[0]?.[`step${index}_actors`]));
+  const { steps: funnelSteps, totals } = buildFunnelStepsFromCounts(steps, counts);
+
+  const sampleColumns = [sql.raw("actor_id"), sql.raw("actor_type"), ...steps.map((_, index) => sql.raw(`t${index}`))];
+
+  const sampleResult = await sql<Record<string, unknown>>`
+    WITH ${buildFunnelChainCte(chainParams)}
+    SELECT ${sql.join(sampleColumns, sql`, `)}
+    FROM chain
+    ORDER BY actor_id ASC
+    LIMIT ${limit}
+  `.execute(db);
+
+  const sampleActors: EventFunnelActor[] = sampleResult.rows.map((row) => {
+    let reachedStepIndex = 0;
+    for (let index = 1; index < steps.length; index += 1) {
+      if (row[`t${index}`] != null) {
+        reachedStepIndex = index;
+      } else {
+        break;
+      }
+    }
+    return {
+      actorId: row.actor_id as string,
+      actorType: row.actor_type as "user" | "tenant" | "session" | "trace",
+      reachedStepIndex,
+      reachedStepName: steps[reachedStepIndex]!,
+      lastSeenAt: toIso(row[`t${reachedStepIndex}`] as Date | string)
+    };
+  });
+
+  let breakdown: EventFunnelBreakdownSeries[] | undefined;
+  if (breakdownProperty) {
+    const breakdownResult = await sql<Record<string, string>>`
+      WITH ${buildFunnelChainCte(chainParams)}
+      SELECT coalesce(breakdown_value, '') AS breakdown_value, ${sql.join(countColumns, sql`, `)}
+      FROM chain
+      GROUP BY 1
+      ORDER BY 2 DESC
+      LIMIT ${FUNNEL_BREAKDOWN_LIMIT}
+    `.execute(db);
+
+    breakdown = breakdownResult.rows.map((row) => {
+      const seriesCounts = steps.map((_, index) => toNumber(row[`step${index}_actors`]));
+      const series = buildFunnelStepsFromCounts(steps, seriesCounts);
+      return {
+        value: row.breakdown_value,
+        totals: series.totals,
+        steps: series.steps
+      };
+    });
+  }
 
   return {
     window: filters.window,
@@ -2020,22 +2233,10 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
       from: toIso(from),
       to: toIso(to)
     },
-    totals: {
-      entrants: entrantCount,
-      completed,
-      conversionPercent: percentage(completed, entrantCount)
-    },
+    totals,
     steps: funnelSteps,
-    sampleActors: reachedActors
-      .sort((left, right) => left.actorId.localeCompare(right.actorId))
-      .slice(0, limit)
-      .map((actor) => ({
-        actorId: actor.actorId,
-        actorType: actor.actorType,
-        reachedStepIndex: actor.reachedStepIndex,
-        reachedStepName: actor.reachedStepName,
-        lastSeenAt: toIso(actor.lastSeenAt)
-      }))
+    sampleActors,
+    ...(breakdown ? { breakdown } : {})
   };
 }
 

@@ -10069,6 +10069,253 @@ describe("repositories", () => {
     });
   });
 
+  it("does not inflate funnel step counts on repeated events and reports actor identity for anonymous actors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Repeated" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // user_1 is fully identified and fires "project.created" twice - the second firing must not
+      // inflate the step 1 actor count.
+      await insertEvent(db, { ...base, id: "evt_repeat_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_repeat_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_repeat_u1_3", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:30.000Z") });
+
+      // trace_only is anonymous: no user/tenant/session id, only trace_id.
+      await insertEvent(db, { ...base, id: "evt_repeat_t1_1", traceId: "trace_anon_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_repeat_t1_2", traceId: "trace_anon_1", name: "project.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"]
+      });
+
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 2 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 2 })
+      ]);
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 2, conversionPercent: 100 });
+
+      const traceActor = funnel.sampleActors.find((actor) => actor.actorId === "trace_anon_1");
+      expect(traceActor).toMatchObject({ actorType: "trace", reachedStepIndex: 1, reachedStepName: "project.created" });
+      const userActor = funnel.sampleActors.find((actor) => actor.actorId === "user_1");
+      expect(userActor).toMatchObject({ actorType: "user", reachedStepIndex: 1, reachedStepName: "project.created" });
+    });
+  });
+
+  it("requires strictly increasing step timestamps, ignoring an earlier out-of-order later-step event", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Out Of Order" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // user_1 fires step 2 (key.created) BEFORE step 1 (project.created). The premature step-2
+      // firing must not count; only the later, correctly-ordered pair should.
+      await insertEvent(db, { ...base, id: "evt_ooo_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ooo_u1_2", userId: "user_1", name: "key.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ooo_u1_3", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created", "key.created"]
+      });
+
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 1 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 1 }),
+        expect.objectContaining({ index: 2, name: "key.created", actors: 0 })
+      ]);
+      expect(funnel.sampleActors[0]).toMatchObject({ reachedStepIndex: 1, reachedStepName: "project.created" });
+    });
+  });
+
+  it("bounds step progression to a conversion window anchored at funnel entry", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Conversion Window" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // 5-day gap between step 0 and step 1.
+      await insertEvent(db, { ...base, id: "evt_window_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-01T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_window_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-06T12:00:00.000Z") });
+
+      const bounded = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-07T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        conversionWindowSeconds: 3600
+      });
+
+      expect(bounded.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 1 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 0 })
+      ]);
+
+      const unbounded = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-07T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"]
+      });
+
+      expect(unbounded.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 1 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 1 })
+      ]);
+    });
+  });
+
+  it("breaks down funnel results by an event property", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Breakdown" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_bd_pro_1", userId: "user_pro", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "pro" } });
+      await insertEvent(db, { ...base, id: "evt_bd_pro_2", userId: "user_pro", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "pro" } });
+      await insertEvent(db, { ...base, id: "evt_bd_free_1", userId: "user_free", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        breakdownProperty: "plan"
+      });
+
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 1 });
+      expect(funnel.breakdown).toBeDefined();
+      expect(funnel.breakdown).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            value: "pro",
+            totals: expect.objectContaining({ entrants: 1, completed: 1, conversionPercent: 100 })
+          }),
+          expect.objectContaining({
+            value: "free",
+            totals: expect.objectContaining({ entrants: 1, completed: 0, conversionPercent: 0 })
+          })
+        ])
+      );
+      expect(funnel.breakdown).toHaveLength(2);
+    });
+  });
+
+  it("ignores events from actors with no identifying key", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels No Actor Key" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // No user/tenant/session/trace id at all - must be excluded entirely from the funnel.
+      await insertEvent(db, { ...base, id: "evt_no_key_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_no_key_2", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_no_key_u1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"]
+      });
+
+      expect(funnel.totals).toMatchObject({ entrants: 1, completed: 0 });
+      expect(funnel.sampleActors.map((actor) => actor.actorId)).toEqual(["user_1"]);
+    });
+  });
+
+  it("scopes funnel actors by tenant_id and by a saved analytics segment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Scoped" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_scope_a1", tenantId: "tenant_a", userId: "user_a1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "team" } });
+      await insertEvent(db, { ...base, id: "evt_scope_a2", tenantId: "tenant_a", userId: "user_a1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "team" } });
+      await insertEvent(db, { ...base, id: "evt_scope_b1", tenantId: "tenant_b", userId: "user_b1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+      await insertEvent(db, { ...base, id: "evt_scope_b2", tenantId: "tenant_b", userId: "user_b1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "free" } });
+
+      const scopedByTenant = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        tenantId: "tenant_a"
+      });
+
+      expect(scopedByTenant.totals).toMatchObject({ entrants: 1, completed: 1 });
+      expect(scopedByTenant.sampleActors.map((actor) => actor.actorId)).toEqual(["user_a1"]);
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Team plan signups",
+        actorType: "user",
+        definition: { window: "30d", eventName: "signup.started", propertyName: "plan", propertyValue: "team" }
+      });
+
+      const scopedBySegment = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        segmentId: segment.id
+      });
+
+      expect(scopedBySegment.totals).toMatchObject({ entrants: 1, completed: 1 });
+      expect(scopedBySegment.sampleActors.map((actor) => actor.actorId)).toEqual(["user_a1"]);
+    });
+  });
+
   it("calculates common event paths by actor with deterministic sample drilldowns", async () => {
     await withDb(async (db) => {
       await migrate(db);
