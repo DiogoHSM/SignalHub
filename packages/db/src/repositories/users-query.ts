@@ -3,11 +3,19 @@ import type { Db } from "../client.js";
 
 export type UserWindow = "24h" | "7d" | "30d";
 export type UserSignalType = "event" | "error" | "trace" | "llm";
+export type UserSort = "impact" | "usage" | "errors" | "llm_cost" | "recent";
 
 export type UserCursor = {
   timestamp: string;
   type: UserSignalType;
   id: string;
+};
+
+/** Keyset cursor for the user list: last row's sort metric + a stable actor_id tie-breaker. */
+export type UserListCursor = {
+  sort: UserSort;
+  value: number;
+  actorId: string;
 };
 
 export type UserRange = {
@@ -22,6 +30,9 @@ export type UserListFilters = {
   search?: string;
   tenantId?: string;
   limit?: number;
+  /** Undefined preserves the legacy default ordering (impact, tie-broken by lastSeenAt/events/label). */
+  sort?: UserSort;
+  cursor?: UserListCursor;
   now?: Date;
 };
 
@@ -65,6 +76,7 @@ export type UserListResponse = {
   scope: { projectId: string; environmentId: string };
   range: UserRange;
   users: UserSummary[];
+  cursor?: string;
 };
 
 export type UserRecentSession = {
@@ -225,6 +237,52 @@ function searchPattern(search: string | undefined): string | undefined {
 
 function encodeUserCursor(cursor: UserCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function encodeUserListCursor(cursor: UserListCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function userSortMetric(user: UserSummary, sort: UserSort): number {
+  switch (sort) {
+    case "usage":
+      return user.events;
+    case "errors":
+      return user.errors;
+    case "llm_cost":
+      return Number(user.llmCostUsd);
+    case "recent":
+      return user.lastSeenAt ? new Date(user.lastSeenAt).getTime() : 0;
+    case "impact":
+    default:
+      return user.impactScore;
+  }
+}
+
+function userActorId(user: UserSummary): string {
+  return user.userId ?? "";
+}
+
+/**
+ * Orders users for a given sort metric, descending, tie-broken by actor_id (userId) so the
+ * order is a strict total order — required for the keyset cursor below to never skip or repeat rows.
+ */
+function sortUsersByMetric(users: UserSummary[], sort: UserSort): UserSummary[] {
+  return [...users].sort((left, right) => {
+    const byMetric = userSortMetric(right, sort) - userSortMetric(left, sort);
+    if (byMetric !== 0) return byMetric;
+    return userActorId(left).localeCompare(userActorId(right));
+  });
+}
+
+/** Finds the first index strictly after the cursor's (value, actorId) position in a metric-sorted array. */
+function findUserCursorStart(sorted: UserSummary[], sort: UserSort, cursor: UserListCursor): number {
+  const idx = sorted.findIndex((user) => {
+    const value = userSortMetric(user, sort);
+    if (value !== cursor.value) return value < cursor.value;
+    return userActorId(user) > cursor.actorId;
+  });
+  return idx === -1 ? sorted.length : idx;
 }
 
 export async function listUsersActivity(db: Db, filters: UserListFilters): Promise<UserListResponse> {
@@ -446,22 +504,45 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
     };
   });
 
-  users.sort((left, right) => {
-    if (right.impactScore !== left.impactScore) return right.impactScore - left.impactScore;
-    const rightSeen = right.lastSeenAt ? new Date(right.lastSeenAt).getTime() : 0;
-    const leftSeen = left.lastSeenAt ? new Date(left.lastSeenAt).getTime() : 0;
-    if (rightSeen !== leftSeen) return rightSeen - leftSeen;
-    if (right.events !== left.events) return right.events - left.events;
-    return left.label.localeCompare(right.label);
-  });
+  // Retrocompatible: no `sort`/`cursor` at all preserves the exact legacy ordering and slice.
+  if (filters.sort === undefined && filters.cursor === undefined) {
+    users.sort((left, right) => {
+      if (right.impactScore !== left.impactScore) return right.impactScore - left.impactScore;
+      const rightSeen = right.lastSeenAt ? new Date(right.lastSeenAt).getTime() : 0;
+      const leftSeen = left.lastSeenAt ? new Date(left.lastSeenAt).getTime() : 0;
+      if (rightSeen !== leftSeen) return rightSeen - leftSeen;
+      if (right.events !== left.events) return right.events - left.events;
+      return left.label.localeCompare(right.label);
+    });
 
-  return {
+    return {
+      window: filters.window,
+      generatedAt: (filters.now ?? new Date()).toISOString(),
+      scope: { projectId: filters.projectId, environmentId: filters.environmentId },
+      range,
+      users: users.slice(0, limit)
+    };
+  }
+
+  const sort = filters.sort ?? "impact";
+  const sorted = sortUsersByMetric(users, sort);
+  const startIndex = filters.cursor ? findUserCursorStart(sorted, sort, filters.cursor) : 0;
+  const page = sorted.slice(startIndex, startIndex + limit);
+
+  const response: UserListResponse = {
     window: filters.window,
     generatedAt: (filters.now ?? new Date()).toISOString(),
     scope: { projectId: filters.projectId, environmentId: filters.environmentId },
     range,
-    users: users.slice(0, limit)
+    users: page
   };
+
+  if (startIndex + limit < sorted.length && page.length > 0) {
+    const last = page[page.length - 1];
+    response.cursor = encodeUserListCursor({ sort, value: userSortMetric(last, sort), actorId: userActorId(last) });
+  }
+
+  return response;
 }
 
 export async function getUserDetail(db: Db, userId: string, filters: UserDetailFilters): Promise<UserDetailResponse> {

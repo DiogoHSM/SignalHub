@@ -186,7 +186,12 @@ import {
 } from "../src/repositories/telemetry-query.js";
 import { getOperations } from "../src/repositories/operations-query.js";
 import { getSessionTimeline } from "../src/repositories/session-timeline.js";
-import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
+import {
+  getEntityTenantDetail,
+  listEntityTenants,
+  type EntityCursor,
+  type EntityTenantListCursor
+} from "../src/repositories/entities-query.js";
 import {
   deleteExpiredTelemetry,
   getHeartbeat,
@@ -241,7 +246,7 @@ import {
   upsertEventActorDaily,
   withEventRollupLock
 } from "../src/repositories/event-rollups.js";
-import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
+import { getUserDetail, listUsersActivity, type UserCursor, type UserListCursor } from "../src/repositories/users-query.js";
 import {
   assignIncident,
   addTriageNote,
@@ -280,6 +285,14 @@ describe("repositories", () => {
 
   function decodeUserCursorForTest(cursor: string): UserCursor {
     return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as UserCursor;
+  }
+
+  function decodeUserListCursorForTest(cursor: string): UserListCursor {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as UserListCursor;
+  }
+
+  function decodeEntityTenantListCursorForTest(cursor: string): EntityTenantListCursor {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as EntityTenantListCursor;
   }
 
   async function seedSourceMapScope(db: Db): Promise<void> {
@@ -8640,6 +8653,165 @@ describe("repositories", () => {
     });
   });
 
+  it("sorts tenants server-side by usage/errors/llm_cost/recent and paginates with a stable keyset cursor (PER-446)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Tenants Sort" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api"
+      };
+
+      // tenant_usage: most events (usage winner) — five events, no errors, no LLM cost.
+      for (let i = 0; i < 5; i++) {
+        await insertEvent(db, {
+          ...base,
+          id: `evt_tsort_usage_${i}`,
+          timestamp: new Date(`2026-05-05T10:0${i}:00.000Z`),
+          name: "page_view",
+          tenantId: "tenant_sort_usage",
+          sessionId: "session_tsort_usage"
+        });
+      }
+
+      // tenant_errors: most errors (errors winner) — but NOT top-impact and NOT top-usage.
+      for (let i = 0; i < 3; i++) {
+        await insertError(db, {
+          ...base,
+          id: `err_tsort_errors_${i}`,
+          timestamp: new Date(`2026-05-05T10:1${i}:00.000Z`),
+          message: "boom",
+          severity: "warning",
+          status: "closed",
+          tenantId: "tenant_sort_errors",
+          sessionId: "session_tsort_errors"
+        });
+      }
+      await insertEvent(db, {
+        ...base,
+        id: "evt_tsort_errors_seed",
+        timestamp: new Date("2026-05-05T10:20:00.000Z"),
+        name: "seed",
+        tenantId: "tenant_sort_errors",
+        sessionId: "session_tsort_errors"
+      });
+
+      // tenant_cost: highest LLM cost (llm_cost winner) — buried under the others by impact/usage/errors.
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_tsort_cost_winner",
+        timestamp: new Date("2026-05-05T10:30:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        costUsd: "50.000000",
+        status: "success",
+        tenantId: "tenant_sort_cost",
+        sessionId: "session_tsort_cost"
+      });
+
+      // tenant_recent: most recent activity (recent winner), otherwise minimal.
+      await insertEvent(db, {
+        ...base,
+        id: "evt_tsort_recent_winner",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        name: "latest",
+        tenantId: "tenant_sort_recent",
+        sessionId: "session_tsort_recent"
+      });
+
+      const commonArgs = { projectId: project.id, environmentId: environment.id, window: "7d" as const, now };
+
+      const byUsage = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "usage" });
+      expect(byUsage.tenants.map((t) => t.tenantId)).toEqual([
+        "tenant_sort_usage",
+        "tenant_sort_errors",
+        "tenant_sort_recent",
+        "tenant_sort_cost"
+      ]);
+      expect(byUsage.cursor).toBeUndefined();
+
+      const byErrors = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "errors" });
+      expect(byErrors.tenants[0].tenantId).toBe("tenant_sort_errors");
+
+      const byCost = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "llm_cost" });
+      expect(byCost.tenants[0].tenantId).toBe("tenant_sort_cost");
+
+      const byRecent = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "recent" });
+      expect(byRecent.tenants[0].tenantId).toBe("tenant_sort_recent");
+
+      // Keyset cursor: page through sort=usage two at a time — no skip, no duplicate.
+      const firstPage = await listEntityTenants(db, { ...commonArgs, limit: 2, sort: "usage" });
+      expect(firstPage.tenants.map((t) => t.tenantId)).toEqual(["tenant_sort_usage", "tenant_sort_errors"]);
+      expect(firstPage.cursor).toBeDefined();
+
+      const cursor = decodeEntityTenantListCursorForTest(firstPage.cursor as string);
+      expect(cursor).toMatchObject({ sort: "usage", actorId: "tenant_sort_errors" });
+
+      const secondPage = await listEntityTenants(db, { ...commonArgs, limit: 2, sort: "usage", cursor });
+      expect(secondPage.tenants.map((t) => t.tenantId)).toEqual(["tenant_sort_recent", "tenant_sort_cost"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      const paginatedIds = [...firstPage.tenants, ...secondPage.tenants].map((t) => t.tenantId);
+      expect(paginatedIds).toEqual(byUsage.tenants.map((t) => t.tenantId));
+      expect(new Set(paginatedIds).size).toBe(paginatedIds.length);
+
+      // Retrocompatible: omitting `sort`/`cursor` entirely still returns the legacy impact-ranked page.
+      const legacy = await listEntityTenants(db, { ...commonArgs, limit: 50 });
+      expect(legacy.cursor).toBeUndefined();
+      expect(legacy.tenants.map((t) => t.tenantId)).not.toEqual(byUsage.tenants.map((t) => t.tenantId));
+    });
+  });
+
+  it("scopes sorted tenant list pagination to the requesting project/environment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const projectA = await createProject(db, { name: "Tenants Scope A" });
+      const environmentA = await createEnvironment(db, { projectId: projectA.id, name: "production" });
+      const projectB = await createProject(db, { name: "Tenants Scope B" });
+      const environmentB = await createEnvironment(db, { projectId: projectB.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+
+      await insertEvent(db, {
+        id: "evt_tscope_a",
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.a",
+        tenantId: "tenant_scope_a",
+        sessionId: "session_tscope_a"
+      });
+      await insertEvent(db, {
+        id: "evt_tscope_b",
+        projectId: projectB.id,
+        environmentId: environmentB.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.b",
+        tenantId: "tenant_scope_b",
+        sessionId: "session_tscope_b"
+      });
+
+      const resultA = await listEntityTenants(db, {
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        window: "7d",
+        limit: 50,
+        sort: "usage",
+        now
+      });
+
+      expect(resultA.tenants.map((t) => t.tenantId)).toEqual(["tenant_scope_a"]);
+    });
+  });
+
   it("searches entity tenants by tenant id or user id", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -9037,6 +9209,165 @@ describe("repositories", () => {
       });
       expect(result.users[0].impactScore).toBe(39.125);
       expect(result.users[1]).toMatchObject({ userId: null, label: "Anonymous / Unassigned", isAnonymous: true, events: 1 });
+    });
+  });
+
+  it("sorts users server-side by usage/errors/llm_cost/recent and paginates with a stable keyset cursor (PER-446)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Users Sort" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api"
+      };
+
+      // user_usage: most events (usage winner) — five events, no errors, no LLM cost.
+      for (let i = 0; i < 5; i++) {
+        await insertEvent(db, {
+          ...base,
+          id: `evt_sort_usage_${i}`,
+          timestamp: new Date(`2026-05-05T10:0${i}:00.000Z`),
+          name: "page_view",
+          userId: "user_sort_usage",
+          sessionId: "session_sort_usage"
+        });
+      }
+
+      // user_errors: most errors (errors winner) — but NOT the top-impact user, and NOT top usage.
+      for (let i = 0; i < 3; i++) {
+        await insertError(db, {
+          ...base,
+          id: `err_sort_errors_${i}`,
+          timestamp: new Date(`2026-05-05T10:1${i}:00.000Z`),
+          message: "boom",
+          severity: "warning",
+          status: "closed",
+          userId: "user_sort_errors",
+          sessionId: "session_sort_errors"
+        });
+      }
+      await insertEvent(db, {
+        ...base,
+        id: "evt_sort_errors_seed",
+        timestamp: new Date("2026-05-05T10:20:00.000Z"),
+        name: "seed",
+        userId: "user_sort_errors",
+        sessionId: "session_sort_errors"
+      });
+
+      // user_cost: highest LLM cost (llm_cost winner) — buried under the others by impact/usage/errors.
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_sort_cost_winner",
+        timestamp: new Date("2026-05-05T10:30:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        costUsd: "50.000000",
+        status: "success",
+        userId: "user_sort_cost",
+        sessionId: "session_sort_cost"
+      });
+
+      // user_recent: most recent activity (recent winner), otherwise minimal.
+      await insertEvent(db, {
+        ...base,
+        id: "evt_sort_recent_winner",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        name: "latest",
+        userId: "user_sort_recent",
+        sessionId: "session_sort_recent"
+      });
+
+      const commonArgs = { projectId: project.id, environmentId: environment.id, window: "7d" as const, now };
+
+      const byUsage = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "usage" });
+      expect(byUsage.users.map((u) => u.userId)).toEqual([
+        "user_sort_usage",
+        "user_sort_errors",
+        "user_sort_recent",
+        "user_sort_cost"
+      ]);
+      expect(byUsage.cursor).toBeUndefined();
+
+      const byErrors = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "errors" });
+      expect(byErrors.users[0].userId).toBe("user_sort_errors");
+
+      const byCost = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "llm_cost" });
+      expect(byCost.users[0].userId).toBe("user_sort_cost");
+
+      const byRecent = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "recent" });
+      expect(byRecent.users[0].userId).toBe("user_sort_recent");
+
+      // Keyset cursor: page through sort=usage two at a time — no skip, no duplicate.
+      const firstPage = await listUsersActivity(db, { ...commonArgs, limit: 2, sort: "usage" });
+      expect(firstPage.users.map((u) => u.userId)).toEqual(["user_sort_usage", "user_sort_errors"]);
+      expect(firstPage.cursor).toBeDefined();
+
+      const cursor = decodeUserListCursorForTest(firstPage.cursor as string);
+      expect(cursor).toMatchObject({ sort: "usage", actorId: "user_sort_errors" });
+
+      const secondPage = await listUsersActivity(db, { ...commonArgs, limit: 2, sort: "usage", cursor });
+      expect(secondPage.users.map((u) => u.userId)).toEqual(["user_sort_recent", "user_sort_cost"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      const paginatedIds = [...firstPage.users, ...secondPage.users].map((u) => u.userId);
+      expect(paginatedIds).toEqual(byUsage.users.map((u) => u.userId));
+      expect(new Set(paginatedIds).size).toBe(paginatedIds.length);
+
+      // Retrocompatible: omitting `sort`/`cursor` entirely still returns the legacy impact-ranked page.
+      const legacy = await listUsersActivity(db, { ...commonArgs, limit: 50 });
+      expect(legacy.cursor).toBeUndefined();
+      expect(legacy.users.map((u) => u.userId)).not.toEqual(byUsage.users.map((u) => u.userId));
+    });
+  });
+
+  it("scopes sorted user list pagination to the requesting project/environment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const projectA = await createProject(db, { name: "Users Scope A" });
+      const environmentA = await createEnvironment(db, { projectId: projectA.id, name: "production" });
+      const projectB = await createProject(db, { name: "Users Scope B" });
+      const environmentB = await createEnvironment(db, { projectId: projectB.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+
+      await insertEvent(db, {
+        id: "evt_scope_a",
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.a",
+        userId: "user_scope_a",
+        sessionId: "session_scope_a"
+      });
+      await insertEvent(db, {
+        id: "evt_scope_b",
+        projectId: projectB.id,
+        environmentId: environmentB.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.b",
+        userId: "user_scope_b",
+        sessionId: "session_scope_b"
+      });
+
+      const resultA = await listUsersActivity(db, {
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        window: "7d",
+        limit: 50,
+        sort: "usage",
+        now
+      });
+
+      expect(resultA.users.map((u) => u.userId)).toEqual(["user_scope_a"]);
     });
   });
 

@@ -31,8 +31,8 @@ function makeTenant(over: Partial<TenantSummary> = {}): TenantSummary {
 }
 
 const tenants: TenantSummary[] = [
-  makeTenant({ tenantId: "tenant_acme", label: "Acme Inc", impactScore: 42, events: 1000, errors: 5, llmCostUsd: "12.50" }),
   makeTenant({ tenantId: "tenant_globex", label: "Globex", impactScore: 90, events: 200, errors: 50, llmCostUsd: "80.00", lastSeenAt: "2026-07-24T10:00:00.000Z" }),
+  makeTenant({ tenantId: "tenant_acme", label: "Acme Inc", impactScore: 42, events: 1000, errors: 5, llmCostUsd: "12.50" }),
 ];
 
 function listResponse(over: Partial<TenantListResponse> = {}): AggregateResponse<TenantListResponse> {
@@ -56,42 +56,40 @@ function makeClient(over: Record<string, unknown> = {}) {
 }
 
 describe("useTenants", () => {
-  it("loads tenants and builds rows sorted by impact by default", async () => {
+  it("loads tenants in server order and sends sort/limit to the server", async () => {
     const client = makeClient();
     const { result } = renderHook(() =>
       useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "impact" }));
 
     await waitFor(() => expect(result.current.status).toBe("ok"));
     const vm = result.current.data!;
-    // Globex has higher impactScore (90 > 42) so it sorts first
     expect(vm.rows.map((r) => r.tenantId)).toEqual(["tenant_globex", "tenant_acme"]);
     expect(vm.rows[0].llmCostUsd).toBeCloseTo(80);
     expect(vm.rows[0].keyTraits).toEqual([{ key: "plan", value: "enterprise" }]);
     expect(vm.rows[0].lastSeen).not.toBe("—");
+    expect((client as never as { listEntityTenants: { mock: { calls: unknown[][] } } }).listEntityTenants.mock.calls[0][0]).toMatchObject({
+      sort: "impact",
+      limit: 50,
+    });
   });
 
-  it("sorts by usage, errors, llmCost, and recent", async () => {
+  it("maps the llmCost view sort to the server's llm_cost wire value and refetches on sort change", async () => {
     const client = makeClient();
+    const { result, rerender } = renderHook(
+      ({ sort }: { sort: "impact" | "usage" | "errors" | "llmCost" | "recent" }) =>
+        useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort }),
+      { initialProps: { sort: "impact" } }
+    );
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect((client as never as { listEntityTenants: { mock: { calls: unknown[] } } }).listEntityTenants.mock.calls.length).toBe(1);
 
-    const { result: byUsage } = renderHook(() =>
-      useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "usage" }));
-    await waitFor(() => expect(byUsage.current.status).toBe("ok"));
-    expect(byUsage.current.data!.rows.map((r) => r.tenantId)).toEqual(["tenant_acme", "tenant_globex"]);
-
-    const { result: byErrors } = renderHook(() =>
-      useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "errors" }));
-    await waitFor(() => expect(byErrors.current.status).toBe("ok"));
-    expect(byErrors.current.data!.rows.map((r) => r.tenantId)).toEqual(["tenant_globex", "tenant_acme"]);
-
-    const { result: byCost } = renderHook(() =>
-      useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "llmCost" }));
-    await waitFor(() => expect(byCost.current.status).toBe("ok"));
-    expect(byCost.current.data!.rows.map((r) => r.tenantId)).toEqual(["tenant_globex", "tenant_acme"]);
-
-    const { result: byRecent } = renderHook(() =>
-      useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "recent" }));
-    await waitFor(() => expect(byRecent.current.status).toBe("ok"));
-    expect(byRecent.current.data!.rows.map((r) => r.tenantId)).toEqual(["tenant_globex", "tenant_acme"]);
+    rerender({ sort: "llmCost" });
+    await waitFor(() =>
+      expect((client as never as { listEntityTenants: { mock: { calls: unknown[] } } }).listEntityTenants.mock.calls.length).toBe(2)
+    );
+    expect((client as never as { listEntityTenants: { mock: { calls: unknown[][] } } }).listEntityTenants.mock.calls[1][0]).toMatchObject({
+      sort: "llm_cost",
+    });
   });
 
   it("passes trimmed search to the client and refetches on search change", async () => {
@@ -112,13 +110,13 @@ describe("useTenants", () => {
     expect(lastCall.search).toBe("acme");
   });
 
-  it("loadMore increases the limit, replaces rows, and tracks hasMore", async () => {
+  it("loadMore concatenates the next page via cursor instead of replacing the list", async () => {
+    const page1 = Array.from({ length: 50 }, (_, i) => makeTenant({ tenantId: `t${i}` }));
+    const page2 = Array.from({ length: 10 }, (_, i) => makeTenant({ tenantId: `t${50 + i}` }));
     const listEntityTenants = vi
       .fn()
-      .mockResolvedValueOnce(listResponse({ tenants: Array.from({ length: 50 }, (_, i) => makeTenant({ tenantId: `t${i}` })) }))
-      .mockResolvedValueOnce(
-        listResponse({ tenants: Array.from({ length: 60 }, (_, i) => makeTenant({ tenantId: `t${i}` })) })
-      );
+      .mockResolvedValueOnce(listResponse({ tenants: page1, cursor: "cursor_1" }))
+      .mockResolvedValueOnce(listResponse({ tenants: page2, cursor: undefined }));
     const client = makeClient({ listEntityTenants });
     const { result } = renderHook(() =>
       useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "impact" }));
@@ -130,9 +128,20 @@ describe("useTenants", () => {
     act(() => result.current.loadMore());
     await waitFor(() => expect(result.current.loadingMore).toBe(false));
 
-    expect(listEntityTenants.mock.calls[1][0]).toMatchObject({ limit: 100 });
+    expect(listEntityTenants.mock.calls[1][0]).toMatchObject({ limit: 50, cursor: "cursor_1" });
     expect(result.current.data!.rows.length).toBe(60);
     expect(result.current.data!.hasMore).toBe(false);
+  });
+
+  it("loadMore is a no-op without a cursor", async () => {
+    const listEntityTenants = vi.fn().mockResolvedValue(listResponse({ cursor: undefined }));
+    const client = makeClient({ listEntityTenants });
+    const { result } = renderHook(() =>
+      useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "impact" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    act(() => result.current.loadMore());
+    expect(listEntityTenants).toHaveBeenCalledTimes(1);
   });
 
   it("sets error status and clears data when the request fails", async () => {
@@ -151,14 +160,15 @@ describe("useTenants", () => {
     expect((client as never as { listEntityTenants: { mock: { calls: unknown[] } } }).listEntityTenants.mock.calls.length).toBe(0);
   });
 
-  it("reload triggers a refetch", async () => {
-    const client = makeClient();
+  it("reload triggers a refetch and resets any cursor", async () => {
+    const listEntityTenants = vi.fn().mockResolvedValue(listResponse({ cursor: "cursor_1" }));
+    const client = makeClient({ listEntityTenants });
     const { result } = renderHook(() =>
       useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "impact" }));
     await waitFor(() => expect(result.current.status).toBe("ok"));
     act(() => result.current.reload());
-    await waitFor(() =>
-      expect((client as never as { listEntityTenants: { mock: { calls: unknown[] } } }).listEntityTenants.mock.calls.length).toBe(2)
-    );
+    await waitFor(() => expect(listEntityTenants.mock.calls.length).toBe(2));
+    const lastQuery = listEntityTenants.mock.calls[1][0] as { cursor?: string };
+    expect(lastQuery.cursor).toBeUndefined();
   });
 });

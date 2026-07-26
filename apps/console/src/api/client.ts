@@ -1206,6 +1206,8 @@ function entityTenantListPath(query: TenantListQuery): string {
   params.set("window", query.window);
   if (query.search) params.set("search", query.search);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.sort) params.set("sort", query.sort);
+  if (query.cursor) params.set("cursor", query.cursor);
 
   return `/query/entities/tenants?${params.toString()}`;
 }
@@ -1231,6 +1233,8 @@ function userListPath(query: UserListQuery): string {
   if (query.search) params.set("search", query.search);
   if (query.tenantId) params.set("tenant_id", query.tenantId);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.sort) params.set("sort", query.sort);
+  if (query.cursor) params.set("cursor", query.cursor);
 
   return `/query/users?${params.toString()}`;
 }

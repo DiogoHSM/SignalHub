@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api/client";
-import type { UserSummary } from "../../api/types";
-import { recentValue, sortUsers, sortValue, useUsers, userKey, type UserSort } from "./useUsers";
+import type { UserListResponse, UserSummary } from "../../api/types";
+import { useUsers, userKey, type UserSort } from "./useUsers";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -35,22 +35,31 @@ function makeUser(overrides: Partial<UserSummary> = {}): UserSummary {
 
 const USER_HIGH_IMPACT = makeUser({ userId: "user_hi", label: "High impact", impactScore: 90, lastSeenAt: "2026-06-22T00:00:00Z", events: 500 });
 const USER_LOW_IMPACT = makeUser({ userId: "user_lo", label: "Low impact", impactScore: 5, lastSeenAt: "2026-06-20T00:00:00Z", events: 10, llmCostUsd: "9.00" });
-const USER_TIE_A = makeUser({ userId: "user_tie_a", label: "Tie A", impactScore: 50, lastSeenAt: "2026-06-21T00:00:00Z", events: 20 });
-const USER_TIE_B = makeUser({ userId: "user_tie_b", label: "Tie B", impactScore: 50, lastSeenAt: "2026-06-21T00:00:00Z", events: 40 });
 const USER_ANON = makeUser({ userId: null, label: "Anonymous", isAnonymous: true, impactScore: 99 });
+
+function listResponse(over: Partial<UserListResponse> = {}): { data: UserListResponse } {
+  return {
+    data: {
+      window: "7d",
+      generatedAt: "",
+      scope: { projectId: "p", environmentId: "e" },
+      range: { from: "", to: "" },
+      users: [USER_HIGH_IMPACT, USER_LOW_IMPACT],
+      ...over,
+    },
+  };
+}
 
 function makeClient(over: Partial<ApiClient> = {}) {
   return {
-    listUsersActivity: vi.fn().mockResolvedValue({
-      data: { window: "7d", generatedAt: "", scope: { projectId: "p", environmentId: "e" }, range: { from: "", to: "" }, users: [USER_LOW_IMPACT, USER_HIGH_IMPACT] },
-    }),
+    listUsersActivity: vi.fn().mockResolvedValue(listResponse()),
     ...over,
   } as unknown as Pick<ApiClient, "listUsersActivity">;
 }
 
 const BASE = { projectId: "p", environmentId: "e", window: "7d" as const, sort: "impact" as const };
 
-describe("userKey / sortValue / recentValue", () => {
+describe("userKey", () => {
   it("collapses anonymous users to _anonymous", () => {
     expect(userKey(USER_ANON)).toBe("_anonymous");
     expect(userKey(USER_HIGH_IMPACT)).toBe("user_hi");
@@ -59,44 +68,37 @@ describe("userKey / sortValue / recentValue", () => {
   it("falls back to _anonymous when userId is null even if not flagged anonymous", () => {
     expect(userKey({ userId: null, isAnonymous: false })).toBe("_anonymous");
   });
-
-  it("sortValue reads the right metric per sort", () => {
-    expect(sortValue(USER_HIGH_IMPACT, "impact")).toBe(90);
-    expect(sortValue(USER_HIGH_IMPACT, "usage")).toBe(500);
-    expect(sortValue(USER_LOW_IMPACT, "llmCost")).toBe(9);
-    expect(sortValue(USER_HIGH_IMPACT, "recent")).toBe(recentValue(USER_HIGH_IMPACT));
-  });
-});
-
-describe("sortUsers", () => {
-  it("sorts descending by impact by default, tie-broken by lastSeenAt then events then label", () => {
-    const sorted = sortUsers([USER_LOW_IMPACT, USER_TIE_B, USER_TIE_A, USER_HIGH_IMPACT], "impact");
-    expect(sorted.map((u) => u.userId)).toEqual(["user_hi", "user_tie_b", "user_tie_a", "user_lo"]);
-  });
-
-  it("sorts by usage, errors, and llmCost metrics", () => {
-    expect(sortUsers([USER_LOW_IMPACT, USER_HIGH_IMPACT], "usage").map((u) => u.userId)).toEqual(["user_hi", "user_lo"]);
-    expect(sortUsers([USER_LOW_IMPACT, USER_HIGH_IMPACT], "llmCost").map((u) => u.userId)).toEqual(["user_lo", "user_hi"]);
-  });
 });
 
 describe("useUsers", () => {
-  it("returns rows sorted by impact by default", async () => {
+  it("returns rows in server order and sends sort/limit to the server", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useUsers({ client, ...BASE }));
     await waitFor(() => expect(result.current.status).toBe("ok"));
     expect(result.current.data!.rows.map((r) => r.key)).toEqual(["user_hi", "user_lo"]);
+    expect(client.listUsersActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: "impact", limit: 50 })
+    );
   });
 
-  it("re-sorts without refetching when sort changes", async () => {
+  it("maps the llmCost view sort to the server's llm_cost wire value", async () => {
+    const client = makeClient();
+    renderHook(() => useUsers({ client, ...BASE, sort: "llmCost" }));
+    await waitFor(() => expect(client.listUsersActivity).toHaveBeenCalled());
+    expect(client.listUsersActivity).toHaveBeenCalledWith(expect.objectContaining({ sort: "llm_cost" }));
+  });
+
+  it("refetches (resetting the list) when sort changes — sort is server-side now", async () => {
     const client = makeClient();
     const { result, rerender } = renderHook(({ sort }: { sort: UserSort }) => useUsers({ client, ...BASE, sort }), {
       initialProps: { sort: "impact" },
     });
     await waitFor(() => expect(result.current.status).toBe("ok"));
-    rerender({ sort: "llmCost" });
-    expect(result.current.data!.rows.map((r) => r.key)).toEqual(["user_lo", "user_hi"]);
     expect(client.listUsersActivity).toHaveBeenCalledTimes(1);
+
+    rerender({ sort: "llmCost" });
+    await waitFor(() => expect(client.listUsersActivity).toHaveBeenCalledTimes(2));
+    expect(client.listUsersActivity).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "llm_cost" }));
   });
 
   it("forwards search and tenantId only when provided", async () => {
@@ -131,9 +133,7 @@ describe("useUsers", () => {
     const first = new Promise((resolve) => { resolveFirst = resolve; });
     const listUsersActivity = vi.fn()
       .mockImplementationOnce(() => first)
-      .mockImplementationOnce(() =>
-        Promise.resolve({ data: { window: "7d", generatedAt: "", scope: { projectId: "p", environmentId: "e" }, range: { from: "", to: "" }, users: [USER_HIGH_IMPACT] } })
-      );
+      .mockImplementationOnce(() => Promise.resolve(listResponse({ users: [USER_HIGH_IMPACT] })));
     const client = makeClient({ listUsersActivity } as never);
     const { result, rerender } = renderHook(({ tenantId }) => useUsers({ client, ...BASE, tenantId }), {
       initialProps: { tenantId: "a" },
@@ -142,8 +142,64 @@ describe("useUsers", () => {
     await waitFor(() => expect(result.current.status).toBe("ok"));
 
     // The stale first request resolves after the second — it must not clobber the fresh result.
-    resolveFirst({ data: { window: "7d", generatedAt: "", scope: { projectId: "p", environmentId: "e" }, range: { from: "", to: "" }, users: [USER_LOW_IMPACT] } });
+    resolveFirst(listResponse({ users: [USER_LOW_IMPACT] }));
     await Promise.resolve();
     expect(result.current.data!.rows.map((r) => r.key)).toEqual(["user_hi"]);
+  });
+
+  describe("cursor pagination", () => {
+    it("hasMore reflects whether the server returned a cursor", async () => {
+      const client = makeClient({
+        listUsersActivity: vi.fn().mockResolvedValue(listResponse({ cursor: "cursor_1" })),
+      } as never);
+      const { result } = renderHook(() => useUsers({ client, ...BASE }));
+      await waitFor(() => expect(result.current.status).toBe("ok"));
+      expect(result.current.data!.hasMore).toBe(true);
+    });
+
+    it("loadMore concatenates the next page using the returned cursor instead of replacing the list", async () => {
+      const listUsersActivity = vi
+        .fn()
+        .mockResolvedValueOnce(listResponse({ users: [USER_HIGH_IMPACT], cursor: "cursor_1" }))
+        .mockResolvedValueOnce(listResponse({ users: [USER_LOW_IMPACT], cursor: undefined }));
+      const client = makeClient({ listUsersActivity } as never);
+      const { result } = renderHook(() => useUsers({ client, ...BASE }));
+
+      await waitFor(() => expect(result.current.status).toBe("ok"));
+      expect(result.current.data!.rows.map((r) => r.key)).toEqual(["user_hi"]);
+      expect(result.current.data!.hasMore).toBe(true);
+
+      act(() => result.current.loadMore());
+      await waitFor(() => expect(result.current.loadingMore).toBe(false));
+
+      expect(listUsersActivity).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "cursor_1" }));
+      expect(result.current.data!.rows.map((r) => r.key)).toEqual(["user_hi", "user_lo"]);
+      expect(result.current.data!.hasMore).toBe(false);
+    });
+
+    it("loadMore is a no-op without a cursor", async () => {
+      const listUsersActivity = vi.fn().mockResolvedValue(listResponse({ cursor: undefined }));
+      const client = makeClient({ listUsersActivity } as never);
+      const { result } = renderHook(() => useUsers({ client, ...BASE }));
+      await waitFor(() => expect(result.current.status).toBe("ok"));
+
+      act(() => result.current.loadMore());
+      expect(listUsersActivity).toHaveBeenCalledTimes(1);
+    });
+
+    it("resets the cursor and list on reload", async () => {
+      const listUsersActivity = vi
+        .fn()
+        .mockResolvedValueOnce(listResponse({ users: [USER_HIGH_IMPACT], cursor: "cursor_1" }))
+        .mockResolvedValueOnce(listResponse({ users: [USER_HIGH_IMPACT], cursor: "cursor_1" }));
+      const client = makeClient({ listUsersActivity } as never);
+      const { result } = renderHook(() => useUsers({ client, ...BASE }));
+      await waitFor(() => expect(result.current.status).toBe("ok"));
+
+      act(() => result.current.reload());
+      await waitFor(() => expect(listUsersActivity).toHaveBeenCalledTimes(2));
+      const lastQuery = vi.mocked(listUsersActivity).mock.calls[1][0];
+      expect(lastQuery.cursor).toBeUndefined();
+    });
   });
 });

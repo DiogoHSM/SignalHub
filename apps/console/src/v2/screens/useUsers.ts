@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { UserListQuery, UserSummary, UserWindow } from "../../api/types";
+import type { ActivitySort, UserListQuery, UserSummary, UserWindow } from "../../api/types";
 import { relativeTime } from "../../components/ui/v2";
 
 // ---------------------------------------------------------------------------
@@ -29,12 +29,15 @@ export type UserRowVM = {
 
 export type UsersVM = {
   rows: UserRowVM[];
+  hasMore: boolean;
 };
 
 export type UseUsersResult = {
   data: UsersVM | null;
   status: "loading" | "ok" | "error";
   reload: () => void;
+  loadMore: () => void;
+  loadingMore: boolean;
 };
 
 type UseUsersArgs = {
@@ -48,6 +51,8 @@ type UseUsersArgs = {
   limit?: number;
 };
 
+const PAGE_SIZE_DEFAULT = 50;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -57,31 +62,9 @@ export function userKey(user: Pick<UserSummary, "userId" | "isAnonymous">): stri
   return user.isAnonymous ? "_anonymous" : (user.userId ?? "_anonymous");
 }
 
-export function recentValue(user: UserSummary): number {
-  return user.lastSeenAt ? new Date(user.lastSeenAt).getTime() : 0;
-}
-
-export function sortValue(user: UserSummary, sort: UserSort): number {
-  if (sort === "impact") return user.impactScore;
-  if (sort === "usage") return user.events;
-  if (sort === "errors") return user.errors;
-  if (sort === "llmCost") return Number(user.llmCostUsd);
-  return recentValue(user);
-}
-
-/** Sort users by the given metric, with the `impact` default tie-broken by lastSeenAt → events → label. */
-export function sortUsers(users: UserSummary[], sort: UserSort): UserSummary[] {
-  return [...users].sort((left, right) => {
-    const byMetric = sortValue(right, sort) - sortValue(left, sort);
-    if (byMetric !== 0) return byMetric;
-    if (sort === "impact") {
-      const byRecent = recentValue(right) - recentValue(left);
-      if (byRecent !== 0) return byRecent;
-      const byEvents = right.events - left.events;
-      if (byEvents !== 0) return byEvents;
-    }
-    return left.label.localeCompare(right.label);
-  });
+/** Maps the view-level sort id to the server's wire-level sort value (the only mismatch is llmCost/llm_cost). */
+function toServerSort(sort: UserSort): ActivitySort {
+  return sort === "llmCost" ? "llm_cost" : sort;
 }
 
 function mapRow(user: UserSummary): UserRowVM {
@@ -116,10 +99,12 @@ export function useUsers({
   search,
   tenantId,
   sort,
-  limit = 50,
+  limit = PAGE_SIZE_DEFAULT,
 }: UseUsersArgs): UseUsersResult {
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [rawUsers, setRawUsers] = useState<UserSummary[] | null>(null);
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
 
@@ -128,8 +113,10 @@ export function useUsers({
   useEffect(() => {
     const gen = ++genRef.current;
     setStatus("loading");
+    setLoadingMore(false);
+    setCursor(undefined);
 
-    const query: UserListQuery = { projectId, environmentId, window: timeWindow, limit };
+    const query: UserListQuery = { projectId, environmentId, window: timeWindow, limit, sort: toServerSort(sort) };
     if (search) query.search = search;
     if (tenantId) query.tenantId = tenantId;
 
@@ -138,6 +125,7 @@ export function useUsers({
       .then((res) => {
         if (gen !== genRef.current) return;
         setRawUsers(res.data.users);
+        setCursor(res.data.cursor);
         setStatus("ok");
       })
       .catch((err) => {
@@ -151,9 +139,34 @@ export function useUsers({
       ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, environmentId, timeWindow, search, tenantId, limit, tick]);
+  }, [projectId, environmentId, timeWindow, search, tenantId, sort, limit, tick]);
 
-  const data: UsersVM | null = rawUsers ? { rows: sortUsers(rawUsers, sort).map(mapRow) } : null;
+  const loadMore = useCallback(() => {
+    if (!cursor || loadingMore || rawUsers === null) return;
 
-  return { data, status, reload };
+    const gen = ++genRef.current;
+    setLoadingMore(true);
+
+    const query: UserListQuery = { projectId, environmentId, window: timeWindow, limit, sort: toServerSort(sort), cursor };
+    if (search) query.search = search;
+    if (tenantId) query.tenantId = tenantId;
+
+    client
+      .listUsersActivity(query)
+      .then((res) => {
+        if (gen !== genRef.current) return;
+        setRawUsers((current) => (current ? [...current, ...res.data.users] : res.data.users));
+        setCursor(res.data.cursor);
+        setLoadingMore(false);
+      })
+      .catch((err) => {
+        if (gen !== genRef.current) return;
+        console.error(err);
+        setLoadingMore(false);
+      });
+  }, [client, cursor, loadingMore, rawUsers, projectId, environmentId, timeWindow, search, tenantId, sort, limit]);
+
+  const data: UsersVM | null = rawUsers ? { rows: rawUsers.map(mapRow), hasMore: Boolean(cursor) } : null;
+
+  return { data, status, reload, loadMore, loadingMore };
 }
