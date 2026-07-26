@@ -117,7 +117,7 @@ export type UseMonitorsResult = {
   createHttpMonitor: (form: CreateHttpForm) => Promise<boolean>;
   createHeartbeatMonitor: (form: CreateHeartbeatForm) => Promise<boolean>;
   updateMonitor: (form: EditMonitorForm) => Promise<boolean>;
-  archiveMonitor: (id: string) => Promise<void>;
+  archiveMonitor: (id: string) => Promise<boolean>;
   loadChecks: (id: string) => Promise<MonitorCheckVM[]>;
 };
 
@@ -382,12 +382,11 @@ export function useMonitors({ client, projectId, environmentId, endpoint }: UseM
   );
 
   const archiveMonitor = useCallback(
-    async (id: string) => {
-      await run(async () => {
+    (id: string) =>
+      run(async () => {
         if (!client.archiveMonitor) return;
         await client.archiveMonitor(id);
-      });
-    },
+      }),
     [client, run],
   );
 

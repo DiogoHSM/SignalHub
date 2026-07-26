@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { EmptyHint, Icon, PageHead, SecretField, Segmented, StatusDot } from "../../components/ui/v2";
 import type { ScreenCtx } from "./registry";
 import { useMonitors } from "./useMonitors";
+import { runMutation } from "../lib/run-mutation";
 import type { CreateHeartbeatForm, CreateHttpForm, EditMonitorForm, LatestMonitorSecret, MonitorChannelVM, MonitorCheckVM, MonitorRollupVM, MonitorRowVM } from "./useMonitors";
 
 const KIND_FILTERS = ["All", "HTTP", "Heartbeat"] as const;
@@ -487,7 +488,12 @@ export function MonitorsScreen({ ctx }: { ctx: ScreenCtx }) {
                   selected={selectedId === row.id}
                   onSelect={() => setSelectedId((cur) => (cur === row.id ? null : row.id))}
                   onEdit={() => setEditId((cur) => (cur === row.id ? null : row.id))}
-                  onArchive={() => void monitors.archiveMonitor(row.id)}
+                  onArchive={() =>
+                    void runMutation(() => monitors.archiveMonitor(row.id), {
+                      pushToast: ctx.pushToast,
+                      message: "Could not archive monitor",
+                    })
+                  }
                 />
                 {editId === row.id ? (
                   <EditRow

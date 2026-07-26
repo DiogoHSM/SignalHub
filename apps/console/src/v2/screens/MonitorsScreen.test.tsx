@@ -156,4 +156,16 @@ describe("MonitorsScreen — mutations", () => {
     fireEvent.click(screen.getByRole("button", { name: /Confirm/ })); // confirm
     await waitFor(() => expect(ctx.client.archiveMonitor).toHaveBeenCalledWith("mon_http"));
   });
+
+  it("pushes a toast and does not throw when archiving a monitor fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = makeClient({ archiveMonitor: vi.fn().mockRejectedValue(new Error("network error")) });
+    const ctx = makeCtx({ client });
+    const { fireEvent } = await import("@testing-library/react");
+    render(<MonitorsScreen ctx={ctx} />);
+    await screen.findByText("API health");
+    fireEvent.click(screen.getByRole("button", { name: "Archive API health" })); // arm
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/ })); // confirm
+    await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not archive monitor"));
+  });
 });
