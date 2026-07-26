@@ -20,7 +20,7 @@ The public self-hosting operator guide lives in `docs/SELF-HOSTING.md`. Keep it 
 
 SignalMonitor's intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.
 
-EasyPanel VPS deployment is the active production deployment for the hosted self-managed instance. Docker Compose remains the documented portable production-supported installation path for independent self-hosted installs.
+Coolify VPS deployment is the active production deployment for the hosted self-managed instance. Docker Compose remains the documented portable production-supported installation path for independent self-hosted installs.
 
 ## Local Compose
 
@@ -81,19 +81,15 @@ For release-readiness checks, run `pnpm smoke:compose` from a clean checkout aft
 
 ## CI Gate
 
-GitHub Actions runs the release-readiness baseline for pull requests to `main` and pushes to `main`: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
+GitHub Actions is manual-only by policy (2026-07): the CI workflow runs only through `workflow_dispatch`, and the release-readiness baseline runs locally before every push: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
 
 The workflow uses GitHub-maintained actions that run on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). This is separate from the application runtime, which remains Node.js 22.
 
 The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. It does not publish images or create releases.
 
-On pushes to `main`, the `Deploy EasyPanel` job runs only after the test, build, Compose config, and Compose smoke jobs pass. It calls EasyPanel deploy hooks from GitHub Actions secrets:
+Production deploys are not part of CI. The hosted instance runs on Coolify with separate `api`, `worker`, and `scheduler` applications built from the repository Dockerfile, plus Coolify-managed Postgres and Redis database resources. After merging to `main`, the operator triggers each application's Coolify deploy webhook manually (or uses the panel's Deploy action). Deploy webhook URLs are operator secrets kept in the uncommitted root `SECRETS.md`.
 
-- `EASYPANEL_API_DEPLOY_URL` triggers the `api` service deploy. The older `EASYPANEL_DEPLOY_URL` name is accepted as an API-only alias.
-- `EASYPANEL_WORKER_DEPLOY_URL` triggers the `worker` service deploy.
-- `EASYPANEL_SCHEDULER_DEPLOY_URL` triggers the scheduler service deploy when the scheduler is split into its own EasyPanel app service.
-
-Postgres and Redis do not use repository-triggered deploy hooks. They are stateful EasyPanel template services and should be managed directly in EasyPanel.
+Postgres and Redis are never redeployed from repository builds. They are stateful Coolify database resources managed directly in the panel.
 
 ## SDK Publishing
 
@@ -119,9 +115,9 @@ Before publishing a new SDK release, update `packages/sdk/package.json` version,
 - `worker`: BullMQ telemetry worker with `WORKER_ROLE=queue`.
 - `scheduler`: scheduled retention, event rollups, backup, alert, monitor evaluation, and warehouse export worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
 
-`WORKER_ROLE` is only operationally meaningful for processes started with `pnpm start:worker`. In split EasyPanel deployments, set `WORKER_ROLE=queue` on the queue worker service and `WORKER_ROLE=scheduler` on the scheduler service. The scheduler service also needs the same shared runtime env vars as the worker (`DATABASE_URL`, `REDIS_URL`, secrets, SMTP, retention, monitor, alert, and backup settings) because it evaluates background jobs directly.
+`WORKER_ROLE` is only operationally meaningful for processes started with `pnpm start:worker`. In split deployments such as the Coolify production instance, set `WORKER_ROLE=queue` on the queue worker service and `WORKER_ROLE=scheduler` on the scheduler service. The scheduler service also needs the same shared runtime env vars as the worker (`DATABASE_URL`, `REDIS_URL`, secrets, SMTP, retention, monitor, alert, and backup settings) because it evaluates background jobs directly.
 
-The API, worker, and scheduler containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. The Dockerfile copies application files with `sigmon` ownership and runs install/build as `sigmon`, avoiding a final recursive ownership rewrite over `/app` during EasyPanel image export. Dependency installation is isolated behind workspace package manifest copies and a BuildKit pnpm-store cache mount, so ordinary source or documentation changes can reuse the install layer. `.dockerignore` excludes local worktrees, `node_modules`, generated `dist` folders, secrets notes, and other non-build artifacts from local Docker contexts. Compose defines healthchecks for all four services.
+The API, worker, and scheduler containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. The Dockerfile copies application files with `sigmon` ownership and runs install/build as `sigmon`, avoiding a final recursive ownership rewrite over `/app` during image export. Dependency installation is isolated behind workspace package manifest copies and a BuildKit pnpm-store cache mount, so ordinary source or documentation changes can reuse the install layer. `.dockerignore` excludes local worktrees, `node_modules`, generated `dist` folders, secrets notes, and other non-build artifacts from local Docker contexts. Compose defines healthchecks for all four services.
 
 ## Warehouse Sync
 
@@ -245,6 +241,6 @@ Set `SIGMON_PUBLIC_ENDPOINT` to the externally reachable API origin when SignalM
 
 Browser SDK telemetry can post directly from another app origin to SignalMonitor after that origin is added in `Project Settings > Browser origins`. Origins must be exact browser origins such as `https://app.controledaempresa.com`; paths are normalized away. `BROWSER_CORS_ORIGINS` remains available as an optional global allowlist for bootstrap or emergency use. CORS handling is limited to public ingestion endpoints under `/v1/*`; admin, query, auth, system, docs, and console routes remain outside the browser ingestion CORS allowlist.
 
-Public SDK docs are served at `/sdk`, API reference docs are served at `/docs`, and the raw OpenAPI 3.1 document is served at `/openapi.json`. For the EasyPanel deployment, use `https://my.sigmon.app/sdk`, `https://my.sigmon.app/docs`, and `https://my.sigmon.app/openapi.json`. The docs are public, but protected endpoints still require their normal ingestion API key, source-map upload token, heartbeat secret, or human session cookie.
+Public SDK docs are served at `/sdk`, API reference docs are served at `/docs`, and the raw OpenAPI 3.1 document is served at `/openapi.json`. For the hosted Coolify deployment, use `https://my.sigmon.app/sdk`, `https://my.sigmon.app/docs`, and `https://my.sigmon.app/openapi.json`. The docs are public, but protected endpoints still require their normal ingestion API key, source-map upload token, heartbeat secret, or human session cookie.
 
 Local development can run the API with `pnpm dev:api` and the console with `pnpm dev:console`.

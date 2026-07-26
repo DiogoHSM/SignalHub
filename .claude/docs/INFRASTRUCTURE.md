@@ -8,17 +8,15 @@
 - Postgres: operational data and typed telemetry records.
 - Redis: queue backend with append-only persistence enabled in Compose.
 
-## EasyPanel Deployment
+## Coolify Deployment
 
-The live VPS deployment uses EasyPanel services named `api`, `worker`, optional `scheduler`, `postgres`, and `redis` in the `sigmon` project. The `api`, `worker`, and optional `scheduler` services are repository-built application services and may be redeployed through EasyPanel deploy hooks after GitHub Actions passes on `main`.
+The live VPS deployment runs on Coolify (hosting moved from EasyPanel on 2026-07-26), in project `sigmon`, environment `production`. The applications `api`, `worker`, and `scheduler` are three separate Coolify applications built from the repository Dockerfile, with `WORKER_ROLE=queue` on the worker and `WORKER_ROLE=scheduler` on the scheduler. `postgres` and `redis` are Coolify-managed database resources on the same server. The `api` application serves `https://my.sigmon.app`; worker and scheduler have no public route.
 
-GitHub Actions secrets:
+Deploys are manual. GitHub Actions does not trigger deploys: after merging to `main`, the operator calls each application's Coolify deploy webhook by hand (or uses the panel's Deploy action). Deploy webhook URLs are operator secrets — keep them in the uncommitted root `SECRETS.md`, never in committed files or GitHub Actions secrets.
 
-- `EASYPANEL_API_DEPLOY_URL`: deploy hook for the `api` service. `EASYPANEL_DEPLOY_URL` remains accepted as a legacy API-only alias.
-- `EASYPANEL_WORKER_DEPLOY_URL`: deploy hook for the `worker` service.
-- `EASYPANEL_SCHEDULER_DEPLOY_URL`: deploy hook for the optional split `scheduler` service.
+Do not redeploy Postgres or Redis from repository builds. They are stateful Coolify database resources managed directly in the panel.
 
-Do not add deploy hooks for Postgres or Redis. They are stateful template services and should be managed directly in EasyPanel.
+Operator access details (Coolify panel URL, VPS address, SSH key access) are intentionally not committed; they live in the uncommitted root `SECRETS.md`.
 
 ## Compose Defaults
 
