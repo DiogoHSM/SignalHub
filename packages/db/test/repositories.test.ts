@@ -11103,6 +11103,104 @@ describe("repositories", () => {
     });
   });
 
+  it("matches trait eq for number and boolean trait values, not just strings (PER-450)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Typed Trait Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_typed_u1", userId: "user_a", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_typed_u2", userId: "user_b", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_a",
+        traits: { score: 30, is_paid: true },
+        timestamp: now
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_b",
+        traits: { score: 10, is_paid: false },
+        timestamp: now
+      });
+
+      const scoreEqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Score 30",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "score", operator: "eq", value: 30 }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, scoreEqSegment, now)).resolves.toEqual(["user_a"]);
+
+      const paidEqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Paid users",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "is_paid", operator: "eq", value: true }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, paidEqSegment, now)).resolves.toEqual(["user_a"]);
+
+      const notPaidEqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Unpaid users",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "is_paid", operator: "eq", value: false }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, notPaidEqSegment, now)).resolves.toEqual(["user_b"]);
+
+      const scoreNeqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Score not 30",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "score", operator: "neq", value: 30 }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, scoreNeqSegment, now)).resolves.toEqual(["user_b"]);
+
+      const paidNeqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Not paid=true",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "is_paid", operator: "neq", value: true }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, paidNeqSegment, now)).resolves.toEqual(["user_b"]);
+    });
+  });
+
   it("uses the traits GIN index for trait eq containment lookups at scale", async () => {
     // The compiled trait EXISTS subquery correlates on (project_id, environment_id, user_id),
     // which is the user_profiles primary key: for a single known actor, Postgres always
@@ -11139,6 +11237,52 @@ describe("repositories", () => {
           .where("project_id", "=", project.id)
           .where("environment_id", "=", environment.id)
           .where(sql<boolean>`traits @> jsonb_build_object('plan'::text, 'enterprise'::text)`)
+          .explain();
+        const planText = JSON.stringify(plan);
+        expect(planText).toContain("user_profiles_traits_gin_idx");
+      });
+    });
+  });
+
+  it("uses the traits GIN index for a numeric trait eq containment lookup at scale (PER-450)", async () => {
+    // Same shape as the string GIN test above, but for the numeric containment fragment
+    // (`jsonb_build_object(key::text, value::numeric)`) that compileSegmentDefinition now
+    // produces for a number trait value. Proves the PER-450 fix keeps the containment
+    // right-hand side GIN-indexable instead of falling back to a text cast.
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Trait Gin Numeric Scale Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      // A larger profile count than the string GIN test above: by this point in the suite,
+      // user_profiles already carries rows from earlier tests (including the 500-row string
+      // GIN fixture), and the planner's choice between the traits GIN index and the
+      // (project_id, environment_id, first_seen_at) btree is cost-based and sensitive to
+      // accumulated table statistics. 2,000 profiles at a 1-in-50 hit ratio was verified
+      // (repeatedly, against the full suite's accumulated state) to consistently prefer the
+      // GIN index; smaller counts were observed to flip to the btree + filter plan instead.
+      const profileCount = 2000;
+      for (let i = 0; i < profileCount; i += 1) {
+        await identifyUserProfile(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          userId: `user_gin_num_${i}`,
+          traits: { score: i % 50 === 0 ? 30 : 10 },
+          timestamp: now
+        });
+      }
+
+      await db.connection().execute(async (conn) => {
+        await sql`ANALYZE user_profiles`.execute(conn);
+        await sql`SET enable_seqscan = off`.execute(conn);
+        const plan = await conn
+          .selectFrom("user_profiles")
+          .select("user_id")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .where(sql<boolean>`traits @> jsonb_build_object('score'::text, 30::numeric)`)
           .explain();
         const planText = JSON.stringify(plan);
         expect(planText).toContain("user_profiles_traits_gin_idx");

@@ -110,6 +110,49 @@ describe("compileSegmentDefinition operators", () => {
     expect(compiled.sql).toContain("tenant_profiles");
   });
 
+  it("compiles trait eq with a number value using a numeric jsonb cast, never a text cast (PER-450)", () => {
+    const leaf: SegmentTraitLeaf = { kind: "trait", source: "user", name: "score", operator: "eq", value: 30 };
+    const compiled = compile(leaf);
+    expect(compiled.sql).toMatch(/"traits" @> jsonb_build_object\(\$\d+::text, \$\d+::numeric\)/);
+    expect(compiled.parameters).toContain(30);
+  });
+
+  it("compiles trait eq with a boolean value using a boolean jsonb cast, never a text cast (PER-450)", () => {
+    const leaf: SegmentTraitLeaf = { kind: "trait", source: "user", name: "is_paid", operator: "eq", value: true };
+    const compiled = compile(leaf);
+    expect(compiled.sql).toMatch(/"traits" @> jsonb_build_object\(\$\d+::text, \$\d+::boolean\)/);
+    expect(compiled.parameters).toContain(true);
+  });
+
+  it("still compiles trait eq with a string value using a text jsonb cast", () => {
+    const leaf: SegmentTraitLeaf = { kind: "trait", source: "user", name: "plan", operator: "eq", value: "enterprise" };
+    const compiled = compile(leaf);
+    expect(compiled.sql).toMatch(/"traits" @> jsonb_build_object\(\$\d+::text, \$\d+::text\)/);
+    expect(compiled.parameters).toContain("enterprise");
+  });
+
+  it("compiles trait neq with a number value via text extraction, unaffected by the containment typing fix", () => {
+    const leaf: SegmentTraitLeaf = { kind: "trait", source: "user", name: "score", operator: "neq", value: 30 };
+    const compiled = compile(leaf);
+    expect(compiled.sql).toMatch(/"traits" ->> \$\d+\) <> \$\d+/);
+    expect(compiled.parameters).toContain("30");
+  });
+
+  it("compiles trait neq with a boolean value via text extraction, unaffected by the containment typing fix", () => {
+    const leaf: SegmentTraitLeaf = { kind: "trait", source: "user", name: "is_paid", operator: "neq", value: false };
+    const compiled = compile(leaf);
+    expect(compiled.sql).toMatch(/"traits" ->> \$\d+\) <> \$\d+/);
+    expect(compiled.parameters).toContain("false");
+  });
+
+  it("never inlines a malicious numeric-looking trait value into the compiled sql text", () => {
+    const maliciousValue = "30; DROP TABLE user_profiles; --";
+    const leaf: SegmentTraitLeaf = { kind: "trait", source: "user", name: "plan", operator: "eq", value: maliciousValue };
+    const compiled = compile(leaf);
+    expect(compiled.sql).not.toContain("DROP TABLE");
+    expect(compiled.parameters).toContain(maliciousValue);
+  });
+
   it("throws segment_invalid_operator for an operator outside the whitelist", () => {
     const leaf = { kind: "event", property: { name: "plan", operator: "nope", value: "team" } } as unknown as SegmentEventLeaf;
     expect(() => compile(leaf)).toThrow(SegmentDefinitionError);
