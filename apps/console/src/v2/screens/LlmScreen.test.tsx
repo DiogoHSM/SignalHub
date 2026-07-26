@@ -188,4 +188,31 @@ describe("LlmScreen", () => {
     await userEvent.click(chip);
     expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ tenantId: undefined, userId: undefined }));
   });
+
+  it("seeds provider/model/promptName filters from ctx.pendingFilters, shows chips, and clears them via Clear filters", async () => {
+    const spy = vi.spyOn(useLlmModule, "useLlm").mockReturnValue({ data: vm, status: "ok", reload: vi.fn() });
+    const ctx = makeCtx({
+      pendingFilters: {
+        section: "llm",
+        filters: { provider: "anthropic", model: "claude-3.7", promptName: "fraud_check" },
+      },
+    });
+    render(<LlmScreen ctx={ctx} />);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "anthropic", model: "claude-3.7", promptName: "fraud_check" })
+    );
+    expect(ctx.clearPendingFilters).toHaveBeenCalled();
+
+    // chips visible for all three seeded fields
+    const chip = screen.getByText(/provider: anthropic/i);
+    expect(chip).toBeInTheDocument();
+    expect(screen.getByText(/model: claude-3\.7/i)).toBeInTheDocument();
+    expect(screen.getByText(/prompt: fraud_check/i)).toBeInTheDocument();
+
+    // Clear filters removes provider/model/promptName from the next query
+    await userEvent.click(chip);
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: undefined, model: undefined, promptName: undefined })
+    );
+  });
 });
