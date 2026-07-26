@@ -194,14 +194,14 @@ describe("ErrorsScreen", () => {
       expect(errorsTab).toHaveClass("is-active");
     });
 
-    it("renders all 6 tabs: Events, Errors, Traces, LLM, Tenants, Users", () => {
+    it("renders all 6 tabs: Events, Errors, Traces, LLM, Entities, Users", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByRole("button", { name: "Events" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Errors" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Traces" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "LLM" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Tenants" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Entities" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Users" })).toBeInTheDocument();
     });
 
@@ -242,12 +242,12 @@ describe("ErrorsScreen", () => {
       expect(navigate).toHaveBeenCalledWith("llm");
     });
 
-    it("navigates to investigate when Tenants tab is clicked", async () => {
+    it("navigates to entities when Entities tab is clicked", async () => {
       mockUseErrors(ERRORS_VM);
       const navigate = vi.fn();
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={navigate} />);
-      await userEvent.click(screen.getByRole("button", { name: "Tenants" }));
-      expect(navigate).toHaveBeenCalledWith("investigate");
+      await userEvent.click(screen.getByRole("button", { name: "Entities" }));
+      expect(navigate).toHaveBeenCalledWith("entities");
     });
 
     it("navigates to investigate when Users tab is clicked", async () => {

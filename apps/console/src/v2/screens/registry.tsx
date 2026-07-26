@@ -8,6 +8,7 @@ import { ErrorsScreen } from "./ErrorsScreen";
 import { IncidentsScreen } from "./IncidentsScreen";
 import { LlmScreen } from "./LlmScreen";
 import { TracesScreen } from "./TracesScreen";
+import { TenantsScreen } from "./TenantsScreen";
 import { AlertsScreen } from "./AlertsScreen";
 import { MonitorsScreen } from "./MonitorsScreen";
 import { SystemScreen } from "./SystemScreen";
@@ -73,6 +74,11 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   traces: {
     kind: "v2",
     render: (ctx) => <TracesScreen ctx={ctx} />,
+  },
+
+  entities: {
+    kind: "v2",
+    render: (ctx) => <TenantsScreen ctx={ctx} />,
   },
 
   alerts: {
