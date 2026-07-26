@@ -143,12 +143,53 @@ export type UpdateWarehouseDestinationInput = Partial<
 
 export type AnalyticsSegmentActorType = "user" | "tenant";
 
-export type AnalyticsSegmentDefinition = {
+export type SegmentOperator = "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "in" | "exists";
+export type SegmentLeafValue = string | number | string[];
+
+export type SegmentPropertyCondition = {
+  name: string;
+  operator: SegmentOperator;
+  value?: SegmentLeafValue;
+};
+
+export type SegmentEventLeaf = {
+  kind: "event";
+  eventName?: string;
+  property?: SegmentPropertyCondition;
+  frequency?: { operator: "gte" | "lte" | "eq"; count: number };
+  recency?: { withinDays: number };
+};
+
+export type SegmentTraitLeaf = {
+  kind: "trait";
+  source: AnalyticsSegmentActorType;
+  name: string;
+  operator: SegmentOperator;
+  value?: SegmentLeafValue;
+};
+
+export type SegmentGroupNode = {
+  kind: "group";
+  op: "and" | "or" | "not";
+  children: SegmentNode[];
+};
+
+export type SegmentNode = SegmentGroupNode | SegmentEventLeaf | SegmentTraitLeaf;
+
+export type AnalyticsSegmentDefinitionV1 = {
   window?: ApmWindow;
   eventName?: string;
   propertyName?: string;
   propertyValue?: string;
 };
+
+export type AnalyticsSegmentDefinitionV2 = {
+  version: 2;
+  window?: ApmWindow;
+  root: SegmentNode;
+};
+
+export type AnalyticsSegmentDefinition = AnalyticsSegmentDefinitionV1 | AnalyticsSegmentDefinitionV2;
 
 export type AnalyticsSegment = {
   id: string;

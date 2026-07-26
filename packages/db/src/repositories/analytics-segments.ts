@@ -4,16 +4,63 @@ import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
 import type { AnalyticsSegmentsTable } from "../schema.js";
 import type { ApmWindow } from "./telemetry-query.js";
+import {
+  compileSegmentDefinition,
+  validateSegmentDefinition,
+  type AnalyticsSegmentDefinitionV2,
+  type SegmentEventLeaf
+} from "./analytics-segment-compiler.js";
+
+export {
+  compileSegmentDefinition,
+  validateSegmentDefinition,
+  SegmentDefinitionError,
+  type AnalyticsSegmentDefinitionV2,
+  type SegmentNode,
+  type SegmentEventLeaf,
+  type SegmentTraitLeaf,
+  type SegmentGroupNode,
+  type SegmentOperator,
+  type SegmentCompileScope
+} from "./analytics-segment-compiler.js";
 
 type AnalyticsSegmentRow = Selectable<AnalyticsSegmentsTable>;
 
 export type AnalyticsSegmentActorType = "user" | "tenant";
 
-export interface AnalyticsSegmentDefinition {
+export interface AnalyticsSegmentDefinitionV1 {
   window?: ApmWindow;
   eventName?: string;
   propertyName?: string;
   propertyValue?: string;
+}
+
+export type AnalyticsSegmentDefinition = AnalyticsSegmentDefinitionV1 | AnalyticsSegmentDefinitionV2;
+
+function isV2Definition(definition: AnalyticsSegmentDefinition): definition is AnalyticsSegmentDefinitionV2 {
+  return typeof definition === "object" && definition !== null && (definition as { version?: unknown }).version === 2;
+}
+
+function isValidWindow(window: unknown): window is ApmWindow {
+  return window === "24h" || window === "7d" || window === "30d";
+}
+
+export function upgradeDefinition(definition: AnalyticsSegmentDefinition): AnalyticsSegmentDefinitionV2 {
+  if (isV2Definition(definition)) {
+    return definition;
+  }
+
+  const leaf: SegmentEventLeaf = { kind: "event" };
+  if (definition.eventName) {
+    leaf.eventName = definition.eventName;
+  }
+  if (definition.propertyName) {
+    leaf.property = definition.propertyValue
+      ? { name: definition.propertyName, operator: "eq", value: definition.propertyValue }
+      : { name: definition.propertyName, operator: "exists" };
+  }
+
+  return { version: 2, window: definition.window, root: leaf };
 }
 
 export interface AnalyticsSegmentRecord {
@@ -70,8 +117,14 @@ function resolveWindow(window: ApmWindow | undefined, now: Date): { window: ApmW
 }
 
 function normalizeDefinition(definition: AnalyticsSegmentDefinition): AnalyticsSegmentDefinition {
-  const next: AnalyticsSegmentDefinition = {};
-  if (definition.window === "24h" || definition.window === "7d" || definition.window === "30d") {
+  if (isV2Definition(definition)) {
+    validateSegmentDefinition(definition);
+    const window = isValidWindow(definition.window) ? definition.window : undefined;
+    return { version: 2, window, root: definition.root };
+  }
+
+  const next: AnalyticsSegmentDefinitionV1 = {};
+  if (isValidWindow(definition.window)) {
     next.window = definition.window;
   }
   const eventName = definition.eventName?.trim();
@@ -186,34 +239,54 @@ export async function archiveAnalyticsSegment(db: Db, id: string): Promise<void>
     .execute();
 }
 
-export async function getAnalyticsSegmentActorIds(
-  db: Db,
+export function analyticsSegmentActorColumn(segment: AnalyticsSegmentRecord): "tenant_id" | "user_id" {
+  return segment.actorType === "tenant" ? "tenant_id" : "user_id";
+}
+
+const EVENTS_ACTOR_REFS = { userRef: "events.user_id", tenantRef: "events.tenant_id" };
+
+export function analyticsSegmentActorFilter(
   segment: AnalyticsSegmentRecord,
+  refs: { userRef: string; tenantRef: string },
   now = new Date()
-): Promise<string[]> {
-  const actorColumn = segment.actorType === "tenant" ? sql<string>`tenant_id` : sql<string>`user_id`;
-  const { from, to } = resolveWindow(segment.definition.window, now);
-  let query = db
+) {
+  const definition = upgradeDefinition(segment.definition);
+  const { from, to } = resolveWindow(definition.window, now);
+  return compileSegmentDefinition(definition, {
+    projectId: segment.projectId,
+    environmentId: segment.environmentId,
+    actorType: segment.actorType,
+    from,
+    to,
+    userRef: refs.userRef,
+    tenantRef: refs.tenantRef
+  });
+}
+
+export function analyticsSegmentActorSubquery(db: Db, segment: AnalyticsSegmentRecord, now = new Date()) {
+  const definition = upgradeDefinition(segment.definition);
+  const { from, to } = resolveWindow(definition.window, now);
+  const actorColumn = analyticsSegmentActorColumn(segment) === "tenant_id" ? sql<string>`tenant_id` : sql<string>`user_id`;
+  const predicate = analyticsSegmentActorFilter(segment, EVENTS_ACTOR_REFS, now);
+
+  return db
     .selectFrom("events")
-    .select(actorColumn.as("actor_id"))
+    .select([actorColumn.as("actor_id"), sql<Date>`max(timestamp)`.as("last_seen_at")])
     .where("project_id", "=", segment.projectId)
     .where("environment_id", "=", segment.environmentId)
     .where("timestamp", ">=", from)
     .where("timestamp", "<", to)
     .where(actorColumn, "is not", null)
+    .where(predicate)
     .groupBy(actorColumn);
+}
 
-  if (segment.definition.eventName) {
-    query = query.where("name", "=", segment.definition.eventName);
-  }
-  if (segment.definition.propertyName) {
-    query = query.where(sql<string>`properties ->> ${segment.definition.propertyName}`, "is not", null);
-    if (segment.definition.propertyValue) {
-      query = query.where(sql<string>`properties ->> ${segment.definition.propertyName}`, "=", segment.definition.propertyValue);
-    }
-  }
-
-  const rows = await query.execute();
+export async function getAnalyticsSegmentActorIds(
+  db: Db,
+  segment: AnalyticsSegmentRecord,
+  now = new Date()
+): Promise<string[]> {
+  const rows = await analyticsSegmentActorSubquery(db, segment, now).limit(50_000).execute();
   return rows.map((row) => row.actor_id).filter((actorId): actorId is string => Boolean(actorId));
 }
 
@@ -222,41 +295,23 @@ export async function previewAnalyticsSegment(
   segment: AnalyticsSegmentRecord,
   input: { limit?: number; now?: Date } = {}
 ): Promise<AnalyticsSegmentPreview> {
-  const actorColumn = segment.actorType === "tenant" ? sql<string>`tenant_id` : sql<string>`user_id`;
-  const { window, from, to } = resolveWindow(segment.definition.window, input.now ?? new Date());
+  const now = input.now ?? new Date();
+  const definition = upgradeDefinition(segment.definition);
+  const { window } = resolveWindow(definition.window, now);
   const limit = Math.min(50, Math.max(1, Math.trunc(input.limit ?? 10)));
-  let query = db
-    .selectFrom("events")
-    .select([actorColumn.as("actor_id"), sql<Date>`max(timestamp)`.as("last_seen_at")])
-    .where("project_id", "=", segment.projectId)
-    .where("environment_id", "=", segment.environmentId)
-    .where("timestamp", ">=", from)
-    .where("timestamp", "<", to)
-    .where(actorColumn, "is not", null)
-    .groupBy(actorColumn)
-    .orderBy(sql`max(timestamp)`, "desc")
-    .limit(limit);
 
-  if (segment.definition.eventName) {
-    query = query.where("name", "=", segment.definition.eventName);
-  }
-  if (segment.definition.propertyName) {
-    query = query.where(sql<string>`properties ->> ${segment.definition.propertyName}`, "is not", null);
-    if (segment.definition.propertyValue) {
-      query = query.where(sql<string>`properties ->> ${segment.definition.propertyName}`, "=", segment.definition.propertyValue);
-    }
-  }
+  const sampleQuery = analyticsSegmentActorSubquery(db, segment, now).orderBy(sql`max(timestamp)`, "desc").limit(limit);
+  const countQuery = db
+    .selectFrom(analyticsSegmentActorSubquery(db, segment, now).as("actors"))
+    .select(sql<string>`count(*)`.as("count"));
 
-  const [countRows, sampleRows] = await Promise.all([
-    getAnalyticsSegmentActorIds(db, segment, input.now).then((actors) => actors.length),
-    query.execute()
-  ]);
+  const [countRow, sampleRows] = await Promise.all([countQuery.executeTakeFirst(), sampleQuery.execute()]);
 
   return {
     segmentId: segment.id,
     actorType: segment.actorType,
     window,
-    actors: countRows,
+    actors: Number(countRow?.count ?? 0),
     samples: sampleRows.map((row) => ({
       actorId: row.actor_id,
       lastSeenAt: toIso(row.last_seen_at)

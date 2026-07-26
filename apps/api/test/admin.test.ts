@@ -1227,6 +1227,169 @@ describe("admin routes", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it("accepts a v2 tree definition combining event and trait conditions", async () => {
+    const create = vi.fn(async (input) => analyticsSegment(input));
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined,
+          get: async () => undefined,
+          preview: async () => analyticsSegmentPreview()
+        }
+      }
+    });
+
+    const definition = {
+      version: 2,
+      window: "30d",
+      root: {
+        kind: "group",
+        op: "and",
+        children: [
+          { kind: "event", eventName: "project.created" },
+          { kind: "trait", source: "user", name: "plan", operator: "eq", value: "enterprise" }
+        ]
+      }
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-segments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Enterprise creators",
+        actorType: "user",
+        definition
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        definition
+      })
+    );
+  });
+
+  it("rejects a v2 definition using an operator outside the whitelist", async () => {
+    const create = vi.fn(async () => analyticsSegment());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined,
+          get: async () => undefined,
+          preview: async () => analyticsSegmentPreview({ actors: 0, samples: [] })
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-segments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Invalid operator",
+        actorType: "user",
+        definition: {
+          version: 2,
+          root: { kind: "trait", source: "user", name: "plan", operator: "nope", value: "enterprise" }
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "segment_invalid_operator" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a v2 definition that exceeds the structural complexity limits", async () => {
+    const create = vi.fn(async () => analyticsSegment());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: {
+          list: async () => [],
+          create,
+          update: async () => undefined,
+          archive: async () => undefined,
+          get: async () => undefined,
+          preview: async () => analyticsSegmentPreview({ actors: 0, samples: [] })
+        }
+      }
+    });
+
+    let root: unknown = { kind: "event", eventName: "leaf" };
+    for (let i = 0; i < 5; i += 1) {
+      root = { kind: "group", op: "not", children: [root] };
+    }
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-segments",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Too complex",
+        actorType: "user",
+        definition: { version: 2, root }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "segment_definition_too_complex" });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a v2 definition patch using an operator outside the whitelist", async () => {
+    const update = vi.fn(async () => analyticsSegment());
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsSegments: {
+          list: async () => [],
+          create: async () => analyticsSegment(),
+          update,
+          archive: async () => undefined,
+          get: async () => undefined,
+          preview: async () => analyticsSegmentPreview({ actors: 0, samples: [] })
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/analytics-segments/seg_1",
+      payload: {
+        definition: {
+          version: 2,
+          root: { kind: "event", property: { name: "plan", operator: "nope", value: "team" } }
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "segment_invalid_operator" });
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it("manages analytics dashboards for admins with scoped mutations", async () => {
     const list = vi.fn(async () => [analyticsDashboard()]);
     const create = vi.fn(async (input) => analyticsDashboard(input));

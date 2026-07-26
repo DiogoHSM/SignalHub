@@ -204,6 +204,8 @@ The API runs migrations during startup. Operators can also run migrations explic
 pnpm db:migrate
 ```
 
+All migrations run inside the single transaction in `packages/db/src/migrate.ts`, so `CREATE INDEX CONCURRENTLY` is not an option here. `0044_profile_traits_gin.sql` adds GIN indexes (`jsonb_path_ops`) on `user_profiles.traits` and `tenant_profiles.traits`; on a fresh-enough installation this runs with a normal write lock on those two tables (small compared to `events`) and completes quickly, but operators with an unusually large profiles table should account for that lock when scheduling the upgrade.
+
 ## Readiness
 
 Use:

@@ -4,6 +4,7 @@ import type { ApiClient } from "../api/client";
 import type {
   AnalyticsSegment,
   AnalyticsSegmentActorType,
+  AnalyticsSegmentDefinitionV1,
   AnalyticsSegmentPreview,
   EventClickMapResponse,
   EventFunnelResponse,
@@ -677,6 +678,10 @@ function SegmentManager({
     };
   }, [client, environmentId, projectId, segments]);
 
+  function asV1Definition(definition: AnalyticsSegment["definition"]): AnalyticsSegmentDefinitionV1 {
+    return "root" in definition ? {} : definition;
+  }
+
   function resetForm() {
     setEditingId(null);
     setName("");
@@ -689,13 +694,14 @@ function SegmentManager({
   }
 
   function editSegment(segment: AnalyticsSegment) {
+    const definition = asV1Definition(segment.definition);
     setEditingId(segment.id);
     setName(segment.name);
     setActorType(segment.actorType);
-    setEventName(segment.definition.eventName ?? "");
-    setPropertyName(segment.definition.propertyName ?? "");
-    setPropertyValue(segment.definition.propertyValue ?? "");
-    setWindow(segment.definition.window ?? "30d");
+    setEventName(definition.eventName ?? "");
+    setPropertyName(definition.propertyName ?? "");
+    setPropertyValue(definition.propertyValue ?? "");
+    setWindow(definition.window ?? "30d");
     setError(null);
   }
 
@@ -766,17 +772,20 @@ function SegmentManager({
           {segments.length === 0 && state === "ready" ? <p className="muted-text">No saved segments yet.</p> : null}
           {segments.map((segment) => {
             const preview = previews[segment.id];
+            const isTreeDefinition = "root" in segment.definition;
+            const definition = asV1Definition(segment.definition);
             return (
               <div className={segment.id === activeSegmentId ? "event-segments__item is-active" : "event-segments__item"} key={segment.id}>
                 <div>
                   <strong>{segment.name}</strong>
                   <small>
-                    {segment.actorType}s · {segment.definition.window ?? "30d"} · {segment.definition.eventName ?? "any event"}
+                    {segment.actorType}s · {definition.window ?? segment.definition.window ?? "30d"} ·{" "}
+                    {isTreeDefinition ? "custom rule" : definition.eventName ?? "any event"}
                   </small>
-                  {segment.definition.propertyName ? (
+                  {definition.propertyName ? (
                     <small>
-                      {segment.definition.propertyName}
-                      {segment.definition.propertyValue ? ` = ${segment.definition.propertyValue}` : " is present"}
+                      {definition.propertyName}
+                      {definition.propertyValue ? ` = ${definition.propertyValue}` : " is present"}
                     </small>
                   ) : null}
                 </div>

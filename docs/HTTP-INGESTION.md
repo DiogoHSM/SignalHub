@@ -294,7 +294,7 @@ GET /query/events/retention?project_id=prj_123&environment_id=env_123&window=30d
 
 ### Saved segments
 
-Operators can save reusable user or tenant segments from event conditions in the console. The first segment model is intentionally bounded: it supports an actor type (`user` or `tenant`), a window (`24h`, `7d`, or `30d`), an optional event name, and an optional event property condition. Saved segments can be previewed and applied to `GET /query/events` with `segment_id`.
+Operators can save reusable user or tenant segments from event conditions in the console. The original segment model is intentionally bounded: it supports an actor type (`user` or `tenant`), a window (`24h`, `7d`, or `30d`), an optional event name, and an optional event property condition (`v1` definitions already saved keep working unchanged). Newer segments can instead save a `v2` definition — `{ "version": 2, "window"?, "root" }` — where `root` is a boolean tree of `and`/`or`/`not` groups over event conditions (name, property comparison, frequency threshold, recency window) and trait conditions (equality/comparison over identified user/tenant traits). Every leaf operator is drawn from a fixed whitelist (`eq`, `neq`, `contains`, `gt`, `gte`, `lt`, `lte`, `in`, `exists`); an unknown operator or an over-complex tree (depth > 5, more than 32 nodes, or more than 8 children in one group) is rejected with a `400` and a named error such as `segment_invalid_operator` or `segment_definition_too_complex`. Saved segments can be previewed and applied to `GET /query/events` with `segment_id`.
 
 Example query:
 
