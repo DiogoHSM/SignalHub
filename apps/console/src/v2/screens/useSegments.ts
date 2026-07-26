@@ -4,6 +4,7 @@ import type {
   AnalyticsSegment,
   AnalyticsSegmentActorType,
   AnalyticsSegmentDefinition,
+  AnalyticsSegmentDefinitionV1,
   AnalyticsSegmentPreview,
   ApmWindow,
 } from "../../api/types";
@@ -17,7 +18,7 @@ export type SegmentRowVM = {
   name: string;
   actorType: AnalyticsSegmentActorType;
   summary: string;
-  definition: AnalyticsSegmentDefinition;
+  definition: AnalyticsSegmentDefinitionV1;
   previewActors: number | null;
 };
 
@@ -59,13 +60,18 @@ export function validateSegmentForm(form: SaveSegmentForm): string | null {
   return null;
 }
 
+function asV1Definition(definition: AnalyticsSegmentDefinition): AnalyticsSegmentDefinitionV1 {
+  return "root" in definition ? {} : definition;
+}
+
 function summarize(segment: AnalyticsSegment): string {
-  const parts = [`${segment.actorType}s`, segment.definition.window ?? "30d", segment.definition.eventName ?? "any event"];
-  if (segment.definition.propertyName) {
+  const definition = asV1Definition(segment.definition);
+  const parts = [`${segment.actorType}s`, definition.window ?? "30d", definition.eventName ?? "any event"];
+  if (definition.propertyName) {
     parts.push(
-      segment.definition.propertyValue
-        ? `${segment.definition.propertyName} = ${segment.definition.propertyValue}`
-        : `${segment.definition.propertyName} is present`
+      definition.propertyValue
+        ? `${definition.propertyName} = ${definition.propertyValue}`
+        : `${definition.propertyName} is present`
     );
   }
   return parts.join(" · ");
@@ -81,7 +87,7 @@ export function buildSegmentsVM(
       name: segment.name,
       actorType: segment.actorType,
       summary: summarize(segment),
-      definition: segment.definition,
+      definition: asV1Definition(segment.definition),
       previewActors: previews[segment.id]?.actors ?? null,
     })),
   };

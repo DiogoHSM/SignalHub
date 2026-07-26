@@ -41,6 +41,7 @@ function retentionResponse(): EventRetentionResponse {
     entryEvent: "signup.started",
     returnEvent: "app.opened",
     period: "weekly",
+  source: "raw",
     intervals: 6,
     totals: { cohorts: 1, entrants: 10 },
     cohorts: [

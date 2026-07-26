@@ -51,6 +51,8 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
     onUpdateProject: vi.fn(),
     onUpdateEnvironment: vi.fn(),
     navigate: vi.fn() as (s: NavSection) => void,
+    pendingFilters: null,
+    clearPendingFilters: vi.fn(),
     back: vi.fn(),
     drill: vi.fn(),
     pushToast: vi.fn(),

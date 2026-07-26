@@ -3,7 +3,7 @@ import { sql } from "kysely";
 import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
 import type { ErrorsTable, EventsTable, LlmCallsTable, SessionReplaysTable, SpansTable, TracesTable } from "../schema.js";
-import { analyticsSegmentActorFilter, getAnalyticsSegment } from "./analytics-segments.js";
+import { analyticsSegmentActorFilter, getAnalyticsSegment, getAnalyticsSegmentActorIds } from "./analytics-segments.js";
 
 type EventRow = Selectable<EventsTable>;
 type ErrorRow = Selectable<ErrorsTable>;
