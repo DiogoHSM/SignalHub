@@ -7,6 +7,7 @@ import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/
 import type { AddTriageNoteResult, AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
 import type { AnalyticsDashboardRecord, AnalyticsDashboardWidget } from "@sigmon/db/repositories/analytics-dashboards.js";
 import type { CodeIntegrationProvider, IncidentExternalLinkRecord, IssueDraft } from "@sigmon/db/repositories/code-integrations.js";
+import { FunnelScopeTooLargeError } from "@sigmon/db/repositories/telemetry-query.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -1917,7 +1918,10 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
 
   try {
     return reply.send({ data: await options.query.getEventFunnel(filters) });
-  } catch {
+  } catch (error) {
+    if (error instanceof FunnelScopeTooLargeError) {
+      return reply.status(400).send({ error: error.code });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }

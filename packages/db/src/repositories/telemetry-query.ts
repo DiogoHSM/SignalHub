@@ -1949,6 +1949,21 @@ function percentage(part: number, whole: number): number {
 const MAX_FUNNEL_STEPS = 12;
 const FUNNEL_BREAKDOWN_LIMIT = 20;
 
+// PER-449: default cap on distinct actors in scope before the funnel chain (materialized CTE +
+// per-step LEFT JOIN LATERAL, cost ~|s0 actors| x steps x |matched|) is allowed to run. Measured
+// O(n^2) behavior made a single request over a large window/step pair expensive enough to degrade
+// Postgres from a trivial input; see .claude/docs/AUDIT-2026-07-26/findings/PER-439.md (F2).
+export const DEFAULT_FUNNEL_MAX_ACTORS = 50_000;
+
+export class FunnelScopeTooLargeError extends Error {
+  readonly code = "funnel_scope_too_large";
+
+  constructor() {
+    super("funnel_scope_too_large");
+    this.name = "FunnelScopeTooLargeError";
+  }
+}
+
 // Shared actor-identity fallback used by getEventFunnel and (per PER-439's decision log) intended for
 // reuse by PER-440/PER-442. A dedicated `actor` param (user|tenant|session|trace|auto) is deferred to a
 // future issue; today's behavior is always the "auto" coalesce below.
@@ -2013,23 +2028,50 @@ interface FunnelChainParams {
 // remaining steps with one LEFT JOIN LATERAL per step so timestamps stay strictly increasing and
 // the optional conversion window is anchored on entry (s0.t0). A recursive CTE cannot express this
 // because Postgres forbids aggregates (min()) referencing the recursive term.
-function buildFunnelChainCte(params: FunnelChainParams) {
-  const {
-    projectId,
-    environmentId,
-    from,
-    to,
-    steps,
-    breakdownProperty,
-    conversionWindowSeconds,
-    tenantId,
-    segmentActorColumn,
-    segmentActorIds
-  } = params;
+// WHERE clause shared by the `matched` CTE (below) and the cheap pre-count guard in
+// getEventFunnel: both must scope to the exact same rows so the guard's actor count is a faithful
+// prediction of the chain's cost.
+function funnelMatchedWhere(params: FunnelChainParams) {
+  const { projectId, environmentId, from, to, steps, tenantId, segmentActorColumn, segmentActorIds } = params;
 
   const tenantPredicate = tenantId ? sql`AND tenant_id = ${tenantId}` : sql``;
   const segmentPredicate =
     segmentActorColumn && segmentActorIds ? sql`AND ${sql.ref(segmentActorColumn)} = ANY(${segmentActorIds})` : sql``;
+
+  return sql`
+    project_id = ${projectId}
+      AND environment_id = ${environmentId}
+      AND timestamp >= ${from}
+      AND timestamp < ${to}
+      AND name = ANY(${steps})
+      AND ${actorKeySql()} IS NOT NULL
+      ${tenantPredicate}
+      ${segmentPredicate}
+  `;
+}
+
+// PER-449: cheap pre-flight check before the funnel chain runs. Counts distinct actors over the
+// same predicates as `matched` with a single scan + count(distinct) - no LATERAL join, no
+// materialization - so it stays roughly linear even when the full chain would be quadratic.
+async function assertFunnelScopeWithinLimit(db: Db, params: FunnelChainParams, maxActors: number): Promise<void> {
+  if (maxActors <= 0) {
+    return;
+  }
+
+  const result = await sql<{ distinct_actors: string }>`
+    SELECT count(DISTINCT ${actorKeySql()}) AS distinct_actors
+    FROM events
+    WHERE ${funnelMatchedWhere(params)}
+  `.execute(db);
+
+  const distinctActors = toNumber(result.rows[0]?.distinct_actors);
+  if (distinctActors > maxActors) {
+    throw new FunnelScopeTooLargeError();
+  }
+}
+
+function buildFunnelChainCte(params: FunnelChainParams) {
+  const { steps, breakdownProperty, conversionWindowSeconds } = params;
 
   const matchedCte = sql`
     matched AS MATERIALIZED (
@@ -2040,14 +2082,7 @@ function buildFunnelChainCte(params: FunnelChainParams) {
         timestamp,
         properties ->> ${breakdownProperty} AS breakdown_value
       FROM events
-      WHERE project_id = ${projectId}
-        AND environment_id = ${environmentId}
-        AND timestamp >= ${from}
-        AND timestamp < ${to}
-        AND name = ANY(${steps})
-        AND ${actorKeySql()} IS NOT NULL
-        ${tenantPredicate}
-        ${segmentPredicate}
+      WHERE ${funnelMatchedWhere(params)}
     )
   `;
 
@@ -2113,7 +2148,16 @@ function emptyEventFunnelResponse(filters: EventFunnelFilters, steps: string[], 
   };
 }
 
-export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
+export interface GetEventFunnelOptions {
+  /** Distinct-actor cap enforced by assertFunnelScopeWithinLimit. 0 disables the guard. */
+  maxActors?: number;
+}
+
+export async function getEventFunnel(
+  db: Db,
+  filters: EventFunnelFilters,
+  options: GetEventFunnelOptions = {}
+): Promise<EventFunnelResponse> {
   const { from, to } = resolveOverviewRange(filters.window, filters.now);
   const limit = resolveLimit(filters.limit);
   const steps = filters.steps
@@ -2163,6 +2207,8 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
     segmentActorColumn,
     segmentActorIds
   };
+
+  await assertFunnelScopeWithinLimit(db, chainParams, options.maxActors ?? DEFAULT_FUNNEL_MAX_ACTORS);
 
   const countColumns = steps.map((_, index) =>
     index === 0 ? sql`count(*) AS step0_actors` : sql.raw(`count(t${index}) AS step${index}_actors`)

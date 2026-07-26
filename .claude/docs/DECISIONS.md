@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-07-26: Statement timeout scoped to the API's request pool, not migrations or the worker
+
+Decision: PER-449 adds a `statement_timeout` to the pg `Pool` created by `createDb` (`packages/db/src/client.ts`), applied per connection at startup. `apps/api/src/main.ts` now creates two pools: a short-lived, timeout-free `migrationDb` used only for `migrate()` and destroyed immediately after, and the long-lived `db` used for everything else, with `statement_timeout` set from `DB_STATEMENT_TIMEOUT_MS` (default 15000ms, 0 disables). `apps/worker/src/main.ts` uses its own env var, `DB_WORKER_STATEMENT_TIMEOUT_MS`, defaulting to 0 (disabled).
+
+Rationale: the audit finding behind this change (`.claude/docs/AUDIT-2026-07-26/findings/PER-439.md`, F2) measured the event-funnel chain query going from 0.09s to 101.5s between 1k and 30k actors with no cap anywhere in the path — a single request from an authenticated human user, no elevated privilege required. A blanket timeout on the API's single pre-existing pool was rejected because that same pool runs `migrate()` at boot, and at least one existing migration (`0041_event_name_index.sql`, a `CREATE INDEX` without `CONCURRENTLY` on the high-volume `events` table) can legitimately take longer than any timeout tight enough to protect a read route. The worker runs long-lived jobs (rollups, retention, backups, source-map cleanup) that are expected to occasionally run long, so it keeps its own independent, disabled-by-default timeout rather than inheriting the API's.
+
+## 2026-07-26: Funnel scope guard is a cheap pre-count, not a row cap on the chain itself
+
+Decision: `getEventFunnel` (`packages/db/src/repositories/telemetry-query.ts`) now runs `assertFunnelScopeWithinLimit` before building the funnel chain: a single `count(DISTINCT actor_key)` scan over the exact same predicates as the `matched` CTE (factored into a shared `funnelMatchedWhere` helper so the two can never drift), compared against `FUNNEL_MAX_ACTORS` (default 50000, 0 disables). Exceeding the cap throws `FunnelScopeTooLargeError`, mapped by `apps/api/src/routes/query.ts` to `400 { error: "funnel_scope_too_large" }` instead of the route's default `503 query_unavailable`.
+
+Rationale: the chain's cost is driven by distinct actors in scope (`|s0 actors| x steps x |matched|`, per F2), so a count of exactly that quantity is both a faithful predictor of cost and cheap to compute (single index-friendly scan, no `LATERAL` join, no materialization). This is preferred over a raw `LIMIT` on the `matched` CTE, which would silently truncate results instead of failing loudly, and over deferring the guard to `statement_timeout` alone, which still burns the configured timeout's worth of Postgres CPU on every oversized request instead of failing fast.
+
 ## 2026-07-25: Event funnel keeps the auto actor-key fallback, computed entirely in SQL
 
 Decision: `getEventFunnel` was rewritten as a single SQL aggregation (materialized CTE over matched step events plus one `LEFT JOIN LATERAL` per step, backed by a new `events(project_id, environment_id, name, timestamp DESC)` index) instead of pulling event rows into Node. The actor key stays the existing `coalesce(user_id, tenant_id, session_id, trace_id)` fallback ("auto" mode) rather than introducing a selectable `actor` param (`user|tenant|session|trace|auto`) in this pass.

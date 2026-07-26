@@ -14,6 +14,7 @@ import {
 } from "../src/source-maps/parser.js";
 import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
+import { FunnelScopeTooLargeError } from "@sigmon/db/repositories/telemetry-query.js";
 
 vi.mock("@sigmon/db/repositories/source-maps.js", () => ({
   createSourceMapArtifact: vi.fn(),
@@ -1838,6 +1839,46 @@ describe("query routes", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("maps the PER-449 funnel scope guard to a named 400, not a generic 503", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => {
+          throw new FunnelScopeTooLargeError();
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&steps=signup.started,project.created"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "funnel_scope_too_large" });
+  });
+
+  it("still maps unrelated funnel query failures to 503", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => {
+          throw new Error("boom");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&steps=signup.started,project.created"
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "query_unavailable" });
   });
 
   it("forwards new conversion funnel filters only when the caller sends them", async () => {

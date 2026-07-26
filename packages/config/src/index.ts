@@ -12,6 +12,8 @@ const optionalTrimmedEnvString = z.preprocess(
 const optionalEnvUrl = z.preprocess(emptyStringToUndefined, z.string().url().optional());
 const optionalPositiveInteger = (defaultValue: number) =>
   z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).default(defaultValue));
+const optionalNonNegativeInteger = (defaultValue: number) =>
+  z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(0).default(defaultValue));
 
 const productionPlaceholders = {
   SESSION_SECRET: "change-me-to-a-long-random-secret",
@@ -172,7 +174,18 @@ const rawConfigSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES: optionalPositiveInteger(5),
-  SYSTEM_HEALTH_HISTORY_RETENTION_HOURS: optionalPositiveInteger(48)
+  SYSTEM_HEALTH_HISTORY_RETENTION_HOURS: optionalPositiveInteger(48),
+  // PER-449: statement_timeout (ms) for the API's request-serving Postgres pool. 0 disables it.
+  // Migrations run on a separate, timeout-free pool (see apps/api/src/main.ts) so a slow one-time
+  // migration on a large table can't be killed by this value.
+  DB_STATEMENT_TIMEOUT_MS: optionalNonNegativeInteger(15_000),
+  // The worker runs long-lived jobs (rollups, retention, backups, source-map cleanup) that can
+  // legitimately take longer than an API read route should ever take, so its default is disabled
+  // (0). Operators who want a safety net on the worker pool can opt in explicitly.
+  DB_WORKER_STATEMENT_TIMEOUT_MS: optionalNonNegativeInteger(0),
+  // PER-449: cap on distinct actors allowed into the event funnel chain (see
+  // packages/db/src/repositories/telemetry-query.ts, assertFunnelScopeWithinLimit). 0 disables it.
+  FUNNEL_MAX_ACTORS: optionalNonNegativeInteger(50_000)
 });
 
 export type AppConfig = ReturnType<typeof loadConfig>;
@@ -323,6 +336,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       enabled: parsed.SYSTEM_HEALTH_HISTORY_ENABLED,
       sampleIntervalMinutes: parsed.SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES,
       retentionHours: parsed.SYSTEM_HEALTH_HISTORY_RETENTION_HOURS
+    },
+    db: {
+      statementTimeoutMs: parsed.DB_STATEMENT_TIMEOUT_MS,
+      workerStatementTimeoutMs: parsed.DB_WORKER_STATEMENT_TIMEOUT_MS
+    },
+    funnel: {
+      maxActors: parsed.FUNNEL_MAX_ACTORS
     }
   };
 }

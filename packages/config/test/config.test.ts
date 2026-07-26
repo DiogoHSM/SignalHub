@@ -461,6 +461,38 @@ describe("loadConfig", () => {
     }
   );
 
+  it("loads PER-449 db statement timeout and funnel actor cap defaults", () => {
+    const config = loadConfig(baseEnv());
+
+    expect(config.db).toEqual({
+      statementTimeoutMs: 15_000,
+      workerStatementTimeoutMs: 0
+    });
+    expect(config.funnel).toEqual({ maxActors: 50_000 });
+  });
+
+  it("loads explicit db statement timeout and funnel actor cap settings, allowing 0 to disable", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      DB_STATEMENT_TIMEOUT_MS: "0",
+      DB_WORKER_STATEMENT_TIMEOUT_MS: "30000",
+      FUNNEL_MAX_ACTORS: "1000"
+    });
+
+    expect(config.db).toEqual({
+      statementTimeoutMs: 0,
+      workerStatementTimeoutMs: 30_000
+    });
+    expect(config.funnel).toEqual({ maxActors: 1000 });
+  });
+
+  it.each(["DB_STATEMENT_TIMEOUT_MS", "DB_WORKER_STATEMENT_TIMEOUT_MS", "FUNNEL_MAX_ACTORS"] as const)(
+    "rejects a negative %s",
+    (fieldName) => {
+      expect(() => loadConfig({ ...baseEnv(), [fieldName]: "-1" })).toThrow();
+    }
+  );
+
   it("requires S3 settings when backup S3 upload is enabled", () => {
     expect(() =>
       loadConfig({
