@@ -10939,6 +10939,160 @@ describe("repositories", () => {
     });
   });
 
+  // PER-451 (V1): in rollup mode the entry_event eligibility filter must be resolved against
+  // event_actor_daily, not raw `events` -- `events` is purged by the same retentionEventsDays
+  // horizon that flips the query into rollup mode, so in steady state the raw table never has
+  // rows old enough for a long-range rollup query to see. Regression test for
+  // .claude/docs/AUDIT-2026-07-26/findings/PER-440.md (finding V1).
+  it("resolves entry-event eligibility against the rollup once raw events are purged", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Eligibility Survives Purge" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2025-12-02T00:00:01.000Z")
+      };
+      const now = new Date("2026-06-01T00:00:00.000Z");
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "old_user",
+        traits: {},
+        timestamp: new Date("2025-12-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_purge_entry", userId: "old_user", name: "signup.started", timestamp: new Date("2025-12-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_purge_return", userId: "old_user", name: "app.opened", timestamp: new Date("2025-12-02T09:00:00.000Z") });
+
+      // Roll up the entry and return events before purging, exactly as the worker would on its
+      // daily pass.
+      await upsertEventActorDaily(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        from: new Date("2025-12-01T00:00:00.000Z"),
+        to: new Date("2025-12-03T00:00:00.000Z")
+      });
+
+      // Simulate steady-state retention: purge raw `events` older than retentionEventsDays,
+      // exactly like the real background job. old_user's entry/return events are ~180 days old,
+      // well past a 90-day cutoff, so both rows are deleted here.
+      await deleteExpiredTelemetry(db, {
+        eventsDays: 90,
+        errorsDays: 9999,
+        tracesDays: 9999,
+        spansDays: 9999,
+        llmCallsDays: 9999,
+        profilesDays: 9999,
+        breadcrumbsDays: 9999,
+        deadLetterJobsDays: 9999,
+        sourceMapsEnabled: false,
+        sourceMapsDays: 9999,
+        sourceMapsBatchSize: 100,
+        now,
+        batchSize: 100
+      });
+
+      await expect(
+        db.selectFrom("events").select("id").where("project_id", "=", project.id).execute()
+      ).resolves.toEqual([]);
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3,
+        rangeDays: 200,
+        retentionEventsDays: 90
+      });
+
+      expect(retention.source).toBe("rollup");
+      // Pre-fix, entryEligibility queries the now-empty `events` table, so old_user never
+      // qualifies and this cohort disappears entirely (totals.cohorts === 0).
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2025-12-01",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 },
+            { index: 2, label: "D2", retainedActors: 0, retentionPercent: 0 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  // PER-451 (F1): in rollup mode the `activity` CTE reads only event_actor_daily, which the
+  // worker never populates for the current UTC day (apps/worker/src/event-rollups.ts stops its
+  // cursor strictly before `today`). The most recent bucket of any rollup-mode query is therefore
+  // silently undercounted. Regression test for
+  // .claude/docs/AUDIT-2026-07-26/findings/PER-440.md (finding F1).
+  it("includes today's not-yet-rolled activity in the rollup activity CTE", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Activity Current Day" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-06-08T00:00:01.000Z")
+      };
+      // Midday, not midnight, so "today" (>= 2026-06-10T00:00:00Z) is a non-empty tail of the
+      // queried range (which ends at `now`, exclusive).
+      const now = new Date("2026-06-10T15:00:00.000Z");
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_today",
+        traits: {},
+        timestamp: new Date("2026-06-08T00:00:00.000Z")
+      });
+
+      // Return-event activity only on the current UTC day. Deliberately never rolled up (the
+      // worker never processes "today"), so event_actor_daily has no row for it at all.
+      await insertEvent(db, { ...base, id: "evt_today_return", userId: "user_today", name: "app.opened", timestamp: new Date("2026-06-10T10:00:00.000Z") });
+
+      // retentionEventsDays=1 with a 5-day range is enough to flip this query into rollup mode
+      // without needing a multi-month setup: `from` (now - 5d) is already before `now - 1d`.
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now,
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3,
+        rangeDays: 5,
+        retentionEventsDays: 1
+      });
+
+      expect(retention.source).toBe("rollup");
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2026-06-08",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "D1", retainedActors: 0, retentionPercent: 0 },
+            // D2 = 2026-06-10, today: rolled data alone (empty) would undercount this to 0.
+            { index: 2, label: "D2", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
   it("manages analytics segments and uses them as event filters", async () => {
     await withDb(async (db) => {
       await migrate(db);

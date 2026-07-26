@@ -2376,29 +2376,74 @@ export async function getEventRetention(db: Db, filters: EventRetentionFilters):
       : null;
   const source: "raw" | "rollup" = cutoff !== null && from < cutoff ? "rollup" : "raw";
 
+  // The daily actor rollup (apps/worker/src/event-rollups.ts) never processes the current UTC
+  // day, so `event_actor_daily` always ends at "yesterday". In rollup mode both the eligibility
+  // check and the activity CTE below UNION in a raw-`events` tail for today so that today's
+  // not-yet-rolled activity isn't silently dropped from the response.
+  const todayStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  // PER-451 (V1): in rollup mode, `events` is purged by the same retentionEventsDays horizon that
+  // put us in rollup mode, so in steady state it no longer holds rows old enough to answer this
+  // check for long-range cohorts. Resolve eligibility against event_actor_daily instead -- its PK
+  // already carries event_name -- UNIONed with a raw-`events` tail for today's not-yet-rolled rows.
   const entryEligibility = entryEvent
-    ? sql`
-        and exists (
-          select 1 from events ee
-          where ee.project_id = p.project_id
-            and ee.environment_id = p.environment_id
-            and ee.user_id = p.user_id
-            and ee.name = ${entryEvent}
-        )
-      `
+    ? source === "rollup"
+      ? sql`
+          and (
+            exists (
+              select 1 from event_actor_daily eea
+              where eea.project_id = p.project_id
+                and eea.environment_id = p.environment_id
+                and eea.actor_type = 'user'
+                and eea.actor_id = p.user_id
+                and eea.event_name = ${entryEvent}
+            )
+            or exists (
+              select 1 from events ee
+              where ee.project_id = p.project_id
+                and ee.environment_id = p.environment_id
+                and ee.user_id = p.user_id
+                and ee.name = ${entryEvent}
+                and ee.timestamp >= ${todayStartUtc}
+            )
+          )
+        `
+      : sql`
+          and exists (
+            select 1 from events ee
+            where ee.project_id = p.project_id
+              and ee.environment_id = p.environment_id
+              and ee.user_id = p.user_id
+              and ee.name = ${entryEvent}
+          )
+        `
     : sql``;
 
+  // PER-451 (F1): UNION the rollup with a raw-`events` tail scoped to today, deduped by
+  // (actor_id, day) since a single actor can otherwise surface once from each source.
   const activity =
     source === "rollup"
       ? sql`
-          select r.actor_id, (r.day::timestamp at time zone 'UTC') as timestamp
-          from event_actor_daily r
-          where r.project_id = ${filters.projectId}
-            and r.environment_id = ${filters.environmentId}
-            and r.actor_type = 'user'
-            and (r.day::timestamp at time zone 'UTC') >= ${from}
-            and (r.day::timestamp at time zone 'UTC') < ${to}
-            ${returnEvent ? sql`and r.event_name = ${returnEvent}` : sql``}
+          select distinct actor_id, timestamp
+          from (
+            select r.actor_id, (r.day::timestamp at time zone 'UTC') as timestamp
+            from event_actor_daily r
+            where r.project_id = ${filters.projectId}
+              and r.environment_id = ${filters.environmentId}
+              and r.actor_type = 'user'
+              and (r.day::timestamp at time zone 'UTC') >= ${from}
+              and (r.day::timestamp at time zone 'UTC') < ${to}
+              ${returnEvent ? sql`and r.event_name = ${returnEvent}` : sql``}
+            union all
+            select e.user_id as actor_id, date_trunc('day', e.timestamp at time zone 'UTC') as timestamp
+            from events e
+            where e.project_id = ${filters.projectId}
+              and e.environment_id = ${filters.environmentId}
+              and e.timestamp >= greatest(${from}::timestamptz, ${todayStartUtc}::timestamptz)
+              and e.timestamp < ${to}
+              and e.user_id is not null
+              ${returnEvent ? sql`and e.name = ${returnEvent}` : sql``}
+          ) combined
         `
       : sql`
           select e.user_id as actor_id, e.timestamp
