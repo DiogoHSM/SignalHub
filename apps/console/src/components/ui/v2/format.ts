@@ -68,6 +68,18 @@ export function formatUsd(n: number): string {
 }
 
 /**
+ * Rounds a raw impact score to at most one decimal place.
+ *
+ * Impact scores are computed server-side from a weighted blend of signals
+ * and can carry long floating-point tails (e.g. "172.00814425"). Rounding
+ * here — once, in the view-model layer — keeps the list and detail views
+ * consistent without every call site re-deriving its own precision.
+ */
+export function formatImpactScore(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/**
  * Human-readable relative time from an ISO timestamp.
  * Returns strings like "8s ago", "32m ago", "4h ago", "2d ago".
  */

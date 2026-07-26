@@ -522,10 +522,22 @@ describe("IncidentScreen", () => {
       expect(screen.getByText(/no priority/i)).toBeInTheDocument();
     });
 
+    it("names the priority control's accessible name after the current selection", () => {
+      mockUseIncident(MOCK_VM); // priority: "P1"
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByRole("button", { name: "Priority: P1" })).toBeInTheDocument();
+    });
+
+    it("names the priority control 'Priority: none' when no priority is set", () => {
+      mockUseIncident({ ...MOCK_VM, priority: null });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByRole("button", { name: "Priority: none" })).toBeInTheDocument();
+    });
+
     it("opens a priority menu with P1-P4 and 'No priority' options when the priority control is clicked", async () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^priority: p1$/i }));
       expect(screen.getByRole("button", { name: /^P1$/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^P2$/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^P3$/ })).toBeInTheDocument();
@@ -539,7 +551,7 @@ describe("IncidentScreen", () => {
         const setPriority = vi.fn().mockResolvedValue(undefined);
         mockUseIncident(MOCK_VM, { setPriority });
         render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-        await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+        await userEvent.click(screen.getByRole("button", { name: /^priority: p1$/i }));
         await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${p}$`) }));
         expect(setPriority).toHaveBeenCalledWith(p);
       }
@@ -549,7 +561,7 @@ describe("IncidentScreen", () => {
       const setPriority = vi.fn().mockResolvedValue(undefined);
       mockUseIncident(MOCK_VM, { setPriority });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^priority: p1$/i }));
       await userEvent.click(screen.getByRole("button", { name: /no priority/i }));
       expect(setPriority).toHaveBeenCalledWith(null);
     });

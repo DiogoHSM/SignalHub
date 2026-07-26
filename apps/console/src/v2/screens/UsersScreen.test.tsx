@@ -188,6 +188,19 @@ describe("UsersScreen", () => {
     render(<UsersScreen ctx={makeCtx()} />);
     expect(screen.getByText("No user activity")).toBeInTheDocument();
   });
+
+  it("gives each row an accessible name via aria-label instead of a noisy content-derived name", () => {
+    mockUseUsers(USERS_VM);
+    render(<UsersScreen ctx={makeCtx()} />);
+    expect(screen.getByRole("button", { name: "Jane Doe" })).toBeInTheDocument();
+  });
+
+  it("renders non-selected rows with a transparent background, not the browser default button chrome", () => {
+    mockUseUsers(USERS_VM);
+    render(<UsersScreen ctx={makeCtx()} />);
+    const row = screen.getByRole("button", { name: "Jane Doe" });
+    expect(row.style.background).toBe("transparent");
+  });
 });
 
 describe("timelineNavTarget", () => {

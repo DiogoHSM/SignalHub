@@ -21,7 +21,7 @@ const INCIDENTS_VM: IncidentsVM = {
       status: "investigating",
       priority: "P1",
       incidentNumber: "INC-4821",
-      openedRelative: "18 min",
+      openedRelative: "18 min ago",
       assignee: { kind: "initials", initials: "AM" },
       occurrenceCount: 412,
       affectedUsersCount: 38,
@@ -35,7 +35,7 @@ const INCIDENTS_VM: IncidentsVM = {
       status: "open",
       priority: "P2",
       incidentNumber: null,
-      openedRelative: "31 min",
+      openedRelative: "31 min ago",
       assignee: null,
       occurrenceCount: 184,
       affectedUsersCount: 22,
@@ -49,7 +49,7 @@ const INCIDENTS_VM: IncidentsVM = {
       status: "open",
       priority: "P3",
       incidentNumber: "INC-4819",
-      openedRelative: "2 h",
+      openedRelative: "2 h ago",
       assignee: { kind: "generic" },
       occurrenceCount: 28,
       affectedUsersCount: 4,
@@ -235,6 +235,16 @@ describe("IncidentsScreen", () => {
       render(<IncidentsScreen ctx={makeMockCtx()} />);
       expect(screen.getByText("opened 18 min ago")).toBeInTheDocument();
       expect(screen.getByText("opened 31 min ago")).toBeInTheDocument();
+    });
+
+    it("does not duplicate the 'ago' suffix — openedRelative already comes from relativeTime()", () => {
+      // Regression: useIncidents.openedRelative is built from the shared
+      // relativeTime() formatter, which already appends " ago". The row used
+      // to append a second literal " ago", rendering "opened 2 h ago ago".
+      mockUseIncidents(INCIDENTS_VM);
+      render(<IncidentsScreen ctx={makeMockCtx()} />);
+      expect(screen.queryByText(/ago ago/i)).not.toBeInTheDocument();
+      expect(screen.getByText("opened 2 h ago")).toBeInTheDocument();
     });
 
     it("renders an avatar with initials for {kind:initials}", () => {

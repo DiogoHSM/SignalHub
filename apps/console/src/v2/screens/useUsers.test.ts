@@ -88,6 +88,20 @@ describe("useUsers", () => {
     expect(result.current.data!.rows.map((r) => r.key)).toEqual(["user_hi", "user_lo"]);
   });
 
+  it("rounds a raw floating-point impact score to at most one decimal in the row VM", async () => {
+    const client = makeClient({
+      listUsersActivity: vi.fn().mockResolvedValue({
+        data: {
+          window: "7d", generatedAt: "", scope: { projectId: "p", environmentId: "e" }, range: { from: "", to: "" },
+          users: [makeUser({ userId: "user_raw", label: "Raw", impactScore: 172.00814425 })],
+        },
+      }),
+    });
+    const { result } = renderHook(() => useUsers({ client, ...BASE }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data!.rows[0].impactScore).toBe(172);
+  });
+
   it("re-sorts without refetching when sort changes", async () => {
     const client = makeClient();
     const { result, rerender } = renderHook(({ sort }: { sort: UserSort }) => useUsers({ client, ...BASE, sort }), {
