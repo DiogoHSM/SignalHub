@@ -2070,8 +2070,15 @@ async function assertFunnelScopeWithinLimit(db: Db, params: FunnelChainParams, m
   }
 }
 
-function buildFunnelChainCte(params: FunnelChainParams) {
+// PER-448: `perBreakdownValue` controls whether `s0` (and therefore `chain`) is grouped by
+// (actor_id, actor_type, breakdown_value) or by (actor_id, actor_type) alone. Totals/steps/
+// sampleActors must count each actor once regardless of how many breakdown values their step-0
+// events carry, so callers building those must pass `perBreakdownValue: false`. Only the
+// breakdown-by-value series intentionally re-groups by value and may count the same actor once
+// per distinct value they touched - that per-value semantics is unchanged by this flag.
+function buildFunnelChainCte(params: FunnelChainParams, options: { perBreakdownValue: boolean }) {
   const { steps, breakdownProperty, conversionWindowSeconds } = params;
+  const { perBreakdownValue } = options;
 
   const matchedCte = sql`
     matched AS MATERIALIZED (
@@ -2086,16 +2093,27 @@ function buildFunnelChainCte(params: FunnelChainParams) {
     )
   `;
 
-  const s0Cte = sql`
-    s0 AS (
-      SELECT actor_id, actor_type, breakdown_value, min(timestamp) AS t0
-      FROM matched
-      WHERE name = ${steps[0]}
-      GROUP BY actor_id, actor_type, breakdown_value
-    )
-  `;
+  const s0Cte = perBreakdownValue
+    ? sql`
+      s0 AS (
+        SELECT actor_id, actor_type, breakdown_value, min(timestamp) AS t0
+        FROM matched
+        WHERE name = ${steps[0]}
+        GROUP BY actor_id, actor_type, breakdown_value
+      )
+    `
+    : sql`
+      s0 AS (
+        SELECT actor_id, actor_type, min(timestamp) AS t0
+        FROM matched
+        WHERE name = ${steps[0]}
+        GROUP BY actor_id, actor_type
+      )
+    `;
 
-  const selectCols = [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.breakdown_value"), sql.raw("s0.t0")];
+  const selectCols = perBreakdownValue
+    ? [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.breakdown_value"), sql.raw("s0.t0")]
+    : [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.t0")];
   const lateralFragments: ReturnType<typeof sql>[] = [];
 
   for (let index = 1; index < steps.length; index += 1) {
@@ -2215,7 +2233,7 @@ export async function getEventFunnel(
   );
 
   const totalsResult = await sql<Record<string, string>>`
-    WITH ${buildFunnelChainCte(chainParams)}
+    WITH ${buildFunnelChainCte(chainParams, { perBreakdownValue: false })}
     SELECT ${sql.join(countColumns, sql`, `)}
     FROM chain
   `.execute(db);
@@ -2226,7 +2244,7 @@ export async function getEventFunnel(
   const sampleColumns = [sql.raw("actor_id"), sql.raw("actor_type"), ...steps.map((_, index) => sql.raw(`t${index}`))];
 
   const sampleResult = await sql<Record<string, unknown>>`
-    WITH ${buildFunnelChainCte(chainParams)}
+    WITH ${buildFunnelChainCte(chainParams, { perBreakdownValue: false })}
     SELECT ${sql.join(sampleColumns, sql`, `)}
     FROM chain
     ORDER BY actor_id ASC
@@ -2254,7 +2272,7 @@ export async function getEventFunnel(
   let breakdown: EventFunnelBreakdownSeries[] | undefined;
   if (breakdownProperty) {
     const breakdownResult = await sql<Record<string, string>>`
-      WITH ${buildFunnelChainCte(chainParams)}
+      WITH ${buildFunnelChainCte(chainParams, { perBreakdownValue: true })}
       SELECT coalesce(breakdown_value, '') AS breakdown_value, ${sql.join(countColumns, sql`, `)}
       FROM chain
       GROUP BY 1
