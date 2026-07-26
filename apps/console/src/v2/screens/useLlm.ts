@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
 import type {
+  LlmCallRecord,
   LlmCostByModel,
   LlmPromptRow,
   LlmSummary,
@@ -42,12 +43,24 @@ export type LlmPromptVM = {
   costUsd: number;
 };
 
+export type LlmCallRowVM = {
+  id: string;
+  timestamp: string;
+  provider: string;
+  model: string;
+  promptName: string | null;
+  status: string;
+  latencyMs: number | null;
+  costUsd: number;
+};
+
 export type LlmVM = {
   window: OverviewWindow;
   kpis: LlmKpis;
   costByModel: LlmCostByModelVM;
   tenants: LlmTenantVM[];
   prompts: LlmPromptVM[];
+  recentCalls: LlmCallRowVM[];
 };
 
 export type UseLlmResult = {
@@ -66,11 +79,21 @@ type UseLlmArgs = {
     getLlmByTenant?: ApiClient["getLlmByTenant"];
     getLlmByPrompt?: ApiClient["getLlmByPrompt"];
     getLlmCostByModel?: ApiClient["getLlmCostByModel"];
+    listLlmCalls?: ApiClient["listLlmCalls"];
   };
   projectId: string | undefined;
   environmentId: string | undefined;
   window: OverviewWindow;
+  /** Seeds for the "Recent calls" list only — LlmAggregateQuery doesn't support these. */
+  tenantId?: string;
+  userId?: string;
+  provider?: string;
+  model?: string;
+  promptName?: string;
+  status?: string;
 };
+
+const RECENT_CALLS_LIMIT = 50;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -105,7 +128,31 @@ function monthlyRunRate(windowCost: number, window: OverviewWindow): number {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useLlm({ client, projectId, environmentId, window }: UseLlmArgs): UseLlmResult {
+function mapCallRow(row: LlmCallRecord): LlmCallRowVM {
+  return {
+    id: row.id,
+    timestamp: row.timestamp,
+    provider: row.provider,
+    model: row.model,
+    promptName: row.promptName,
+    status: row.status,
+    latencyMs: row.latencyMs,
+    costUsd: toNum(row.costUsd),
+  };
+}
+
+export function useLlm({
+  client,
+  projectId,
+  environmentId,
+  window,
+  tenantId,
+  userId,
+  provider,
+  model,
+  promptName,
+  status: callStatus,
+}: UseLlmArgs): UseLlmResult {
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<LlmVM | null>(null);
   const [tick, setTick] = useState(0);
@@ -133,9 +180,24 @@ export function useLlm({ client, projectId, environmentId, window }: UseLlmArgs)
     const costFetch = client.getLlmCostByModel
       ? client.getLlmCostByModel(scope).catch((e) => { console.error(e); return null; })
       : Promise.resolve(null);
+    const recentCallsFetch = client.listLlmCalls
+      ? client
+          .listLlmCalls({
+            projectId,
+            environmentId,
+            ...(tenantId ? { tenantId } : {}),
+            ...(userId ? { userId } : {}),
+            ...(provider ? { provider } : {}),
+            ...(model ? { model } : {}),
+            ...(promptName ? { promptName } : {}),
+            ...(callStatus ? { status: callStatus } : {}),
+            limit: RECENT_CALLS_LIMIT,
+          })
+          .catch(() => null)
+      : Promise.resolve(null);
 
-    Promise.all([summaryFetch, tenantFetch, promptFetch, costFetch])
-      .then(([summaryRes, tenantRes, promptRes, costRes]) => {
+    Promise.all([summaryFetch, tenantFetch, promptFetch, costFetch, recentCallsFetch])
+      .then(([summaryRes, tenantRes, promptRes, costRes, recentCallsRes]) => {
         if (gen !== genRef.current) return;
 
         const summary: LlmSummary = summaryRes.data;
@@ -183,7 +245,9 @@ export function useLlm({ client, projectId, environmentId, window }: UseLlmArgs)
           })),
         };
 
-        setData({ window, kpis, costByModel, tenants, prompts });
+        const recentCalls: LlmCallRowVM[] = (recentCallsRes?.data ?? []).map(mapCallRow);
+
+        setData({ window, kpis, costByModel, tenants, prompts, recentCalls });
         setStatus("ok");
       })
       .catch((err) => {
@@ -197,7 +261,7 @@ export function useLlm({ client, projectId, environmentId, window }: UseLlmArgs)
       ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, environmentId, window, tick]);
+  }, [projectId, environmentId, window, tenantId, userId, provider, model, promptName, callStatus, tick]);
 
   return { data, status, reload };
 }

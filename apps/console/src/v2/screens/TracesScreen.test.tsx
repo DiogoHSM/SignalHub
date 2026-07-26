@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Environment, Project } from "../../api/types";
@@ -23,7 +23,8 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
     client: {} as never,
     project, environment, environments: [environment],
     onCreateEnvironment: vi.fn(), onArchiveProject: vi.fn(), onSecretCreated: vi.fn(),
-    onSelectEnvironment: vi.fn(), onUpdateProject: vi.fn(), navigate: vi.fn(), back: vi.fn(),
+    onSelectEnvironment: vi.fn(), onUpdateProject: vi.fn(), navigate: vi.fn(),
+    pendingFilters: null, clearPendingFilters: vi.fn(), back: vi.fn(),
     drill: vi.fn(), pushToast: vi.fn(), ...over,
   } as ScreenCtx;
 }
@@ -205,6 +206,27 @@ describe("TracesScreen — index", () => {
     mockList([]);
     render(<TracesScreen ctx={makeCtx()} />);
     expect(screen.getByText(/no traces/i)).toBeInTheDocument();
+  });
+
+  it("seeds tenant/user/trace filters from ctx.pendingFilters, forwards them, clears the payload, and auto-opens the matching trace", async () => {
+    const spy = vi.spyOn(useTracesModule, "useTraces");
+    spy.mockReturnValue({
+      data: [traces[0]],
+      endpoints, serviceMap: { edges: [], totals: null }, webVitals: { metrics: [], totals: null },
+      runtimeProfiles: { profiles: [], hotFunctions: [], totals: null },
+      totals: null, status: "ok", reload: vi.fn(),
+    });
+    mockSpans(detail);
+    const ctx = makeCtx({
+      pendingFilters: { section: "traces", filters: { tenantId: "tenant_acme", userId: "user_8420", traceId: "trace_a" } },
+    });
+    render(<TracesScreen ctx={ctx} />);
+
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant_acme", userId: "user_8420", traceId: "trace_a" }));
+    expect(ctx.clearPendingFilters).toHaveBeenCalled();
+
+    // The single filtered result auto-opens into the waterfall view.
+    await waitFor(() => expect(screen.getByText("Waterfall")).toBeInTheDocument());
   });
 });
 

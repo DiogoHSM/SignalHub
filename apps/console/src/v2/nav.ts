@@ -7,8 +7,12 @@ export type NavSection =
   | "llm"
   | "traces"
   | "entities"
+  | "users"
+  | "events"
+  | "analytics"
   | "alerts"
   | "monitors"
+  | "experiments"
   | "system"
   | "settings";
 
@@ -25,8 +29,12 @@ export const NAV: NavItem[] = [
   { id: "incidents",   icon: "error",     label: "Incidents", badge: true },
   { id: "llm",         icon: "sparkles",  label: "LLM" },
   { id: "traces",      icon: "waterfall", label: "Traces" },
+  { id: "users",       icon: "users",     label: "Users" },
+  { id: "events",      icon: "activity",  label: "Events" },
+  { id: "analytics",   icon: "grid",      label: "Analytics" },
   { id: "alerts",      icon: "bell",      label: "Alerts" },
   { id: "monitors",    icon: "pulse",     label: "Monitors" },
+  { id: "experiments", icon: "flag",      label: "Experiments" },
 ];
 
 export const NAV_BOTTOM: NavItem[] = [

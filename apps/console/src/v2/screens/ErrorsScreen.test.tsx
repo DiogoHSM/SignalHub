@@ -130,6 +130,8 @@ function makeMockCtx(): ScreenCtx {
     onSelectEnvironment: vi.fn(),
     onUpdateProject: vi.fn(),
     navigate: vi.fn(),
+    pendingFilters: null,
+    clearPendingFilters: vi.fn(),
     back: vi.fn(),
     drill: vi.fn(),
     pushToast: vi.fn(),
@@ -250,12 +252,12 @@ describe("ErrorsScreen", () => {
       expect(navigate).toHaveBeenCalledWith("entities");
     });
 
-    it("navigates to investigate when Users tab is clicked", async () => {
+    it("navigates to users when Users tab is clicked", async () => {
       mockUseErrors(ERRORS_VM);
       const navigate = vi.fn();
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={navigate} />);
       await userEvent.click(screen.getByRole("button", { name: "Users" }));
-      expect(navigate).toHaveBeenCalledWith("investigate");
+      expect(navigate).toHaveBeenCalledWith("users");
     });
   });
 
@@ -668,6 +670,30 @@ describe("ErrorsScreen", () => {
       const text = container.textContent ?? "";
       const needle = "Signal" + "Hub";
       expect(text).not.toContain(needle);
+    });
+  });
+
+  describe("pendingFilters seed", () => {
+    it("seeds tenantId/userId/severity/status from ctx.pendingFilters, forwards them, and clears the payload", () => {
+      const spy = vi.spyOn(useErrorsModule, "useErrors").mockReturnValue({ data: ERRORS_VM, status: "ok", reload: vi.fn() });
+      const ctx = makeMockCtx();
+      ctx.pendingFilters = { section: "investigate", filters: { tenantId: "tenant_acme", userId: "user_1", severity: "critical", status: "open" } };
+      render(<ErrorsScreen ctx={ctx} navigate={vi.fn()} />);
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant_acme", userId: "user_1", severity: "critical", status: "open" }));
+      expect(ctx.clearPendingFilters).toHaveBeenCalled();
+      expect(screen.getByText(/tenant: tenant_acme/i)).toBeInTheDocument();
+      expect(screen.getByText(/user: user_1/i)).toBeInTheDocument();
+      // Exact match — the disabled TODO placeholder button also contains the "status: open" substring.
+      expect(screen.getByText("status: open")).toBeInTheDocument();
+    });
+
+    it("clearing the tenant/user chip drops the filter from the next call", async () => {
+      const spy = vi.spyOn(useErrorsModule, "useErrors").mockReturnValue({ data: ERRORS_VM, status: "ok", reload: vi.fn() });
+      const ctx = makeMockCtx();
+      ctx.pendingFilters = { section: "investigate", filters: { tenantId: "tenant_acme" } };
+      render(<ErrorsScreen ctx={ctx} navigate={vi.fn()} />);
+      await userEvent.click(screen.getByText(/tenant: tenant_acme/i));
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ tenantId: undefined }));
     });
   });
 });

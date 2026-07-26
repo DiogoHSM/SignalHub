@@ -10,9 +10,15 @@ import * as useIncidentsModule from "./useIncidents";
 import * as useLlmModule from "./useLlm";
 import * as useTracesModule from "./useTraces";
 import * as useTenantsModule from "./useTenants";
+import * as useUsersModule from "./useUsers";
 import * as useAlertsModule from "./useAlerts";
 import * as useSystemHealthModule from "./useSystemHealth";
 import * as useSetupModule from "./useSetup";
+import * as useEventsModule from "./useEvents";
+import * as useSegmentsModule from "./useSegments";
+import * as useAnalyticsPanelsModule from "./useAnalyticsPanels";
+import * as useAbTestsModule from "./experiments/useAbTests";
+import * as useFeatureFlagsModule from "./experiments/useFeatureFlags";
 
 afterEach(cleanup);
 
@@ -93,6 +99,8 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
     onUpdateProject: vi.fn().mockResolvedValue(undefined),
     onUpdateEnvironment: vi.fn().mockResolvedValue(undefined),
     navigate: vi.fn() as (section: NavSection) => void,
+    pendingFilters: null,
+    clearPendingFilters: vi.fn(),
     back: vi.fn(),
     drill: vi.fn(),
     pushToast: vi.fn(),
@@ -102,7 +110,7 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
 
 describe("screen registry", () => {
   it("has an entry for every nav section", () => {
-    for (const s of ["overview","investigate","incidents","llm","traces","entities","alerts","monitors","system","settings"] as const)
+    for (const s of ["overview","investigate","incidents","llm","traces","entities","users","events","analytics","alerts","monitors","experiments","system","settings"] as const)
       expect(SCREENS[s]).toBeDefined();
   });
 
@@ -224,6 +232,73 @@ describe("screen registry", () => {
     vi.restoreAllMocks();
   });
 
+  it("routes events to a v2 screen", () => {
+    expect(SCREENS.events.kind).toBe("v2");
+  });
+
+  it("renders the v2 Events screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useEventsModule, "useEvents").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    vi.spyOn(useSegmentsModule, "useSegments").mockReturnValue({
+      data: null,
+      status: "loading",
+      busy: false,
+      reload: vi.fn(),
+      save: vi.fn().mockResolvedValue(true),
+      archive: vi.fn().mockResolvedValue(true),
+    });
+    const ctx = makeCtx();
+    const node = renderSection("events", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
+  it("routes users to a v2 screen", () => {
+    expect(SCREENS.users.kind).toBe("v2");
+  });
+
+  it("renders the v2 Users screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
+      data: null,
+      status: "loading",
+      reload: vi.fn(),
+    });
+    const ctx = makeCtx();
+    const node = renderSection("users", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it("routes analytics to a v2 screen", () => {
+    expect(SCREENS.analytics.kind).toBe("v2");
+  });
+
+  it("renders the v2 Analytics screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useAnalyticsPanelsModule, "useAnalyticsPanels").mockReturnValue({
+      funnel: { state: "idle", data: null, run: vi.fn() },
+      retention: { state: "idle", data: null, run: vi.fn() },
+      paths: { state: "idle", data: null, run: vi.fn() },
+      clickMap: { state: "idle", data: null, run: vi.fn() },
+    });
+    vi.spyOn(useSegmentsModule, "useSegments").mockReturnValue({
+      data: null,
+      status: "loading",
+      busy: false,
+      reload: vi.fn(),
+      save: vi.fn().mockResolvedValue(true),
+      archive: vi.fn().mockResolvedValue(true),
+    });
+    vi.spyOn(useEventsModule, "useEvents").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    const ctx = makeCtx();
+    const node = renderSection("analytics", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByRole("heading", { name: /analytics/i })).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
   it("routes alerts to a v2 screen", () => {
     expect(SCREENS.alerts.kind).toBe("v2");
   });
@@ -257,6 +332,39 @@ describe("screen registry", () => {
   it("renders the v2 Monitors screen (not wrapped in the legacy island)", () => {
     const { container } = render(<>{renderSection("monitors", makeCtx())}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
+  });
+
+  it("routes experiments to a v2 screen", () => {
+    expect(SCREENS.experiments.kind).toBe("v2");
+  });
+
+  it("renders the v2 Experiments screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useAbTestsModule, "useAbTests").mockReturnValue({
+      data: null,
+      status: "loading",
+      busy: false,
+      reload: vi.fn(),
+      createExperiment: vi.fn(),
+      updateExperimentStatus: vi.fn(),
+      archiveExperiment: vi.fn(),
+    });
+    vi.spyOn(useFeatureFlagsModule, "useFeatureFlags").mockReturnValue({
+      data: null,
+      status: "loading",
+      busy: false,
+      reload: vi.fn(),
+      createFlag: vi.fn(),
+      updateFlagStatus: vi.fn(),
+      archiveFlag: vi.fn(),
+      evaluateFlag: vi.fn(),
+      loadAudit: vi.fn(),
+    });
+    const ctx = makeCtx();
+    const node = renderSection("experiments", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading a\/b tests/i)).toBeInTheDocument();
+    vi.restoreAllMocks();
   });
 
   it("routes system to a v2 screen", () => {
