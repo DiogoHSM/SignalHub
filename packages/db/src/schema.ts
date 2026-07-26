@@ -808,7 +808,7 @@ export type AlertSeverity = "info" | "warning" | "critical";
 export interface NotificationChannelsTable {
   id: ColumnType<string, string | undefined, string>;
   name: string;
-  type: "webhook" | "email";
+  type: "webhook" | "slack" | "discord" | "email";
   url: string | null;
   email_recipients: JsonColumn;
   secret_header_name: string | null;

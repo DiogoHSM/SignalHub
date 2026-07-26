@@ -2410,11 +2410,13 @@ export type SystemActionResponse = {
   generatedAt: string;
 };
 
+export type WebhookLikeChannelType = "webhook" | "slack" | "discord";
+
 export type NotificationChannelResponse =
   | {
       id: string;
       name: string;
-      type: "webhook";
+      type: WebhookLikeChannelType;
       url: string;
       emailRecipients: [];
       secretHeaderName: string | null;
@@ -2441,7 +2443,7 @@ export type NotificationChannelResponse =
 export type CreateNotificationChannelInput =
   | {
       name: string;
-      type: "webhook";
+      type: WebhookLikeChannelType;
       url: string;
       secretHeaderName?: string | null;
       secretHeaderValue?: string | null;

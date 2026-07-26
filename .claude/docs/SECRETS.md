@@ -18,7 +18,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used to sign human session cookies. |
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
-| `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets. Defaults to the browser origin when blank. |
+| `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets and, when set, in the alert email's "View in Sigmon" deep link. Defaults to the browser origin when blank; the alert email link is omitted when unset. |
 | `BROWSER_CORS_ORIGINS` | No | `https://app.example.com` | Optional non-secret global browser origin allowlist for public ingestion endpoints. Prefer project-scoped origins in Project Settings for normal setup. |
 | `SIGMON_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
 | `EASYPANEL_API_DEPLOY_URL` | GitHub Actions only | `https://easypanel.example.com/api/trpc/...` | EasyPanel deploy hook for the `api` service. Store only as a GitHub Actions secret. |

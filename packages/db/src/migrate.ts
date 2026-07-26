@@ -43,7 +43,11 @@ const migrations = [
   { name: "0037_code_integrations.sql", url: new URL("../migrations/0037_code_integrations.sql", import.meta.url) },
   { name: "0038_surveys.sql", url: new URL("../migrations/0038_surveys.sql", import.meta.url) },
   { name: "0039_feedback_widget.sql", url: new URL("../migrations/0039_feedback_widget.sql", import.meta.url) },
-  { name: "0040_message_campaigns.sql", url: new URL("../migrations/0040_message_campaigns.sql", import.meta.url) }
+  { name: "0040_message_campaigns.sql", url: new URL("../migrations/0040_message_campaigns.sql", import.meta.url) },
+  {
+    name: "0041_notification_channel_slack_discord.sql",
+    url: new URL("../migrations/0041_notification_channel_slack_discord.sql", import.meta.url)
+  }
 ];
 
 export async function migrate(db: Db): Promise<void> {

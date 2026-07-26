@@ -243,7 +243,8 @@ const stopAlerts = runsScheduler && config.alerts.enabled
               payload,
               smtp: config.smtp,
               timeoutMs: config.alerts.webhookTimeoutMs,
-              nodeEnv: config.nodeEnv
+              nodeEnv: config.nodeEnv,
+              publicEndpoint: config.console.publicEndpoint
             }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })
@@ -273,7 +274,8 @@ const stopMonitors = runsScheduler && config.monitors.enabled
               payload,
               smtp: config.smtp,
               timeoutMs: config.alerts.webhookTimeoutMs,
-              nodeEnv: config.nodeEnv
+              nodeEnv: config.nodeEnv,
+              publicEndpoint: config.console.publicEndpoint
             }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })

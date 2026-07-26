@@ -44,7 +44,7 @@ Implemented capabilities:
 - Worker-owned scheduled Postgres logical backups, manual backup/restore scripts, local backup retention, optional S3-compatible upload, and recorded backup run metadata.
 - Worker heartbeats and logged-in system health snapshots for API, worker, Postgres, Redis, queue depth, ingestion freshness, retention status, and backup status.
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
-- Internal alert history with optional email and generic webhook notification channels, recorded delivery attempts, event triage, and optional escalation delivery when an alert remains unacknowledged.
+- Internal alert history with email, generic webhook, and native Slack/Discord notification channels, recorded delivery attempts, event triage, and optional escalation delivery when an alert remains unacknowledged.
 - Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, controlled replay, automatic expiration, and retained replay/delete/expiration audit actions.
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
