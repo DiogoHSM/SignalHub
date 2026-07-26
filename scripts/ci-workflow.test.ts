@@ -32,16 +32,12 @@ function jobBlock(content: string, jobName: string): string {
 }
 
 describe("GitHub Actions CI workflow", () => {
-  it("runs for pull requests, main pushes, and manual dispatch", () => {
+  it("runs only on manual dispatch per the local-first CI policy", () => {
     const content = workflow();
 
-    expectIncludesAll(content, [
-      "name: CI",
-      "pull_request:",
-      "branches: [main]",
-      "push:",
-      "workflow_dispatch:"
-    ]);
+    expectIncludesAll(content, ["name: CI", "workflow_dispatch:"]);
+    expect(content).not.toContain("pull_request:");
+    expect(content).not.toContain("push:");
   });
 
   it("uses read-only repository contents permissions", () => {
@@ -113,12 +109,12 @@ describe("GitHub Actions CI workflow", () => {
     );
   });
 
-  it("deploys only repository-built EasyPanel app services from main pushes", () => {
+  it("deploys only repository-built EasyPanel app services from manual main dispatches", () => {
     const deployJob = jobBlock(workflow(), "deploy-easypanel");
 
     expectIncludesAll(deployJob, [
       "needs: [test, build, compose-config, smoke-compose]",
-      "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
+      "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
       "EASYPANEL_API_DEPLOY_URL: ${{ secrets.EASYPANEL_API_DEPLOY_URL || secrets.EASYPANEL_DEPLOY_URL }}",
       "EASYPANEL_WORKER_DEPLOY_URL: ${{ secrets.EASYPANEL_WORKER_DEPLOY_URL }}",
       "EASYPANEL_SCHEDULER_DEPLOY_URL: ${{ secrets.EASYPANEL_SCHEDULER_DEPLOY_URL }}",
@@ -137,13 +133,12 @@ describe("GitHub Actions CI workflow", () => {
     expect(deployJob).not.toContain("REDIS_DEPLOY_URL");
   });
 
-  it("publishes the SDK package to public npm releases with Trusted Publishing", () => {
+  it("publishes the SDK package to public npm only on manual dispatch with Trusted Publishing", () => {
     const content = publishSdkWorkflow();
 
+    expect(content).not.toContain("release:");
     expectIncludesAll(content, [
       "name: Publish SDK",
-      "release:",
-      "types: [published]",
       "workflow_dispatch:",
       "id-token: write",
       "node-version: 24",
