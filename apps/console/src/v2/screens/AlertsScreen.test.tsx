@@ -192,6 +192,92 @@ describe("AlertsScreen", () => {
   });
 });
 
+describe("AlertsScreen — On-call queue triage note", () => {
+  it("renders an optional note input for each queue event", () => {
+    mockUseAlerts(vm);
+    render(<AlertsScreen ctx={makeCtx()} />);
+    expect(screen.getByPlaceholderText(/note/i)).toBeInTheDocument();
+  });
+
+  it("calls updateAlertEventTriage with the typed note when Ack is clicked", async () => {
+    const updateAlertEventTriage = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage,
+      createChannel: vi.fn().mockResolvedValue(true),
+      updateChannel: vi.fn().mockResolvedValue(true),
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+
+    await userEvent.type(screen.getByPlaceholderText(/note/i), "Investigated, provider degradation");
+    await userEvent.click(screen.getByRole("button", { name: /^ack$/i }));
+
+    expect(updateAlertEventTriage).toHaveBeenCalledWith(
+      "ale_1",
+      expect.objectContaining({ status: "acknowledged", note: "Investigated, provider degradation" })
+    );
+  });
+
+  it("calls updateAlertEventTriage without a note when none was typed", async () => {
+    const updateAlertEventTriage = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage,
+      createChannel: vi.fn().mockResolvedValue(true),
+      updateChannel: vi.fn().mockResolvedValue(true),
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /^resolve$/i }));
+
+    expect(updateAlertEventTriage).toHaveBeenCalledWith(
+      "ale_1",
+      expect.objectContaining({ status: "resolved", note: undefined })
+    );
+  });
+
+  it("clears the note input after a triage action is submitted", async () => {
+    const updateAlertEventTriage = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage,
+      createChannel: vi.fn().mockResolvedValue(true),
+      updateChannel: vi.fn().mockResolvedValue(true),
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+
+    const noteInput = screen.getByPlaceholderText(/note/i) as HTMLInputElement;
+    await userEvent.type(noteInput, "Snoozing while provider recovers");
+    await userEvent.click(screen.getByRole("button", { name: /^snooze/i }));
+
+    await waitFor(() => expect(noteInput.value).toBe(""));
+  });
+});
+
 // extend existing vm to include suggestions
 const vmWithSuggestions: AlertsVM = {
   ...vm,
@@ -346,5 +432,43 @@ describe("AlertsScreen — channels panel", () => {
     const confirmBtn = screen.getByRole("button", { name: /archive/i });
     await userEvent.click(confirmBtn);
     expect(archiveChannel).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("creates a native Slack channel with the selected type and URL", async () => {
+    const createChannel = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage: vi.fn().mockResolvedValue(true),
+      createChannel,
+      updateChannel: vi.fn().mockResolvedValue(true),
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+
+    await userEvent.click(screen.getAllByRole("button", { name: /channels/i })[0]);
+    await userEvent.click(screen.getByRole("button", { name: "slack" }));
+    expect(screen.getByText("Slack Incoming Webhook URL")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText("Slack #incidents"), "Slack alerts");
+    await userEvent.type(
+      screen.getByPlaceholderText("https://hooks.slack.com/services/..."),
+      "https://hooks.slack.com/services/T0/xyz",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    expect(createChannel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "slack",
+        name: "Slack alerts",
+        url: "https://hooks.slack.com/services/T0/xyz",
+      }),
+    );
   });
 });

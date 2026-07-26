@@ -143,12 +143,53 @@ export type UpdateWarehouseDestinationInput = Partial<
 
 export type AnalyticsSegmentActorType = "user" | "tenant";
 
-export type AnalyticsSegmentDefinition = {
+export type SegmentOperator = "eq" | "neq" | "contains" | "gt" | "gte" | "lt" | "lte" | "in" | "exists";
+export type SegmentLeafValue = string | number | string[];
+
+export type SegmentPropertyCondition = {
+  name: string;
+  operator: SegmentOperator;
+  value?: SegmentLeafValue;
+};
+
+export type SegmentEventLeaf = {
+  kind: "event";
+  eventName?: string;
+  property?: SegmentPropertyCondition;
+  frequency?: { operator: "gte" | "lte" | "eq"; count: number };
+  recency?: { withinDays: number };
+};
+
+export type SegmentTraitLeaf = {
+  kind: "trait";
+  source: AnalyticsSegmentActorType;
+  name: string;
+  operator: SegmentOperator;
+  value?: SegmentLeafValue;
+};
+
+export type SegmentGroupNode = {
+  kind: "group";
+  op: "and" | "or" | "not";
+  children: SegmentNode[];
+};
+
+export type SegmentNode = SegmentGroupNode | SegmentEventLeaf | SegmentTraitLeaf;
+
+export type AnalyticsSegmentDefinitionV1 = {
   window?: ApmWindow;
   eventName?: string;
   propertyName?: string;
   propertyValue?: string;
 };
+
+export type AnalyticsSegmentDefinitionV2 = {
+  version: 2;
+  window?: ApmWindow;
+  root: SegmentNode;
+};
+
+export type AnalyticsSegmentDefinition = AnalyticsSegmentDefinitionV1 | AnalyticsSegmentDefinitionV2;
 
 export type AnalyticsSegment = {
   id: string;
@@ -867,6 +908,10 @@ export type EventClickMapResponse = {
 
 export type EventFunnelQuery = ApmQuery & {
   steps: string[];
+  conversionWindow?: string;
+  breakdownProperty?: string;
+  tenantId?: string;
+  segmentId?: string;
 };
 
 export type EventFunnelStep = {
@@ -883,6 +928,16 @@ export type EventFunnelActor = {
   reachedStepIndex: number;
   reachedStepName: string;
   lastSeenAt: string;
+};
+
+export type EventFunnelBreakdownSeries = {
+  value: string;
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
 };
 
 export type EventFunnelResponse = {
@@ -903,15 +958,19 @@ export type EventFunnelResponse = {
   };
   steps: EventFunnelStep[];
   sampleActors: EventFunnelActor[];
+  breakdown?: EventFunnelBreakdownSeries[];
 };
 
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 
 export type EventRetentionQuery = ApmQuery & {
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent?: string;
+  /** Absent means "any event" counts as retained (unbounded retention). */
+  returnEvent?: string;
   period?: EventRetentionPeriod;
   intervals?: number;
+  /** Overrides the window-derived range with `now - rangeDays .. now`. 1..730. */
+  rangeDays?: number;
 };
 
 export type EventRetentionInterval = {
@@ -939,10 +998,12 @@ export type EventRetentionResponse = {
     from: string;
     to: string;
   };
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent: string | null;
+  returnEvent: string | null;
   period: EventRetentionPeriod;
   intervals: number;
+  /** "rollup" when the range was served from the event_actor_daily daily rollup. */
+  source: "raw" | "rollup";
   totals: {
     cohorts: number;
     entrants: number;
@@ -2410,11 +2471,51 @@ export type SystemActionResponse = {
   generatedAt: string;
 };
 
+export type DeadLetterJobResponse = {
+  id: string;
+  projectId: string | null;
+  environmentId: string | null;
+  queueName: string;
+  jobName: string;
+  payload: unknown;
+  errorMessage: string;
+  createdAt: string;
+};
+
+export type DeadLetterJobActionType = "deleted" | "replayed" | "expired";
+
+export type DeadLetterJobActionResponse = {
+  id: string;
+  deadLetterJobId: string;
+  queueName: string;
+  jobName: string;
+  action: DeadLetterJobActionType;
+  actorUserId: string | null;
+  actorEmail: string;
+  metadata: unknown;
+  createdAt: string;
+};
+
+export type DeadLetterJobListQuery = {
+  limit?: number;
+  cursor?: string;
+  queueName?: string;
+  jobName?: string;
+  error?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  status?: "pending";
+};
+
+export type DeadLetterReplayResult = { replayed: true; id: string };
+
+export type WebhookLikeChannelType = "webhook" | "slack" | "discord";
+
 export type NotificationChannelResponse =
   | {
       id: string;
       name: string;
-      type: "webhook";
+      type: WebhookLikeChannelType;
       url: string;
       emailRecipients: [];
       secretHeaderName: string | null;
@@ -2441,7 +2542,7 @@ export type NotificationChannelResponse =
 export type CreateNotificationChannelInput =
   | {
       name: string;
-      type: "webhook";
+      type: WebhookLikeChannelType;
       url: string;
       secretHeaderName?: string | null;
       secretHeaderValue?: string | null;

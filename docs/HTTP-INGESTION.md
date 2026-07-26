@@ -138,12 +138,14 @@ Use stable property names and stable value types so dashboards, filters, and fut
 
 ### Conversion funnels
 
-Operators can analyze ordered event funnels with `GET /query/events/funnel`. Funnel analysis is based on stable actor IDs, so send at least one of `user_id`, `tenant_id`, `session_id`, or `trace_id` on product events that should participate in conversion analysis.
+Operators can analyze ordered event funnels with `GET /query/events/funnel`. Funnel analysis is based on stable actor IDs, so send at least one of `user_id`, `tenant_id`, `session_id`, or `trace_id` on product events that should participate in conversion analysis. The whole funnel is aggregated in SQL (no per-actor row data leaves Postgres), so it stays cheap even for large event volumes.
+
+Optional query params, all backward compatible: `conversion_window` (compact duration like `30m`, `24h`, or `7d`; bounds elapsed time from an actor's first step to each later step, rejecting values that exceed the requested `window`), `breakdown_property` (splits results into up to 20 series by an event property value), `tenant_id` (restricts matched events to one tenant), and `segment_id` (restricts matched actors to a saved analytics segment).
 
 Example query:
 
 ```http
-GET /query/events/funnel?project_id=prj_123&environment_id=env_123&window=7d&steps=signup.started,project.created,key.created
+GET /query/events/funnel?project_id=prj_123&environment_id=env_123&window=7d&steps=signup.started,project.created,key.created&conversion_window=24h&breakdown_property=plan
 ```
 
 ### Experiments
@@ -284,7 +286,9 @@ reserved for a future privacy-safe widget flow with masking and explicit consent
 
 ### Retention curves
 
-Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Retention uses the first `entry_event` per actor as the cohort start, then counts actors who later emit `return_event` across daily, weekly, or monthly intervals.
+Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Cohorts are anchored on each actor's `user_profiles.first_seen_at` (their real first appearance), not the minimum `entry_event` timestamp inside the queried window — an actor who existed before the window but re-fires the entry event inside it does not start a new cohort. `entry_event` is an optional cohort eligibility filter; `return_event` is optional and, when absent, any event counts as retained activity across daily, weekly, or monthly intervals.
+
+An optional `range_days` (1..730) overrides the `window`-derived range for long lookback queries. Ranges older than the configured raw event retention window (`RETENTION_EVENTS_DAYS`) are served from the `event_actor_daily` daily rollup instead of raw events, and the response reports `source: "raw" | "rollup"` accordingly.
 
 Example query:
 
@@ -294,7 +298,7 @@ GET /query/events/retention?project_id=prj_123&environment_id=env_123&window=30d
 
 ### Saved segments
 
-Operators can save reusable user or tenant segments from event conditions in the console. The first segment model is intentionally bounded: it supports an actor type (`user` or `tenant`), a window (`24h`, `7d`, or `30d`), an optional event name, and an optional event property condition. Saved segments can be previewed and applied to `GET /query/events` with `segment_id`.
+Operators can save reusable user or tenant segments from event conditions in the console. The original segment model is intentionally bounded: it supports an actor type (`user` or `tenant`), a window (`24h`, `7d`, or `30d`), an optional event name, and an optional event property condition (`v1` definitions already saved keep working unchanged). Newer segments can instead save a `v2` definition — `{ "version": 2, "window"?, "root" }` — where `root` is a boolean tree of `and`/`or`/`not` groups over event conditions (name, property comparison, frequency threshold, recency window) and trait conditions (equality/comparison over identified user/tenant traits). Every leaf operator is drawn from a fixed whitelist (`eq`, `neq`, `contains`, `gt`, `gte`, `lt`, `lte`, `in`, `exists`); an unknown operator or an over-complex tree (depth > 5, more than 32 nodes, or more than 8 children in one group) is rejected with a `400` and a named error such as `segment_invalid_operator` or `segment_definition_too_complex`. Saved segments can be previewed and applied to `GET /query/events` with `segment_id`.
 
 Example query:
 

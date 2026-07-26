@@ -6,6 +6,9 @@ import type { User } from "../api/types";
 import { ConsoleShellV2 } from "./ConsoleShellV2";
 import * as useIncidentModule from "./screens/useIncident";
 import * as useErrorsModule from "./screens/useErrors";
+import * as useUsersModule from "./screens/useUsers";
+import * as useUserDetailModule from "./screens/useUserDetail";
+import * as useLlmModule from "./screens/useLlm";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -362,6 +365,8 @@ describe("ConsoleShellV2", () => {
         status: "ready" as const,
         reload: vi.fn(),
         resolve: vi.fn().mockResolvedValue(undefined),
+        setPriority: vi.fn().mockResolvedValue(undefined),
+        setStatus: vi.fn().mockResolvedValue(undefined),
         reassign: vi.fn().mockResolvedValue(undefined),
         silence: vi.fn().mockResolvedValue(undefined),
         addNote: vi.fn().mockResolvedValue(undefined),
@@ -568,6 +573,88 @@ describe("ConsoleShellV2", () => {
       await user.click(screen.getByText("tenant_acme"));
 
       await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: /Acme Corp/i })).toBeInTheDocument());
+    });
+  });
+
+  describe("pendingFilters (navigate with payload)", () => {
+    function setupUsersDrillMocks() {
+      vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
+        data: {
+          rows: [
+            {
+              key: "user_1", userId: "user_1", label: "User One", isAnonymous: false,
+              impactScore: 10, events: 1, errors: 0, failedTraces: 0, llmCalls: 1, llmCostUsd: 0,
+              activeTenants: 1, activeSessions: 1, lastSeenAt: null, lastSeenLabel: "—", keyTraits: {},
+            },
+          ],
+        },
+        status: "ok",
+        reload: vi.fn(),
+      });
+      vi.spyOn(useUserDetailModule, "useUserDetail").mockReturnValue({
+        data: {
+          window: "7d", generatedAt: "", scope: { projectId: "prj_1", environmentId: "env_1" }, range: { from: "", to: "" },
+          user: {
+            userId: "user_1", label: "User One", traits: {}, keyTraits: {}, isAnonymous: false, impactScore: 10,
+            firstSeenAt: null, lastSeenAt: null, profileUpdatedAt: null, events: 1, errors: 0, openErrors: 0,
+            severeErrors: 0, traces: 0, failedTraces: 0, llmCalls: 1, failedLlmCalls: 0, llmCostUsd: "0",
+            activeTenants: 1, activeSessions: 1,
+          },
+          recentSessions: [],
+          timeline: [
+            {
+              type: "llm", id: "ll1", timestamp: "2026-06-23T12:00:00.000Z", label: "greet_call",
+              tenantId: "tenant_acme", sessionId: null, traceId: null, provider: "openai", model: "gpt-5",
+              promptName: "greet", status: "success", costUsd: "0.01",
+            },
+          ],
+        },
+        status: "ok",
+        loadingMore: false,
+        loadMoreError: false,
+        loadMore: vi.fn(),
+        reload: vi.fn(),
+      });
+    }
+
+    const LLM_VM = {
+      window: "24h" as const,
+      kpis: { calls: 0, costUsd: 0, runRateUsd: 0, avgLatencyMs: null, p95LatencyMs: null, errorRate: 0 },
+      costByModel: { buckets: [], series: [] },
+      tenants: [],
+      prompts: [],
+      recentCalls: [],
+    };
+
+    it("navigating from a Users timeline row seeds the target section's filters, and a plain nav click clears them", async () => {
+      setupUsersDrillMocks();
+      const useLlmSpy = vi.spyOn(useLlmModule, "useLlm").mockReturnValue({ data: LLM_VM, status: "ok", reload: vi.fn() });
+      const user = userEvent.setup();
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      await waitFor(() => expect(screen.queryByText(/loading project/i)).not.toBeInTheDocument());
+
+      // Navigate to Users, select the row, and click its llm timeline entry.
+      await user.click(screen.getByTitle("Users"));
+      await waitFor(() => expect(screen.getByText("User One")).toBeInTheDocument());
+      await user.click(screen.getByText("User One"));
+      await waitFor(() => expect(screen.getByText("greet_call")).toBeInTheDocument());
+      await user.click(screen.getByText("greet_call"));
+
+      // Landed on the LLM screen with the seeded filters forwarded to useLlm.
+      await waitFor(() =>
+        expect(useLlmSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ tenantId: "tenant_acme", userId: "user_1", provider: "openai", model: "gpt-5", promptName: "greet", status: "success" })
+        )
+      );
+
+      // A plain nav-rail click (no payload) to the same section clears the seed.
+      await user.click(screen.getByTitle("LLM"));
+      await waitFor(() =>
+        expect(useLlmSpy).toHaveBeenLastCalledWith(
+          expect.objectContaining({ tenantId: undefined, userId: undefined, provider: undefined, model: undefined, promptName: undefined, status: undefined })
+        )
+      );
     });
   });
 });

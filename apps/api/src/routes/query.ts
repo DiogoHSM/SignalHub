@@ -235,14 +235,30 @@ export type QueryDependencies = {
   getOperations?: (filters: OperationsFilters) => Promise<unknown>;
   getEventPropertyCatalog?: (filters: ApmFilters) => Promise<unknown>;
   getEventClickMap?: (filters: EventClickMapFilters) => Promise<unknown>;
-  getEventFunnel?: (filters: ApmFilters & { steps: string[] }) => Promise<unknown>;
+  getEventFunnel?: (
+    filters: ApmFilters & {
+      steps: string[];
+      conversionWindowSeconds?: number;
+      breakdownProperty?: string;
+      tenantId?: string;
+      segmentId?: string;
+    }
+  ) => Promise<unknown>;
   getExperimentResults?: (filters: ExperimentResultFilters) => Promise<unknown | null>;
   getSurveyResults?: (filters: SurveyResultFilters) => Promise<unknown | null>;
   getMessageCampaignResults?: (filters: MessageCampaignResultFilters) => Promise<unknown | null>;
   getNpsResults?: (filters: NpsResultFilters) => Promise<unknown | null>;
   listFeedbackItems?: (filters: FeedbackListFilters) => Promise<unknown>;
   updateFeedbackStatus?: (input: FeedbackListFilters & { id: string; status: "open" | "reviewed" | "archived" }) => Promise<unknown | null>;
-  getEventRetention?: (filters: ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) => Promise<unknown>;
+  getEventRetention?: (
+    filters: ApmFilters & {
+      entryEvent?: string;
+      returnEvent?: string;
+      period: EventRetentionPeriod;
+      intervals: number;
+      rangeDays?: number;
+    }
+  ) => Promise<unknown>;
   getEventPaths?: (
     filters: ApmFilters & {
       startEvent?: string;
@@ -1082,7 +1098,54 @@ function parseEventPathFilters(
   };
 }
 
-function parseEventFunnelFilters(query: unknown): (ApmFilters & { steps: string[] }) | undefined {
+const APM_WINDOW_SECONDS: Record<ApmWindow, number> = {
+  "24h": 24 * 60 * 60,
+  "7d": 7 * 24 * 60 * 60,
+  "30d": 30 * 24 * 60 * 60
+};
+
+const CONVERSION_WINDOW_PATTERN = /^(\d{1,6})(s|m|h|d)$/;
+const CONVERSION_WINDOW_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 60 * 60, d: 24 * 60 * 60 };
+const BREAKDOWN_PROPERTY_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+// Returns undefined when the query param is absent, a parsed integer-seconds value when valid, or
+// null to signal a 400 (unparsable format or exceeds the containing window).
+function parseConversionWindowSeconds(raw: RawQuery, windowSeconds: number): number | null | undefined {
+  const value = optionalNonEmpty(raw, "conversion_window");
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const match = CONVERSION_WINDOW_PATTERN.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  const unitSeconds = CONVERSION_WINDOW_UNIT_SECONDS[match[2]!];
+  if (!Number.isFinite(amount) || !unitSeconds) {
+    return null;
+  }
+
+  const seconds = amount * unitSeconds;
+  if (seconds <= 0 || seconds > windowSeconds) {
+    return null;
+  }
+
+  return seconds;
+}
+
+function parseEventFunnelFilters(
+  query: unknown
+):
+  | (ApmFilters & {
+      steps: string[];
+      conversionWindowSeconds?: number;
+      breakdownProperty?: string;
+      tenantId?: string;
+      segmentId?: string;
+    })
+  | undefined {
   const filters = parseApmFilters(query);
   if (!filters) {
     return undefined;
@@ -1099,29 +1162,53 @@ function parseEventFunnelFilters(query: unknown): (ApmFilters & { steps: string[
     return undefined;
   }
 
+  const conversionWindowSeconds = parseConversionWindowSeconds(raw, APM_WINDOW_SECONDS[filters.window]);
+  if (conversionWindowSeconds === null) {
+    return undefined;
+  }
+
+  const breakdownProperty = optionalNonEmpty(raw, "breakdown_property");
+  if (breakdownProperty !== undefined && !BREAKDOWN_PROPERTY_PATTERN.test(breakdownProperty)) {
+    return undefined;
+  }
+
+  const tenantId = optionalNonEmpty(raw, "tenant_id");
+  const segmentId = optionalNonEmpty(raw, "segment_id");
+
   return {
     ...filters,
-    steps
+    steps,
+    ...(conversionWindowSeconds !== undefined ? { conversionWindowSeconds } : {}),
+    ...(breakdownProperty !== undefined ? { breakdownProperty } : {}),
+    ...(tenantId !== undefined ? { tenantId } : {}),
+    ...(segmentId !== undefined ? { segmentId } : {})
   };
 }
 
 function parseEventRetentionFilters(
   query: unknown
-): (ApmFilters & { entryEvent: string; returnEvent: string; period: EventRetentionPeriod; intervals: number }) | undefined {
+): (ApmFilters & {
+    entryEvent?: string;
+    returnEvent?: string;
+    period: EventRetentionPeriod;
+    intervals: number;
+    rangeDays?: number;
+  })
+  | undefined {
   const filters = parseApmFilters(query);
   if (!filters) {
     return undefined;
   }
 
   const raw = (query ?? {}) as RawQuery;
+  // entry_event and return_event are both optional: absent entry_event means the cohort has no
+  // eligibility filter, and absent return_event means "any event" counts as retained (unbounded).
   const entryEvent = optionalNonEmpty(raw, "entry_event");
   const returnEvent = optionalNonEmpty(raw, "return_event");
   const rawPeriod = optionalNonEmpty(raw, "period") ?? "weekly";
   const rawIntervals = optionalNonEmpty(raw, "intervals");
+  const rawRangeDays = optionalNonEmpty(raw, "range_days");
 
-  if (!entryEvent || !returnEvent) {
-    return undefined;
-  }
   if (rawPeriod !== "daily" && rawPeriod !== "weekly" && rawPeriod !== "monthly") {
     return undefined;
   }
@@ -1135,12 +1222,25 @@ function parseEventRetentionFilters(
     return undefined;
   }
 
+  let rangeDays: number | undefined;
+  if (rawRangeDays !== undefined) {
+    const parsedRangeDays = Number(rawRangeDays);
+    if (!Number.isFinite(parsedRangeDays)) {
+      return undefined;
+    }
+    rangeDays = Math.trunc(parsedRangeDays);
+    if (rangeDays < 1 || rangeDays > 730) {
+      return undefined;
+    }
+  }
+
   return {
     ...filters,
-    entryEvent,
-    returnEvent,
+    ...(entryEvent ? { entryEvent } : {}),
+    ...(returnEvent ? { returnEvent } : {}),
     period: rawPeriod,
-    intervals
+    intervals,
+    ...(rangeDays !== undefined ? { rangeDays } : {})
   };
 }
 

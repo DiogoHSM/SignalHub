@@ -1963,6 +1963,75 @@ describe("createApiClient", () => {
     );
   });
 
+  it("lists dead-letter jobs with optional filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { deadLetterJobs: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listDeadLetterJobs?.({ limit: 50, queueName: "telemetry" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/dead-letter-jobs?limit=50&queue_name=telemetry",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("lists dead-letter jobs with no filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { deadLetterJobs: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listDeadLetterJobs?.();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/dead-letter-jobs", expect.objectContaining({ method: "GET" }));
+  });
+
+  it("gets a dead-letter job by id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { deadLetterJob: { id: "dlj_1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").getDeadLetterJob?.("dlj/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/dead-letter-jobs/dlj%2F1",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("lists dead-letter job actions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { actions: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listDeadLetterJobActions?.("dlj/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/dead-letter-jobs/dlj%2F1/actions",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("replays a dead-letter job", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(202, { replayed: true, id: "dlj_1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").replayDeadLetterJob?.("dlj/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/dead-letter-jobs/dlj%2F1/replay",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("deletes a dead-letter job", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(204, undefined));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").deleteDeadLetterJob?.("dlj/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/dead-letter-jobs/dlj%2F1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
   it("gets alert events by id", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { id: "evt_1" } }));
     vi.stubGlobal("fetch", fetchMock);

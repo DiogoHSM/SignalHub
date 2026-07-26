@@ -361,6 +361,27 @@ describe("useErrors", () => {
     );
   });
 
+  it("passes release filter to listErrorGroups", async () => {
+    const client = makeClient();
+    renderHook(() => useErrors({ client, ...BASE_PARAMS, release: "v1.2.0" }));
+
+    await waitFor(() => expect(client.listErrorGroups).toHaveBeenCalled());
+
+    expect(client.listErrorGroups).toHaveBeenCalledWith(
+      expect.objectContaining({ release: "v1.2.0" })
+    );
+  });
+
+  it("does not pass a release filter to listErrorGroups when release is undefined", async () => {
+    const client = makeClient();
+    renderHook(() => useErrors({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(client.listErrorGroups).toHaveBeenCalled());
+
+    const call = client.listErrorGroups.mock.calls[0][0];
+    expect(call).not.toHaveProperty("release");
+  });
+
   it("passes correct projectId and environmentId to both calls", async () => {
     const client = makeClient();
     renderHook(() => useErrors({ client, ...BASE_PARAMS }));

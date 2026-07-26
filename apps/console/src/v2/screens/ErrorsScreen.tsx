@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NavSection } from "../nav";
 import type { ScreenCtx } from "./registry";
 import { useErrors } from "./useErrors";
 import type { ErrorRowVM } from "./useErrors";
-import type { OverviewWindow } from "../../api/types";
+import type { ErrorGroupStatus, OverviewWindow } from "../../api/types";
 import {
   Bars,
   Divider,
@@ -24,6 +24,16 @@ import { formatCompact, formatDurationShort } from "../../components/ui/v2/forma
 type NavigateFn = (section: NavSection) => void;
 
 type SeverityFilter = "all" | "fatal" | "critical" | "error" | "warning";
+
+const STATUS_FILTER_OPTIONS: { value: ErrorGroupStatus | "all"; label: string }[] = [
+  { value: "all", label: "All statuses" },
+  { value: "open", label: "Open" },
+  { value: "investigating", label: "Investigating" },
+  { value: "resolved", label: "Resolved" },
+  { value: "ignored", label: "Ignored" },
+];
+const SEV_OPTIONS = ["all", "fatal", "critical", "error", "warning"] as const;
+const GROUP_STATUSES = ["open", "investigating", "resolved", "ignored"] as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -214,6 +224,8 @@ function ErrorRow({ row, ctx }: { row: ErrorRowVM; ctx: ScreenCtx }) {
 
 const WINDOW_OPTIONS: OverviewWindow[] = ["24h", "7d"];
 
+const SEED = (ctx: ScreenCtx) => (ctx.pendingFilters?.section === "investigate" ? ctx.pendingFilters.filters : null);
+
 export function ErrorsScreen({
   ctx,
   navigate,
@@ -222,7 +234,25 @@ export function ErrorsScreen({
   navigate: NavigateFn;
 }) {
   const [window, setWindow] = useState<OverviewWindow>("24h");
-  const [severity, setSeverity] = useState<SeverityFilter>("all");
+  const [severity, setSeverity] = useState<SeverityFilter>(() => {
+    const seed = SEED(ctx)?.severity;
+    return (SEV_OPTIONS as readonly string[]).includes(seed ?? "") ? (seed as SeverityFilter) : "all";
+  });
+  const [statusFilter, setStatusFilter] = useState<ErrorGroupStatus | "all">("all");
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [releaseText, setReleaseText] = useState("");
+  const [releaseFilter, setReleaseFilter] = useState<string | undefined>(undefined);
+  const [tenantId, setTenantId] = useState<string | undefined>(() => SEED(ctx)?.tenantId);
+  const [userId, setUserId] = useState<string | undefined>(() => SEED(ctx)?.userId);
+  const [groupStatus, setGroupStatus] = useState<ErrorGroupStatus | undefined>(() => {
+    const seed = SEED(ctx)?.status;
+    return (GROUP_STATUSES as readonly string[]).includes(seed ?? "") ? (seed as ErrorGroupStatus) : undefined;
+  });
+
+  // The seed is one-shot: consume it once on mount (the shell remounts this
+  // screen — via the `page` div's `key={seq}` — on every `navigate` call).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { ctx.clearPendingFilters?.(); }, []);
 
   const projectId = ctx.project?.id ?? "";
   const environmentId = ctx.environment?.id ?? "";
@@ -233,7 +263,16 @@ export function ErrorsScreen({
     environmentId,
     window,
     severity: severity === "all" ? undefined : severity,
+    status: statusFilter === "all" ? groupStatus : statusFilter,
+    release: releaseFilter,
+    tenantId,
+    userId,
   });
+
+  function applyReleaseFilter() {
+    const trimmed = releaseText.trim();
+    setReleaseFilter(trimmed === "" ? undefined : trimmed);
+  }
 
   // Defensive guard: shell should prevent renders without project/env, but
   // protect against the initial project-load window to avoid spurious 400s.
@@ -278,11 +317,10 @@ export function ErrorsScreen({
     { label: "Errors", icon: "error", count: formatCompact(tabs.errors), active: true },
     { label: "Traces", icon: "waterfall", count: formatCompact(tabs.traces), dest: "traces" },
     { label: "LLM", icon: "sparkles", count: formatCompact(tabs.llm), dest: "llm" },
-    { label: "Tenants", icon: "cube", count: formatCompact(tabs.tenants), dest: "investigate" },
-    { label: "Users", icon: "users", count: formatCompact(tabs.users), dest: "investigate" },
+    { label: "Entities", icon: "cube", count: formatCompact(tabs.tenants), dest: "entities" },
+    { label: "Users", icon: "users", count: formatCompact(tabs.users), dest: "users" },
   ];
 
-  const SEV_OPTIONS = ["all", "fatal", "critical", "error", "warning"] as const;
   const sevLabel = (s: string) => {
     if (s === "all") return "severity: all";
     if (s === "fatal") return "crashes";
@@ -307,15 +345,83 @@ export function ErrorsScreen({
             </button>
           ))}
         </div>
-        {/* TODO(PER-349 follow-up): wire status/release filters */}
-        <button className="sh-btn" disabled>
-          <Icon name="filter" size={13} />
-          status: open, investigating
+        <div style={{ position: "relative" }}>
+          <button className="sh-btn" onClick={() => setStatusMenuOpen((o) => !o)}>
+            <Icon name="filter" size={13} />
+            status: {statusFilter === "all" ? "all" : statusFilter}
+          </button>
+          {statusMenuOpen ? (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                zIndex: 100,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 8,
+                minWidth: 160,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                marginTop: 4,
+              }}
+            >
+              {STATUS_FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "8px 14px",
+                    background: "transparent",
+                    border: "none",
+                    borderBottom: "1px solid var(--border-subtle)",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                  onClick={() => {
+                    setStatusFilter(opt.value);
+                    setStatusMenuOpen(false);
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <input
+          className="sh-input"
+          aria-label="Filter by release"
+          placeholder="Filter by release"
+          value={releaseText}
+          onChange={(e) => setReleaseText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") applyReleaseFilter();
+          }}
+          style={{ width: 160 }}
+        />
+        <button className="sh-btn" onClick={applyReleaseFilter}>
+          Apply
         </button>
-        <button className="sh-btn" disabled>
-          <Icon name="filter" size={13} />
-          release: any
-        </button>
+        {tenantId ? (
+          <button className="sh-btn" onClick={() => setTenantId(undefined)}>
+            <Icon name="x" size={13} />
+            tenant: {tenantId}
+          </button>
+        ) : null}
+        {userId ? (
+          <button className="sh-btn" onClick={() => setUserId(undefined)}>
+            <Icon name="x" size={13} />
+            user: {userId}
+          </button>
+        ) : null}
+        {groupStatus ? (
+          <button className="sh-btn" onClick={() => setGroupStatus(undefined)}>
+            <Icon name="x" size={13} />
+            status: {groupStatus}
+          </button>
+        ) : null}
         <div style={{ flex: 1 }} />
         <Segmented options={["Grouped", "Raw"]} value="Grouped" />
         <Segmented

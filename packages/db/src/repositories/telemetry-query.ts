@@ -3,7 +3,7 @@ import { sql } from "kysely";
 import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
 import type { ErrorsTable, EventsTable, LlmCallsTable, SessionReplaysTable, SpansTable, TracesTable } from "../schema.js";
-import { getAnalyticsSegment, getAnalyticsSegmentActorIds } from "./analytics-segments.js";
+import { analyticsSegmentActorFilter, getAnalyticsSegment, getAnalyticsSegmentActorIds } from "./analytics-segments.js";
 
 type EventRow = Selectable<EventsTable>;
 type ErrorRow = Selectable<ErrorsTable>;
@@ -222,6 +222,10 @@ export interface EventClickMapResponse {
 
 export interface EventFunnelFilters extends ApmFilters {
   steps: string[];
+  conversionWindowSeconds?: number;
+  breakdownProperty?: string;
+  tenantId?: string;
+  segmentId?: string;
 }
 
 export interface EventFunnelStep {
@@ -238,6 +242,16 @@ export interface EventFunnelActor {
   reachedStepIndex: number;
   reachedStepName: string;
   lastSeenAt: string;
+}
+
+export interface EventFunnelBreakdownSeries {
+  value: string;
+  totals: {
+    entrants: number;
+    completed: number;
+    conversionPercent: number;
+  };
+  steps: EventFunnelStep[];
 }
 
 export interface EventFunnelResponse {
@@ -258,15 +272,24 @@ export interface EventFunnelResponse {
   };
   steps: EventFunnelStep[];
   sampleActors: EventFunnelActor[];
+  breakdown?: EventFunnelBreakdownSeries[];
 }
 
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 
 export interface EventRetentionFilters extends ApmFilters {
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent?: string;
+  returnEvent?: string;
   period?: EventRetentionPeriod;
   intervals?: number;
+  /** Overrides the `window`-derived range with `now - rangeDays .. now`. 1..730. */
+  rangeDays?: number;
+  /**
+   * Injected by the API composition root (not read from `@sigmon/config` here — repositories don't
+   * depend on config). When `from` is older than `now - retentionEventsDays`, retention is served
+   * from the `event_actor_daily` rollup instead of raw `events`.
+   */
+  retentionEventsDays?: number;
 }
 
 export interface EventRetentionInterval {
@@ -294,10 +317,12 @@ export interface EventRetentionResponse {
     from: string;
     to: string;
   };
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent: string | null;
+  returnEvent: string | null;
   period: EventRetentionPeriod;
   intervals: number;
+  /** "rollup" when the range required serving from the `event_actor_daily` daily rollup. */
+  source: "raw" | "rollup";
   totals: {
     cohorts: number;
     entrants: number;
@@ -1597,11 +1622,7 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
     if (!segment) {
       return { data: [] };
     }
-    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
-    if (actorIds.length === 0) {
-      return { data: [] };
-    }
-    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+    query = query.where(analyticsSegmentActorFilter(segment, { userRef: "events.user_id", tenantRef: "events.tenant_id" }, filters.to));
   }
   if (cursor) {
     query = query.where(({ and, eb, or }) =>
@@ -1669,10 +1690,9 @@ export async function listSessionReplays(
     });
     if (!segment) return { data: [] };
 
-    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
-    if (actorIds.length === 0) return { data: [] };
-
-    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+    query = query.where(
+      analyticsSegmentActorFilter(segment, { userRef: "session_replays.user_id", tenantRef: "session_replays.tenant_id" }, filters.to)
+    );
   }
   if (filters.eventName) {
     query = query.where(({ exists, selectFrom }) =>
@@ -1926,79 +1946,35 @@ function percentage(part: number, whole: number): number {
   return Math.round((part / whole) * 100);
 }
 
-export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
-  const { from, to } = resolveOverviewRange(filters.window, filters.now);
-  const limit = resolveLimit(filters.limit);
-  const steps = filters.steps.map((step) => step.trim()).filter(Boolean);
+const MAX_FUNNEL_STEPS = 12;
+const FUNNEL_BREAKDOWN_LIMIT = 20;
 
-  if (steps.length < 2) {
-    throw new Error("event_funnel_requires_two_steps");
-  }
+// Shared actor-identity fallback used by getEventFunnel and (per PER-439's decision log) intended for
+// reuse by PER-440/PER-442. A dedicated `actor` param (user|tenant|session|trace|auto) is deferred to a
+// future issue; today's behavior is always the "auto" coalesce below.
+function actorKeySql() {
+  return sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`;
+}
 
-  const rows = await db
-    .selectFrom("events")
-    .select([
-      "name",
-      "timestamp",
-      sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`.as("actor_id"),
-      sql<"user" | "tenant" | "session" | "trace">`
-        case
-          when user_id is not null then 'user'
-          when tenant_id is not null then 'tenant'
-          when session_id is not null then 'session'
-          else 'trace'
-        end
-      `.as("actor_type")
-    ])
-    .where("project_id", "=", filters.projectId)
-    .where("environment_id", "=", filters.environmentId)
-    .where("timestamp", ">=", from)
-    .where("timestamp", "<", to)
-    .where("name", "in", steps)
-    .where(sql<boolean>`coalesce(user_id, tenant_id, session_id, trace_id) is not null`)
-    .orderBy("actor_id", "asc")
-    .orderBy("timestamp", "asc")
-    .execute();
+function actorTypeSql() {
+  return sql<"user" | "tenant" | "session" | "trace">`
+    case
+      when user_id is not null then 'user'
+      when tenant_id is not null then 'tenant'
+      when session_id is not null then 'session'
+      else 'trace'
+    end
+  `;
+}
 
-  const actors = new Map<
-    string,
-    {
-      actorId: string;
-      actorType: "user" | "tenant" | "session" | "trace";
-      nextStepIndex: number;
-      reachedStepIndex: number;
-      reachedStepName: string;
-      lastSeenAt: Date | string;
-    }
-  >();
-
-  for (const row of rows) {
-    const actorId = row.actor_id;
-    if (!actorId) continue;
-    const actor = actors.get(actorId) ?? {
-      actorId,
-      actorType: row.actor_type,
-      nextStepIndex: 0,
-      reachedStepIndex: -1,
-      reachedStepName: "",
-      lastSeenAt: row.timestamp
-    };
-
-    if (row.name === steps[actor.nextStepIndex]) {
-      actor.reachedStepIndex = actor.nextStepIndex;
-      actor.reachedStepName = row.name;
-      actor.nextStepIndex += 1;
-      actor.lastSeenAt = row.timestamp;
-    }
-
-    actors.set(actorId, actor);
-  }
-
-  const reachedActors = Array.from(actors.values()).filter((actor) => actor.reachedStepIndex >= 0);
-  const entrantCount = reachedActors.length;
-  const funnelSteps = steps.map((name, index) => {
-    const actorsAtStep = reachedActors.filter((actor) => actor.reachedStepIndex >= index).length;
-    const previousActors = index === 0 ? actorsAtStep : reachedActors.filter((actor) => actor.reachedStepIndex >= index - 1).length;
+function buildFunnelStepsFromCounts(
+  stepNames: string[],
+  counts: number[]
+): { steps: EventFunnelStep[]; totals: { entrants: number; completed: number; conversionPercent: number } } {
+  const entrantCount = counts[0] ?? 0;
+  const steps = stepNames.map((name, index) => {
+    const actorsAtStep = counts[index] ?? 0;
+    const previousActors = index === 0 ? actorsAtStep : counts[index - 1] ?? 0;
     return {
       index,
       name,
@@ -2007,7 +1983,249 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
       dropOffFromPreviousPercent: index === 0 ? 0 : percentage(previousActors - actorsAtStep, previousActors)
     };
   });
-  const completed = funnelSteps[funnelSteps.length - 1]?.actors ?? 0;
+  const completed = steps[steps.length - 1]?.actors ?? 0;
+  return {
+    steps,
+    totals: {
+      entrants: entrantCount,
+      completed,
+      conversionPercent: percentage(completed, entrantCount)
+    }
+  };
+}
+
+interface FunnelChainParams {
+  projectId: string;
+  environmentId: string;
+  from: Date;
+  to: Date;
+  steps: string[];
+  breakdownProperty: string | null;
+  conversionWindowSeconds: number | null;
+  tenantId: string | null;
+  segmentActorColumn: "user_id" | "tenant_id" | null;
+  segmentActorIds: string[] | null;
+}
+
+// Builds the `matched` / `s0` / `chain` CTE chain described in the PER-439 plan: `matched` is a
+// materialized scan restricted to the step names (backed by the events_scope_name_time_idx index),
+// `s0` anchors each actor's first occurrence of step 0, and `chain` walks forward through the
+// remaining steps with one LEFT JOIN LATERAL per step so timestamps stay strictly increasing and
+// the optional conversion window is anchored on entry (s0.t0). A recursive CTE cannot express this
+// because Postgres forbids aggregates (min()) referencing the recursive term.
+function buildFunnelChainCte(params: FunnelChainParams) {
+  const {
+    projectId,
+    environmentId,
+    from,
+    to,
+    steps,
+    breakdownProperty,
+    conversionWindowSeconds,
+    tenantId,
+    segmentActorColumn,
+    segmentActorIds
+  } = params;
+
+  const tenantPredicate = tenantId ? sql`AND tenant_id = ${tenantId}` : sql``;
+  const segmentPredicate =
+    segmentActorColumn && segmentActorIds ? sql`AND ${sql.ref(segmentActorColumn)} = ANY(${segmentActorIds})` : sql``;
+
+  const matchedCte = sql`
+    matched AS MATERIALIZED (
+      SELECT
+        ${actorKeySql()} AS actor_id,
+        ${actorTypeSql()} AS actor_type,
+        name,
+        timestamp,
+        properties ->> ${breakdownProperty} AS breakdown_value
+      FROM events
+      WHERE project_id = ${projectId}
+        AND environment_id = ${environmentId}
+        AND timestamp >= ${from}
+        AND timestamp < ${to}
+        AND name = ANY(${steps})
+        AND ${actorKeySql()} IS NOT NULL
+        ${tenantPredicate}
+        ${segmentPredicate}
+    )
+  `;
+
+  const s0Cte = sql`
+    s0 AS (
+      SELECT actor_id, actor_type, breakdown_value, min(timestamp) AS t0
+      FROM matched
+      WHERE name = ${steps[0]}
+      GROUP BY actor_id, actor_type, breakdown_value
+    )
+  `;
+
+  const selectCols = [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.breakdown_value"), sql.raw("s0.t0")];
+  const lateralFragments: ReturnType<typeof sql>[] = [];
+
+  for (let index = 1; index < steps.length; index += 1) {
+    const alias = `s${index}`;
+    const col = `t${index}`;
+    const prevAlias = index === 1 ? "s0" : `s${index - 1}`;
+    const prevCol = index === 1 ? "t0" : `t${index - 1}`;
+
+    lateralFragments.push(sql`
+      LEFT JOIN LATERAL (
+        SELECT min(m.timestamp) AS ${sql.raw(col)}
+        FROM matched m
+        WHERE m.actor_id = s0.actor_id
+          AND m.name = ${steps[index]}
+          AND m.timestamp > ${sql.raw(`${prevAlias}.${prevCol}`)}
+          AND (${conversionWindowSeconds}::int IS NULL OR m.timestamp <= s0.t0 + make_interval(secs => ${conversionWindowSeconds}))
+      ) ${sql.raw(alias)} ON true
+    `);
+    selectCols.push(sql.raw(`${alias}.${col}`));
+  }
+
+  const chainCte = sql`
+    chain AS (
+      SELECT ${sql.join(selectCols, sql`, `)}
+      FROM s0
+      ${sql.join(lateralFragments, sql` `)}
+    )
+  `;
+
+  return sql`${matchedCte}, ${s0Cte}, ${chainCte}`;
+}
+
+function emptyEventFunnelResponse(filters: EventFunnelFilters, steps: string[], from: Date, to: Date): EventFunnelResponse {
+  const { steps: funnelSteps, totals } = buildFunnelStepsFromCounts(steps, []);
+  return {
+    window: filters.window,
+    generatedAt: toIso(filters.now ?? new Date()),
+    scope: {
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    },
+    range: {
+      from: toIso(from),
+      to: toIso(to)
+    },
+    totals,
+    steps: funnelSteps,
+    sampleActors: [],
+    ...(filters.breakdownProperty ? { breakdown: [] } : {})
+  };
+}
+
+export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
+  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const limit = resolveLimit(filters.limit);
+  const steps = filters.steps
+    .map((step) => step.trim())
+    .filter(Boolean)
+    .slice(0, MAX_FUNNEL_STEPS);
+
+  if (steps.length < 2) {
+    throw new Error("event_funnel_requires_two_steps");
+  }
+
+  const conversionWindowSeconds = filters.conversionWindowSeconds ?? null;
+  const breakdownProperty = filters.breakdownProperty?.trim() || null;
+  const tenantId = filters.tenantId ?? null;
+
+  let segmentActorColumn: "user_id" | "tenant_id" | null = null;
+  let segmentActorIds: string[] | null = null;
+
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) {
+      return emptyEventFunnelResponse(filters, steps, from, to);
+    }
+    // TODO(PER-441): replace this materialized actor-id list with an EXISTS-based segment filter
+    // once saved segments can be expressed directly as a SQL predicate.
+    const actorIds = await getAnalyticsSegmentActorIds(db, segment, to);
+    if (actorIds.length === 0) {
+      return emptyEventFunnelResponse(filters, steps, from, to);
+    }
+    segmentActorColumn = segment.actorType === "tenant" ? "tenant_id" : "user_id";
+    segmentActorIds = actorIds;
+  }
+
+  const chainParams: FunnelChainParams = {
+    projectId: filters.projectId,
+    environmentId: filters.environmentId,
+    from,
+    to,
+    steps,
+    breakdownProperty,
+    conversionWindowSeconds,
+    tenantId,
+    segmentActorColumn,
+    segmentActorIds
+  };
+
+  const countColumns = steps.map((_, index) =>
+    index === 0 ? sql`count(*) AS step0_actors` : sql.raw(`count(t${index}) AS step${index}_actors`)
+  );
+
+  const totalsResult = await sql<Record<string, string>>`
+    WITH ${buildFunnelChainCte(chainParams)}
+    SELECT ${sql.join(countColumns, sql`, `)}
+    FROM chain
+  `.execute(db);
+
+  const counts = steps.map((_, index) => toNumber(totalsResult.rows[0]?.[`step${index}_actors`]));
+  const { steps: funnelSteps, totals } = buildFunnelStepsFromCounts(steps, counts);
+
+  const sampleColumns = [sql.raw("actor_id"), sql.raw("actor_type"), ...steps.map((_, index) => sql.raw(`t${index}`))];
+
+  const sampleResult = await sql<Record<string, unknown>>`
+    WITH ${buildFunnelChainCte(chainParams)}
+    SELECT ${sql.join(sampleColumns, sql`, `)}
+    FROM chain
+    ORDER BY actor_id ASC
+    LIMIT ${limit}
+  `.execute(db);
+
+  const sampleActors: EventFunnelActor[] = sampleResult.rows.map((row) => {
+    let reachedStepIndex = 0;
+    for (let index = 1; index < steps.length; index += 1) {
+      if (row[`t${index}`] != null) {
+        reachedStepIndex = index;
+      } else {
+        break;
+      }
+    }
+    return {
+      actorId: row.actor_id as string,
+      actorType: row.actor_type as "user" | "tenant" | "session" | "trace",
+      reachedStepIndex,
+      reachedStepName: steps[reachedStepIndex]!,
+      lastSeenAt: toIso(row[`t${reachedStepIndex}`] as Date | string)
+    };
+  });
+
+  let breakdown: EventFunnelBreakdownSeries[] | undefined;
+  if (breakdownProperty) {
+    const breakdownResult = await sql<Record<string, string>>`
+      WITH ${buildFunnelChainCte(chainParams)}
+      SELECT coalesce(breakdown_value, '') AS breakdown_value, ${sql.join(countColumns, sql`, `)}
+      FROM chain
+      GROUP BY 1
+      ORDER BY 2 DESC
+      LIMIT ${FUNNEL_BREAKDOWN_LIMIT}
+    `.execute(db);
+
+    breakdown = breakdownResult.rows.map((row) => {
+      const seriesCounts = steps.map((_, index) => toNumber(row[`step${index}_actors`]));
+      const series = buildFunnelStepsFromCounts(steps, seriesCounts);
+      return {
+        value: row.breakdown_value,
+        totals: series.totals,
+        steps: series.steps
+      };
+    });
+  }
 
   return {
     window: filters.window,
@@ -2020,59 +2238,15 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
       from: toIso(from),
       to: toIso(to)
     },
-    totals: {
-      entrants: entrantCount,
-      completed,
-      conversionPercent: percentage(completed, entrantCount)
-    },
+    totals,
     steps: funnelSteps,
-    sampleActors: reachedActors
-      .sort((left, right) => left.actorId.localeCompare(right.actorId))
-      .slice(0, limit)
-      .map((actor) => ({
-        actorId: actor.actorId,
-        actorType: actor.actorType,
-        reachedStepIndex: actor.reachedStepIndex,
-        reachedStepName: actor.reachedStepName,
-        lastSeenAt: toIso(actor.lastSeenAt)
-      }))
+    sampleActors,
+    ...(breakdown ? { breakdown } : {})
   };
 }
 
 function dateValue(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
-}
-
-function startOfUtcDay(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
-}
-
-function startOfUtcWeek(value: Date): Date {
-  const day = startOfUtcDay(value);
-  const dayOfWeek = day.getUTCDay();
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  day.setUTCDate(day.getUTCDate() + mondayOffset);
-  return day;
-}
-
-function startOfUtcMonth(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1));
-}
-
-function startOfRetentionPeriod(value: Date, period: EventRetentionPeriod): Date {
-  if (period === "weekly") return startOfUtcWeek(value);
-  if (period === "monthly") return startOfUtcMonth(value);
-  return startOfUtcDay(value);
-}
-
-function retentionPeriodIndex(cohortStart: Date, value: Date, period: EventRetentionPeriod): number {
-  if (period === "monthly") {
-    return (value.getUTCFullYear() - cohortStart.getUTCFullYear()) * 12 + value.getUTCMonth() - cohortStart.getUTCMonth();
-  }
-
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const elapsedDays = Math.floor((startOfUtcDay(value).getTime() - startOfUtcDay(cohortStart).getTime()) / msPerDay);
-  return period === "weekly" ? Math.floor(elapsedDays / 7) : elapsedDays;
 }
 
 function retentionPeriodLabel(index: number, period: EventRetentionPeriod): string {
@@ -2090,107 +2264,177 @@ function cohortLabel(value: Date, period: EventRetentionPeriod): string {
   return `${year}-${month}-${day}`;
 }
 
+function retentionPeriodUnit(period: EventRetentionPeriod): "day" | "week" | "month" {
+  if (period === "weekly") return "week";
+  if (period === "monthly") return "month";
+  return "day";
+}
+
+// Interval-index arithmetic differs structurally per period (day-diff, week-diff/7, or a
+// year/month-aware age() calculation), so the fragment is chosen by a switch over the closed
+// EventRetentionPeriod enum rather than built from any client-supplied string.
+function retentionIntervalIndexExpression(period: EventRetentionPeriod) {
+  if (period === "weekly") {
+    return sql`((date_trunc('week', a.timestamp at time zone 'UTC')::date - c.cohort_start::date) / 7)`;
+  }
+  if (period === "monthly") {
+    return sql`((extract(year from age(date_trunc('month', a.timestamp at time zone 'UTC'), c.cohort_start)) * 12) + extract(month from age(date_trunc('month', a.timestamp at time zone 'UTC'), c.cohort_start)))::int`;
+  }
+  return sql`(date_trunc('day', a.timestamp at time zone 'UTC')::date - c.cohort_start::date)`;
+}
+
+function resolveRetentionRange(filters: EventRetentionFilters, now: Date): { from: Date; to: Date } {
+  if (filters.rangeDays !== undefined) {
+    const to = now;
+    const from = new Date(to);
+    from.setUTCDate(from.getUTCDate() - filters.rangeDays);
+    return { from, to };
+  }
+  return resolveOverviewRange(filters.window, now);
+}
+
 export async function getEventRetention(db: Db, filters: EventRetentionFilters): Promise<EventRetentionResponse> {
-  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const now = filters.now ?? new Date();
+  const { from, to } = resolveRetentionRange(filters, now);
   const period = filters.period ?? "weekly";
   const intervals = Math.min(12, Math.max(2, Math.trunc(filters.intervals ?? 6)));
-  const entryEvent = filters.entryEvent.trim();
-  const returnEvent = filters.returnEvent.trim();
+  const entryEvent = filters.entryEvent?.trim() || undefined;
+  const returnEvent = filters.returnEvent?.trim() || undefined;
+  const periodUnit = retentionPeriodUnit(period);
+  const intervalIndexExpr = retentionIntervalIndexExpression(period);
 
-  if (!entryEvent || !returnEvent) {
-    throw new Error("event_retention_requires_events");
-  }
+  // Cohort anchor: user_profiles.first_seen_at, the actor's real first appearance, not the
+  // minimum entry-event timestamp inside the queried window. entryEvent is now an optional
+  // eligibility filter on the cohort rather than the cohort anchor itself.
+  const cutoff =
+    filters.retentionEventsDays !== undefined
+      ? new Date(now.getTime() - filters.retentionEventsDays * 24 * 60 * 60 * 1000)
+      : null;
+  const source: "raw" | "rollup" = cutoff !== null && from < cutoff ? "rollup" : "raw";
 
-  const rows = await db
-    .selectFrom("events")
-    .select([
-      "name",
-      "timestamp",
-      sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`.as("actor_id")
-    ])
-    .where("project_id", "=", filters.projectId)
-    .where("environment_id", "=", filters.environmentId)
-    .where("timestamp", ">=", from)
-    .where("timestamp", "<", to)
-    .where("name", "in", [entryEvent, returnEvent])
-    .where(sql<boolean>`coalesce(user_id, tenant_id, session_id, trace_id) is not null`)
-    .orderBy("actor_id", "asc")
-    .orderBy("timestamp", "asc")
-    .execute();
+  const entryEligibility = entryEvent
+    ? sql`
+        and exists (
+          select 1 from events ee
+          where ee.project_id = p.project_id
+            and ee.environment_id = p.environment_id
+            and ee.user_id = p.user_id
+            and ee.name = ${entryEvent}
+        )
+      `
+    : sql``;
 
-  const actors = new Map<
-    string,
-    {
-      entryAt?: Date;
-      returnAts: Date[];
+  const activity =
+    source === "rollup"
+      ? sql`
+          select r.actor_id, (r.day::timestamp at time zone 'UTC') as timestamp
+          from event_actor_daily r
+          where r.project_id = ${filters.projectId}
+            and r.environment_id = ${filters.environmentId}
+            and r.actor_type = 'user'
+            and (r.day::timestamp at time zone 'UTC') >= ${from}
+            and (r.day::timestamp at time zone 'UTC') < ${to}
+            ${returnEvent ? sql`and r.event_name = ${returnEvent}` : sql``}
+        `
+      : sql`
+          select e.user_id as actor_id, e.timestamp
+          from events e
+          where e.project_id = ${filters.projectId}
+            and e.environment_id = ${filters.environmentId}
+            and e.timestamp >= ${from}
+            and e.timestamp < ${to}
+            and e.user_id is not null
+            ${returnEvent ? sql`and e.name = ${returnEvent}` : sql``}
+        `;
+
+  const result = await sql<{
+    cohort_start: string;
+    entrants: unknown;
+    interval_index: unknown;
+    retained: unknown;
+  }>`
+    with cohort as (
+      select
+        p.user_id as actor_id,
+        date_trunc(${periodUnit}, p.first_seen_at at time zone 'UTC') as cohort_start
+      from user_profiles p
+      where p.project_id = ${filters.projectId}
+        and p.environment_id = ${filters.environmentId}
+        and p.first_seen_at >= ${from}
+        and p.first_seen_at < ${to}
+        ${entryEligibility}
+    ),
+    entrants as (
+      select cohort_start, count(distinct actor_id) as entrants
+      from cohort
+      group by cohort_start
+    ),
+    activity as (
+      ${activity}
+    ),
+    hit as (
+      select c.cohort_start, c.actor_id, ${intervalIndexExpr} as interval_index
+      from cohort c
+      join activity a on a.actor_id = c.actor_id
+      where a.timestamp >= c.cohort_start
+    ),
+    retained as (
+      select cohort_start, interval_index, count(distinct actor_id) as retained
+      from hit
+      where interval_index >= 0 and interval_index < ${intervals}
+      group by cohort_start, interval_index
+    ),
+    grid as (
+      select e.cohort_start, e.entrants, gs.interval_index
+      from entrants e
+      cross join generate_series(0, ${intervals - 1}) as gs(interval_index)
+    )
+    select
+      to_char(g.cohort_start, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as cohort_start,
+      g.entrants,
+      g.interval_index,
+      coalesce(r.retained, 0) as retained
+    from grid g
+    left join retained r on r.cohort_start = g.cohort_start and r.interval_index = g.interval_index
+    order by g.cohort_start, g.interval_index
+  `.execute(db);
+
+  const cohorts = new Map<string, { cohortStart: Date; entrants: number; retained: number[] }>();
+
+  for (const row of result.rows) {
+    const cohortStart = dateValue(row.cohort_start);
+    const key = toIso(cohortStart);
+    const cohort =
+      cohorts.get(key) ??
+      {
+        cohortStart,
+        entrants: toNumber(row.entrants),
+        retained: Array.from({ length: intervals }, () => 0)
+      };
+    const intervalIndex = toNumber(row.interval_index);
+    if (intervalIndex >= 0 && intervalIndex < intervals) {
+      cohort.retained[intervalIndex] = toNumber(row.retained);
     }
-  >();
-
-  for (const row of rows) {
-    const actorId = row.actor_id;
-    if (!actorId) continue;
-    const timestamp = dateValue(row.timestamp);
-    const actor = actors.get(actorId) ?? { returnAts: [] };
-    if (row.name === entryEvent && (!actor.entryAt || timestamp < actor.entryAt)) {
-      actor.entryAt = timestamp;
-    }
-    if (row.name === returnEvent) {
-      actor.returnAts.push(timestamp);
-    }
-    actors.set(actorId, actor);
-  }
-
-  const cohorts = new Map<
-    string,
-    {
-      cohortStart: Date;
-      entrants: Set<string>;
-      retained: Array<Set<string>>;
-    }
-  >();
-
-  for (const [actorId, actor] of actors) {
-    if (!actor.entryAt) continue;
-    const start = startOfRetentionPeriod(actor.entryAt, period);
-    const key = toIso(start);
-    const cohort = cohorts.get(key) ?? {
-      cohortStart: start,
-      entrants: new Set<string>(),
-      retained: Array.from({ length: intervals }, () => new Set<string>())
-    };
-    cohort.entrants.add(actorId);
-
-    for (const returnAt of actor.returnAts) {
-      if (returnAt < actor.entryAt) continue;
-      const interval = retentionPeriodIndex(start, returnAt, period);
-      if (interval >= 0 && interval < intervals) {
-        cohort.retained[interval]?.add(actorId);
-      }
-    }
-
     cohorts.set(key, cohort);
   }
 
   const cohortRows = Array.from(cohorts.values())
     .sort((left, right) => left.cohortStart.getTime() - right.cohortStart.getTime())
-    .map((cohort) => {
-      const entrants = cohort.entrants.size;
-      return {
-        cohortStart: toIso(cohort.cohortStart),
-        cohortLabel: cohortLabel(cohort.cohortStart, period),
-        entrants,
-        intervals: cohort.retained.map((retained, index) => ({
-          index,
-          label: retentionPeriodLabel(index, period),
-          retainedActors: retained.size,
-          retentionPercent: percentage(retained.size, entrants)
-        }))
-      };
-    });
+    .map((cohort) => ({
+      cohortStart: toIso(cohort.cohortStart),
+      cohortLabel: cohortLabel(cohort.cohortStart, period),
+      entrants: cohort.entrants,
+      intervals: cohort.retained.map((retained, index) => ({
+        index,
+        label: retentionPeriodLabel(index, period),
+        retainedActors: retained,
+        retentionPercent: percentage(retained, cohort.entrants)
+      }))
+    }));
 
   return {
     window: filters.window,
-    generatedAt: toIso(filters.now ?? new Date()),
+    generatedAt: toIso(now),
     scope: {
       projectId: filters.projectId,
       environmentId: filters.environmentId
@@ -2199,10 +2443,11 @@ export async function getEventRetention(db: Db, filters: EventRetentionFilters):
       from: toIso(from),
       to: toIso(to)
     },
-    entryEvent,
-    returnEvent,
+    entryEvent: entryEvent ?? null,
+    returnEvent: returnEvent ?? null,
     period,
     intervals,
+    source,
     totals: {
       cohorts: cohortRows.length,
       entrants: cohortRows.reduce((sum, cohort) => sum + cohort.entrants, 0)
@@ -2451,29 +2696,7 @@ export async function getEventPaths(db: Db, filters: EventPathFilters): Promise<
         paths: []
       };
     }
-    const actorIds = await getAnalyticsSegmentActorIds(db, segment, to);
-    if (actorIds.length === 0) {
-      return {
-        window: filters.window,
-        generatedAt: toIso(filters.now ?? new Date()),
-        scope: { projectId: filters.projectId, environmentId: filters.environmentId },
-        range: { from: toIso(from), to: toIso(to) },
-        filters: {
-          startEvent: startEvent ?? null,
-          endEvent: endEvent ?? null,
-          tenantId: filters.tenantId ?? null,
-          userId: filters.userId ?? null,
-          sessionId: filters.sessionId ?? null,
-          traceId: filters.traceId ?? null,
-          segmentId: filters.segmentId,
-          actorType: actorMode,
-          pathLength
-        },
-        totals: { actors: 0, paths: 0, events: 0 },
-        paths: []
-      };
-    }
-    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+    query = query.where(analyticsSegmentActorFilter(segment, { userRef: "events.user_id", tenantRef: "events.tenant_id" }, to));
   }
 
   const rows = await query.execute();

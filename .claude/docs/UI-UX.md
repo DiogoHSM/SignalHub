@@ -195,7 +195,7 @@ SignalMonitor includes an admin-only Integration Console.
 - Alert rule rows expose compact destructive actions; archiving requires confirmation and removes the rule from the active rule list.
 - Alerts include an on-call queue for triggered alert events. Operators can acknowledge, snooze for a short interval, or resolve events directly from the queue, and the queue should make escalation state visible without requiring a separate incident page.
 - Escalation controls belong in the alert rule form near the primary channel: primary channel, escalation delay in minutes, and optional escalation channel. Empty escalation means no escalation delivery.
-- Generic webhook channel forms may accept a secret header name and value, but the saved secret value is write-only and should never be displayed after submission.
+- The channel form's type selector covers four types: generic webhook, native Slack, native Discord, and email. Webhook/Slack/Discord share the same URL + optional secret header fields, with type-specific label and help text (for example, "Slack Incoming Webhook URL" pointing operators at the Slack app's Incoming Webhooks settings). The saved secret value is write-only and should never be displayed after submission.
 - Email notification channels are created from the same compact channel form and show recipients plus SMTP delivery status rather than webhook secret state.
 - Notification channel rows expose compact edit actions. Editing reuses the channel form, keeps saved webhook secrets write-only, and should update the channel row without forcing a full page refresh.
 - Notification channel rows expose compact destructive actions; archiving requires confirmation and removes the channel from active rule configuration lists.

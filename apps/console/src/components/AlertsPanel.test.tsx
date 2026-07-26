@@ -538,6 +538,43 @@ describe("AlertsPanel", () => {
     expect(within(screen.getByLabelText("Notification channels")).getByText("SMTP delivery")).toBeInTheDocument();
   });
 
+  it("creates a native Slack notification channel with the Slack-specific URL label", async () => {
+    const createNotificationChannel = vi.fn().mockResolvedValue({
+      channel: {
+        id: "chn_slack",
+        name: "Slack #incidents",
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        emailRecipients: [],
+        secretHeaderName: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+        archivedAt: null
+      }
+    });
+
+    render(<AlertsPanel client={client({ createNotificationChannel })} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.selectOptions(await screen.findByLabelText("Channel type"), "slack");
+    expect(screen.getByLabelText("Slack Incoming Webhook URL")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Channel name"), "Slack #incidents");
+    await userEvent.type(screen.getByLabelText("Slack Incoming Webhook URL"), "https://hooks.slack.com/services/T0/xyz");
+    await userEvent.click(screen.getByRole("button", { name: "Create channel" }));
+
+    await waitFor(() =>
+      expect(createNotificationChannel).toHaveBeenCalledWith({
+        name: "Slack #incidents",
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        secretHeaderName: null,
+        secretHeaderValue: null,
+        enabled: true
+      })
+    );
+  });
+
   it("rejects invalid webhook URLs before submitting a channel", async () => {
     const createNotificationChannel = vi.fn();
 

@@ -11,6 +11,7 @@ import type {
   UpdateAlertEventTriageInput,
   UpdateAlertRuleInput,
   UpdateNotificationChannelInput,
+  WebhookLikeChannelType,
 } from "../../api/types";
 
 // ---------------------------------------------------------------------------
@@ -44,10 +45,10 @@ export type AlertRuleRowVM = {
 export type ChannelRowVM = {
   id: string;
   name: string;
-  icon: "webhook" | "mail";
+  icon: "webhook" | "slack" | "discord" | "mail";
   target: string;
   ok: boolean;
-  type: "webhook" | "email";
+  type: WebhookLikeChannelType | "email";
   url: string | null;
   emailRecipients: string[];
   secretHeaderName: string | null;
@@ -233,13 +234,13 @@ export function buildAlertsVM(input: AlertsInput, nowMs: number): AlertsVM {
   const channelRows: ChannelRowVM[] = channels.map((c) => ({
     id: c.id,
     name: c.name,
-    icon: c.type === "webhook" ? "webhook" : "mail",
-    target: c.type === "webhook" ? c.url : c.emailRecipients.join(", "),
+    icon: c.type === "email" ? "mail" : c.type,
+    target: c.type === "email" ? c.emailRecipients.join(", ") : c.url,
     ok: c.enabled,
     type: c.type,
-    url: c.type === "webhook" ? c.url : null,
+    url: c.type === "email" ? null : c.url,
     emailRecipients: c.type === "email" ? c.emailRecipients : [],
-    secretHeaderName: c.type === "webhook" ? c.secretHeaderName : null,
+    secretHeaderName: c.type === "email" ? null : c.secretHeaderName,
     hasSecret: c.hasSecret,
   }));
 

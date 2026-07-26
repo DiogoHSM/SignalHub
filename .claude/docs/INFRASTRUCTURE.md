@@ -4,7 +4,7 @@
 
 - API service: Fastify application exposing auth, admin, ingestion, query, health, and readiness routes.
 - Worker service: BullMQ consumer that validates, sanitizes, and persists telemetry jobs.
-- Scheduler service: optional split worker role for scheduled jobs such as alerts, monitors, retention, and backups.
+- Scheduler service: optional split worker role for scheduled jobs such as alerts, monitors, retention, event rollups, and backups.
 - Postgres: operational data and typed telemetry records.
 - Redis: queue backend with append-only persistence enabled in Compose.
 
@@ -61,6 +61,12 @@ Backup uploads retry transient network, timeout, rate-limit, and 5xx failures wi
 Source-map storage does not use object storage in this release line. The API owns local source-map writes, reads, and deletes under `SOURCE_MAPS_LOCAL_DIR`.
 
 The worker prunes local source-map artifacts according to `SOURCE_MAPS_RETENTION_*`. Cleanup operates only under `SOURCE_MAPS_LOCAL_DIR`; object storage for source maps remains deferred.
+
+## Event Rollup vs Retention Ordering
+
+The event rollup job (`EVENT_ROLLUPS_*`) must finish covering a given day in `event_actor_daily` before the retention job (`RETENTION_EVENTS_DAYS`) purges that day's raw `events` rows, or long-range retention queries would silently lose data for that day. This is mitigated by keeping `EVENT_ROLLUPS_LOOKBACK_DAYS` (default 400) well above `RETENTION_EVENTS_DAYS` (default 90) so the rollup's first-run backfill always finishes ahead of the purge window, and by the rollup never deleting its own rows in response to raw event retention — `event_actor_daily` outlives the purged `events` rows it summarized. Operators changing either setting should keep this ordering invariant: lookback days for rollups should stay comfortably larger than the raw events retention window.
+
+After running `pnpm db:migrate` for the migrations that introduce `event_actor_daily`/`event_rollup_state`, restart the worker so the new event rollup scheduler picks up the change.
 
 ## Operational Checks
 

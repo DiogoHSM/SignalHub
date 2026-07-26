@@ -204,6 +204,24 @@
 }
 .sh-v2 .sh-input:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
 
+/* ===== ANALYTICS ===== */
+.sh-v2 .sh-heat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  padding: 6px 4px;
+  color: var(--fg);
+}
+.sh-v2 .sh-funnel-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sh-v2 .sh-funnel-step:last-child { border-bottom: none; }
+
 /* ===== CODE BLOCK ===== */
 .sh-v2 .sh-code {
   background: oklch(0.13 0.01 250);

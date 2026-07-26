@@ -36,6 +36,10 @@ import type {
   CreateNotificationChannelInput,
   DashboardReportResponse,
   DataGovernancePolicy,
+  DeadLetterJobActionResponse,
+  DeadLetterJobListQuery,
+  DeadLetterJobResponse,
+  DeadLetterReplayResult,
   Environment,
   Experiment,
   ExperimentResultsQuery,
@@ -234,6 +238,14 @@ export type MonitorApiClient = {
     id: string,
     options: { projectId: string; environmentId: string; limit?: number; cursor?: string }
   ) => Promise<{ checks: MonitorCheckResponse[]; cursor?: string }>;
+};
+
+export type DeadLetterApiClient = {
+  listDeadLetterJobs: (query?: DeadLetterJobListQuery) => Promise<{ deadLetterJobs: DeadLetterJobResponse[]; cursor?: string }>;
+  getDeadLetterJob: (id: string) => Promise<{ deadLetterJob: DeadLetterJobResponse }>;
+  listDeadLetterJobActions: (id: string) => Promise<{ actions: DeadLetterJobActionResponse[] }>;
+  replayDeadLetterJob: (id: string) => Promise<DeadLetterReplayResult>;
+  deleteDeadLetterJob: (id: string) => Promise<void>;
 };
 
 export type ErrorGroupApiClient = {
@@ -517,7 +529,8 @@ export type ApiClient = {
   SessionTimelineApiClient &
   Partial<MonitorApiClient> &
   Partial<SourceMapApiClient> &
-  Partial<AlertSuggestionApiClient>;
+  Partial<AlertSuggestionApiClient> &
+  Partial<DeadLetterApiClient>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -850,6 +863,10 @@ function eventFunnelPath(query: EventFunnelQuery): string {
   params.set("window", query.window);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   params.set("steps", query.steps.join(","));
+  if (query.conversionWindow) params.set("conversion_window", query.conversionWindow);
+  if (query.breakdownProperty) params.set("breakdown_property", query.breakdownProperty);
+  if (query.tenantId) params.set("tenant_id", query.tenantId);
+  if (query.segmentId) params.set("segment_id", query.segmentId);
 
   return `/query/events/funnel?${params.toString()}`;
 }
@@ -880,11 +897,12 @@ function eventRetentionPath(query: EventRetentionQuery): string {
   params.set("project_id", query.projectId);
   params.set("environment_id", query.environmentId);
   params.set("window", query.window);
-  params.set("entry_event", query.entryEvent);
-  params.set("return_event", query.returnEvent);
+  if (query.entryEvent) params.set("entry_event", query.entryEvent);
+  if (query.returnEvent) params.set("return_event", query.returnEvent);
   if (query.period !== undefined) params.set("period", query.period);
   if (query.intervals !== undefined) params.set("intervals", String(query.intervals));
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.rangeDays !== undefined) params.set("range_days", String(query.rangeDays));
 
   return `/query/events/retention?${params.toString()}`;
 }
@@ -1299,6 +1317,21 @@ function monitorChecksPath(
   if (cursor) params.set("cursor", cursor);
 
   return `/admin/monitors/${encodePathSegment(id)}/checks?${params.toString()}`;
+}
+
+function deadLetterJobsPath(query?: DeadLetterJobListQuery): string {
+  const params = new URLSearchParams();
+  if (query?.limit !== undefined) params.set("limit", String(query.limit));
+  if (query?.cursor) params.set("cursor", query.cursor);
+  if (query?.queueName) params.set("queue_name", query.queueName);
+  if (query?.jobName) params.set("job_name", query.jobName);
+  if (query?.error) params.set("error", query.error);
+  if (query?.createdFrom) params.set("created_from", query.createdFrom);
+  if (query?.createdTo) params.set("created_to", query.createdTo);
+  if (query?.status) params.set("status", query.status);
+  const search = params.toString();
+
+  return `/admin/dead-letter-jobs${search ? `?${search}` : ""}`;
 }
 
 export function createApiClient(
@@ -1735,6 +1768,18 @@ export function createApiClient(
       request<void>(path(apiBasePath, `/admin/monitors/${encodePathSegment(id)}`), { method: "DELETE" }),
     listMonitorChecks: (id, options) =>
       request<{ checks: MonitorCheckResponse[]; cursor?: string }>(path(apiBasePath, monitorChecksPath(id, options))),
+    listDeadLetterJobs: (query) =>
+      request<{ deadLetterJobs: DeadLetterJobResponse[]; cursor?: string }>(path(apiBasePath, deadLetterJobsPath(query))),
+    getDeadLetterJob: (id) =>
+      request<{ deadLetterJob: DeadLetterJobResponse }>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}`)),
+    listDeadLetterJobActions: (id) =>
+      request<{ actions: DeadLetterJobActionResponse[] }>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}/actions`)),
+    replayDeadLetterJob: (id) =>
+      request<DeadLetterReplayResult>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}/replay`), {
+        method: "POST"
+      }),
+    deleteDeadLetterJob: (id) =>
+      request<void>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}`), { method: "DELETE" }),
     listAlertEvents: (query) =>
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>

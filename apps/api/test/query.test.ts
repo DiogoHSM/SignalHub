@@ -1840,6 +1840,97 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("forwards new conversion funnel filters only when the caller sends them", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async (filters) => {
+          receivedFilters.push(filters);
+          return { steps: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&steps=signup.started,project.created" +
+        "&conversion_window=2h&breakdown_property=plan&tenant_id=tenant_1&segment_id=seg_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 50,
+        steps: ["signup.started", "project.created"],
+        conversionWindowSeconds: 7200,
+        breakdownProperty: "plan",
+        tenantId: "tenant_1",
+        segmentId: "seg_1"
+      }
+    ]);
+  });
+
+  it("rejects conversion funnels with an unparsable conversion_window", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => ({ steps: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&steps=signup.started,project.created&conversion_window=xyz"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects conversion funnels with a conversion_window larger than the requested window", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => ({ steps: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=24h&steps=signup.started,project.created&conversion_window=7d"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects conversion funnels with an invalid breakdown_property", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => ({ steps: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&steps=signup.started,project.created&breakdown_property=" + encodeURIComponent("plan; drop table events")
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
   it("forwards experiment result query filters", async () => {
     const receivedFilters: unknown[] = [];
 
@@ -2242,11 +2333,49 @@ describe("query routes", () => {
     ]);
   });
 
+  it("forwards event retention query filters with return_event absent and range_days present", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventRetention: async (filters) => {
+          receivedFilters.push(filters);
+          return { cohorts: [] };
+        }
+      }
+    });
+
+    // return_event absent means "any event" counts as retained (unbounded retention).
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/retention?project_id=prj_1&environment_id=env_1&window=30d&entry_event=signup.started&period=daily&intervals=7&limit=20&range_days=200"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { cohorts: [] } });
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "30d",
+        limit: 20,
+        entryEvent: "signup.started",
+        period: "daily",
+        intervals: 7,
+        rangeDays: 200
+      }
+    ]);
+  });
+
   it.each([
-    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started",
     "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&period=yearly",
     "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=1",
-    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=13"
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&intervals=13",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&range_days=0",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&range_days=731",
+    "/query/events/retention?project_id=prj_1&environment_id=env_1&entry_event=signup.started&return_event=app.opened&range_days=not-a-number"
   ])("rejects invalid event retention query %s", async (url) => {
     const getEventRetention = vi.fn(async () => ({ cohorts: [] }));
 

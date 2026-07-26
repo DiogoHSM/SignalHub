@@ -1,8 +1,7 @@
 name: Publish SDK
 
+# CI/CD runs locally by policy (2026-07). Manual-only until further notice.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:

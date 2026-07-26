@@ -87,6 +87,8 @@ function makeMockCtx(): ScreenCtx {
     onSelectEnvironment: vi.fn(),
     onUpdateProject: vi.fn(),
     navigate: vi.fn(),
+    pendingFilters: null,
+    clearPendingFilters: vi.fn(),
     back: vi.fn(),
     drill: vi.fn(),
     pushToast: vi.fn(),

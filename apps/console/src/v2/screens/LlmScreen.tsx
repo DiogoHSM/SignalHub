@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { OverviewWindow } from "../../api/types";
 import {
   BigKpi,
@@ -6,6 +6,7 @@ import {
   formatCompact,
   formatLatency,
   formatUsd,
+  formatUtcTimestamp,
   Icon,
   Legend,
   PageHead,
@@ -14,7 +15,7 @@ import {
 } from "../../components/ui/v2";
 import type { ScreenCtx } from "./registry";
 import { useLlm } from "./useLlm";
-import type { LlmPromptVM, LlmTenantVM } from "./useLlm";
+import type { LlmCallRowVM, LlmPromptVM, LlmTenantVM } from "./useLlm";
 
 const WINDOW_OPTIONS: OverviewWindow[] = ["24h", "7d", "30d"];
 
@@ -114,12 +115,49 @@ function PromptRow({ row }: { row: LlmPromptVM }) {
   );
 }
 
+function CallRow({ row }: { row: LlmCallRowVM }) {
+  return (
+    <div className="sh-row" style={{ gridTemplateColumns: "1.1fr 1.2fr 1.4fr 90px 90px 90px" }}>
+      <span className="sh-mono sh-faint" style={{ fontSize: 11 }}>{formatUtcTimestamp(row.timestamp)}</span>
+      <span className="sh-mono" style={{ fontSize: 12 }}>{row.provider}/{row.model}</span>
+      <span className="sh-muted" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>{row.promptName ?? "—"}</span>
+      <span className={row.status === "success" ? "sh-tag ok" : "sh-tag critical"}>{row.status}</span>
+      <span className="sh-mono sh-muted" style={{ fontSize: 11.5 }}>{formatLatency(row.latencyMs)}</span>
+      <span style={{ fontWeight: 600, color: "var(--sev-violet)", fontVariantNumeric: "tabular-nums" }}>{formatUsd(row.costUsd)}</span>
+    </div>
+  );
+}
+
 export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
   const [window, setWindow] = useState<OverviewWindow>("24h");
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
 
-  const { data, status } = useLlm({ client: ctx.client, projectId, environmentId, window });
+  const seed = ctx.pendingFilters?.section === "llm" ? ctx.pendingFilters.filters : null;
+  const [tenantId, setTenantId] = useState<string | undefined>(seed?.tenantId);
+  const [userId, setUserId] = useState<string | undefined>(seed?.userId);
+  const [provider] = useState<string | undefined>(seed?.provider);
+  const [model] = useState<string | undefined>(seed?.model);
+  const [promptName] = useState<string | undefined>(seed?.promptName);
+  const [callStatus, setCallStatus] = useState<string | undefined>(seed?.status);
+
+  // The seed is one-shot: consume it once on mount (the shell remounts this
+  // screen — via the `page` div's `key={seq}` — on every `navigate` call).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { ctx.clearPendingFilters?.(); }, []);
+
+  const { data, status } = useLlm({
+    client: ctx.client,
+    projectId,
+    environmentId,
+    window,
+    tenantId,
+    userId,
+    provider,
+    model,
+    promptName,
+    status: callStatus,
+  });
 
   if (!ctx.project || !ctx.environment) {
     return (
@@ -153,7 +191,8 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
     );
   }
 
-  const { kpis, costByModel, tenants, prompts } = data;
+  const { kpis, costByModel, tenants, prompts, recentCalls } = data;
+  const hasSeededFilters = tenantId != null || userId != null;
 
   return (
     <>
@@ -162,6 +201,12 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         sub="Cost, latency, quality, and attribution by tenant, prompt, and model."
         actions={
           <>
+            {hasSeededFilters ? (
+              <button className="sh-btn" onClick={() => { setTenantId(undefined); setUserId(undefined); setCallStatus(undefined); }}>
+                <Icon name="x" size={14} />
+                {[tenantId && `tenant: ${tenantId}`, userId && `user: ${userId}`].filter(Boolean).join(" · ")}
+              </button>
+            ) : null}
             <Segmented
               options={WINDOW_OPTIONS}
               value={window}
@@ -251,6 +296,31 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
             <EmptyHint icon="activity" title="No prompt data" sub="No LLM calls in this window." />
           ) : (
             prompts.map((row) => <PromptRow key={`${row.promptName}:${row.model}`} row={row} />)
+          )}
+        </div>
+      </div>
+
+      <div
+        className="sh-card"
+        style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+      >
+        <div className="sh-card__head">
+          <h2 className="sh-h2">Recent calls</h2>
+          <span className="sh-tag">{recentCalls.length} calls</span>
+        </div>
+        <div className="sh-row sh-row__head" style={{ gridTemplateColumns: "1.1fr 1.2fr 1.4fr 90px 90px 90px" }}>
+          <span>Timestamp</span>
+          <span>Provider / model</span>
+          <span>Prompt</span>
+          <span>Status</span>
+          <span>Latency</span>
+          <span>Cost</span>
+        </div>
+        <div style={{ overflow: "auto", flex: 1 }}>
+          {recentCalls.length === 0 ? (
+            <EmptyHint icon="sparkles" title="No recent calls" sub="No LLM calls match the current filters." />
+          ) : (
+            recentCalls.map((row) => <CallRow key={row.id} row={row} />)
           )}
         </div>
       </div>

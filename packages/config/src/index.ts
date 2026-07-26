@@ -106,6 +106,12 @@ const rawConfigSchema = z.object({
   RETENTION_PROFILES_DAYS: optionalPositiveInteger(30),
   RETENTION_BREADCRUMBS_DAYS: optionalPositiveInteger(30),
   RETENTION_DEAD_LETTER_JOBS_DAYS: optionalPositiveInteger(30),
+  EVENT_ROLLUPS_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  EVENT_ROLLUPS_INTERVAL_MINUTES: optionalPositiveInteger(60),
+  EVENT_ROLLUPS_LOOKBACK_DAYS: optionalPositiveInteger(400),
   ALERTS_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -259,6 +265,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       profilesDays: parsed.RETENTION_PROFILES_DAYS,
       breadcrumbsDays: parsed.RETENTION_BREADCRUMBS_DAYS,
       deadLetterJobsDays: parsed.RETENTION_DEAD_LETTER_JOBS_DAYS
+    },
+    eventRollups: {
+      enabled: parsed.EVENT_ROLLUPS_ENABLED,
+      intervalMinutes: parsed.EVENT_ROLLUPS_INTERVAL_MINUTES,
+      lookbackDays: parsed.EVENT_ROLLUPS_LOOKBACK_DAYS
     },
     alerts: {
       enabled: parsed.ALERTS_ENABLED,

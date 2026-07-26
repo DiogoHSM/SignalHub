@@ -4,6 +4,7 @@ import type { CodeIntegration, CodeIntegrationProvider } from "../../api/types";
 import type { ScreenCtx } from "./registry";
 import { useSetup } from "./useSetup";
 import { ArtifactsSection } from "./ArtifactsSection";
+import { FeedbackSection } from "./FeedbackSection";
 
 const SNIPPET_TABS = ["Browser", "Node", "Python", "HTTP"] as const;
 type SnippetTab = (typeof SNIPPET_TABS)[number];
@@ -372,6 +373,7 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
       </div>
 
       <ArtifactsSection ctx={ctx} />
+      <FeedbackSection ctx={ctx} />
     </>
   );
 }

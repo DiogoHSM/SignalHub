@@ -3014,7 +3014,7 @@ export const openApiDocument = {
     "/query/events/funnel": {
       get: sessionRoute(
         "Query event conversion funnel",
-        "Analyze ordered event-step conversion for a project environment. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2+ event names, and optional limit for sample actors."
+        "Analyze ordered event-step conversion for a project environment, aggregated entirely in SQL. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2-12 event names, and optional limit for sample actors. Optional conversion_window (e.g. 30m, 24h, 7d) bounds elapsed time from funnel entry to each step. Optional breakdown_property splits results into up to 20 series by an event property value. Optional tenant_id and segment_id further scope which actors are counted."
       )
     },
     "/query/experiments/{id}/results": {
@@ -3158,7 +3158,7 @@ export const openApiDocument = {
     "/query/events/retention": {
       get: sessionRoute(
         "Query event retention curves",
-        "Analyze retention cohorts for a project environment. Query with project_id, environment_id, window=24h|7d|30d, entry_event, return_event, optional period=daily|weekly|monthly, and optional intervals=2..12."
+        "Analyze retention cohorts for a project environment. Cohorts are anchored on each actor's user_profiles.first_seen_at, not the minimum entry_event timestamp inside the queried window. Query with project_id, environment_id, window=24h|7d|30d, optional entry_event (cohort eligibility filter), optional return_event (absent means any event counts as retained), optional period=daily|weekly|monthly, optional intervals=2..12, and optional range_days=1..730 to override the window-derived range for long lookback queries. Ranges older than the configured raw event retention window are served from the event_actor_daily rollup, reported as source=raw|rollup in the response."
       )
     },
     "/query/events/click-map": {

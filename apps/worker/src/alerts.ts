@@ -7,7 +7,8 @@ import type { AppConfig } from "@sigmon/config";
 import type {
   AlertEscalationRecord,
   AlertRuleRecord,
-  NotificationChannelRecord
+  NotificationChannelRecord,
+  WebhookLikeChannelType
 } from "@sigmon/db/repositories/alerts.js";
 import {
   assertSafeResolvedAddresses,
@@ -85,7 +86,7 @@ type PendingDelivery = {
 };
 
 type WebhookDeliveryChannel = Pick<
-  Extract<NotificationChannelRecord, { type: "webhook" }>,
+  Extract<NotificationChannelRecord, { type: WebhookLikeChannelType }>,
   | "id"
   | "name"
   | "type"
@@ -262,8 +263,9 @@ export async function deliverNotification(input: {
   timeoutMs: number;
   nodeEnv: string;
   emailTransportFactory?: EmailTransportFactory;
+  publicEndpoint?: string;
 }): Promise<DeliveryResult> {
-  if (input.channel.type === "webhook") {
+  if (input.channel.type !== "email") {
     return deliverWebhook({
       channel: input.channel,
       payload: input.payload,
@@ -277,7 +279,8 @@ export async function deliverNotification(input: {
     smtp: input.smtp,
     payload: input.payload,
     timeoutMs: input.timeoutMs,
-    transportFactory: input.emailTransportFactory
+    transportFactory: input.emailTransportFactory,
+    publicEndpoint: input.publicEndpoint
   });
 }
 
@@ -329,7 +332,7 @@ export async function deliverWebhook(input: {
     }
   }
 
-  const body = JSON.stringify(input.payload);
+  const body = JSON.stringify(toChannelRequestPayload(input.channel.type, input.payload));
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "Content-Length": String(Buffer.byteLength(body))
@@ -695,4 +698,86 @@ function toEscalationPayload(escalation: AlertEscalationRecord, channelId: strin
     message: sanitizeMessage(`Escalation: ${escalation.message} (channel ${channelId})`),
     sigmon: { source: "sigmon" }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Slack / Discord formatters — native channel payloads over the webhook pipeline
+// ---------------------------------------------------------------------------
+
+export type SlackNotificationPayload = {
+  text: string;
+  blocks: Array<Record<string, unknown>>;
+};
+
+export type DiscordNotificationPayload = {
+  embeds: Array<{
+    title: string;
+    description: string;
+    color: number;
+    fields: Array<{ name: string; value: string; inline: boolean }>;
+    timestamp: string;
+  }>;
+};
+
+const SLACK_SEVERITY_EMOJI: Record<AlertWebhookPayload["severity"], string> = {
+  critical: "🔴",
+  warning: "🟠",
+  info: "🔵"
+};
+
+const DISCORD_SEVERITY_COLOR: Record<AlertWebhookPayload["severity"], number> = {
+  critical: 0xe01e5a,
+  warning: 0xecb22e,
+  info: 0x36c5f0
+};
+
+export function toSlackPayload(payload: AlertWebhookPayload): SlackNotificationPayload {
+  const emoji = SLACK_SEVERITY_EMOJI[payload.severity];
+  const text = `${emoji} [${payload.severity.toUpperCase()}] ${payload.ruleName}: ${payload.message}`;
+
+  return {
+    text,
+    blocks: [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `*${payload.ruleName}*\n${payload.message}` }
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `Severity: *${payload.severity}* · Observed \`${payload.observedValue}\` / Threshold \`${payload.threshold}\` · ${payload.projectId}/${payload.environmentId}`
+          }
+        ]
+      }
+    ]
+  };
+}
+
+export function toDiscordPayload(payload: AlertWebhookPayload): DiscordNotificationPayload {
+  return {
+    embeds: [
+      {
+        title: payload.ruleName,
+        description: payload.message,
+        color: DISCORD_SEVERITY_COLOR[payload.severity],
+        fields: [
+          { name: "Severity", value: payload.severity, inline: true },
+          { name: "Observed", value: payload.observedValue, inline: true },
+          { name: "Threshold", value: payload.threshold, inline: true }
+        ],
+        timestamp: payload.triggeredAt
+      }
+    ]
+  };
+}
+
+function toChannelRequestPayload(
+  channelType: WebhookLikeChannelType,
+  payload: AlertWebhookPayload
+): AlertWebhookPayload | SlackNotificationPayload | DiscordNotificationPayload {
+  if (channelType === "slack") return toSlackPayload(payload);
+  if (channelType === "discord") return toDiscordPayload(payload);
+  return payload;
 }

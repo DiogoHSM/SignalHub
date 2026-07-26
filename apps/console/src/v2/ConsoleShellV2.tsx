@@ -10,7 +10,7 @@ import { useConsoleProjects } from "./useConsoleProjects";
 import { useToasts } from "./useToasts";
 import { useFleet } from "./useFleet";
 import { renderSection } from "./screens/registry";
-import type { ScreenCtx, DrillTarget, DrillParams } from "./screens/registry";
+import type { ScreenCtx, DrillTarget, DrillParams, FilterableSection, NavPayload, SectionFilters } from "./screens/registry";
 import { IncidentScreen } from "./screens/IncidentScreen";
 import { TenantScreen } from "./screens/TenantScreen";
 import type { NavSection } from "./nav";
@@ -55,8 +55,13 @@ const NAV_LABELS: Record<NavSection, string> = {
   incidents: "Incidents",
   llm: "LLM",
   traces: "Traces",
+  entities: "Entities",
+  users: "Users",
+  events: "Events",
+  analytics: "Analytics",
   alerts: "Alerts",
   monitors: "Monitors",
+  experiments: "Experiments",
   system: "System",
   settings: "Settings",
 };
@@ -82,6 +87,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   const [railCollapsed, setRailCollapsedRaw] = useState(persisted.railCollapsed ?? false);
   const [drillStack, setDrillStack] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<NavPayload | null>(null);
   const [detail, setDetail] = useState<
     | { target: "incident"; groupId: string; errorId?: string }
     | { target: "tenant"; tenantId: string }
@@ -158,14 +164,20 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   // ─── actions ─────────────────────────────────────────────────────────────
 
-  const navigate = useCallback((section: NavSection) => {
-    setDetail(null);
-    setNavRaw(section);
-    setDrillStack([]);
-    setAnim("nav");
-    setSeq((s) => s + 1);
-    saveState({ nav: section });
-  }, []);
+  const navigate = useCallback(
+    <S extends NavSection>(section: S, filters?: S extends FilterableSection ? SectionFilters[S] : never) => {
+      setDetail(null);
+      setPending(filters ? ({ section, filters } as NavPayload) : null);
+      setNavRaw(section);
+      setDrillStack([]);
+      setAnim("nav");
+      setSeq((s) => s + 1);
+      saveState({ nav: section });
+    },
+    []
+  );
+
+  const clearPendingFilters = useCallback(() => setPending(null), []);
 
   const toggleRail = useCallback(() => {
     setRailCollapsedRaw((prev) => {
@@ -297,6 +309,8 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     onUpdateProject: handleUpdateProject,
     onUpdateEnvironment: handleUpdateEnvironment,
     navigate,
+    pendingFilters: pending,
+    clearPendingFilters,
     drill: handleDrill,
     back: handleBack,
     pushToast: (message: string) => toast({ title: message }),
@@ -313,8 +327,13 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     { section: "incidents", title: "Incidents", description: "Active and resolved incidents" },
     { section: "llm", title: "LLM", description: "LLM call logs, costs, and analysis" },
     { section: "traces", title: "Traces", description: "Request timelines and span-level investigation" },
+    { section: "entities", title: "Entities", description: "Tenants ranked by impact across signals" },
+    { section: "users", title: "Users", description: "User activity, impact, and identity profiles" },
+    { section: "events", title: "Events", description: "Event explorer, replay samples, and saved segments" },
+    { section: "analytics", title: "Analytics", description: "Funnels, retention, paths, click maps, and property governance" },
     { section: "alerts", title: "Alerts", description: "Alert rules and recent alerts" },
     { section: "monitors", title: "Monitors", description: "HTTP uptime and heartbeat checks" },
+    { section: "experiments", title: "Experiments", description: "A/B tests, feature flags, surveys, campaigns, and beta programs" },
     { section: "system", title: "System", description: "Server health, workers, and scheduler" },
     { section: "settings", title: "Settings", description: "Project and environment settings" },
   ];

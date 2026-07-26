@@ -501,7 +501,34 @@ type ChannelEditorProps = {
   busy: boolean;
 };
 
-type ChannelType = "webhook" | "email";
+type ChannelType = "webhook" | "slack" | "discord" | "email";
+
+const WEBHOOK_LIKE_CHANNEL_TYPES: Array<Exclude<ChannelType, "email">> = ["webhook", "slack", "discord"];
+
+const CHANNEL_URL_HELP: Record<Exclude<ChannelType, "email">, { label: string; placeholder: string; help: string }> = {
+  webhook: {
+    label: "Webhook URL",
+    placeholder: "https://example.com/hooks/sigmon",
+    help: "Generic HTTP endpoint that receives a POST with the alert JSON payload.",
+  },
+  slack: {
+    label: "Slack Incoming Webhook URL",
+    placeholder: "https://hooks.slack.com/services/...",
+    help: "Create an Incoming Webhook in your Slack app settings and paste its URL here.",
+  },
+  discord: {
+    label: "Discord Webhook URL",
+    placeholder: "https://discord.com/api/webhooks/...",
+    help: "Create a webhook under the target channel's Integrations settings and paste its URL here.",
+  },
+};
+
+const CHANNEL_NAME_PLACEHOLDER: Record<ChannelType, string> = {
+  webhook: "Ops webhook",
+  slack: "Slack #incidents",
+  discord: "Discord #alerts",
+  email: "Ops email",
+};
 
 function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
   const [channelType, setChannelType] = useState<ChannelType>("webhook");
@@ -512,23 +539,24 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
   const [emailRecipients, setEmailRecipients] = useState("");
 
   function handleSave() {
-    if (channelType === "webhook") {
-      onSave({
-        type: "webhook",
-        name,
-        url,
-        secretHeaderName: secretHeaderName || null,
-        secretHeaderValue: secretHeaderValue || null,
-      });
-    } else {
+    if (channelType === "email") {
       const recipients = emailRecipients.split(",").map((e) => e.trim()).filter(Boolean);
       onSave({ type: "email", name, emailRecipients: recipients });
+      return;
     }
+
+    onSave({
+      type: channelType,
+      name,
+      url,
+      secretHeaderName: secretHeaderName || null,
+      secretHeaderValue: secretHeaderValue || null,
+    });
   }
 
   const valid =
     name.trim().length > 0 &&
-    (channelType === "webhook" ? url.trim().length > 0 : emailRecipients.trim().length > 0);
+    (channelType === "email" ? emailRecipients.trim().length > 0 : url.trim().length > 0);
 
   return (
     <div className="sh-card">
@@ -541,20 +569,38 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
       <div className="sh-card__body" style={{ display: "grid", gap: 12, padding: 16 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Segmented
-            options={["webhook", "email"]}
+            options={[...WEBHOOK_LIKE_CHANNEL_TYPES, "email"]}
             value={channelType}
             onChange={(v) => setChannelType(v as ChannelType)}
           />
         </div>
         <label style={{ display: "grid", gap: 4 }}>
           <span className="sh-eyebrow">Name</span>
-          <input className="sh-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Slack #incidents" />
+          <input
+            className="sh-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={CHANNEL_NAME_PLACEHOLDER[channelType]}
+          />
         </label>
-        {channelType === "webhook" ? (
+        {channelType === "email" ? (
+          <label style={{ display: "grid", gap: 4 }}>
+            <span className="sh-eyebrow">Recipients (comma-separated)</span>
+            <input className="sh-input sh-mono" value={emailRecipients} onChange={(e) => setEmailRecipients(e.target.value)} placeholder="ops@example.com, sre@example.com" />
+          </label>
+        ) : (
           <>
             <label style={{ display: "grid", gap: 4 }}>
-              <span className="sh-eyebrow">Webhook URL</span>
-              <input className="sh-input sh-mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
+              <span className="sh-eyebrow">{CHANNEL_URL_HELP[channelType].label}</span>
+              <input
+                className="sh-input sh-mono"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder={CHANNEL_URL_HELP[channelType].placeholder}
+              />
+              <span className="sh-faint" style={{ fontSize: 10.5, lineHeight: 1.4 }}>
+                {CHANNEL_URL_HELP[channelType].help}
+              </span>
             </label>
             <label style={{ display: "grid", gap: 4 }}>
               <span className="sh-eyebrow">Secret header name (optional)</span>
@@ -567,11 +613,6 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
               </label>
             )}
           </>
-        ) : (
-          <label style={{ display: "grid", gap: 4 }}>
-            <span className="sh-eyebrow">Recipients (comma-separated)</span>
-            <input className="sh-input sh-mono" value={emailRecipients} onChange={(e) => setEmailRecipients(e.target.value)} placeholder="ops@example.com, sre@example.com" />
-          </label>
         )}
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button className="sh-btn primary" disabled={!valid || busy} onClick={handleSave}>
@@ -602,6 +643,91 @@ function statusTone(status: AlertEventRowVM["status"]): "critical" | "warn" | ""
   return "";
 }
 
+function QueueRow({
+  event,
+  busy,
+  onTriage,
+}: {
+  event: AlertEventRowVM;
+  busy: boolean;
+  onTriage: OnCallQueueProps["onTriage"];
+}) {
+  const [note, setNote] = useState("");
+  const done = event.status === "resolved";
+
+  function triage(input: { status: AlertEventRowVM["status"]; snoozedUntil?: string | null }) {
+    const trimmed = note.trim();
+    setNote("");
+    onTriage(event.id, { ...input, note: trimmed ? trimmed : undefined });
+  }
+
+  return (
+    <div
+      className="sh-row"
+      style={{
+        gridTemplateColumns: "1.4fr 92px 110px 1fr 150px 280px",
+        alignItems: "center",
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <strong style={{ fontSize: 12.5 }}>{event.message}</strong>
+        <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
+          {event.sourceLabel} · {event.triggeredAtLabel}
+        </div>
+      </div>
+      <span className={`sh-tag ${statusTone(event.status)}`}>{event.status}</span>
+      <span className={`sh-tag ${event.severity === "critical" ? "critical" : event.severity === "warning" ? "warn" : ""}`}>
+        {event.severity}
+      </span>
+      <span className="sh-faint" style={{ fontSize: 12 }}>
+        {event.deliveryLabel} · {event.escalationLabel}
+      </span>
+      <span className="sh-mono" style={{ fontSize: 12 }}>
+        {event.observedLabel}
+      </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+        <input
+          className="sh-input"
+          aria-label={`Note for ${event.message}`}
+          placeholder="Note (optional)"
+          value={note}
+          disabled={busy || done}
+          onChange={(e) => setNote(e.target.value)}
+          style={{ fontSize: 11.5, padding: "4px 8px", width: "100%" }}
+        />
+        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+          <button
+            className="sh-btn ghost"
+            style={{ padding: "5px 9px", fontSize: 12 }}
+            disabled={busy || done}
+            onClick={() => triage({ status: "acknowledged" })}
+          >
+            Ack
+          </button>
+          <button
+            className="sh-btn ghost"
+            style={{ padding: "5px 9px", fontSize: 12 }}
+            disabled={busy || done}
+            onClick={() =>
+              triage({ status: "snoozed", snoozedUntil: new Date(Date.now() + 30 * 60 * 1000).toISOString() })
+            }
+          >
+            Snooze 30m
+          </button>
+          <button
+            className="sh-btn primary"
+            style={{ padding: "5px 9px", fontSize: 12 }}
+            disabled={busy || done}
+            onClick={() => triage({ status: "resolved" })}
+          >
+            Resolve
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OnCallQueue({ events, busy, onTriage }: OnCallQueueProps) {
   return (
     <div className="sh-card">
@@ -615,64 +741,9 @@ function OnCallQueue({ events, busy, onTriage }: OnCallQueueProps) {
         {events.length === 0 ? (
           <EmptyHint icon="bell" title="No alert events" sub="No alert activity in the selected window." />
         ) : (
-          events.map((event) => {
-            const done = event.status === "resolved";
-            const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-
-            return (
-              <div
-                key={event.id}
-                className="sh-row"
-                style={{
-                  gridTemplateColumns: "1.4fr 92px 110px 1fr 150px 260px",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <strong style={{ fontSize: 12.5 }}>{event.message}</strong>
-                  <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
-                    {event.sourceLabel} · {event.triggeredAtLabel}
-                  </div>
-                </div>
-                <span className={`sh-tag ${statusTone(event.status)}`}>{event.status}</span>
-                <span className={`sh-tag ${event.severity === "critical" ? "critical" : event.severity === "warning" ? "warn" : ""}`}>
-                  {event.severity}
-                </span>
-                <span className="sh-faint" style={{ fontSize: 12 }}>
-                  {event.deliveryLabel} · {event.escalationLabel}
-                </span>
-                <span className="sh-mono" style={{ fontSize: 12 }}>
-                  {event.observedLabel}
-                </span>
-                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                  <button
-                    className="sh-btn ghost"
-                    style={{ padding: "5px 9px", fontSize: 12 }}
-                    disabled={busy || done}
-                    onClick={() => onTriage(event.id, { status: "acknowledged" })}
-                  >
-                    Ack
-                  </button>
-                  <button
-                    className="sh-btn ghost"
-                    style={{ padding: "5px 9px", fontSize: 12 }}
-                    disabled={busy || done}
-                    onClick={() => onTriage(event.id, { status: "snoozed", snoozedUntil })}
-                  >
-                    Snooze 30m
-                  </button>
-                  <button
-                    className="sh-btn primary"
-                    style={{ padding: "5px 9px", fontSize: 12 }}
-                    disabled={busy || done}
-                    onClick={() => onTriage(event.id, { status: "resolved" })}
-                  >
-                    Resolve
-                  </button>
-                </div>
-              </div>
-            );
-          })
+          events.map((event) => (
+            <QueueRow key={event.id} event={event} busy={busy} onTriage={onTriage} />
+          ))
         )}
       </div>
     </div>

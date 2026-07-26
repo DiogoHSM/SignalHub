@@ -2,10 +2,20 @@ import { useState } from "react";
 import { ConfirmButton, EmptyHint, Icon, PageHead, Sparkline } from "../../components/ui/v2";
 import type { ScreenCtx } from "./registry";
 import { useSystemHealth } from "./useSystemHealth";
-import type { QueueRowVM, ServiceCardVM, ServiceTone, SystemVM } from "./useSystemHealth";
+import type {
+  DeadLetterDetailVM,
+  DeadLetterJobVM,
+  DlqVM,
+  QueueRowVM,
+  ServiceCardVM,
+  ServiceTone,
+  SystemVM,
+} from "./useSystemHealth";
 
 const QUEUE_GRID = "1.4fr 70px 70px 80px 70px 70px";
 const RETENTION_GRID = "1fr 56px 90px";
+const DLQ_GRID = "1fr 1fr 1.6fr 70px 190px";
+const DLQ_PAYLOAD_TRUNCATE = 600;
 
 function toneTagClass(tone: ServiceTone): string {
   return tone === "ok" ? "ok" : tone === "critical" ? "critical" : tone === "idle" ? "solid" : "warn";
@@ -64,9 +74,177 @@ function EmptyState({ icon, title, sub }: { icon: "server" | "queue" | "archive"
   );
 }
 
+function formatPayload(payload: unknown, full: boolean): { text: string; truncated: boolean } {
+  const text = JSON.stringify(payload, null, 2) ?? "null";
+  if (full || text.length <= DLQ_PAYLOAD_TRUNCATE) {
+    return { text, truncated: false };
+  }
+  return { text: `${text.slice(0, DLQ_PAYLOAD_TRUNCATE)}…`, truncated: true };
+}
+
+function DeadLetterRow({
+  row,
+  expanded,
+  pending,
+  detail,
+  detailStatus,
+  payloadFull,
+  onToggle,
+  onTogglePayload,
+  onReplay,
+  onDelete,
+}: {
+  row: DeadLetterJobVM;
+  expanded: boolean;
+  pending: boolean;
+  detail: DeadLetterDetailVM | null;
+  detailStatus: "loading" | "ok" | "error" | null;
+  payloadFull: boolean;
+  onToggle: () => void;
+  onTogglePayload: () => void;
+  onReplay: () => void;
+  onDelete: () => void;
+}) {
+  const rendered = detail ? formatPayload(detail.payload, payloadFull) : null;
+  return (
+    <div style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+      <div
+        className="sh-row"
+        style={{ gridTemplateColumns: DLQ_GRID, alignItems: "center", cursor: "pointer" }}
+        onClick={onToggle}
+      >
+        <span className="sh-mono" style={{ fontSize: 12 }}>{row.queueName}</span>
+        <span className="sh-mono" style={{ fontSize: 12 }}>{row.jobName}</span>
+        <span
+          style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          title={row.errorMessage}
+        >
+          {row.errorMessage}
+        </span>
+        <span className="sh-faint" style={{ fontSize: 11 }}>{row.ageLabel}</span>
+        <span style={{ display: "flex", gap: 6, justifyContent: "flex-end" }} onClick={(e) => e.stopPropagation()}>
+          <ConfirmButton
+            label={pending ? "Replaying…" : "Replay"}
+            icon="refresh"
+            onConfirm={() => {
+              if (!pending) onReplay();
+            }}
+          />
+          <ConfirmButton
+            label={pending ? "Deleting…" : "Delete"}
+            icon="x"
+            kind="ghost"
+            onConfirm={() => {
+              if (!pending) onDelete();
+            }}
+          />
+        </span>
+      </div>
+      {expanded ? (
+        <div style={{ padding: "10px 16px", background: "var(--bg-surface-2)" }}>
+          {detailStatus === "loading" ? (
+            <span className="sh-faint" style={{ fontSize: 12 }}>Loading job details…</span>
+          ) : null}
+          {detailStatus === "error" ? (
+            <span className="sh-faint" style={{ fontSize: 12 }}>Could not load job details.</span>
+          ) : null}
+          {rendered ? (
+            <>
+              <pre className="sh-mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
+                {rendered.text}
+              </pre>
+              {rendered.truncated || payloadFull ? (
+                <button className="sh-btn ghost" type="button" onClick={onTogglePayload} style={{ marginTop: 6 }}>
+                  {payloadFull ? "Show less" : "Show full payload"}
+                </button>
+              ) : null}
+              {detail && detail.actions.length > 0 ? (
+                <div style={{ marginTop: 10 }}>
+                  <div className="sh-faint" style={{ fontSize: 11, marginBottom: 4 }}>History</div>
+                  {detail.actions.map((a) => (
+                    <div key={a.id} className="sh-mono" style={{ fontSize: 11 }}>
+                      {a.action} by {a.actorEmail} · {a.ageLabel}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DeadLetterQueueSection({
+  dlq,
+  pendingIds,
+  expandedId,
+  detailById,
+  detailStatusById,
+  payloadFullId,
+  onToggle,
+  onTogglePayload,
+  onReplay,
+  onDelete,
+}: {
+  dlq: DlqVM;
+  pendingIds: Set<string>;
+  expandedId: string | null;
+  detailById: Record<string, DeadLetterDetailVM | null>;
+  detailStatusById: Record<string, "loading" | "ok" | "error">;
+  payloadFullId: string | null;
+  onToggle: (id: string) => void;
+  onTogglePayload: (id: string) => void;
+  onReplay: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="sh-card__head">
+        <h2 className="sh-h2">Dead-letter queue</h2>
+        <span className="sh-faint" style={{ fontSize: 11 }}>{dlq.jobs.length} job(s)</span>
+      </div>
+      <div style={{ flex: 1 }}>
+        {dlq.status === "loading" && dlq.jobs.length === 0 ? (
+          <EmptyHint icon="queue" title="Loading…" sub="Fetching dead-letter jobs." />
+        ) : dlq.status === "error" ? (
+          <EmptyHint icon="alert" title="Could not load dead-letter jobs" sub="Check your connection or try again." />
+        ) : dlq.jobs.length === 0 ? (
+          <EmptyHint icon="check" title="Queue is clean" sub="No dead-letter jobs are waiting for review." />
+        ) : (
+          dlq.jobs.map((row) => (
+            <DeadLetterRow
+              key={row.id}
+              row={row}
+              expanded={expandedId === row.id}
+              pending={pendingIds.has(row.id)}
+              detail={detailById[row.id] ?? null}
+              detailStatus={detailStatusById[row.id] ?? null}
+              payloadFull={payloadFullId === row.id}
+              onToggle={() => onToggle(row.id)}
+              onTogglePayload={() => onTogglePayload(row.id)}
+              onReplay={() => onReplay(row.id)}
+              onDelete={() => onDelete(row.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
-  const { data, status, reload } = useSystemHealth({ client: ctx.client });
+  const { data, status, reload, replayDeadLetterJob, deleteDeadLetterJob, loadDeadLetterJobDetail } = useSystemHealth({
+    client: ctx.client,
+  });
   const [runningAction, setRunningAction] = useState<"doctor" | "backup" | "retention" | null>(null);
+
+  const [dlqExpandedId, setDlqExpandedId] = useState<string | null>(null);
+  const [dlqPendingIds, setDlqPendingIds] = useState<Set<string>>(new Set());
+  const [dlqDetailById, setDlqDetailById] = useState<Record<string, DeadLetterDetailVM | null>>({});
+  const [dlqDetailStatusById, setDlqDetailStatusById] = useState<Record<string, "loading" | "ok" | "error">>({});
+  const [dlqPayloadFullId, setDlqPayloadFullId] = useState<string | null>(null);
 
   const runSystemAction = async (
     action: "doctor" | "backup" | "retention",
@@ -89,6 +267,42 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
     }
   };
 
+  const toggleDlqExpand = (id: string) => {
+    if (dlqExpandedId === id) {
+      setDlqExpandedId(null);
+      return;
+    }
+    setDlqExpandedId(id);
+    if (dlqDetailById[id] === undefined && dlqDetailStatusById[id] !== "loading") {
+      setDlqDetailStatusById((s) => ({ ...s, [id]: "loading" }));
+      void loadDeadLetterJobDetail(id).then((detail) => {
+        setDlqDetailById((s) => ({ ...s, [id]: detail }));
+        setDlqDetailStatusById((s) => ({ ...s, [id]: detail ? "ok" : "error" }));
+      });
+    }
+  };
+
+  const toggleDlqPayload = (id: string) => {
+    setDlqPayloadFullId((current) => (current === id ? null : id));
+  };
+
+  const runDlqMutation = async (id: string, kind: "replay" | "delete") => {
+    if (dlqPendingIds.has(id)) return;
+    setDlqPendingIds((s) => new Set(s).add(id));
+    const outcome = kind === "replay" ? await replayDeadLetterJob(id) : await deleteDeadLetterJob(id);
+    setDlqPendingIds((s) => {
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
+    if (outcome.ok) {
+      ctx.pushToast(kind === "replay" ? "Dead-letter job re-enqueued for replay." : "Dead-letter job deleted.");
+      if (kind === "delete" && dlqExpandedId === id) setDlqExpandedId(null);
+    } else {
+      ctx.pushToast(outcome.error);
+    }
+  };
+
   if (status === "loading" && !data) {
     return <EmptyState icon="server" title="Loading…" sub="Fetching system health." />;
   }
@@ -96,7 +310,7 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
     return <EmptyState icon="server" title="Could not load system health" sub="Check your connection or try again." />;
   }
 
-  const { header, banner, services, queues, retention, backups }: SystemVM = data;
+  const { header, banner, services, queues, retention, backups, dlq }: SystemVM = data;
   const maxDeleted = Math.max(...retention.rows.map((r) => r.deleted), 1);
 
   return (
@@ -144,6 +358,19 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
           <ServiceCard key={c.name} card={c} />
         ))}
       </div>
+
+      <DeadLetterQueueSection
+        dlq={dlq}
+        pendingIds={dlqPendingIds}
+        expandedId={dlqExpandedId}
+        detailById={dlqDetailById}
+        detailStatusById={dlqDetailStatusById}
+        payloadFullId={dlqPayloadFullId}
+        onToggle={toggleDlqExpand}
+        onTogglePayload={toggleDlqPayload}
+        onReplay={(id) => void runDlqMutation(id, "replay")}
+        onDelete={(id) => void runDlqMutation(id, "delete")}
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 16 }}>
         <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>

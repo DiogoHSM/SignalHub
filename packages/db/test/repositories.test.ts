@@ -38,6 +38,7 @@ import {
 import {
   archiveAnalyticsSegment,
   createAnalyticsSegment,
+  getAnalyticsSegmentActorIds,
   listAnalyticsSegments,
   previewAnalyticsSegment,
   updateAnalyticsSegment
@@ -234,6 +235,12 @@ import {
   touchTenantProfileLastSeen,
   touchUserProfileLastSeen
 } from "../src/repositories/identity-profiles.js";
+import {
+  getEventRollupWatermark,
+  setEventRollupWatermark,
+  upsertEventActorDaily,
+  withEventRollupLock
+} from "../src/repositories/event-rollups.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 import {
   assignIncident,
@@ -3525,6 +3532,49 @@ describe("repositories", () => {
       await expect(updateNotificationChannel(db, webhook.id, { url: null })).rejects.toThrow(
         "webhook_url_required"
       );
+    });
+  });
+
+  it("creates and updates native Slack and Discord notification channels", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const slack = await createNotificationChannel(db, {
+        name: "Slack #incidents",
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        enabled: true
+      });
+      expect(slack).toMatchObject({
+        type: "slack",
+        url: "https://hooks.slack.com/services/T0/xyz",
+        emailRecipients: [],
+        hasSecret: false
+      });
+
+      const discord = await createNotificationChannel(db, {
+        name: "Discord #alerts",
+        type: "discord",
+        url: "https://discord.com/api/webhooks/1/token",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "secret-value",
+        enabled: true
+      });
+      expect(discord).toMatchObject({
+        type: "discord",
+        url: "https://discord.com/api/webhooks/1/token",
+        hasSecret: true
+      });
+
+      await expect(updateNotificationChannel(db, slack.id, { url: null })).rejects.toThrow(
+        "webhook_url_required"
+      );
+
+      const retyped = await updateNotificationChannel(db, slack.id, {
+        type: "discord",
+        url: "https://discord.com/api/webhooks/2/other"
+      });
+      expect(retyped).toMatchObject({ type: "discord", url: "https://discord.com/api/webhooks/2/other" });
     });
   });
 
@@ -10069,6 +10119,253 @@ describe("repositories", () => {
     });
   });
 
+  it("does not inflate funnel step counts on repeated events and reports actor identity for anonymous actors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Repeated" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // user_1 is fully identified and fires "project.created" twice - the second firing must not
+      // inflate the step 1 actor count.
+      await insertEvent(db, { ...base, id: "evt_repeat_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_repeat_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_repeat_u1_3", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:30.000Z") });
+
+      // trace_only is anonymous: no user/tenant/session id, only trace_id.
+      await insertEvent(db, { ...base, id: "evt_repeat_t1_1", traceId: "trace_anon_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_repeat_t1_2", traceId: "trace_anon_1", name: "project.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"]
+      });
+
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 2 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 2 })
+      ]);
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 2, conversionPercent: 100 });
+
+      const traceActor = funnel.sampleActors.find((actor) => actor.actorId === "trace_anon_1");
+      expect(traceActor).toMatchObject({ actorType: "trace", reachedStepIndex: 1, reachedStepName: "project.created" });
+      const userActor = funnel.sampleActors.find((actor) => actor.actorId === "user_1");
+      expect(userActor).toMatchObject({ actorType: "user", reachedStepIndex: 1, reachedStepName: "project.created" });
+    });
+  });
+
+  it("requires strictly increasing step timestamps, ignoring an earlier out-of-order later-step event", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Out Of Order" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // user_1 fires step 2 (key.created) BEFORE step 1 (project.created). The premature step-2
+      // firing must not count; only the later, correctly-ordered pair should.
+      await insertEvent(db, { ...base, id: "evt_ooo_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ooo_u1_2", userId: "user_1", name: "key.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_ooo_u1_3", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created", "key.created"]
+      });
+
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 1 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 1 }),
+        expect.objectContaining({ index: 2, name: "key.created", actors: 0 })
+      ]);
+      expect(funnel.sampleActors[0]).toMatchObject({ reachedStepIndex: 1, reachedStepName: "project.created" });
+    });
+  });
+
+  it("bounds step progression to a conversion window anchored at funnel entry", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Conversion Window" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // 5-day gap between step 0 and step 1.
+      await insertEvent(db, { ...base, id: "evt_window_u1_1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-01T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_window_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-06T12:00:00.000Z") });
+
+      const bounded = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-07T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        conversionWindowSeconds: 3600
+      });
+
+      expect(bounded.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 1 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 0 })
+      ]);
+
+      const unbounded = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-07T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"]
+      });
+
+      expect(unbounded.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 1 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 1 })
+      ]);
+    });
+  });
+
+  it("breaks down funnel results by an event property", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Breakdown" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_bd_pro_1", userId: "user_pro", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "pro" } });
+      await insertEvent(db, { ...base, id: "evt_bd_pro_2", userId: "user_pro", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "pro" } });
+      await insertEvent(db, { ...base, id: "evt_bd_free_1", userId: "user_free", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        breakdownProperty: "plan"
+      });
+
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 1 });
+      expect(funnel.breakdown).toBeDefined();
+      expect(funnel.breakdown).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            value: "pro",
+            totals: expect.objectContaining({ entrants: 1, completed: 1, conversionPercent: 100 })
+          }),
+          expect.objectContaining({
+            value: "free",
+            totals: expect.objectContaining({ entrants: 1, completed: 0, conversionPercent: 0 })
+          })
+        ])
+      );
+      expect(funnel.breakdown).toHaveLength(2);
+    });
+  });
+
+  it("ignores events from actors with no identifying key", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels No Actor Key" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // No user/tenant/session/trace id at all - must be excluded entirely from the funnel.
+      await insertEvent(db, { ...base, id: "evt_no_key_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_no_key_2", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_no_key_u1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"]
+      });
+
+      expect(funnel.totals).toMatchObject({ entrants: 1, completed: 0 });
+      expect(funnel.sampleActors.map((actor) => actor.actorId)).toEqual(["user_1"]);
+    });
+  });
+
+  it("scopes funnel actors by tenant_id and by a saved analytics segment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Scoped" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_scope_a1", tenantId: "tenant_a", userId: "user_a1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "team" } });
+      await insertEvent(db, { ...base, id: "evt_scope_a2", tenantId: "tenant_a", userId: "user_a1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "team" } });
+      await insertEvent(db, { ...base, id: "evt_scope_b1", tenantId: "tenant_b", userId: "user_b1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+      await insertEvent(db, { ...base, id: "evt_scope_b2", tenantId: "tenant_b", userId: "user_b1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "free" } });
+
+      const scopedByTenant = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        tenantId: "tenant_a"
+      });
+
+      expect(scopedByTenant.totals).toMatchObject({ entrants: 1, completed: 1 });
+      expect(scopedByTenant.sampleActors.map((actor) => actor.actorId)).toEqual(["user_a1"]);
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Team plan signups",
+        actorType: "user",
+        definition: { window: "30d", eventName: "signup.started", propertyName: "plan", propertyValue: "team" }
+      });
+
+      const scopedBySegment = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        segmentId: segment.id
+      });
+
+      expect(scopedBySegment.totals).toMatchObject({ entrants: 1, completed: 1 });
+      expect(scopedBySegment.sampleActors.map((actor) => actor.actorId)).toEqual(["user_a1"]);
+    });
+  });
+
   it("calculates common event paths by actor with deterministic sample drilldowns", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -10130,6 +10427,30 @@ describe("repositories", () => {
         receivedAt: new Date("2026-05-04T12:00:01.000Z")
       };
 
+      // PER-440: cohorts are now anchored on user_profiles.first_seen_at, not the minimum
+      // entry_event timestamp inside the queried window, so each actor needs a profile row.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_1",
+        traits: {},
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_2",
+        traits: {},
+        timestamp: new Date("2026-05-04T14:00:00.000Z")
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_3",
+        traits: {},
+        timestamp: new Date("2026-05-05T09:00:00.000Z")
+      });
+
       await insertEvent(db, { ...base, id: "evt_ret_u1_entry", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
       await insertEvent(db, { ...base, id: "evt_ret_u1_d0", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-04T13:00:00.000Z") });
       await insertEvent(db, { ...base, id: "evt_ret_u1_d1", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-05T13:00:00.000Z") });
@@ -10161,8 +10482,73 @@ describe("repositories", () => {
             { index: 2, label: "D2", retainedActors: 1, retentionPercent: 50 }
           ]
         }),
+        // user_3's "before" event (05-05 08:00) precedes its exact first_seen_at (05-05 09:00) but
+        // falls on the same cohort day, so it counts as D0 activity: retention resolves to whole
+        // cohort periods (per plan section 3), not the exact first_seen_at instant.
         expect.objectContaining({
           cohortLabel: "2026-05-05",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 1, retentionPercent: 100 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 },
+            { index: 2, label: "D2", retainedActors: 0, retentionPercent: 0 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("anchors retention cohorts on first_seen_at instead of the in-window entry event", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Cohort Anchor Bug" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-06-01T00:00:01.000Z")
+      };
+      const now = new Date("2026-06-01T00:00:00.000Z");
+
+      // old_user existed 6 months before the queried window but re-fires the entry event inside
+      // it. Under the old "min entry_event in window" anchor this created a bogus new cohort.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "old_user",
+        traits: {},
+        timestamp: new Date("2025-12-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_old_entry", userId: "old_user", name: "signup.started", timestamp: new Date("2026-05-15T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_old_return", userId: "old_user", name: "app.opened", timestamp: new Date("2026-05-16T00:00:00.000Z") });
+
+      // new_user genuinely first appears inside the window.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "new_user",
+        traits: {},
+        timestamp: new Date("2026-05-10T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_new_entry", userId: "new_user", name: "signup.started", timestamp: new Date("2026-05-10T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_new_return", userId: "new_user", name: "app.opened", timestamp: new Date("2026-05-11T00:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3
+      });
+
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2026-05-10",
           entrants: 1,
           intervals: [
             { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
@@ -10171,6 +10557,258 @@ describe("repositories", () => {
           ]
         })
       ]);
+    });
+  });
+
+  it("aligns weekly retention cohorts and intervals on ISO Monday week boundaries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Weekly Cohort Boundary" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-20T00:00:01.000Z")
+      };
+
+      // 2026-05-06 is a Wednesday; the ISO week (Monday-start) it belongs to starts 2026-05-04.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_weekly",
+        traits: {},
+        timestamp: new Date("2026-05-06T10:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_weekly_entry", userId: "user_weekly", name: "signup.started", timestamp: new Date("2026-05-06T10:00:00.000Z") });
+      // D+8 from first_seen_at lands in the following ISO week (2026-05-11 Monday), interval 1.
+      await insertEvent(db, { ...base, id: "evt_weekly_return", userId: "user_weekly", name: "app.opened", timestamp: new Date("2026-05-14T10:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-20T00:00:00.000Z"),
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "weekly",
+        intervals: 2
+      });
+
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortStart: "2026-05-04T00:00:00.000Z",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "W0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "W1", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("aligns monthly retention cohorts and intervals across a year boundary", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Monthly Cohort Boundary" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-01-10T00:00:01.000Z")
+      };
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_monthly",
+        traits: {},
+        timestamp: new Date("2025-12-15T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_monthly_entry", userId: "user_monthly", name: "signup.started", timestamp: new Date("2025-12-15T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_monthly_return", userId: "user_monthly", name: "app.opened", timestamp: new Date("2026-01-10T00:00:00.000Z") });
+
+      // "now" must be strictly after the return event since the queried range is [from, now).
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-01-10T12:00:00.000Z"),
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "monthly",
+        intervals: 2
+      });
+
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2025-12",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "M0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "M1", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("treats retention as unbounded when return_event is absent, and excludes actors without a profile", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Unbounded Retention" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T00:00:01.000Z")
+      };
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_with_profile",
+        traits: {},
+        timestamp: new Date("2026-05-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_unbounded_entry", userId: "user_with_profile", name: "signup.started", timestamp: new Date("2026-05-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_unbounded_any", userId: "user_with_profile", name: "some.other.event", timestamp: new Date("2026-05-02T00:00:00.000Z") });
+
+      // Session-only actor (no user_id): insertEvent only auto-touches user_profiles/tenant_profiles
+      // when user_id/tenant_id are present, so this actor never gets a profile row and cannot
+      // anchor a cohort under the new user-profile-scoped retention.
+      await insertEvent(db, { ...base, id: "evt_no_profile_entry", sessionId: "session_no_profile", name: "signup.started", timestamp: new Date("2026-05-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_no_profile_any", sessionId: "session_no_profile", name: "some.other.event", timestamp: new Date("2026-05-02T00:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-10T00:00:00.000Z"),
+        entryEvent: "signup.started",
+        period: "daily",
+        intervals: 2
+      });
+
+      expect(retention.returnEvent).toBeNull();
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        // Unbounded return means the entry event itself also counts as "any event" activity on D0.
+        expect.objectContaining({
+          cohortLabel: "2026-05-01",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 1, retentionPercent: 100 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("upserts the event_actor_daily rollup idempotently", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Idempotency" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T00:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_rollup_1", userId: "user_rollup", name: "app.opened", timestamp: new Date("2026-05-04T10:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_rollup_2", userId: "user_rollup", name: "app.opened", timestamp: new Date("2026-05-04T11:00:00.000Z") });
+
+      const from = new Date("2026-05-04T00:00:00.000Z");
+      const to = new Date("2026-05-05T00:00:00.000Z");
+
+      const firstRun = await upsertEventActorDaily(db, { projectId: project.id, environmentId: environment.id, from, to });
+      const secondRun = await upsertEventActorDaily(db, { projectId: project.id, environmentId: environment.id, from, to });
+
+      expect(firstRun).toBe(1);
+      expect(secondRun).toBe(1);
+
+      const rows = await db
+        .selectFrom("event_actor_daily")
+        .select(["project_id", "environment_id", "actor_type", "actor_id", "event_name", "events"])
+        .where("project_id", "=", project.id)
+        .where("environment_id", "=", environment.id)
+        .execute();
+
+      expect(rows).toEqual([
+        expect.objectContaining({
+          actor_type: "user",
+          actor_id: "user_rollup",
+          event_name: "app.opened",
+          events: "2"
+        })
+      ]);
+
+      const watermark = new Date("2026-05-05T00:00:00.000Z");
+      expect(await getEventRollupWatermark(db, { projectId: project.id, environmentId: environment.id, rollup: "actor_daily" })).toBeNull();
+      await setEventRollupWatermark(db, { projectId: project.id, environmentId: environment.id, rollup: "actor_daily", watermarkAt: watermark });
+      expect(await getEventRollupWatermark(db, { projectId: project.id, environmentId: environment.id, rollup: "actor_daily" })).toEqual(watermark);
+
+      const lockResult = await withEventRollupLock(db, async () => "locked-run");
+      expect(lockResult).toEqual({ locked: true, result: "locked-run" });
+    });
+  });
+
+  it("serves long-range retention from the event_actor_daily rollup once the range exceeds raw retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Retention Source" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2025-12-02T00:00:01.000Z")
+      };
+      const now = new Date("2026-06-01T00:00:00.000Z");
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_long_range",
+        traits: {},
+        timestamp: new Date("2025-12-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_long_entry", userId: "user_long_range", name: "signup.started", timestamp: new Date("2025-12-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_long_return", userId: "user_long_range", name: "app.opened", timestamp: new Date("2025-12-02T09:00:00.000Z") });
+
+      await upsertEventActorDaily(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        from: new Date("2025-12-01T00:00:00.000Z"),
+        to: new Date("2025-12-03T00:00:00.000Z")
+      });
+
+      const baseFilters = {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d" as const,
+        now,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily" as const,
+        intervals: 3,
+        rangeDays: 200
+      };
+
+      const rollupResult = await getEventRetention(db, { ...baseFilters, retentionEventsDays: 90 });
+      const rawResult = await getEventRetention(db, { ...baseFilters, retentionEventsDays: 9999 });
+
+      expect(rollupResult.source).toBe("rollup");
+      expect(rawResult.source).toBe("raw");
+      expect(rollupResult.totals).toEqual(rawResult.totals);
+      expect(rollupResult.cohorts).toEqual(rawResult.cohorts);
+      expect(rollupResult.totals).toEqual({ cohorts: 1, entrants: 1 });
     });
   });
 
@@ -10246,6 +10884,305 @@ describe("repositories", () => {
       );
       await archiveAnalyticsSegment(db, segment.id);
       await expect(listAnalyticsSegments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("compiles and/or/not boolean combinations of v2 segment event conditions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Bool Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_bool_u1_signup", userId: "user_1", name: "signup", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_bool_u1_checkout", userId: "user_1", name: "checkout", timestamp: new Date("2026-05-04T12:05:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_bool_u2_signup", userId: "user_2", name: "signup", timestamp: new Date("2026-05-04T12:10:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_bool_u3_checkout", userId: "user_3", name: "checkout", timestamp: new Date("2026-05-04T12:15:00.000Z") });
+
+      const andSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Signup and checkout",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: {
+            kind: "group",
+            op: "and",
+            children: [
+              { kind: "event", eventName: "signup" },
+              { kind: "event", eventName: "checkout" }
+            ]
+          }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, andSegment, now)).resolves.toEqual(["user_1"]);
+
+      const orSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Signup or checkout",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: {
+            kind: "group",
+            op: "or",
+            children: [
+              { kind: "event", eventName: "signup" },
+              { kind: "event", eventName: "checkout" }
+            ]
+          }
+        }
+      });
+      const orActors = await getAnalyticsSegmentActorIds(db, orSegment, now);
+      expect(orActors.sort()).toEqual(["user_1", "user_2", "user_3"]);
+
+      const notSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Never checked out",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "group", op: "not", children: [{ kind: "event", eventName: "checkout" }] }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, notSegment, now)).resolves.toEqual(["user_2"]);
+    });
+  });
+
+  it("matches actors using a frequency threshold on event leaves", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Frequency Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_freq_u1_1", userId: "user_1", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_freq_u1_2", userId: "user_1", name: "ping", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_freq_u1_3", userId: "user_1", name: "ping", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_freq_u2_1", userId: "user_2", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Frequent pingers",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "event", eventName: "ping", frequency: { operator: "gte", count: 3 } }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, segment, now)).resolves.toEqual(["user_1"]);
+    });
+  });
+
+  it("narrows the matching window using recency.withinDays", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Recency Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-31T00:00:00.000Z");
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_recency_u1",
+        userId: "user_1",
+        name: "ping",
+        timestamp: new Date("2026-05-21T00:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_recency_u2",
+        userId: "user_2",
+        name: "ping",
+        timestamp: new Date("2026-05-30T12:00:00.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Recently active pingers",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "event", eventName: "ping", recency: { withinDays: 1 } }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, segment, now)).resolves.toEqual(["user_2"]);
+    });
+  });
+
+  it("matches trait eq conditions against user_profiles and tenant_profiles", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Trait Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_trait_u1", userId: "user_1", tenantId: "tenant_1", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_trait_u2", userId: "user_2", tenantId: "tenant_2", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_1",
+        traits: { plan: "enterprise" },
+        timestamp: now
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_2",
+        traits: { plan: "free" },
+        timestamp: now
+      });
+      await identifyTenantProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        traits: { plan: "enterprise" },
+        timestamp: now
+      });
+
+      const userTraitSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Enterprise users",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "plan", operator: "eq", value: "enterprise" }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, userTraitSegment, now)).resolves.toEqual(["user_1"]);
+
+      const tenantTraitSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Enterprise tenants",
+        actorType: "tenant",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "tenant", name: "plan", operator: "eq", value: "enterprise" }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, tenantTraitSegment, now)).resolves.toEqual(["tenant_1"]);
+    });
+  });
+
+  it("uses the traits GIN index for trait eq containment lookups at scale", async () => {
+    // The compiled trait EXISTS subquery correlates on (project_id, environment_id, user_id),
+    // which is the user_profiles primary key: for a single known actor, Postgres always
+    // resolves that via the primary key index rather than the traits GIN index (a PK point
+    // lookup is cheaper than a GIN bitmap scan for exactly one row). The GIN index earns its
+    // keep on the query shape it was built for: a bulk containment lookup across many profiles
+    // in the same project/environment scope, which is what the same `traits @> jsonb_build_object(...)`
+    // fragment produced by compileSegmentDefinition would use if the planner chooses to
+    // de-correlate a large EXISTS into a semi-join. This test exercises that shape directly.
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Trait Gin Scale Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      const profileCount = 500;
+      for (let i = 0; i < profileCount; i += 1) {
+        await identifyUserProfile(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          userId: `user_gin_${i}`,
+          traits: { plan: i % 50 === 0 ? "enterprise" : "free" },
+          timestamp: now
+        });
+      }
+
+      await db.connection().execute(async (conn) => {
+        await sql`ANALYZE user_profiles`.execute(conn);
+        await sql`SET enable_seqscan = off`.execute(conn);
+        const plan = await conn
+          .selectFrom("user_profiles")
+          .select("user_id")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .where(sql<boolean>`traits @> jsonb_build_object('plan'::text, 'enterprise'::text)`)
+          .explain();
+        const planText = JSON.stringify(plan);
+        expect(planText).toContain("user_profiles_traits_gin_idx");
+      });
+    });
+  });
+
+  it("returns an empty result via listEvents when a v2 segment matches zero actors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Empty Segment Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await insertEvent(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z"),
+        id: "evt_empty_u1",
+        userId: "user_1",
+        name: "project.created",
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Nobody matches",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "event", eventName: "event.that.never.happened" }
+        }
+      });
+
+      await expect(
+        listEvents(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          segmentId: segment.id,
+          to: new Date("2026-05-05T12:00:00.000Z"),
+          limit: 10
+        })
+      ).resolves.toEqual({ data: [] });
     });
   });
 
