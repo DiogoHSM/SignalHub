@@ -263,10 +263,18 @@ export interface EventFunnelResponse {
 export type EventRetentionPeriod = "daily" | "weekly" | "monthly";
 
 export interface EventRetentionFilters extends ApmFilters {
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent?: string;
+  returnEvent?: string;
   period?: EventRetentionPeriod;
   intervals?: number;
+  /** Overrides the `window`-derived range with `now - rangeDays .. now`. 1..730. */
+  rangeDays?: number;
+  /**
+   * Injected by the API composition root (not read from `@sigmon/config` here — repositories don't
+   * depend on config). When `from` is older than `now - retentionEventsDays`, retention is served
+   * from the `event_actor_daily` rollup instead of raw `events`.
+   */
+  retentionEventsDays?: number;
 }
 
 export interface EventRetentionInterval {
@@ -294,10 +302,12 @@ export interface EventRetentionResponse {
     from: string;
     to: string;
   };
-  entryEvent: string;
-  returnEvent: string;
+  entryEvent: string | null;
+  returnEvent: string | null;
   period: EventRetentionPeriod;
   intervals: number;
+  /** "rollup" when the range required serving from the `event_actor_daily` daily rollup. */
+  source: "raw" | "rollup";
   totals: {
     cohorts: number;
     entrants: number;
@@ -2043,38 +2053,6 @@ function dateValue(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
 
-function startOfUtcDay(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
-}
-
-function startOfUtcWeek(value: Date): Date {
-  const day = startOfUtcDay(value);
-  const dayOfWeek = day.getUTCDay();
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  day.setUTCDate(day.getUTCDate() + mondayOffset);
-  return day;
-}
-
-function startOfUtcMonth(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1));
-}
-
-function startOfRetentionPeriod(value: Date, period: EventRetentionPeriod): Date {
-  if (period === "weekly") return startOfUtcWeek(value);
-  if (period === "monthly") return startOfUtcMonth(value);
-  return startOfUtcDay(value);
-}
-
-function retentionPeriodIndex(cohortStart: Date, value: Date, period: EventRetentionPeriod): number {
-  if (period === "monthly") {
-    return (value.getUTCFullYear() - cohortStart.getUTCFullYear()) * 12 + value.getUTCMonth() - cohortStart.getUTCMonth();
-  }
-
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const elapsedDays = Math.floor((startOfUtcDay(value).getTime() - startOfUtcDay(cohortStart).getTime()) / msPerDay);
-  return period === "weekly" ? Math.floor(elapsedDays / 7) : elapsedDays;
-}
-
 function retentionPeriodLabel(index: number, period: EventRetentionPeriod): string {
   if (index === 0) return period === "daily" ? "D0" : period === "weekly" ? "W0" : "M0";
   if (period === "weekly") return `W${index}`;
@@ -2090,107 +2068,177 @@ function cohortLabel(value: Date, period: EventRetentionPeriod): string {
   return `${year}-${month}-${day}`;
 }
 
+function retentionPeriodUnit(period: EventRetentionPeriod): "day" | "week" | "month" {
+  if (period === "weekly") return "week";
+  if (period === "monthly") return "month";
+  return "day";
+}
+
+// Interval-index arithmetic differs structurally per period (day-diff, week-diff/7, or a
+// year/month-aware age() calculation), so the fragment is chosen by a switch over the closed
+// EventRetentionPeriod enum rather than built from any client-supplied string.
+function retentionIntervalIndexExpression(period: EventRetentionPeriod) {
+  if (period === "weekly") {
+    return sql`((date_trunc('week', a.timestamp at time zone 'UTC')::date - c.cohort_start::date) / 7)`;
+  }
+  if (period === "monthly") {
+    return sql`((extract(year from age(date_trunc('month', a.timestamp at time zone 'UTC'), c.cohort_start)) * 12) + extract(month from age(date_trunc('month', a.timestamp at time zone 'UTC'), c.cohort_start)))::int`;
+  }
+  return sql`(date_trunc('day', a.timestamp at time zone 'UTC')::date - c.cohort_start::date)`;
+}
+
+function resolveRetentionRange(filters: EventRetentionFilters, now: Date): { from: Date; to: Date } {
+  if (filters.rangeDays !== undefined) {
+    const to = now;
+    const from = new Date(to);
+    from.setUTCDate(from.getUTCDate() - filters.rangeDays);
+    return { from, to };
+  }
+  return resolveOverviewRange(filters.window, now);
+}
+
 export async function getEventRetention(db: Db, filters: EventRetentionFilters): Promise<EventRetentionResponse> {
-  const { from, to } = resolveOverviewRange(filters.window, filters.now);
+  const now = filters.now ?? new Date();
+  const { from, to } = resolveRetentionRange(filters, now);
   const period = filters.period ?? "weekly";
   const intervals = Math.min(12, Math.max(2, Math.trunc(filters.intervals ?? 6)));
-  const entryEvent = filters.entryEvent.trim();
-  const returnEvent = filters.returnEvent.trim();
+  const entryEvent = filters.entryEvent?.trim() || undefined;
+  const returnEvent = filters.returnEvent?.trim() || undefined;
+  const periodUnit = retentionPeriodUnit(period);
+  const intervalIndexExpr = retentionIntervalIndexExpression(period);
 
-  if (!entryEvent || !returnEvent) {
-    throw new Error("event_retention_requires_events");
-  }
+  // Cohort anchor: user_profiles.first_seen_at, the actor's real first appearance, not the
+  // minimum entry-event timestamp inside the queried window. entryEvent is now an optional
+  // eligibility filter on the cohort rather than the cohort anchor itself.
+  const cutoff =
+    filters.retentionEventsDays !== undefined
+      ? new Date(now.getTime() - filters.retentionEventsDays * 24 * 60 * 60 * 1000)
+      : null;
+  const source: "raw" | "rollup" = cutoff !== null && from < cutoff ? "rollup" : "raw";
 
-  const rows = await db
-    .selectFrom("events")
-    .select([
-      "name",
-      "timestamp",
-      sql<string>`coalesce(user_id, tenant_id, session_id, trace_id)`.as("actor_id")
-    ])
-    .where("project_id", "=", filters.projectId)
-    .where("environment_id", "=", filters.environmentId)
-    .where("timestamp", ">=", from)
-    .where("timestamp", "<", to)
-    .where("name", "in", [entryEvent, returnEvent])
-    .where(sql<boolean>`coalesce(user_id, tenant_id, session_id, trace_id) is not null`)
-    .orderBy("actor_id", "asc")
-    .orderBy("timestamp", "asc")
-    .execute();
+  const entryEligibility = entryEvent
+    ? sql`
+        and exists (
+          select 1 from events ee
+          where ee.project_id = p.project_id
+            and ee.environment_id = p.environment_id
+            and ee.user_id = p.user_id
+            and ee.name = ${entryEvent}
+        )
+      `
+    : sql``;
 
-  const actors = new Map<
-    string,
-    {
-      entryAt?: Date;
-      returnAts: Date[];
+  const activity =
+    source === "rollup"
+      ? sql`
+          select r.actor_id, (r.day::timestamp at time zone 'UTC') as timestamp
+          from event_actor_daily r
+          where r.project_id = ${filters.projectId}
+            and r.environment_id = ${filters.environmentId}
+            and r.actor_type = 'user'
+            and (r.day::timestamp at time zone 'UTC') >= ${from}
+            and (r.day::timestamp at time zone 'UTC') < ${to}
+            ${returnEvent ? sql`and r.event_name = ${returnEvent}` : sql``}
+        `
+      : sql`
+          select e.user_id as actor_id, e.timestamp
+          from events e
+          where e.project_id = ${filters.projectId}
+            and e.environment_id = ${filters.environmentId}
+            and e.timestamp >= ${from}
+            and e.timestamp < ${to}
+            and e.user_id is not null
+            ${returnEvent ? sql`and e.name = ${returnEvent}` : sql``}
+        `;
+
+  const result = await sql<{
+    cohort_start: string;
+    entrants: unknown;
+    interval_index: unknown;
+    retained: unknown;
+  }>`
+    with cohort as (
+      select
+        p.user_id as actor_id,
+        date_trunc(${periodUnit}, p.first_seen_at at time zone 'UTC') as cohort_start
+      from user_profiles p
+      where p.project_id = ${filters.projectId}
+        and p.environment_id = ${filters.environmentId}
+        and p.first_seen_at >= ${from}
+        and p.first_seen_at < ${to}
+        ${entryEligibility}
+    ),
+    entrants as (
+      select cohort_start, count(distinct actor_id) as entrants
+      from cohort
+      group by cohort_start
+    ),
+    activity as (
+      ${activity}
+    ),
+    hit as (
+      select c.cohort_start, c.actor_id, ${intervalIndexExpr} as interval_index
+      from cohort c
+      join activity a on a.actor_id = c.actor_id
+      where a.timestamp >= c.cohort_start
+    ),
+    retained as (
+      select cohort_start, interval_index, count(distinct actor_id) as retained
+      from hit
+      where interval_index >= 0 and interval_index < ${intervals}
+      group by cohort_start, interval_index
+    ),
+    grid as (
+      select e.cohort_start, e.entrants, gs.interval_index
+      from entrants e
+      cross join generate_series(0, ${intervals - 1}) as gs(interval_index)
+    )
+    select
+      to_char(g.cohort_start, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as cohort_start,
+      g.entrants,
+      g.interval_index,
+      coalesce(r.retained, 0) as retained
+    from grid g
+    left join retained r on r.cohort_start = g.cohort_start and r.interval_index = g.interval_index
+    order by g.cohort_start, g.interval_index
+  `.execute(db);
+
+  const cohorts = new Map<string, { cohortStart: Date; entrants: number; retained: number[] }>();
+
+  for (const row of result.rows) {
+    const cohortStart = dateValue(row.cohort_start);
+    const key = toIso(cohortStart);
+    const cohort =
+      cohorts.get(key) ??
+      {
+        cohortStart,
+        entrants: toNumber(row.entrants),
+        retained: Array.from({ length: intervals }, () => 0)
+      };
+    const intervalIndex = toNumber(row.interval_index);
+    if (intervalIndex >= 0 && intervalIndex < intervals) {
+      cohort.retained[intervalIndex] = toNumber(row.retained);
     }
-  >();
-
-  for (const row of rows) {
-    const actorId = row.actor_id;
-    if (!actorId) continue;
-    const timestamp = dateValue(row.timestamp);
-    const actor = actors.get(actorId) ?? { returnAts: [] };
-    if (row.name === entryEvent && (!actor.entryAt || timestamp < actor.entryAt)) {
-      actor.entryAt = timestamp;
-    }
-    if (row.name === returnEvent) {
-      actor.returnAts.push(timestamp);
-    }
-    actors.set(actorId, actor);
-  }
-
-  const cohorts = new Map<
-    string,
-    {
-      cohortStart: Date;
-      entrants: Set<string>;
-      retained: Array<Set<string>>;
-    }
-  >();
-
-  for (const [actorId, actor] of actors) {
-    if (!actor.entryAt) continue;
-    const start = startOfRetentionPeriod(actor.entryAt, period);
-    const key = toIso(start);
-    const cohort = cohorts.get(key) ?? {
-      cohortStart: start,
-      entrants: new Set<string>(),
-      retained: Array.from({ length: intervals }, () => new Set<string>())
-    };
-    cohort.entrants.add(actorId);
-
-    for (const returnAt of actor.returnAts) {
-      if (returnAt < actor.entryAt) continue;
-      const interval = retentionPeriodIndex(start, returnAt, period);
-      if (interval >= 0 && interval < intervals) {
-        cohort.retained[interval]?.add(actorId);
-      }
-    }
-
     cohorts.set(key, cohort);
   }
 
   const cohortRows = Array.from(cohorts.values())
     .sort((left, right) => left.cohortStart.getTime() - right.cohortStart.getTime())
-    .map((cohort) => {
-      const entrants = cohort.entrants.size;
-      return {
-        cohortStart: toIso(cohort.cohortStart),
-        cohortLabel: cohortLabel(cohort.cohortStart, period),
-        entrants,
-        intervals: cohort.retained.map((retained, index) => ({
-          index,
-          label: retentionPeriodLabel(index, period),
-          retainedActors: retained.size,
-          retentionPercent: percentage(retained.size, entrants)
-        }))
-      };
-    });
+    .map((cohort) => ({
+      cohortStart: toIso(cohort.cohortStart),
+      cohortLabel: cohortLabel(cohort.cohortStart, period),
+      entrants: cohort.entrants,
+      intervals: cohort.retained.map((retained, index) => ({
+        index,
+        label: retentionPeriodLabel(index, period),
+        retainedActors: retained,
+        retentionPercent: percentage(retained, cohort.entrants)
+      }))
+    }));
 
   return {
     window: filters.window,
-    generatedAt: toIso(filters.now ?? new Date()),
+    generatedAt: toIso(now),
     scope: {
       projectId: filters.projectId,
       environmentId: filters.environmentId
@@ -2199,10 +2247,11 @@ export async function getEventRetention(db: Db, filters: EventRetentionFilters):
       from: toIso(from),
       to: toIso(to)
     },
-    entryEvent,
-    returnEvent,
+    entryEvent: entryEvent ?? null,
+    returnEvent: returnEvent ?? null,
     period,
     intervals,
+    source,
     totals: {
       cohorts: cohortRows.length,
       entrants: cohortRows.reduce((sum, cohort) => sum + cohort.entrants, 0)

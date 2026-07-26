@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-25: Anchor retention cohorts on first_seen_at and add a daily actor rollup
+
+Decision: `GET /query/events/retention` now computes cohort × period retention entirely in SQL (a single CTE query), anchoring each actor's cohort on `user_profiles.first_seen_at` instead of the minimum `entry_event` timestamp observed inside the queried window. `entry_event` becomes an optional cohort eligibility filter rather than the cohort anchor, and `return_event` becomes optional (absent means any event counts as retained). Retention is scoped to actors with a `user_profiles` row; session/trace-only activity does not anchor a cohort. A new `event_actor_daily` table, maintained by a dedicated worker scheduler (`EVENT_ROLLUPS_*`), serves `range_days` queries that reach further back than `RETENTION_EVENTS_DAYS`, reported via a `source: "raw" | "rollup"` field.
+
+Rationale: the previous implementation defined a cohort's start as the earliest `entry_event` inside the queried window, so an actor who existed long before the window but happened to re-fire the entry event inside it was miscounted as a brand-new cohort member — a real correctness bug for any product with recurring "start" events. Anchoring on `first_seen_at` fixes this at the cost of a documented, intentional behavior change: existing cohorts change size after deploy, since the anchor is now global (real first appearance) rather than local (first occurrence in-window). Materializing the retention window's events in Node also did not scale past a `LIMIT`-free full window scan; the CTE rewrite keeps aggregation in Postgres. The rollup table exists because raw `events` retention (default 90 days) would otherwise make long-range retention queries silently incomplete once raw rows are purged; `event_actor_daily` is not subject to raw event retention and survives the purge of the `events` rows it was built from.
+
 ## 2026-07-02: Keep messaging campaigns native but measurement-first
 
 Decision: SignalMonitor adds native message campaign definitions, campaign event measurement, and opt-out visibility, but does not yet send messages automatically from the scheduler/worker.

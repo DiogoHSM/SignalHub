@@ -43,7 +43,12 @@ const migrations = [
   { name: "0037_code_integrations.sql", url: new URL("../migrations/0037_code_integrations.sql", import.meta.url) },
   { name: "0038_surveys.sql", url: new URL("../migrations/0038_surveys.sql", import.meta.url) },
   { name: "0039_feedback_widget.sql", url: new URL("../migrations/0039_feedback_widget.sql", import.meta.url) },
-  { name: "0040_message_campaigns.sql", url: new URL("../migrations/0040_message_campaigns.sql", import.meta.url) }
+  { name: "0040_message_campaigns.sql", url: new URL("../migrations/0040_message_campaigns.sql", import.meta.url) },
+  {
+    name: "0042_user_profiles_first_seen_index.sql",
+    url: new URL("../migrations/0042_user_profiles_first_seen_index.sql", import.meta.url)
+  },
+  { name: "0043_event_actor_daily.sql", url: new URL("../migrations/0043_event_actor_daily.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

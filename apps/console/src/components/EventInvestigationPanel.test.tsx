@@ -184,6 +184,7 @@ function emptyRetention(): EventRetentionResponse {
     returnEvent: "app.opened",
     period: "weekly",
     intervals: 6,
+    source: "raw",
     totals: { cohorts: 0, entrants: 0 },
     cohorts: []
   };

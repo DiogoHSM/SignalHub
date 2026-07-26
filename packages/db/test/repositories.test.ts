@@ -234,6 +234,12 @@ import {
   touchTenantProfileLastSeen,
   touchUserProfileLastSeen
 } from "../src/repositories/identity-profiles.js";
+import {
+  getEventRollupWatermark,
+  setEventRollupWatermark,
+  upsertEventActorDaily,
+  withEventRollupLock
+} from "../src/repositories/event-rollups.js";
 import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
 import {
   assignIncident,
@@ -10130,6 +10136,30 @@ describe("repositories", () => {
         receivedAt: new Date("2026-05-04T12:00:01.000Z")
       };
 
+      // PER-440: cohorts are now anchored on user_profiles.first_seen_at, not the minimum
+      // entry_event timestamp inside the queried window, so each actor needs a profile row.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_1",
+        traits: {},
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_2",
+        traits: {},
+        timestamp: new Date("2026-05-04T14:00:00.000Z")
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_3",
+        traits: {},
+        timestamp: new Date("2026-05-05T09:00:00.000Z")
+      });
+
       await insertEvent(db, { ...base, id: "evt_ret_u1_entry", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
       await insertEvent(db, { ...base, id: "evt_ret_u1_d0", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-04T13:00:00.000Z") });
       await insertEvent(db, { ...base, id: "evt_ret_u1_d1", userId: "user_1", name: "app.opened", timestamp: new Date("2026-05-05T13:00:00.000Z") });
@@ -10161,8 +10191,73 @@ describe("repositories", () => {
             { index: 2, label: "D2", retainedActors: 1, retentionPercent: 50 }
           ]
         }),
+        // user_3's "before" event (05-05 08:00) precedes its exact first_seen_at (05-05 09:00) but
+        // falls on the same cohort day, so it counts as D0 activity: retention resolves to whole
+        // cohort periods (per plan section 3), not the exact first_seen_at instant.
         expect.objectContaining({
           cohortLabel: "2026-05-05",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 1, retentionPercent: 100 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 },
+            { index: 2, label: "D2", retainedActors: 0, retentionPercent: 0 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("anchors retention cohorts on first_seen_at instead of the in-window entry event", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Cohort Anchor Bug" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-06-01T00:00:01.000Z")
+      };
+      const now = new Date("2026-06-01T00:00:00.000Z");
+
+      // old_user existed 6 months before the queried window but re-fires the entry event inside
+      // it. Under the old "min entry_event in window" anchor this created a bogus new cohort.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "old_user",
+        traits: {},
+        timestamp: new Date("2025-12-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_old_entry", userId: "old_user", name: "signup.started", timestamp: new Date("2026-05-15T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_old_return", userId: "old_user", name: "app.opened", timestamp: new Date("2026-05-16T00:00:00.000Z") });
+
+      // new_user genuinely first appears inside the window.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "new_user",
+        traits: {},
+        timestamp: new Date("2026-05-10T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_new_entry", userId: "new_user", name: "signup.started", timestamp: new Date("2026-05-10T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_new_return", userId: "new_user", name: "app.opened", timestamp: new Date("2026-05-11T00:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3
+      });
+
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2026-05-10",
           entrants: 1,
           intervals: [
             { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
@@ -10171,6 +10266,258 @@ describe("repositories", () => {
           ]
         })
       ]);
+    });
+  });
+
+  it("aligns weekly retention cohorts and intervals on ISO Monday week boundaries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Weekly Cohort Boundary" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-20T00:00:01.000Z")
+      };
+
+      // 2026-05-06 is a Wednesday; the ISO week (Monday-start) it belongs to starts 2026-05-04.
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_weekly",
+        traits: {},
+        timestamp: new Date("2026-05-06T10:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_weekly_entry", userId: "user_weekly", name: "signup.started", timestamp: new Date("2026-05-06T10:00:00.000Z") });
+      // D+8 from first_seen_at lands in the following ISO week (2026-05-11 Monday), interval 1.
+      await insertEvent(db, { ...base, id: "evt_weekly_return", userId: "user_weekly", name: "app.opened", timestamp: new Date("2026-05-14T10:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-20T00:00:00.000Z"),
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "weekly",
+        intervals: 2
+      });
+
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortStart: "2026-05-04T00:00:00.000Z",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "W0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "W1", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("aligns monthly retention cohorts and intervals across a year boundary", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Monthly Cohort Boundary" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-01-10T00:00:01.000Z")
+      };
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_monthly",
+        traits: {},
+        timestamp: new Date("2025-12-15T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_monthly_entry", userId: "user_monthly", name: "signup.started", timestamp: new Date("2025-12-15T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_monthly_return", userId: "user_monthly", name: "app.opened", timestamp: new Date("2026-01-10T00:00:00.000Z") });
+
+      // "now" must be strictly after the return event since the queried range is [from, now).
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-01-10T12:00:00.000Z"),
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "monthly",
+        intervals: 2
+      });
+
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2025-12",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "M0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "M1", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("treats retention as unbounded when return_event is absent, and excludes actors without a profile", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Unbounded Retention" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T00:00:01.000Z")
+      };
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_with_profile",
+        traits: {},
+        timestamp: new Date("2026-05-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_unbounded_entry", userId: "user_with_profile", name: "signup.started", timestamp: new Date("2026-05-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_unbounded_any", userId: "user_with_profile", name: "some.other.event", timestamp: new Date("2026-05-02T00:00:00.000Z") });
+
+      // Session-only actor (no user_id): insertEvent only auto-touches user_profiles/tenant_profiles
+      // when user_id/tenant_id are present, so this actor never gets a profile row and cannot
+      // anchor a cohort under the new user-profile-scoped retention.
+      await insertEvent(db, { ...base, id: "evt_no_profile_entry", sessionId: "session_no_profile", name: "signup.started", timestamp: new Date("2026-05-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_no_profile_any", sessionId: "session_no_profile", name: "some.other.event", timestamp: new Date("2026-05-02T00:00:00.000Z") });
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now: new Date("2026-05-10T00:00:00.000Z"),
+        entryEvent: "signup.started",
+        period: "daily",
+        intervals: 2
+      });
+
+      expect(retention.returnEvent).toBeNull();
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        // Unbounded return means the entry event itself also counts as "any event" activity on D0.
+        expect.objectContaining({
+          cohortLabel: "2026-05-01",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 1, retentionPercent: 100 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  it("upserts the event_actor_daily rollup idempotently", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Idempotency" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T00:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_rollup_1", userId: "user_rollup", name: "app.opened", timestamp: new Date("2026-05-04T10:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_rollup_2", userId: "user_rollup", name: "app.opened", timestamp: new Date("2026-05-04T11:00:00.000Z") });
+
+      const from = new Date("2026-05-04T00:00:00.000Z");
+      const to = new Date("2026-05-05T00:00:00.000Z");
+
+      const firstRun = await upsertEventActorDaily(db, { projectId: project.id, environmentId: environment.id, from, to });
+      const secondRun = await upsertEventActorDaily(db, { projectId: project.id, environmentId: environment.id, from, to });
+
+      expect(firstRun).toBe(1);
+      expect(secondRun).toBe(1);
+
+      const rows = await db
+        .selectFrom("event_actor_daily")
+        .select(["project_id", "environment_id", "actor_type", "actor_id", "event_name", "events"])
+        .where("project_id", "=", project.id)
+        .where("environment_id", "=", environment.id)
+        .execute();
+
+      expect(rows).toEqual([
+        expect.objectContaining({
+          actor_type: "user",
+          actor_id: "user_rollup",
+          event_name: "app.opened",
+          events: "2"
+        })
+      ]);
+
+      const watermark = new Date("2026-05-05T00:00:00.000Z");
+      expect(await getEventRollupWatermark(db, { projectId: project.id, environmentId: environment.id, rollup: "actor_daily" })).toBeNull();
+      await setEventRollupWatermark(db, { projectId: project.id, environmentId: environment.id, rollup: "actor_daily", watermarkAt: watermark });
+      expect(await getEventRollupWatermark(db, { projectId: project.id, environmentId: environment.id, rollup: "actor_daily" })).toEqual(watermark);
+
+      const lockResult = await withEventRollupLock(db, async () => "locked-run");
+      expect(lockResult).toEqual({ locked: true, result: "locked-run" });
+    });
+  });
+
+  it("serves long-range retention from the event_actor_daily rollup once the range exceeds raw retention", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Retention Source" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2025-12-02T00:00:01.000Z")
+      };
+      const now = new Date("2026-06-01T00:00:00.000Z");
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_long_range",
+        traits: {},
+        timestamp: new Date("2025-12-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_long_entry", userId: "user_long_range", name: "signup.started", timestamp: new Date("2025-12-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_long_return", userId: "user_long_range", name: "app.opened", timestamp: new Date("2025-12-02T09:00:00.000Z") });
+
+      await upsertEventActorDaily(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        from: new Date("2025-12-01T00:00:00.000Z"),
+        to: new Date("2025-12-03T00:00:00.000Z")
+      });
+
+      const baseFilters = {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d" as const,
+        now,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily" as const,
+        intervals: 3,
+        rangeDays: 200
+      };
+
+      const rollupResult = await getEventRetention(db, { ...baseFilters, retentionEventsDays: 90 });
+      const rawResult = await getEventRetention(db, { ...baseFilters, retentionEventsDays: 9999 });
+
+      expect(rollupResult.source).toBe("rollup");
+      expect(rawResult.source).toBe("raw");
+      expect(rollupResult.totals).toEqual(rawResult.totals);
+      expect(rollupResult.cohorts).toEqual(rawResult.cohorts);
+      expect(rollupResult.totals).toEqual({ cohorts: 1, entrants: 1 });
     });
   });
 

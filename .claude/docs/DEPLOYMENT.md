@@ -117,7 +117,7 @@ Before publishing a new SDK release, update `packages/sdk/package.json` version,
 - `redis`: Redis 7 with append-only persistence, bound to `127.0.0.1:${REDIS_PORT:-6379}`.
 - `api`: Fastify API on host port `3000`.
 - `worker`: BullMQ telemetry worker with `WORKER_ROLE=queue`.
-- `scheduler`: scheduled retention, backup, alert, monitor evaluation, and warehouse export worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
+- `scheduler`: scheduled retention, event rollups, backup, alert, monitor evaluation, and warehouse export worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
 
 `WORKER_ROLE` is only operationally meaningful for processes started with `pnpm start:worker`. In split EasyPanel deployments, set `WORKER_ROLE=queue` on the queue worker service and `WORKER_ROLE=scheduler` on the scheduler service. The scheduler service also needs the same shared runtime env vars as the worker (`DATABASE_URL`, `REDIS_URL`, secrets, SMTP, retention, monitor, alert, and backup settings) because it evaluates background jobs directly.
 
@@ -134,6 +134,10 @@ The console `System` mode reads separate `worker` and `scheduler` heartbeats and
 Telemetry retention is built into the scheduler role. Set the `RETENTION_*` environment variables in `.env` to control scheduled deletion, interval, batch size, and per-table retention windows. `RETENTION_DEAD_LETTER_JOBS_DAYS` controls how long permanently failed queue jobs remain inspectable before retention expires the row and preserves an `expired` action in `dead_letter_job_actions`. No external cron job is needed.
 
 Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the queue worker available for ingestion jobs.
+
+## Event Rollups
+
+The `event_actor_daily` daily rollup is built into the scheduler role and backs long-range retention queries (`range_days` beyond `RETENTION_EVENTS_DAYS`). Set `EVENT_ROLLUPS_ENABLED`, `EVENT_ROLLUPS_INTERVAL_MINUTES`, and `EVENT_ROLLUPS_LOOKBACK_DAYS` in `.env` to control it. After running `pnpm db:migrate` for the migrations that add `event_actor_daily`/`event_rollup_state`, restart the worker so the new scheduler picks up the change. Keep `EVENT_ROLLUPS_LOOKBACK_DAYS` comfortably larger than `RETENTION_EVENTS_DAYS` so the rollup always finishes covering a day before raw retention purges it.
 
 ## Simple Alerts
 

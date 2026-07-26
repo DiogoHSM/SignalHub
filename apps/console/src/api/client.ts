@@ -880,11 +880,12 @@ function eventRetentionPath(query: EventRetentionQuery): string {
   params.set("project_id", query.projectId);
   params.set("environment_id", query.environmentId);
   params.set("window", query.window);
-  params.set("entry_event", query.entryEvent);
-  params.set("return_event", query.returnEvent);
+  if (query.entryEvent) params.set("entry_event", query.entryEvent);
+  if (query.returnEvent) params.set("return_event", query.returnEvent);
   if (query.period !== undefined) params.set("period", query.period);
   if (query.intervals !== undefined) params.set("intervals", String(query.intervals));
   if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.rangeDays !== undefined) params.set("range_days", String(query.rangeDays));
 
   return `/query/events/retention?${params.toString()}`;
 }
