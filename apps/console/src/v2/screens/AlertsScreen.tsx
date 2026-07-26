@@ -10,7 +10,11 @@ import type {
   SuggestionRowVM,
   TimelineDayVM,
 } from "./useAlerts";
-import type { AlertRuleResponse, CreateNotificationChannelInput } from "../../api/types";
+import type {
+  AlertRuleResponse,
+  CreateNotificationChannelInput,
+  UpdateNotificationChannelInput,
+} from "../../api/types";
 
 const RULE_GRID = "1.4fr 90px 84px 1fr 1fr 70px 84px";
 const FILTERS = ["All", "Active", "Paused"] as const;
@@ -448,11 +452,12 @@ function AlertRuleRow({ row, onPauseResume, onArchive, onEditOpen, busy }: Alert
 
 type ChannelRowProps = {
   row: ChannelRowVM;
+  onEdit: (row: ChannelRowVM) => void;
   onArchive: (id: string) => void;
   busy: boolean;
 };
 
-function ChannelRow({ row, onArchive, busy }: ChannelRowProps) {
+function ChannelRow({ row, onEdit, onArchive, busy }: ChannelRowProps) {
   return (
     <div
       style={{
@@ -482,6 +487,15 @@ function ChannelRow({ row, onArchive, busy }: ChannelRowProps) {
       >
         test
       </button>
+      <button
+        className="sh-btn ghost"
+        style={{ padding: "4px 8px" }}
+        aria-label="Edit channel"
+        disabled={busy}
+        onClick={() => onEdit(row)}
+      >
+        <Icon name="edit" size={12} />
+      </button>
       <ConfirmButton
         label={<Icon name="archive" size={12} />}
         confirmLabel="Archive"
@@ -492,11 +506,14 @@ function ChannelRow({ row, onArchive, busy }: ChannelRowProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Channel editor panel (create)
+// Channel editor panel (create + edit)
 // ---------------------------------------------------------------------------
 
 type ChannelEditorProps = {
-  onSave: (input: CreateNotificationChannelInput) => void;
+  // When set, the form edits this existing channel instead of creating a new one.
+  editing?: ChannelRowVM | null;
+  onCreate: (input: CreateNotificationChannelInput) => void;
+  onUpdate: (id: string, input: UpdateNotificationChannelInput) => void;
   onCancel: () => void;
   busy: boolean;
 };
@@ -530,22 +547,49 @@ const CHANNEL_NAME_PLACEHOLDER: Record<ChannelType, string> = {
   email: "Ops email",
 };
 
-function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
-  const [channelType, setChannelType] = useState<ChannelType>("webhook");
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [secretHeaderName, setSecretHeaderName] = useState("");
+function ChannelEditor({ editing, onCreate, onUpdate, onCancel, busy }: ChannelEditorProps) {
+  const isEditing = editing != null;
+  const [channelType, setChannelType] = useState<ChannelType>(editing?.type ?? "webhook");
+  const [name, setName] = useState(editing?.name ?? "");
+  // The full url is only ever known here for a generic webhook channel being
+  // edited (it's the only type the API returns unredacted). For slack/discord
+  // this always starts blank — the saved url is write-only, mirroring secretHeaderValue.
+  const [url, setUrl] = useState(editing?.type === "webhook" ? (editing.url ?? "") : "");
+  const [secretHeaderName, setSecretHeaderName] = useState(editing?.secretHeaderName ?? "");
   const [secretHeaderValue, setSecretHeaderValue] = useState("");
-  const [emailRecipients, setEmailRecipients] = useState("");
+  const [emailRecipients, setEmailRecipients] = useState(
+    editing?.type === "email" ? editing.emailRecipients.join(", ") : "",
+  );
+
+  const isMaskedUrlChannel = channelType === "slack" || channelType === "discord";
+  const maskedUrlPlaceholder =
+    isEditing && isMaskedUrlChannel
+      ? `${editing.urlPreview ?? "••••"} — leave blank to keep`
+      : undefined;
 
   function handleSave() {
     if (channelType === "email") {
       const recipients = emailRecipients.split(",").map((e) => e.trim()).filter(Boolean);
-      onSave({ type: "email", name, emailRecipients: recipients });
+      if (isEditing) {
+        onUpdate(editing.id, { name, emailRecipients: recipients });
+      } else {
+        onCreate({ type: "email", name, emailRecipients: recipients });
+      }
       return;
     }
 
-    onSave({
+    if (isEditing) {
+      const input: UpdateNotificationChannelInput = { name };
+      if (url.trim()) input.url = url.trim();
+      if (secretHeaderValue.trim()) {
+        input.secretHeaderName = secretHeaderName.trim() || null;
+        input.secretHeaderValue = secretHeaderValue.trim();
+      }
+      onUpdate(editing.id, input);
+      return;
+    }
+
+    onCreate({
       type: channelType,
       name,
       url,
@@ -556,12 +600,16 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
 
   const valid =
     name.trim().length > 0 &&
-    (channelType === "email" ? emailRecipients.trim().length > 0 : url.trim().length > 0);
+    (channelType === "email"
+      ? emailRecipients.trim().length > 0
+      : isEditing
+        ? true // an existing channel already has a url; a blank field means "keep it"
+        : url.trim().length > 0);
 
   return (
     <div className="sh-card">
       <div className="sh-card__head">
-        <h2 className="sh-h2">New channel</h2>
+        <h2 className="sh-h2">{isEditing ? "Edit channel" : "New channel"}</h2>
         <button className="sh-btn ghost" style={{ padding: "4px 8px" }} onClick={onCancel}>
           Cancel
         </button>
@@ -571,7 +619,7 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
           <Segmented
             options={[...WEBHOOK_LIKE_CHANNEL_TYPES, "email"]}
             value={channelType}
-            onChange={(v) => setChannelType(v as ChannelType)}
+            onChange={isEditing ? undefined : (v) => setChannelType(v as ChannelType)}
           />
         </div>
         <label style={{ display: "grid", gap: 4 }}>
@@ -596,27 +644,35 @@ function ChannelEditor({ onSave, onCancel, busy }: ChannelEditorProps) {
                 className="sh-input sh-mono"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder={CHANNEL_URL_HELP[channelType].placeholder}
+                placeholder={maskedUrlPlaceholder ?? CHANNEL_URL_HELP[channelType].placeholder}
               />
               <span className="sh-faint" style={{ fontSize: 10.5, lineHeight: 1.4 }}>
-                {CHANNEL_URL_HELP[channelType].help}
+                {isEditing && isMaskedUrlChannel
+                  ? "The saved webhook URL is write-only and never shown again. Leave this blank to keep the current one."
+                  : CHANNEL_URL_HELP[channelType].help}
               </span>
             </label>
             <label style={{ display: "grid", gap: 4 }}>
               <span className="sh-eyebrow">Secret header name (optional)</span>
               <input className="sh-input sh-mono" value={secretHeaderName} onChange={(e) => setSecretHeaderName(e.target.value)} placeholder="X-Sigmon-Secret" />
             </label>
-            {secretHeaderName && (
+            {(secretHeaderName || (isEditing && editing.hasSecret)) && (
               <label style={{ display: "grid", gap: 4 }}>
                 <span className="sh-eyebrow">Secret header value</span>
-                <input className="sh-input sh-mono" type="password" value={secretHeaderValue} onChange={(e) => setSecretHeaderValue(e.target.value)} />
+                <input
+                  className="sh-input sh-mono"
+                  type="password"
+                  value={secretHeaderValue}
+                  onChange={(e) => setSecretHeaderValue(e.target.value)}
+                  placeholder={isEditing && editing.hasSecret ? "•••• configured — leave blank to keep" : undefined}
+                />
               </label>
             )}
           </>
         )}
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button className="sh-btn primary" disabled={!valid || busy} onClick={handleSave}>
-            Create channel
+            {isEditing ? "Save channel" : "Create channel"}
           </button>
         </div>
       </div>
@@ -757,7 +813,7 @@ function OnCallQueue({ events, busy, onTriage }: OnCallQueueProps) {
 export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
   const [filter, setFilter] = useState<RuleFilter>("All");
   const [ruleEditor, setRuleEditor] = useState<"closed" | "create" | { id: string; initial: CreateRuleForm }>("closed");
-  const [channelEditor, setChannelEditor] = useState(false);
+  const [channelEditor, setChannelEditor] = useState<"closed" | "create" | { channel: ChannelRowVM }>("closed");
 
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
@@ -771,6 +827,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
     archiveRule,
     updateAlertEventTriage,
     createChannel,
+    updateChannel,
     archiveChannel,
     createFromSuggestion,
   } = useAlerts({ client: ctx.client, projectId, environmentId });
@@ -865,16 +922,30 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
   async function handleCreateChannel(input: Parameters<typeof createChannel>[0]) {
     const ok = await createChannel(input);
     if (ok) {
-      setChannelEditor(false);
+      setChannelEditor("closed");
       ctx.pushToast("Channel created");
     } else {
       ctx.pushToast("Failed to create channel");
     }
   }
 
+  async function handleUpdateChannel(id: string, input: Parameters<typeof updateChannel>[1]) {
+    const ok = await updateChannel(id, input);
+    if (ok) {
+      setChannelEditor("closed");
+      ctx.pushToast("Channel saved");
+    } else {
+      ctx.pushToast("Failed to save channel");
+    }
+  }
+
   async function handleArchiveChannel(id: string) {
     const ok = await archiveChannel(id);
     if (!ok) ctx.pushToast("Failed to archive channel");
+  }
+
+  function openEditChannel(channel: ChannelRowVM) {
+    setChannelEditor({ channel });
   }
 
   async function handleCreateFromSuggestion(row: SuggestionRowVM) {
@@ -923,7 +994,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
             <button
               className="sh-btn"
               disabled={busy}
-              onClick={() => setChannelEditor(true)}
+              onClick={() => setChannelEditor("create")}
             >
               <Icon name="webhook" size={13} />
               Channels
@@ -960,11 +1031,13 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
         />
       )}
 
-      {channelEditor && (
+      {channelEditor !== "closed" && (
         <ChannelEditor
+          editing={channelEditor === "create" ? null : channelEditor.channel}
           busy={busy}
-          onCancel={() => setChannelEditor(false)}
-          onSave={handleCreateChannel}
+          onCancel={() => setChannelEditor("closed")}
+          onCreate={handleCreateChannel}
+          onUpdate={handleUpdateChannel}
         />
       )}
 
@@ -1023,7 +1096,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
               className="sh-btn ghost"
               style={{ padding: "4px 8px" }}
               disabled={busy}
-              onClick={() => setChannelEditor(true)}
+              onClick={() => setChannelEditor("create")}
             >
               <Icon name="plus" size={13} />
             </button>
@@ -1037,6 +1110,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
                   key={row.id}
                   row={row}
                   busy={busy}
+                  onEdit={openEditChannel}
                   onArchive={handleArchiveChannel}
                 />
               ))

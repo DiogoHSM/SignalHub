@@ -1368,11 +1368,38 @@ function redactSourceMapUploadToken(
   };
 }
 
-function redactNotificationChannel(
-  channel: NotificationChannelRecord
-): Omit<NotificationChannelRecord, "secretHeaderValue"> {
-  const { secretHeaderValue: _secretHeaderValue, ...safeChannel } = channel;
-  return safeChannel;
+function isUrlSecretNotificationChannelType(type: NotificationChannelRecord["type"]): boolean {
+  return type === "slack" || type === "discord";
+}
+
+function maskNotificationChannelUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname.slice(0, 8)}…`;
+  } catch {
+    return "••••";
+  }
+}
+
+type RedactedNotificationChannel = Omit<NotificationChannelRecord, "secretHeaderValue" | "url"> & {
+  url: string | null;
+  hasUrl?: boolean;
+  urlPreview?: string;
+};
+
+function redactNotificationChannel(channel: NotificationChannelRecord): RedactedNotificationChannel {
+  const { secretHeaderValue: _secretHeaderValue, url, ...safeChannel } = channel;
+
+  if (isUrlSecretNotificationChannelType(channel.type) && url !== null) {
+    return {
+      ...safeChannel,
+      url: null,
+      hasUrl: true,
+      urlPreview: maskNotificationChannelUrl(url)
+    };
+  }
+
+  return { ...safeChannel, url };
 }
 
 function redactMonitor(monitor: MonitorRecord): Omit<MonitorRecord, "secretHash"> {

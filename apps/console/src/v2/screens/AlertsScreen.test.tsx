@@ -95,8 +95,9 @@ const vm: AlertsVM = {
     },
   ],
   channels: [
-    { id: "c1", name: "Slack · #incidents", icon: "webhook", target: "https://hooks.slack.com/services/T0/abc", ok: true, type: "webhook", url: "https://hooks.slack.com/services/T0/abc", emailRecipients: [], secretHeaderName: null, hasSecret: false },
-    { id: "c2", name: "Email · finance", icon: "mail", target: "finance@acme.dev", ok: false, type: "email", url: null, emailRecipients: ["finance@acme.dev"], secretHeaderName: null, hasSecret: false },
+    { id: "c1", name: "Slack · #incidents", icon: "webhook", target: "https://hooks.slack.com/services/T0/abc", ok: true, type: "webhook", url: "https://hooks.slack.com/services/T0/abc", hasUrl: true, urlPreview: null, emailRecipients: [], secretHeaderName: null, hasSecret: false },
+    { id: "c2", name: "Email · finance", icon: "mail", target: "finance@acme.dev", ok: false, type: "email", url: null, hasUrl: false, urlPreview: null, emailRecipients: ["finance@acme.dev"], secretHeaderName: null, hasSecret: false },
+    { id: "c3", name: "Slack native · #alerts", icon: "slack", target: "https://hooks.slack.com/service…", ok: true, type: "slack", url: null, hasUrl: true, urlPreview: "https://hooks.slack.com/service…", emailRecipients: [], secretHeaderName: null, hasSecret: false },
   ],
   timeline: [
     { label: "Wed 17", fires: [] },
@@ -402,6 +403,78 @@ describe("AlertsScreen — channels panel", () => {
     expect(screen.getByText("finance@acme.dev")).toBeInTheDocument();
   });
 
+  it("renders a masked url preview for native Slack/Discord channels, never the full url", () => {
+    mockUseAlertsWithActions(vm);
+    render(<AlertsScreen ctx={makeCtx()} />);
+    // c3 is a native slack channel whose VM only carries the masked preview —
+    // the row must render that preview and nothing that looks like a full url.
+    expect(screen.getByText("https://hooks.slack.com/service…")).toBeInTheDocument();
+  });
+
+  it("opens the edit form pre-filled for an existing channel and preserves the url when left blank", async () => {
+    const updateChannel = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage: vi.fn().mockResolvedValue(true),
+      createChannel: vi.fn().mockResolvedValue(true),
+      updateChannel,
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+
+    // c3 ("Slack native · #alerts") is the third channel row.
+    const editBtns = screen.getAllByRole("button", { name: /edit channel/i });
+    await userEvent.click(editBtns[editBtns.length - 1]);
+
+    expect(screen.getByDisplayValue("Slack native · #alerts")).toBeInTheDocument();
+    // The url input must NOT be pre-filled with any url — it's write-only.
+    const urlInput = screen.getByPlaceholderText(/leave blank to keep/i) as HTMLInputElement;
+    expect(urlInput.value).toBe("");
+    expect(urlInput.placeholder).toContain("https://hooks.slack.com/service…");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save channel" }));
+
+    expect(updateChannel).toHaveBeenCalledWith("c3", { name: "Slack native · #alerts" });
+  });
+
+  it("replaces the Slack webhook url when the admin types a new one in the edit form", async () => {
+    const updateChannel = vi.fn().mockResolvedValue(true);
+    vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
+      data: vm,
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      createRule: vi.fn().mockResolvedValue(true),
+      updateRule: vi.fn().mockResolvedValue(true),
+      archiveRule: vi.fn().mockResolvedValue(true),
+      updateAlertEventTriage: vi.fn().mockResolvedValue(true),
+      createChannel: vi.fn().mockResolvedValue(true),
+      updateChannel,
+      archiveChannel: vi.fn().mockResolvedValue(true),
+      createFromSuggestion: vi.fn().mockResolvedValue(true),
+    });
+    render(<AlertsScreen ctx={makeCtx()} />);
+
+    const editBtns = screen.getAllByRole("button", { name: /edit channel/i });
+    await userEvent.click(editBtns[editBtns.length - 1]);
+
+    const urlInput = screen.getByPlaceholderText(/leave blank to keep/i);
+    await userEvent.type(urlInput, "https://hooks.slack.com/services/T9/new");
+    await userEvent.click(screen.getByRole("button", { name: "Save channel" }));
+
+    expect(updateChannel).toHaveBeenCalledWith("c3", {
+      name: "Slack native · #alerts",
+      url: "https://hooks.slack.com/services/T9/new",
+    });
+  });
+
   it("calls archiveChannel on archive confirm", async () => {
     const archiveChannel = vi.fn().mockResolvedValue(true);
     vi.spyOn(useAlertsModule, "useAlerts").mockReturnValue({
@@ -424,11 +497,11 @@ describe("AlertsScreen — channels panel", () => {
     const testBtns = screen.getAllByText("test");
     const channelRow = testBtns[0].closest("div") as HTMLElement;
     const btnsInRow = within(channelRow).getAllByRole("button");
-    // Row has: [test button (disabled)] [ConfirmButton (first state: arm, enabled)]
-    const armBtn = btnsInRow.find((b) => !(b as HTMLButtonElement).disabled);
-    expect(armBtn).toBeDefined();
+    // Row has: [test button (disabled)] [Edit channel (enabled)] [ConfirmButton (last, arm state, enabled)]
+    const armBtn = btnsInRow[btnsInRow.length - 1] as HTMLButtonElement;
+    expect(armBtn.disabled).toBe(false);
     // First click arms the ConfirmButton (shows the confirmLabel "Archive")
-    await userEvent.click(armBtn!);
+    await userEvent.click(armBtn);
     const confirmBtn = screen.getByRole("button", { name: /archive/i });
     await userEvent.click(confirmBtn);
     expect(archiveChannel).toHaveBeenCalledWith(expect.any(String));

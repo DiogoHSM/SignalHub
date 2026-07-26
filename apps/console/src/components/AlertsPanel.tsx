@@ -88,8 +88,16 @@ function displayDeliveryStatus(status: AlertEventResponse["latestDeliveryStatus"
   return status ?? "pending";
 }
 
+function isMaskedUrlChannelType(type: ChannelForm["type"]): type is "slack" | "discord" {
+  return type === "slack" || type === "discord";
+}
+
 function channelTarget(channel: NotificationChannelResponse): string {
-  return channel.type === "email" ? channel.emailRecipients.join(", ") : channel.url;
+  if (channel.type === "email") return channel.emailRecipients.join(", ");
+  // Slack/Discord webhook URLs are the credential: the API never returns the
+  // full url for them, only a masked preview (mirrors hasSecret/secretHeaderValue).
+  if (channel.type === "slack" || channel.type === "discord") return channel.urlPreview ?? "•••• configured";
+  return channel.url;
 }
 
 function channelSecretLabel(channel: NotificationChannelResponse): string {
@@ -299,14 +307,19 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
         return;
       }
     } else {
-      if (!url) {
+      // Editing an existing Slack/Discord channel: the saved url is write-only
+      // (it's the credential), so a blank field means "keep the current one".
+      const preservingMaskedUrl = Boolean(editingChannelId) && isMaskedUrlChannelType(channelForm.type);
+      if (!url && !preservingMaskedUrl) {
         setError("Webhook URL is required");
         return;
       }
-      const webhookUrlError = validateWebhookUrl(url);
-      if (webhookUrlError) {
-        setError(webhookUrlError);
-        return;
+      if (url) {
+        const webhookUrlError = validateWebhookUrl(url);
+        if (webhookUrlError) {
+          setError(webhookUrlError);
+          return;
+        }
       }
       if (secretHeaderValue && !secretHeaderName) {
         setError("Secret header name is required when a secret value is set");
@@ -341,7 +354,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
           : await client.updateNotificationChannel(editingChannelId, {
               name,
               type: channelForm.type,
-              url,
+              ...(url ? { url } : {}),
               secretHeaderName: secretHeaderName || null,
               ...(secretHeaderValue ? { secretHeaderValue } : {}),
               enabled: true
@@ -390,7 +403,7 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
     setChannelForm({
       type: channel.type,
       name: channel.name,
-      url: channel.type === "email" ? "" : channel.url,
+      url: channel.type === "email" || channel.type === "slack" || channel.type === "discord" ? "" : channel.url,
       emailRecipients: channel.type === "email" ? channel.emailRecipients.join(", ") : "",
       secretHeaderName: channel.type === "email" ? "" : (channel.secretHeaderName ?? ""),
       secretHeaderValue: ""
@@ -770,8 +783,12 @@ export function AlertsPanel({ client, projectId, environmentId }: AlertsPanelPro
                       : "Webhook URL"}
                   <input
                     onChange={(event) => setChannelForm((current) => ({ ...current, url: event.target.value }))}
-                    placeholder="https://hooks.example.com"
-                    required
+                    placeholder={
+                      editingChannelId && isMaskedUrlChannelType(channelForm.type)
+                        ? "•••• configured — leave blank to keep"
+                        : "https://hooks.example.com"
+                    }
+                    required={!(editingChannelId && isMaskedUrlChannelType(channelForm.type))}
                     type="url"
                     value={channelForm.url}
                   />
