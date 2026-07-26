@@ -575,6 +575,127 @@ describe("AlertsPanel", () => {
     );
   });
 
+  it("edits an existing Slack channel without retyping the url, preserving the saved webhook", async () => {
+    const updateNotificationChannel = vi.fn().mockResolvedValue({
+      channel: {
+        id: "chn_slack",
+        name: "Slack renamed",
+        type: "slack",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://hooks.slack.com/service…",
+        emailRecipients: [],
+        secretHeaderName: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+        archivedAt: null
+      }
+    });
+    const api = client({
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_slack",
+            name: "Slack #incidents",
+            type: "slack",
+            url: null,
+            hasUrl: true,
+            urlPreview: "https://hooks.slack.com/service…",
+            emailRecipients: [],
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      }),
+      updateNotificationChannel
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Slack #incidents" }));
+    // The url field must never be pre-filled with the (unknowable) full url.
+    expect((screen.getByLabelText("Slack Incoming Webhook URL") as HTMLInputElement).value).toBe("");
+    await userEvent.clear(screen.getByLabelText("Channel name"));
+    await userEvent.type(screen.getByLabelText("Channel name"), "Slack renamed");
+    await userEvent.click(screen.getByRole("button", { name: "Save channel" }));
+
+    await waitFor(() =>
+      expect(updateNotificationChannel).toHaveBeenCalledWith("chn_slack", {
+        name: "Slack renamed",
+        type: "slack",
+        secretHeaderName: null,
+        enabled: true
+      })
+    );
+  });
+
+  it("replaces the Slack url when the admin types a new one while editing", async () => {
+    const updateNotificationChannel = vi.fn().mockResolvedValue({
+      channel: {
+        id: "chn_slack",
+        name: "Slack #incidents",
+        type: "slack",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://hooks.slack.com/service…",
+        emailRecipients: [],
+        secretHeaderName: null,
+        hasSecret: false,
+        enabled: true,
+        createdAt: "",
+        updatedAt: "",
+        archivedAt: null
+      }
+    });
+    const api = client({
+      listNotificationChannels: vi.fn().mockResolvedValue({
+        channels: [
+          {
+            id: "chn_slack",
+            name: "Slack #incidents",
+            type: "slack",
+            url: null,
+            hasUrl: true,
+            urlPreview: "https://hooks.slack.com/service…",
+            emailRecipients: [],
+            secretHeaderName: null,
+            hasSecret: false,
+            enabled: true,
+            createdAt: "",
+            updatedAt: "",
+            archivedAt: null
+          }
+        ]
+      }),
+      updateNotificationChannel
+    });
+
+    render(<AlertsPanel client={api} projectId="prj_1" environmentId="env_1" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Slack #incidents" }));
+    await userEvent.type(
+      screen.getByLabelText("Slack Incoming Webhook URL"),
+      "https://hooks.slack.com/services/T9/newtoken"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save channel" }));
+
+    await waitFor(() =>
+      expect(updateNotificationChannel).toHaveBeenCalledWith("chn_slack", {
+        name: "Slack #incidents",
+        type: "slack",
+        url: "https://hooks.slack.com/services/T9/newtoken",
+        secretHeaderName: null,
+        enabled: true
+      })
+    );
+  });
+
   it("rejects invalid webhook URLs before submitting a channel", async () => {
     const createNotificationChannel = vi.fn();
 

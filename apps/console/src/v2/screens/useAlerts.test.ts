@@ -101,7 +101,9 @@ const slackChannel: NotificationChannelResponse = {
   id: "c3",
   name: "Slack native · #incidents",
   type: "slack",
-  url: "https://hooks.slack.com/services/T0/native",
+  url: null,
+  hasUrl: true,
+  urlPreview: "https://hooks.slack.com/service…",
   emailRecipients: [],
   secretHeaderName: null,
   hasSecret: false,
@@ -115,7 +117,9 @@ const discordChannel: NotificationChannelResponse = {
   id: "c4",
   name: "Discord · #alerts",
   type: "discord",
-  url: "https://discord.com/api/webhooks/1/token",
+  url: null,
+  hasUrl: true,
+  urlPreview: "https://discord.com/api/web…",
   emailRecipients: [],
   secretHeaderName: null,
   hasSecret: false,
@@ -198,7 +202,7 @@ describe("buildAlertsVM", () => {
     });
   });
 
-  it("maps native slack and discord channel rows with their own icon and URL", () => {
+  it("maps native slack and discord channel rows with a masked url preview, never the full url", () => {
     const vm = buildAlertsVM(
       { rules: [], events: [], channels: [slackChannel, discordChannel] },
       NOW,
@@ -206,16 +210,37 @@ describe("buildAlertsVM", () => {
     expect(vm.channels[0]).toMatchObject({
       icon: "slack",
       type: "slack",
-      target: "https://hooks.slack.com/services/T0/native",
-      url: "https://hooks.slack.com/services/T0/native",
+      target: "https://hooks.slack.com/service…",
+      url: null,
+      hasUrl: true,
+      urlPreview: "https://hooks.slack.com/service…",
       ok: true,
     });
     expect(vm.channels[1]).toMatchObject({
       icon: "discord",
       type: "discord",
-      target: "https://discord.com/api/webhooks/1/token",
-      url: "https://discord.com/api/webhooks/1/token",
+      target: "https://discord.com/api/web…",
+      url: null,
+      hasUrl: true,
+      urlPreview: "https://discord.com/api/web…",
       ok: true,
+    });
+  });
+
+  it("falls back to a generic placeholder when a masked slack/discord channel has no url preview", () => {
+    const vm = buildAlertsVM(
+      {
+        rules: [],
+        events: [],
+        channels: [{ ...slackChannel, urlPreview: undefined }],
+      },
+      NOW,
+    );
+    expect(vm.channels[0]).toMatchObject({
+      target: "•••• configured",
+      url: null,
+      hasUrl: true,
+      urlPreview: null,
     });
   });
 
