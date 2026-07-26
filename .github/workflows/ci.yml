@@ -1,10 +1,8 @@
 name: CI
 
+# CI/CD runs locally by policy (2026-07). GitHub Actions stays manual-only;
+# the local gate replicates this pipeline before every push.
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
