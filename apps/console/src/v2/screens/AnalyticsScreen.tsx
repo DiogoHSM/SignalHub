@@ -121,7 +121,10 @@ function RetentionPanel({ state, data, run }: { state: string; data: RetentionVM
                     <span
                       key={`${cohort.cohortStart}:${interval.index}`}
                       className="sh-heat"
-                      style={{ background: "var(--accent)", opacity: Math.max(0.08, interval.retentionPercent / 100) }}
+                      style={{
+                        background: `color-mix(in srgb, var(--accent) ${Math.max(8, interval.retentionPercent)}%, transparent)`,
+                        color: interval.retentionPercent >= 50 ? "var(--accent-fg)" : "var(--fg)"
+                      }}
                     >
                       <strong style={{ fontSize: 11 }}>{interval.retentionPercent}%</strong>
                     </span>
