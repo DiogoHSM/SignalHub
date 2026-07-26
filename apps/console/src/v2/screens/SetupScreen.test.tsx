@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api/client";
-import type { Environment, Project } from "../../api/types";
+import type { Environment, FeedbackItem, FeedbackWidgetSettings, Project } from "../../api/types";
 import type { NavSection } from "../nav";
 import { SetupScreen } from "./SetupScreen";
 import type { ScreenCtx } from "./registry";
@@ -139,5 +139,36 @@ describe("SetupScreen", () => {
     render(<SetupScreen ctx={makeCtx()} />);
     expect(await screen.findByText("Source map artifacts")).toBeInTheDocument();
     expect(screen.getByText("CI upload tokens")).toBeInTheDocument();
+  });
+
+  it("hides the feedback section when the client does not expose the feedback API", async () => {
+    render(<SetupScreen ctx={makeCtx()} />);
+    await screen.findByText("Source map artifacts");
+    expect(screen.queryByText("Widget settings")).not.toBeInTheDocument();
+  });
+
+  it("mounts the feedback section when the client exposes the feedback API", async () => {
+    const settings: FeedbackWidgetSettings = {
+      projectId: "prj_1", environmentId: "env_1", enabled: true, title: "Send feedback",
+      prompt: "Tell us what happened.", placeholder: "Write your feedback...", buttonLabel: "Feedback",
+      accentColor: "#66e38a", allowScreenshot: false, privacyNote: null,
+      createdAt: "2026-06-24T09:00:00.000Z", updatedAt: "2026-06-24T09:00:00.000Z",
+    };
+    const feedbackItem: FeedbackItem = {
+      id: "fb_1", projectId: "prj_1", environmentId: "env_1", status: "open", message: "Broke on save",
+      category: null, pageUrl: "https://app.example.com/settings", path: "/settings",
+      tenantId: null, userId: null, sessionId: null, traceId: null,
+      release: "1.4.0", source: "widget", userAgent: null, metadata: {},
+      submittedAt: "2026-06-24T11:48:00.000Z", receivedAt: "2026-06-24T11:48:01.000Z", updatedAt: "2026-06-24T11:48:01.000Z",
+    };
+    const client = makeClient({
+      getFeedbackWidgetSettings: vi.fn().mockResolvedValue({ settings }),
+      updateFeedbackWidgetSettings: vi.fn().mockResolvedValue({ settings }),
+      listFeedbackItems: vi.fn().mockResolvedValue({ feedback: [feedbackItem] }),
+      updateFeedbackStatus: vi.fn().mockResolvedValue({ feedback: { ...feedbackItem, status: "reviewed" } }),
+    });
+    render(<SetupScreen ctx={makeCtx({ client })} />);
+    expect(await screen.findByText("Widget settings")).toBeInTheDocument();
+    expect(screen.getByText("Broke on save")).toBeInTheDocument();
   });
 });
