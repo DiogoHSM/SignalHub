@@ -242,7 +242,14 @@ describe("screen registry", () => {
   });
 
   it("renders the v2 System screen (not wrapped in the legacy island)", () => {
-    vi.spyOn(useSystemHealthModule, "useSystemHealth").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    vi.spyOn(useSystemHealthModule, "useSystemHealth").mockReturnValue({
+      data: null,
+      status: "loading",
+      reload: vi.fn(),
+      replayDeadLetterJob: vi.fn(),
+      deleteDeadLetterJob: vi.fn(),
+      loadDeadLetterJobDetail: vi.fn(),
+    });
     const ctx = makeCtx();
     const node = renderSection("system", ctx);
     const { container } = render(<>{node}</>);

@@ -36,6 +36,10 @@ import type {
   CreateNotificationChannelInput,
   DashboardReportResponse,
   DataGovernancePolicy,
+  DeadLetterJobActionResponse,
+  DeadLetterJobListQuery,
+  DeadLetterJobResponse,
+  DeadLetterReplayResult,
   Environment,
   Experiment,
   ExperimentResultsQuery,
@@ -234,6 +238,14 @@ export type MonitorApiClient = {
     id: string,
     options: { projectId: string; environmentId: string; limit?: number; cursor?: string }
   ) => Promise<{ checks: MonitorCheckResponse[]; cursor?: string }>;
+};
+
+export type DeadLetterApiClient = {
+  listDeadLetterJobs: (query?: DeadLetterJobListQuery) => Promise<{ deadLetterJobs: DeadLetterJobResponse[]; cursor?: string }>;
+  getDeadLetterJob: (id: string) => Promise<{ deadLetterJob: DeadLetterJobResponse }>;
+  listDeadLetterJobActions: (id: string) => Promise<{ actions: DeadLetterJobActionResponse[] }>;
+  replayDeadLetterJob: (id: string) => Promise<DeadLetterReplayResult>;
+  deleteDeadLetterJob: (id: string) => Promise<void>;
 };
 
 export type ErrorGroupApiClient = {
@@ -517,7 +529,8 @@ export type ApiClient = {
   SessionTimelineApiClient &
   Partial<MonitorApiClient> &
   Partial<SourceMapApiClient> &
-  Partial<AlertSuggestionApiClient>;
+  Partial<AlertSuggestionApiClient> &
+  Partial<DeadLetterApiClient>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -1301,6 +1314,21 @@ function monitorChecksPath(
   return `/admin/monitors/${encodePathSegment(id)}/checks?${params.toString()}`;
 }
 
+function deadLetterJobsPath(query?: DeadLetterJobListQuery): string {
+  const params = new URLSearchParams();
+  if (query?.limit !== undefined) params.set("limit", String(query.limit));
+  if (query?.cursor) params.set("cursor", query.cursor);
+  if (query?.queueName) params.set("queue_name", query.queueName);
+  if (query?.jobName) params.set("job_name", query.jobName);
+  if (query?.error) params.set("error", query.error);
+  if (query?.createdFrom) params.set("created_from", query.createdFrom);
+  if (query?.createdTo) params.set("created_to", query.createdTo);
+  if (query?.status) params.set("status", query.status);
+  const search = params.toString();
+
+  return `/admin/dead-letter-jobs${search ? `?${search}` : ""}`;
+}
+
 export function createApiClient(
   apiBasePath = defaultApiBasePath
 ): ApiClient & SessionTimelineApiClient & SourceMapApiClient {
@@ -1735,6 +1763,18 @@ export function createApiClient(
       request<void>(path(apiBasePath, `/admin/monitors/${encodePathSegment(id)}`), { method: "DELETE" }),
     listMonitorChecks: (id, options) =>
       request<{ checks: MonitorCheckResponse[]; cursor?: string }>(path(apiBasePath, monitorChecksPath(id, options))),
+    listDeadLetterJobs: (query) =>
+      request<{ deadLetterJobs: DeadLetterJobResponse[]; cursor?: string }>(path(apiBasePath, deadLetterJobsPath(query))),
+    getDeadLetterJob: (id) =>
+      request<{ deadLetterJob: DeadLetterJobResponse }>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}`)),
+    listDeadLetterJobActions: (id) =>
+      request<{ actions: DeadLetterJobActionResponse[] }>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}/actions`)),
+    replayDeadLetterJob: (id) =>
+      request<DeadLetterReplayResult>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}/replay`), {
+        method: "POST"
+      }),
+    deleteDeadLetterJob: (id) =>
+      request<void>(path(apiBasePath, `/admin/dead-letter-jobs/${encodePathSegment(id)}`), { method: "DELETE" }),
     listAlertEvents: (query) =>
       request<QueryListResponse<AlertEventResponse>>(path(apiBasePath, alertEventListPath(query))),
     getAlertEvent: (id) =>

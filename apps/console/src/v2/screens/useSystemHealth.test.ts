@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SystemHealthResponse, SystemHealthSampleResponse } from "../../api/types";
 import { buildSystemVM, useSystemHealth } from "./useSystemHealth";
 
@@ -178,6 +178,11 @@ describe("useSystemHealth hook", () => {
     return {
       getSystemHealth: vi.fn().mockResolvedValue({ data: health() }),
       getSystemHealthHistory: vi.fn().mockResolvedValue({ data: HISTORY }),
+      listDeadLetterJobs: vi.fn().mockResolvedValue({ deadLetterJobs: [] }),
+      getDeadLetterJob: vi.fn(),
+      listDeadLetterJobActions: vi.fn(),
+      replayDeadLetterJob: vi.fn(),
+      deleteDeadLetterJob: vi.fn(),
     };
   }
   it("loads and builds a VM from both fetches", async () => {
@@ -193,5 +198,160 @@ describe("useSystemHealth hook", () => {
     const { result } = renderHook(() => useSystemHealth({ client }));
     await waitFor(() => expect(result.current.status).toBe("error"));
     expect(result.current.data).toBeNull();
+  });
+});
+
+describe("useSystemHealth hook — dead-letter queue", () => {
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function makeClient(over: Record<string, unknown> = {}) {
+    return {
+      getSystemHealth: vi.fn().mockResolvedValue({ data: health() }),
+      getSystemHealthHistory: vi.fn().mockResolvedValue({ data: HISTORY }),
+      listDeadLetterJobs: vi.fn().mockResolvedValue({
+        deadLetterJobs: [
+          { id: "dlj_1", projectId: null, environmentId: null, queueName: "telemetry", jobName: "event", payload: { a: 1 }, errorMessage: "boom", createdAt: "2026-06-23T11:00:00.000Z" },
+        ],
+      }),
+      getDeadLetterJob: vi.fn(),
+      listDeadLetterJobActions: vi.fn(),
+      replayDeadLetterJob: vi.fn(),
+      deleteDeadLetterJob: vi.fn(),
+      ...over,
+    };
+  }
+
+  it("loads dlq jobs alongside health and builds the VM", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    await waitFor(() => expect(result.current.data?.dlq.status).toBe("ok"));
+    expect(result.current.data?.dlq.jobs).toEqual([
+      { id: "dlj_1", queueName: "telemetry", jobName: "event", errorMessage: "boom", ageLabel: "1h ago" },
+    ]);
+  });
+
+  it("is tolerant to a dlq list failure — health still renders", async () => {
+    const client = makeClient({ listDeadLetterJobs: vi.fn().mockRejectedValue(new Error("dlq down")) });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    await waitFor(() => expect(result.current.data?.dlq.status).toBe("error"));
+    expect(result.current.data?.services).toHaveLength(5);
+  });
+
+  it("treats a missing listDeadLetterJobs method as an empty, ok dlq block", async () => {
+    const client = makeClient();
+    delete (client as Record<string, unknown>).listDeadLetterJobs;
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data?.dlq).toEqual({ status: "ok", jobs: [] });
+  });
+
+  it("replays a dead-letter job and reloads afterward", async () => {
+    const client = makeClient({ replayDeadLetterJob: vi.fn().mockResolvedValue({ replayed: true, id: "dlj_1" }) });
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    const callsBefore = client.getSystemHealth.mock.calls.length;
+
+    const outcome = await result.current.replayDeadLetterJob("dlj_1");
+
+    expect(outcome).toEqual({ ok: true });
+    expect(client.replayDeadLetterJob).toHaveBeenCalledWith("dlj_1");
+    await waitFor(() => expect(client.getSystemHealth.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it("reports a failed replay without reloading", async () => {
+    const client = makeClient({ replayDeadLetterJob: vi.fn().mockRejectedValue(new Error("nope")) });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const outcome = await result.current.replayDeadLetterJob("dlj_1");
+
+    expect(outcome).toEqual({ ok: false, error: "Failed to replay the dead-letter job." });
+  });
+
+  it("deletes a dead-letter job and reloads afterward", async () => {
+    const client = makeClient({ deleteDeadLetterJob: vi.fn().mockResolvedValue(undefined) });
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    const callsBefore = client.getSystemHealth.mock.calls.length;
+
+    const outcome = await result.current.deleteDeadLetterJob("dlj_1");
+
+    expect(outcome).toEqual({ ok: true });
+    await waitFor(() => expect(client.getSystemHealth.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  it("returns an unavailable error when the client has no replay method", async () => {
+    const client = makeClient();
+    delete (client as Record<string, unknown>).replayDeadLetterJob;
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const outcome = await result.current.replayDeadLetterJob("dlj_1");
+
+    expect(outcome).toEqual({ ok: false, error: "Replay is not available in this deployment." });
+  });
+
+  it("loads job detail (payload + actions) on demand", async () => {
+    const client = makeClient({
+      getDeadLetterJob: vi.fn().mockResolvedValue({ deadLetterJob: { id: "dlj_1", payload: { big: "thing" } } }),
+      listDeadLetterJobActions: vi.fn().mockResolvedValue({
+        actions: [
+          { id: "act_1", deadLetterJobId: "dlj_1", queueName: "telemetry", jobName: "event", action: "replayed", actorUserId: "u1", actorEmail: "ops@example.com", metadata: {}, createdAt: "2026-06-23T11:00:00.000Z" },
+        ],
+      }),
+    });
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const detail = await result.current.loadDeadLetterJobDetail("dlj_1");
+
+    expect(detail).toEqual({
+      payload: { big: "thing" },
+      actions: [{ id: "act_1", action: "replayed", actorEmail: "ops@example.com", ageLabel: "1h ago" }],
+    });
+  });
+
+  it("still returns the payload when the actions fetch fails", async () => {
+    const client = makeClient({
+      getDeadLetterJob: vi.fn().mockResolvedValue({ deadLetterJob: { id: "dlj_1", payload: { big: "thing" } } }),
+      listDeadLetterJobActions: vi.fn().mockRejectedValue(new Error("actions down")),
+    });
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const detail = await result.current.loadDeadLetterJobDetail("dlj_1");
+
+    expect(detail).toEqual({ payload: { big: "thing" }, actions: [] });
+  });
+
+  it("returns null detail when the job fetch fails", async () => {
+    const client = makeClient({ getDeadLetterJob: vi.fn().mockRejectedValue(new Error("job down")) });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const detail = await result.current.loadDeadLetterJobDetail("dlj_1");
+
+    expect(detail).toBeNull();
+  });
+
+  it("returns null detail when the client has no getDeadLetterJob method", async () => {
+    const client = makeClient();
+    delete (client as Record<string, unknown>).getDeadLetterJob;
+    const { result } = renderHook(() => useSystemHealth({ client }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const detail = await result.current.loadDeadLetterJobDetail("dlj_1");
+
+    expect(detail).toBeNull();
   });
 });

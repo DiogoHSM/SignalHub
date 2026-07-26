@@ -2410,6 +2410,44 @@ export type SystemActionResponse = {
   generatedAt: string;
 };
 
+export type DeadLetterJobResponse = {
+  id: string;
+  projectId: string | null;
+  environmentId: string | null;
+  queueName: string;
+  jobName: string;
+  payload: unknown;
+  errorMessage: string;
+  createdAt: string;
+};
+
+export type DeadLetterJobActionType = "deleted" | "replayed" | "expired";
+
+export type DeadLetterJobActionResponse = {
+  id: string;
+  deadLetterJobId: string;
+  queueName: string;
+  jobName: string;
+  action: DeadLetterJobActionType;
+  actorUserId: string | null;
+  actorEmail: string;
+  metadata: unknown;
+  createdAt: string;
+};
+
+export type DeadLetterJobListQuery = {
+  limit?: number;
+  cursor?: string;
+  queueName?: string;
+  jobName?: string;
+  error?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  status?: "pending";
+};
+
+export type DeadLetterReplayResult = { replayed: true; id: string };
+
 export type NotificationChannelResponse =
   | {
       id: string;
