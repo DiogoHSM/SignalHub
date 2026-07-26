@@ -572,7 +572,7 @@ describe("IncidentScreen", () => {
       const ctx = makeMockCtx();
       mockUseIncident(MOCK_VM, { setPriority });
       render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^priority(:|$)/i }));
       await userEvent.click(screen.getByRole("button", { name: /^P2$/ }));
       await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not update priority"));
     });
