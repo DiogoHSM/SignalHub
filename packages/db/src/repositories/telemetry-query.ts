@@ -3,7 +3,7 @@ import { sql } from "kysely";
 import { Buffer } from "node:buffer";
 import type { Db } from "../client.js";
 import type { ErrorsTable, EventsTable, LlmCallsTable, SessionReplaysTable, SpansTable, TracesTable } from "../schema.js";
-import { getAnalyticsSegment, getAnalyticsSegmentActorIds } from "./analytics-segments.js";
+import { analyticsSegmentActorFilter, getAnalyticsSegment } from "./analytics-segments.js";
 
 type EventRow = Selectable<EventsTable>;
 type ErrorRow = Selectable<ErrorsTable>;
@@ -1622,11 +1622,7 @@ export async function listEvents(db: Db, filters: TelemetryFilters): Promise<Tel
     if (!segment) {
       return { data: [] };
     }
-    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
-    if (actorIds.length === 0) {
-      return { data: [] };
-    }
-    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+    query = query.where(analyticsSegmentActorFilter(segment, { userRef: "events.user_id", tenantRef: "events.tenant_id" }, filters.to));
   }
   if (cursor) {
     query = query.where(({ and, eb, or }) =>
@@ -1694,10 +1690,9 @@ export async function listSessionReplays(
     });
     if (!segment) return { data: [] };
 
-    const actorIds = await getAnalyticsSegmentActorIds(db, segment, filters.to);
-    if (actorIds.length === 0) return { data: [] };
-
-    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+    query = query.where(
+      analyticsSegmentActorFilter(segment, { userRef: "session_replays.user_id", tenantRef: "session_replays.tenant_id" }, filters.to)
+    );
   }
   if (filters.eventName) {
     query = query.where(({ exists, selectFrom }) =>
@@ -2701,29 +2696,7 @@ export async function getEventPaths(db: Db, filters: EventPathFilters): Promise<
         paths: []
       };
     }
-    const actorIds = await getAnalyticsSegmentActorIds(db, segment, to);
-    if (actorIds.length === 0) {
-      return {
-        window: filters.window,
-        generatedAt: toIso(filters.now ?? new Date()),
-        scope: { projectId: filters.projectId, environmentId: filters.environmentId },
-        range: { from: toIso(from), to: toIso(to) },
-        filters: {
-          startEvent: startEvent ?? null,
-          endEvent: endEvent ?? null,
-          tenantId: filters.tenantId ?? null,
-          userId: filters.userId ?? null,
-          sessionId: filters.sessionId ?? null,
-          traceId: filters.traceId ?? null,
-          segmentId: filters.segmentId,
-          actorType: actorMode,
-          pathLength
-        },
-        totals: { actors: 0, paths: 0, events: 0 },
-        paths: []
-      };
-    }
-    query = segment.actorType === "tenant" ? query.where("tenant_id", "in", actorIds) : query.where("user_id", "in", actorIds);
+    query = query.where(analyticsSegmentActorFilter(segment, { userRef: "events.user_id", tenantRef: "events.tenant_id" }, to));
   }
 
   const rows = await query.execute();

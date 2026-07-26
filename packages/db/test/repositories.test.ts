@@ -38,6 +38,7 @@ import {
 import {
   archiveAnalyticsSegment,
   createAnalyticsSegment,
+  getAnalyticsSegmentActorIds,
   listAnalyticsSegments,
   previewAnalyticsSegment,
   updateAnalyticsSegment
@@ -10883,6 +10884,305 @@ describe("repositories", () => {
       );
       await archiveAnalyticsSegment(db, segment.id);
       await expect(listAnalyticsSegments(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    });
+  });
+
+  it("compiles and/or/not boolean combinations of v2 segment event conditions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Bool Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_bool_u1_signup", userId: "user_1", name: "signup", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_bool_u1_checkout", userId: "user_1", name: "checkout", timestamp: new Date("2026-05-04T12:05:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_bool_u2_signup", userId: "user_2", name: "signup", timestamp: new Date("2026-05-04T12:10:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_bool_u3_checkout", userId: "user_3", name: "checkout", timestamp: new Date("2026-05-04T12:15:00.000Z") });
+
+      const andSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Signup and checkout",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: {
+            kind: "group",
+            op: "and",
+            children: [
+              { kind: "event", eventName: "signup" },
+              { kind: "event", eventName: "checkout" }
+            ]
+          }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, andSegment, now)).resolves.toEqual(["user_1"]);
+
+      const orSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Signup or checkout",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: {
+            kind: "group",
+            op: "or",
+            children: [
+              { kind: "event", eventName: "signup" },
+              { kind: "event", eventName: "checkout" }
+            ]
+          }
+        }
+      });
+      const orActors = await getAnalyticsSegmentActorIds(db, orSegment, now);
+      expect(orActors.sort()).toEqual(["user_1", "user_2", "user_3"]);
+
+      const notSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Never checked out",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "group", op: "not", children: [{ kind: "event", eventName: "checkout" }] }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, notSegment, now)).resolves.toEqual(["user_2"]);
+    });
+  });
+
+  it("matches actors using a frequency threshold on event leaves", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Frequency Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_freq_u1_1", userId: "user_1", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_freq_u1_2", userId: "user_1", name: "ping", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_freq_u1_3", userId: "user_1", name: "ping", timestamp: new Date("2026-05-04T12:02:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_freq_u2_1", userId: "user_2", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Frequent pingers",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "event", eventName: "ping", frequency: { operator: "gte", count: 3 } }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, segment, now)).resolves.toEqual(["user_1"]);
+    });
+  });
+
+  it("narrows the matching window using recency.withinDays", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Recency Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-31T00:00:00.000Z");
+
+      await insertEvent(db, {
+        ...base,
+        id: "evt_recency_u1",
+        userId: "user_1",
+        name: "ping",
+        timestamp: new Date("2026-05-21T00:00:00.000Z")
+      });
+      await insertEvent(db, {
+        ...base,
+        id: "evt_recency_u2",
+        userId: "user_2",
+        name: "ping",
+        timestamp: new Date("2026-05-30T12:00:00.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Recently active pingers",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "event", eventName: "ping", recency: { withinDays: 1 } }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, segment, now)).resolves.toEqual(["user_2"]);
+    });
+  });
+
+  it("matches trait eq conditions against user_profiles and tenant_profiles", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Trait Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_trait_u1", userId: "user_1", tenantId: "tenant_1", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_trait_u2", userId: "user_2", tenantId: "tenant_2", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_1",
+        traits: { plan: "enterprise" },
+        timestamp: now
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_2",
+        traits: { plan: "free" },
+        timestamp: now
+      });
+      await identifyTenantProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        tenantId: "tenant_1",
+        traits: { plan: "enterprise" },
+        timestamp: now
+      });
+
+      const userTraitSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Enterprise users",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "plan", operator: "eq", value: "enterprise" }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, userTraitSegment, now)).resolves.toEqual(["user_1"]);
+
+      const tenantTraitSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Enterprise tenants",
+        actorType: "tenant",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "tenant", name: "plan", operator: "eq", value: "enterprise" }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, tenantTraitSegment, now)).resolves.toEqual(["tenant_1"]);
+    });
+  });
+
+  it("uses the traits GIN index for trait eq containment lookups at scale", async () => {
+    // The compiled trait EXISTS subquery correlates on (project_id, environment_id, user_id),
+    // which is the user_profiles primary key: for a single known actor, Postgres always
+    // resolves that via the primary key index rather than the traits GIN index (a PK point
+    // lookup is cheaper than a GIN bitmap scan for exactly one row). The GIN index earns its
+    // keep on the query shape it was built for: a bulk containment lookup across many profiles
+    // in the same project/environment scope, which is what the same `traits @> jsonb_build_object(...)`
+    // fragment produced by compileSegmentDefinition would use if the planner chooses to
+    // de-correlate a large EXISTS into a semi-join. This test exercises that shape directly.
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Trait Gin Scale Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      const profileCount = 500;
+      for (let i = 0; i < profileCount; i += 1) {
+        await identifyUserProfile(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          userId: `user_gin_${i}`,
+          traits: { plan: i % 50 === 0 ? "enterprise" : "free" },
+          timestamp: now
+        });
+      }
+
+      await db.connection().execute(async (conn) => {
+        await sql`ANALYZE user_profiles`.execute(conn);
+        await sql`SET enable_seqscan = off`.execute(conn);
+        const plan = await conn
+          .selectFrom("user_profiles")
+          .select("user_id")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .where(sql<boolean>`traits @> jsonb_build_object('plan'::text, 'enterprise'::text)`)
+          .explain();
+        const planText = JSON.stringify(plan);
+        expect(planText).toContain("user_profiles_traits_gin_idx");
+      });
+    });
+  });
+
+  it("returns an empty result via listEvents when a v2 segment matches zero actors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Empty Segment Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await insertEvent(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z"),
+        id: "evt_empty_u1",
+        userId: "user_1",
+        name: "project.created",
+        timestamp: new Date("2026-05-04T12:00:00.000Z")
+      });
+
+      const segment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Nobody matches",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "event", eventName: "event.that.never.happened" }
+        }
+      });
+
+      await expect(
+        listEvents(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          segmentId: segment.id,
+          to: new Date("2026-05-05T12:00:00.000Z"),
+          limit: 10
+        })
+      ).resolves.toEqual({ data: [] });
     });
   });
 

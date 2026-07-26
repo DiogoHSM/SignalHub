@@ -28,9 +28,11 @@ import type { AlertRuleRecord, NotificationChannelRecord } from "@sigmon/db/repo
 import type {
   AnalyticsSegmentActorType,
   AnalyticsSegmentDefinition,
+  AnalyticsSegmentDefinitionV2,
   AnalyticsSegmentPreview,
   AnalyticsSegmentRecord
 } from "@sigmon/db/repositories/analytics-segments.js";
+import { SegmentDefinitionError, validateSegmentDefinition } from "@sigmon/db/repositories/analytics-segments.js";
 import type {
   AnalyticsDashboardCategory,
   AnalyticsDashboardFilters,
@@ -557,7 +559,7 @@ const releaseMetadataSchema = z.object({
 });
 
 const analyticsSegmentWindowSchema = z.enum(["24h", "7d", "30d"]);
-const analyticsSegmentDefinitionSchema = z
+const analyticsSegmentDefinitionV1Schema = z
   .object({
     window: analyticsSegmentWindowSchema.default("30d"),
     eventName: z.string().trim().min(1).max(256).optional(),
@@ -572,6 +574,51 @@ const analyticsSegmentDefinitionSchema = z
   });
 
 const analyticsSegmentActorTypeSchema = z.enum(["user", "tenant"]);
+
+// Operator whitelisting is enforced exclusively by compileSegmentDefinition's closed
+// operator map (see analytics-segment-compiler.ts). This schema stays permissive on the
+// operator string so an unknown operator surfaces the compiler's named
+// "segment_invalid_operator" error instead of a generic validation failure.
+const segmentOperatorSchema = z.string().trim().min(1).max(32);
+const segmentLeafValueSchema = z.union([z.string().max(1024), z.number(), z.array(z.string().max(1024)).max(64)]);
+
+const segmentPropertyConditionSchema = z.object({
+  name: z.string().trim().min(1).max(128),
+  operator: segmentOperatorSchema,
+  value: segmentLeafValueSchema.optional()
+});
+
+const segmentEventLeafSchema = z.object({
+  kind: z.literal("event"),
+  eventName: z.string().trim().min(1).max(256).optional(),
+  property: segmentPropertyConditionSchema.optional(),
+  frequency: z.object({ operator: z.string().trim().min(1).max(32), count: z.number().int().min(0) }).optional(),
+  recency: z.object({ withinDays: z.number().int().min(1).max(3650) }).optional()
+});
+
+const segmentTraitLeafSchema = z.object({
+  kind: z.literal("trait"),
+  source: analyticsSegmentActorTypeSchema,
+  name: z.string().trim().min(1).max(128),
+  operator: segmentOperatorSchema,
+  value: segmentLeafValueSchema.optional()
+});
+
+const segmentNodeSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.object({ kind: z.literal("group"), op: z.enum(["and", "or", "not"]), children: z.array(segmentNodeSchema).min(1).max(8) }),
+    segmentEventLeafSchema,
+    segmentTraitLeafSchema
+  ])
+);
+
+const analyticsSegmentDefinitionV2Schema = z.object({
+  version: z.literal(2),
+  window: analyticsSegmentWindowSchema.optional(),
+  root: segmentNodeSchema
+});
+
+const analyticsSegmentDefinitionSchema = z.union([analyticsSegmentDefinitionV2Schema, analyticsSegmentDefinitionV1Schema]);
 
 const analyticsSegmentScopeQuerySchema = z.object({
   project_id: z.string().trim().min(1),
@@ -591,6 +638,28 @@ const updateAnalyticsSegmentSchema = analyticsSegmentSchema
   .omit({ projectId: true, environmentId: true })
   .partial()
   .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
+function isAnalyticsSegmentDefinitionV2(definition: unknown): definition is AnalyticsSegmentDefinitionV2 {
+  return (
+    typeof definition === "object" && definition !== null && (definition as { version?: unknown }).version === 2
+  );
+}
+
+function validateAnalyticsSegmentDefinition(definition: AnalyticsSegmentDefinition | undefined, reply: FastifyReply): boolean {
+  if (!isAnalyticsSegmentDefinitionV2(definition)) {
+    return true;
+  }
+  try {
+    validateSegmentDefinition(definition);
+    return true;
+  } catch (error) {
+    if (error instanceof SegmentDefinitionError) {
+      reply.status(400).send({ error: error.code });
+      return false;
+    }
+    throw error;
+  }
+}
 
 const notificationChannelNameSchema = z.string().trim().min(1).max(256);
 const notificationChannelEmailRecipientsSchema = z.array(z.string().trim().email()).min(1).max(10);
@@ -1995,6 +2064,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_analytics_segment_request" });
     }
 
+    if (!validateAnalyticsSegmentDefinition(parsed.data.definition, reply)) {
+      return reply;
+    }
+
     try {
       const segment = await options.adminResources.analyticsSegments.create(parsed.data);
       return reply.status(201).send({ segment });
@@ -2017,6 +2090,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const parsed = updateAnalyticsSegmentSchema.safeParse(request.body);
     if (!params.success || !parsed.success) {
       return reply.status(400).send({ error: "invalid_analytics_segment_request" });
+    }
+
+    if (!validateAnalyticsSegmentDefinition(parsed.data.definition, reply)) {
+      return reply;
     }
 
     try {
