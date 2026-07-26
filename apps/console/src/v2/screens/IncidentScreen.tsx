@@ -638,7 +638,10 @@ export function IncidentScreen({
         <div style={{ position: "relative" }}>
           <button
             className="sh-btn ghost"
-            aria-label="Priority"
+            // Reflect the current selection so a screen reader announces the
+            // priority state up front, instead of a bare "Priority" that
+            // requires opening the menu to discover the value.
+            aria-label={`Priority: ${vm.priority ?? "none"}`}
             style={{ padding: "2px 6px", gap: 4 }}
             onClick={() => setPriorityOpen((o) => !o)}
           >

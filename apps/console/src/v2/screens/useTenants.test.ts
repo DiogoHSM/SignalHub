@@ -70,6 +70,18 @@ describe("useTenants", () => {
     expect(vm.rows[0].lastSeen).not.toBe("—");
   });
 
+  it("rounds a raw floating-point impact score to at most one decimal in the row VM", async () => {
+    const client = makeClient({
+      listEntityTenants: vi.fn(async () =>
+        listResponse({ tenants: [makeTenant({ tenantId: "tenant_raw", label: "Raw", impactScore: 172.00814425 })] })),
+    });
+    const { result } = renderHook(() =>
+      useTenants({ client, projectId: "p", environmentId: "e", window: "24h", search: "", sort: "impact" }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data!.rows[0].impactScore).toBe(172);
+  });
+
   it("sorts by usage, errors, llmCost, and recent", async () => {
     const client = makeClient();
 

@@ -109,9 +109,19 @@ function DeadLetterRow({
   return (
     <div style={{ borderBottom: "1px solid var(--border-subtle)" }}>
       <div
+        role="button"
+        tabIndex={0}
+        aria-label={`${expanded ? "Collapse" : "Expand"} dead-letter job ${row.jobName} in ${row.queueName} (${row.ageLabel})`}
+        aria-expanded={expanded}
         className="sh-row"
         style={{ gridTemplateColumns: DLQ_GRID, alignItems: "center", cursor: "pointer" }}
         onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
       >
         <span className="sh-mono" style={{ fontSize: 12 }}>{row.queueName}</span>
         <span className="sh-mono" style={{ fontSize: 12 }}>{row.jobName}</span>

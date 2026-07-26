@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompact, formatCompactNumber, formatDurationShort, formatNumber, formatUtcTimestamp, formatClockUtc } from "./format";
+import { formatCompact, formatCompactNumber, formatDurationShort, formatImpactScore, formatNumber, formatUtcTimestamp, formatClockUtc } from "./format";
 
 describe("formatNumber", () => {
   it("formats exact numbers with locale separators", () => {
@@ -63,6 +63,21 @@ describe("formatDurationShort", () => {
   });
   it("formats zero as 0 min", () => {
     expect(formatDurationShort(0)).toBe("0 min");
+  });
+});
+
+describe("formatImpactScore", () => {
+  it("rounds a long floating-point tail to at most one decimal", () => {
+    expect(formatImpactScore(172.00814425)).toBe(172);
+  });
+
+  it("keeps a meaningful single decimal", () => {
+    expect(formatImpactScore(92.449)).toBe(92.4);
+  });
+
+  it("leaves whole numbers unchanged", () => {
+    expect(formatImpactScore(0)).toBe(0);
+    expect(formatImpactScore(50)).toBe(50);
   });
 });
 

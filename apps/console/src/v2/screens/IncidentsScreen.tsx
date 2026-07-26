@@ -89,7 +89,9 @@ function IncidentRow({ row, ctx }: { row: IncidentRowVM; ctx: ScreenCtx }) {
   return (
     <button
       className={`sh-row sh-row--btn sh-stripe ${sevClass}`}
-      aria-label={`opened ${row.openedRelative} ago`}
+      // `openedRelative` already comes from the shared relativeTime() formatter
+      // (e.g. "2d ago"), so it must not be suffixed with another " ago" here.
+      aria-label={`opened ${row.openedRelative}`}
       style={{
         gridTemplateColumns: "1fr",
         display: "block",
@@ -132,7 +134,7 @@ function IncidentRow({ row, ctx }: { row: IncidentRowVM; ctx: ScreenCtx }) {
           <span className="sh-tag mono">{row.incidentNumber}</span>
         ) : null}
         <span className="sh-faint sh-mono" style={{ fontSize: 11 }}>
-          opened {row.openedRelative} ago
+          opened {row.openedRelative}
         </span>
         <div style={{ flex: 1 }} />
         <Assignee assignee={row.assignee} />

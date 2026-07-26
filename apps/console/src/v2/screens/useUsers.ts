@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
 import type { UserListQuery, UserSummary, UserWindow } from "../../api/types";
-import { relativeTime } from "../../components/ui/v2";
+import { formatImpactScore, relativeTime } from "../../components/ui/v2";
 
 // ---------------------------------------------------------------------------
 // View-model types
@@ -90,7 +90,7 @@ function mapRow(user: UserSummary): UserRowVM {
     userId: user.userId,
     label: user.label,
     isAnonymous: user.isAnonymous,
-    impactScore: user.impactScore,
+    impactScore: formatImpactScore(user.impactScore),
     events: user.events,
     errors: user.errors,
     failedTraces: user.failedTraces,

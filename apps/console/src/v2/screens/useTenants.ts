@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
 import type { EntityWindow, TenantSummary } from "../../api/types";
-import { relativeTime } from "../../components/ui/v2";
+import { formatImpactScore, relativeTime } from "../../components/ui/v2";
 
 // ---------------------------------------------------------------------------
 // View-model types
@@ -87,7 +87,7 @@ function buildRow(t: TenantSummary): TenantRowVM {
     label: t.label || t.tenantId || "Unknown tenant",
     isUnassigned: t.isUnassigned,
     keyTraits: Object.entries(t.keyTraits).map(([key, value]) => ({ key, value })),
-    impactScore: t.impactScore,
+    impactScore: formatImpactScore(t.impactScore),
     events: t.events,
     errors: t.errors,
     llmCalls: t.llmCalls,
