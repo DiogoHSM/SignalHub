@@ -7,6 +7,7 @@ import { DEFAULT_EVENT_FILTERS, useEvents } from "./useEvents";
 import { useSegments } from "./useSegments";
 import type { SaveSegmentForm } from "./useSegments";
 import { ConfirmButton, EmptyHint, Icon, PageHead, Segmented } from "../../components/ui/v2";
+import { runMutation } from "../lib/run-mutation";
 
 type Tab = "funnel" | "retention" | "paths" | "clickMap" | "segments" | "properties";
 const TABS: Tab[] = ["funnel", "retention", "paths", "clickMap", "segments", "properties"];
@@ -397,7 +398,12 @@ function SegmentsPanel({ ctx }: { ctx: ScreenCtx }) {
                     <ConfirmButton
                       label={<Icon name="archive" size={13} />}
                       confirmLabel="Confirm"
-                      onConfirm={() => void archive(row.id)}
+                      onConfirm={() =>
+                        void runMutation(() => archive(row.id), {
+                          pushToast: ctx.pushToast,
+                          message: "Could not archive segment",
+                        })
+                      }
                     />
                   </div>
                 </div>
