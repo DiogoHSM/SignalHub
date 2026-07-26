@@ -109,28 +109,11 @@ describe("GitHub Actions CI workflow", () => {
     );
   });
 
-  it("deploys only repository-built EasyPanel app services from manual main dispatches", () => {
-    const deployJob = jobBlock(workflow(), "deploy-easypanel");
+  it("has no hosted deploy job — deploys are handled outside GitHub Actions", () => {
+    const content = workflow();
 
-    expectIncludesAll(deployJob, [
-      "needs: [test, build, compose-config, smoke-compose]",
-      "if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
-      "EASYPANEL_API_DEPLOY_URL: ${{ secrets.EASYPANEL_API_DEPLOY_URL || secrets.EASYPANEL_DEPLOY_URL }}",
-      "EASYPANEL_WORKER_DEPLOY_URL: ${{ secrets.EASYPANEL_WORKER_DEPLOY_URL }}",
-      "EASYPANEL_SCHEDULER_DEPLOY_URL: ${{ secrets.EASYPANEL_SCHEDULER_DEPLOY_URL }}",
-      "trigger_deploy \"API\" \"${EASYPANEL_API_DEPLOY_URL}\"",
-      "trigger_deploy \"worker\" \"${EASYPANEL_WORKER_DEPLOY_URL}\"",
-      "trigger_deploy \"scheduler\" \"${EASYPANEL_SCHEDULER_DEPLOY_URL}\"",
-      "--connect-timeout 15",
-      "--max-time 45",
-      "--retry-all-errors",
-      "grep -qi \"Deploying\"",
-      "deploy hook started but reset the connection after responding",
-      "Code gates passed; re-run this workflow or trigger the deploy manually after EasyPanel is reachable.",
-      "return 0"
-    ]);
-    expect(deployJob).not.toContain("POSTGRES_DEPLOY_URL");
-    expect(deployJob).not.toContain("REDIS_DEPLOY_URL");
+    expect(content).not.toContain("deploy-easypanel:");
+    expect(content).not.toContain("EASYPANEL");
   });
 
   it("publishes the SDK package to public npm only on manual dispatch with Trusted Publishing", () => {
