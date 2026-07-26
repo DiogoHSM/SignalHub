@@ -473,7 +473,11 @@ function TraceListView({
   activeEndpoint,
   onSelectEndpoint,
   onClearEndpoint,
-  onOpen
+  onOpen,
+  tenantId,
+  userId,
+  traceId,
+  onClearFilters
 }: {
   ctx: ScreenCtx;
   traces: TraceListItemVM[];
@@ -486,7 +490,12 @@ function TraceListView({
   onSelectEndpoint: (name: string) => void;
   onClearEndpoint: () => void;
   onOpen: (id: string) => void;
+  tenantId?: string;
+  userId?: string;
+  traceId?: string;
+  onClearFilters: () => void;
 }) {
+  const hasFilters = tenantId != null || userId != null || traceId != null;
   return (
     <>
       <PageHead
@@ -502,6 +511,12 @@ function TraceListView({
         }
         actions={
           <>
+            {hasFilters ? (
+              <button className="sh-btn" onClick={onClearFilters}>
+                <Icon name="x" size={14} />
+                {[tenantId && `tenant: ${tenantId}`, userId && `user: ${userId}`, traceId && `trace: ${traceId}`].filter(Boolean).join(" · ")}
+              </button>
+            ) : null}
             {activeEndpoint ? (
               <button className="sh-btn" onClick={onClearEndpoint}>
                 <Icon name="x" size={14} />
@@ -834,12 +849,33 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   const [selectedTraceId, setSelectedTraceId] = useState<string | undefined>(undefined);
   const [selectedEndpointName, setSelectedEndpointName] = useState<string | null>(null);
 
+  const seed = ctx.pendingFilters?.section === "traces" ? ctx.pendingFilters.filters : null;
+  const [tenantId, setTenantId] = useState<string | undefined>(seed?.tenantId);
+  const [userId, setUserId] = useState<string | undefined>(seed?.userId);
+  const [traceId, setTraceId] = useState<string | undefined>(seed?.traceId);
+
+  // The seed is one-shot: consume it once on mount (the shell remounts this
+  // screen — via the `page` div's `key={seq}` — on every `navigate` call).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { ctx.clearPendingFilters?.(); }, []);
+
   const { data, endpoints, serviceMap, webVitals, runtimeProfiles, totals, status } = useTraces({
     client: ctx.client,
     projectId,
     environmentId,
     endpointName: selectedEndpointName,
+    tenantId,
+    userId,
+    traceId,
   });
+
+  // Auto-open the seeded trace once results filtered by `traceId` arrive.
+  useEffect(() => {
+    if (traceId && data && data.length > 0 && selectedTraceId === undefined) {
+      setSelectedTraceId(data[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [traceId, data]);
 
   if (!ctx.project || !ctx.environment) {
     return (
@@ -894,6 +930,10 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
       }}
       onClearEndpoint={() => setSelectedEndpointName(null)}
       onOpen={setSelectedTraceId}
+      tenantId={tenantId}
+      userId={userId}
+      traceId={traceId}
+      onClearFilters={() => { setTenantId(undefined); setUserId(undefined); setTraceId(undefined); }}
     />
   );
 }

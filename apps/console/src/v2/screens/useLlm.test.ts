@@ -144,4 +144,38 @@ describe("useLlm", () => {
     renderHook(() => useLlm({ client, projectId: undefined, environmentId: undefined, window: "24h" }));
     expect((client as never as { getLlmSummary: { mock: { calls: unknown[] } } }).getLlmSummary.mock.calls.length).toBe(0);
   });
+
+  it("recentCalls is empty when the client doesn't support listLlmCalls", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useLlm({ client, projectId: "p", environmentId: "e", window: "24h" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data!.recentCalls).toEqual([]);
+  });
+
+  it("maps recentCalls from listLlmCalls and forwards the seeded filters", async () => {
+    const listLlmCalls = vi.fn().mockResolvedValue({
+      data: [
+        { id: "call_1", projectId: "p", environmentId: "e", tenantId: "tenant_acme", userId: "user_1", sessionId: null,
+          traceId: null, timestamp: "2026-06-22T00:00:00.000Z", receivedAt: "2026-06-22T00:00:00.000Z", source: null,
+          release: null, metadata: null, provider: "anthropic", model: "claude-3.7", promptName: "fraud_check",
+          inputTokens: 10, outputTokens: 20, costUsd: "0.02", latencyMs: 842, status: "success", error: null,
+          inputPreview: null, outputPreview: null },
+      ],
+    });
+    const client = makeClient({ listLlmCalls });
+    const { result } = renderHook(() =>
+      useLlm({ client, projectId: "p", environmentId: "e", window: "24h", tenantId: "tenant_acme", userId: "user_1" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data!.recentCalls).toEqual([
+      { id: "call_1", timestamp: "2026-06-22T00:00:00.000Z", provider: "anthropic", model: "claude-3.7", promptName: "fraud_check", status: "success", latencyMs: 842, costUsd: 0.02 },
+    ]);
+    expect(listLlmCalls).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant_acme", userId: "user_1" }));
+  });
+
+  it("degrades recentCalls to empty when listLlmCalls fails, without affecting status", async () => {
+    const client = makeClient({ listLlmCalls: vi.fn().mockRejectedValue(new Error("boom")) });
+    const { result } = renderHook(() => useLlm({ client, projectId: "p", environmentId: "e", window: "24h" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data!.recentCalls).toEqual([]);
+  });
 });

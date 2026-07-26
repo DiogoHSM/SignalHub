@@ -28,6 +28,8 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
     onSelectEnvironment: vi.fn(),
     onUpdateProject: vi.fn(),
     navigate: vi.fn(),
+    pendingFilters: null,
+    clearPendingFilters: vi.fn(),
     back: vi.fn(),
     drill: vi.fn(),
     pushToast: vi.fn(),
@@ -61,6 +63,10 @@ const vm: LlmVM = {
       avgLatencyMs: 1800, p95LatencyMs: 3200, errorRate: 0.006, costUsd: 48.21 },
     { promptName: "embedding_doc", model: "text-embed-3", calls: 8104, avgTokens: null,
       avgLatencyMs: 84, p95LatencyMs: 180, errorRate: 0, costUsd: 4.21 },
+  ],
+  recentCalls: [
+    { id: "call_1", timestamp: "2026-06-23T12:41:50.000Z", provider: "anthropic", model: "claude-3.7",
+      promptName: "fraud_check", status: "success", latencyMs: 120, costUsd: 0.0042 },
   ],
 };
 
@@ -155,5 +161,31 @@ describe("LlmScreen", () => {
     mockUseLlm({ ...vm, tenants: [], costByModel: { buckets: [], series: [] } });
     render(<LlmScreen ctx={makeCtx()} />);
     expect(screen.getByText(/no llm cost data/i)).toBeInTheDocument();
+  });
+
+  it("renders the recent-calls table", () => {
+    mockUseLlm(vm);
+    render(<LlmScreen ctx={makeCtx()} />);
+    expect(screen.getByText("Recent calls")).toBeInTheDocument();
+    expect(screen.getByText("anthropic/claude-3.7")).toBeInTheDocument();
+    expect(screen.getByText("fraud_check")).toBeInTheDocument();
+  });
+
+  it("shows an empty hint when there are no recent calls", () => {
+    mockUseLlm({ ...vm, recentCalls: [] });
+    render(<LlmScreen ctx={makeCtx()} />);
+    expect(screen.getByText(/no recent calls/i)).toBeInTheDocument();
+  });
+
+  it("seeds tenant/user filters from ctx.pendingFilters and shows a clearable chip", async () => {
+    const spy = vi.spyOn(useLlmModule, "useLlm").mockReturnValue({ data: vm, status: "ok", reload: vi.fn() });
+    const ctx = makeCtx({ pendingFilters: { section: "llm", filters: { tenantId: "tenant_acme", userId: "user_1" } } });
+    render(<LlmScreen ctx={ctx} />);
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant_acme", userId: "user_1" }));
+    expect(ctx.clearPendingFilters).toHaveBeenCalled();
+    const chip = screen.getByText(/tenant: tenant_acme/i);
+    expect(chip).toBeInTheDocument();
+    await userEvent.click(chip);
+    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ tenantId: undefined, userId: undefined }));
   });
 });

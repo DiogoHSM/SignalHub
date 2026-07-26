@@ -8,6 +8,7 @@ import { ErrorsScreen } from "./ErrorsScreen";
 import { IncidentsScreen } from "./IncidentsScreen";
 import { LlmScreen } from "./LlmScreen";
 import { TracesScreen } from "./TracesScreen";
+import { UsersScreen } from "./UsersScreen";
 import { AlertsScreen } from "./AlertsScreen";
 import { MonitorsScreen } from "./MonitorsScreen";
 import { SystemScreen } from "./SystemScreen";
@@ -19,6 +20,24 @@ export type DrillTarget = "incident" | "tenant";
 export type DrillParams =
   | { groupId: string; errorId?: string }
   | { tenantId: string };
+
+// ─── Navigation filter payload ───────────────────────────────────────────────
+//
+// Sections that accept a filter seed via `navigate(section, filters)`. The
+// receiving screen reads `ctx.pendingFilters` once on mount (the payload is
+// one-shot — see `clearPendingFilters`) and pre-applies it as its initial
+// local filter state. Each filter type mirrors the 1:1 subset of fields the
+// target screen's query already supports (see client.ts `QueryFilters` and
+// `ErrorGroupQuery`).
+export type EventsFilters = { eventName?: string; tenantId?: string; userId?: string; sessionId?: string; traceId?: string };
+export type ErrorsFilters = { tenantId?: string; userId?: string; severity?: string; status?: string };
+export type TracesFilters = { tenantId?: string; userId?: string; sessionId?: string; traceId?: string };
+export type LlmFilters = { tenantId?: string; userId?: string; provider?: string; model?: string; promptName?: string; status?: string };
+
+// PER-436 will add `events: EventsFilters` here once the events section exists.
+export type SectionFilters = { investigate: ErrorsFilters; traces: TracesFilters; llm: LlmFilters };
+export type FilterableSection = keyof SectionFilters;
+export type NavPayload = { [S in FilterableSection]: { section: S; filters: SectionFilters[S] } }[FilterableSection];
 
 // ─── ScreenCtx ───────────────────────────────────────────────────────────────
 
@@ -34,7 +53,11 @@ export type ScreenCtx = {
   onSelectEnvironment: (environment: Environment) => void;
   onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
   onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;
-  navigate: (section: NavSection) => void;
+  navigate: <S extends NavSection>(section: S, filters?: S extends FilterableSection ? SectionFilters[S] : never) => void;
+  /** One-shot filter payload set by the last `navigate(section, filters)` call, or null. */
+  pendingFilters: NavPayload | null;
+  /** Consume `pendingFilters` — call once the receiving screen has seeded its local state. */
+  clearPendingFilters: () => void;
   /** Navigate back to the previous screen. */
   back: () => void;
   /** Drill into a nested screen. */
@@ -73,6 +96,11 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   traces: {
     kind: "v2",
     render: (ctx) => <TracesScreen ctx={ctx} />,
+  },
+
+  users: {
+    kind: "v2",
+    render: (ctx) => <UsersScreen ctx={ctx} />,
   },
 
   alerts: {

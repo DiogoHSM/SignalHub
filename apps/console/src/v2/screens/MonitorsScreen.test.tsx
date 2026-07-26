@@ -44,7 +44,8 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
     project, environment, environments: [environment],
     onCreateEnvironment: vi.fn(), onArchiveProject: vi.fn(), onSecretCreated: vi.fn(),
     onSelectEnvironment: vi.fn(), onUpdateProject: vi.fn(),
-    navigate: vi.fn() as (s: NavSection) => void, back: vi.fn(), drill: vi.fn(), pushToast: vi.fn(),
+    navigate: vi.fn() as (s: NavSection) => void, pendingFilters: null, clearPendingFilters: vi.fn(),
+    back: vi.fn(), drill: vi.fn(), pushToast: vi.fn(),
     ...over,
   };
 }

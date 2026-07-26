@@ -149,6 +149,9 @@ type UseTracesArgs = {
   projectId: string | undefined;
   environmentId: string | undefined;
   endpointName?: string | null;
+  tenantId?: string;
+  userId?: string;
+  traceId?: string;
 };
 
 const RECENT_TRACES_LIMIT = 25;
@@ -250,7 +253,7 @@ function mapRuntimeHotFunction(row: RuntimeProfileHotFunction): RuntimeProfileHo
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useTraces({ client, projectId, environmentId, endpointName }: UseTracesArgs): UseTracesResult {
+export function useTraces({ client, projectId, environmentId, endpointName, tenantId, userId, traceId }: UseTracesArgs): UseTracesResult {
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<TraceListItemVM[] | null>(null);
   const [endpoints, setEndpoints] = useState<ApmEndpointVM[]>([]);
@@ -277,7 +280,10 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
       projectId,
       environmentId,
       limit: RECENT_TRACES_LIMIT,
-      ...(endpointName ? { traceName: endpointName } : {})
+      ...(endpointName ? { traceName: endpointName } : {}),
+      ...(tenantId ? { tenantId } : {}),
+      ...(userId ? { userId } : {}),
+      ...(traceId ? { traceId } : {})
     });
     const apmPromise = client.getApmEndpoints
       ? client.getApmEndpoints({ projectId, environmentId, window: "24h", limit: APM_ENDPOINT_LIMIT }).then((res) => res.data)
@@ -340,7 +346,7 @@ export function useTraces({ client, projectId, environmentId, endpointName }: Us
       ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, environmentId, endpointName, tick]);
+  }, [projectId, environmentId, endpointName, tenantId, userId, traceId, tick]);
 
   return { data, endpoints, serviceMap, webVitals, runtimeProfiles, totals, status, reload };
 }

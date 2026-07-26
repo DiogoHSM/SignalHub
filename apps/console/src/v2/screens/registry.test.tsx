@@ -9,6 +9,7 @@ import * as useErrorsModule from "./useErrors";
 import * as useIncidentsModule from "./useIncidents";
 import * as useLlmModule from "./useLlm";
 import * as useTracesModule from "./useTraces";
+import * as useUsersModule from "./useUsers";
 import * as useAlertsModule from "./useAlerts";
 import * as useSystemHealthModule from "./useSystemHealth";
 import * as useSetupModule from "./useSetup";
@@ -91,6 +92,8 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
     onUpdateProject: vi.fn().mockResolvedValue(undefined),
     onUpdateEnvironment: vi.fn().mockResolvedValue(undefined),
     navigate: vi.fn() as (section: NavSection) => void,
+    pendingFilters: null,
+    clearPendingFilters: vi.fn(),
     back: vi.fn(),
     drill: vi.fn(),
     pushToast: vi.fn(),
@@ -100,7 +103,7 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
 
 describe("screen registry", () => {
   it("has an entry for every nav section", () => {
-    for (const s of ["overview","investigate","incidents","llm","traces","alerts","monitors","system","settings"] as const)
+    for (const s of ["overview","investigate","incidents","llm","traces","users","alerts","monitors","system","settings"] as const)
       expect(SCREENS[s]).toBeDefined();
   });
 
@@ -197,6 +200,23 @@ describe("screen registry", () => {
     });
     const ctx = makeCtx();
     const node = renderSection("traces", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it("routes users to a v2 screen", () => {
+    expect(SCREENS.users.kind).toBe("v2");
+  });
+
+  it("renders the v2 Users screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
+      data: null,
+      status: "loading",
+      reload: vi.fn(),
+    });
+    const ctx = makeCtx();
+    const node = renderSection("users", ctx);
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();

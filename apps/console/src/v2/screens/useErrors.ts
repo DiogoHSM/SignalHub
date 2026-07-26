@@ -59,6 +59,8 @@ type UseErrorsOptions = {
   window: OverviewWindow;
   severity?: string;
   status?: ErrorGroupStatus;
+  tenantId?: string;
+  userId?: string;
 };
 
 export type UseErrorsResult = {
@@ -116,7 +118,9 @@ export function useErrors({
   environmentId,
   window: timeWindow,
   severity,
-  status
+  status,
+  tenantId,
+  userId
 }: UseErrorsOptions): UseErrorsResult {
   const [hookStatus, setHookStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<ErrorsVM | null>(null);
@@ -136,7 +140,9 @@ export function useErrors({
       projectId,
       environmentId,
       ...(severity !== undefined ? { severity } : {}),
-      ...(status !== undefined ? { status } : {})
+      ...(status !== undefined ? { status } : {}),
+      ...(tenantId !== undefined ? { tenantId } : {}),
+      ...(userId !== undefined ? { userId } : {})
     };
 
     Promise.all([
@@ -218,7 +224,7 @@ export function useErrors({
       ++genRef.current;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, environmentId, timeWindow, severity, status, tick]);
+  }, [projectId, environmentId, timeWindow, severity, status, tenantId, userId, tick]);
 
   return { data, status: hookStatus, reload };
 }
