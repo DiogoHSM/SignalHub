@@ -136,9 +136,9 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
   const seed = ctx.pendingFilters?.section === "llm" ? ctx.pendingFilters.filters : null;
   const [tenantId, setTenantId] = useState<string | undefined>(seed?.tenantId);
   const [userId, setUserId] = useState<string | undefined>(seed?.userId);
-  const [provider] = useState<string | undefined>(seed?.provider);
-  const [model] = useState<string | undefined>(seed?.model);
-  const [promptName] = useState<string | undefined>(seed?.promptName);
+  const [provider, setProvider] = useState<string | undefined>(seed?.provider);
+  const [model, setModel] = useState<string | undefined>(seed?.model);
+  const [promptName, setPromptName] = useState<string | undefined>(seed?.promptName);
   const [callStatus, setCallStatus] = useState<string | undefined>(seed?.status);
 
   // The seed is one-shot: consume it once on mount (the shell remounts this
@@ -192,7 +192,8 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
   }
 
   const { kpis, costByModel, tenants, prompts, recentCalls } = data;
-  const hasSeededFilters = tenantId != null || userId != null;
+  const hasSeededFilters =
+    tenantId != null || userId != null || provider != null || model != null || promptName != null;
 
   return (
     <>
@@ -202,9 +203,25 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         actions={
           <>
             {hasSeededFilters ? (
-              <button className="sh-btn" onClick={() => { setTenantId(undefined); setUserId(undefined); setCallStatus(undefined); }}>
+              <button
+                className="sh-btn"
+                onClick={() => {
+                  setTenantId(undefined);
+                  setUserId(undefined);
+                  setCallStatus(undefined);
+                  setProvider(undefined);
+                  setModel(undefined);
+                  setPromptName(undefined);
+                }}
+              >
                 <Icon name="x" size={14} />
-                {[tenantId && `tenant: ${tenantId}`, userId && `user: ${userId}`].filter(Boolean).join(" · ")}
+                {[
+                  tenantId && `tenant: ${tenantId}`,
+                  userId && `user: ${userId}`,
+                  provider && `provider: ${provider}`,
+                  model && `model: ${model}`,
+                  promptName && `prompt: ${promptName}`,
+                ].filter(Boolean).join(" · ")}
               </button>
             ) : null}
             <Segmented
