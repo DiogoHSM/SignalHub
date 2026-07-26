@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-25: Discontinue `AnalyticsDashboardsPanel` instead of porting it to v2
+
+Decision: The v2 Events/Analytics workspace (PER-436) replaces `EventInvestigationPanel.tsx` with the `EventsScreen`/`AnalyticsScreen` v2 screens, but does **not** create a v2 equivalent for `AnalyticsDashboardsPanel.tsx`. `listAnalyticsDashboards`/`createAnalyticsDashboard`/`archiveAnalyticsDashboard`/`getDashboardReport` stay intact on the API client; the v1 component is removed together with the rest of the v1 shell in PER-438.
+
+Rationale: `AnalyticsDashboardsPanel` has no widget editor — `createDashboard` always writes the fixed `starterWidgets` array, so a "custom dashboard" is really an immutable preset. Its `trend.*` widgets render only a summed total (`trendTotal`), a regression compared to the v2 `OverviewScreen`, which already plots `Bars`/`Sparkline` over the same data. Porting it properly would mean designing a real widget builder, which is product scope that belongs to PER-442 (saved trends/insights), not a like-for-like v1→v2 migration.
+
 ## 2026-07-02: Keep messaging campaigns native but measurement-first
 
 Decision: SignalMonitor adds native message campaign definitions, campaign event measurement, and opt-out visibility, but does not yet send messages automatically from the scheduler/worker.

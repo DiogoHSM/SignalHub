@@ -11,6 +11,8 @@ import { TracesScreen } from "./TracesScreen";
 import { AlertsScreen } from "./AlertsScreen";
 import { MonitorsScreen } from "./MonitorsScreen";
 import { SystemScreen } from "./SystemScreen";
+import { EventsScreen } from "./EventsScreen";
+import { AnalyticsScreen } from "./AnalyticsScreen";
 import type { NavSection } from "../nav";
 
 // ─── Drill types ─────────────────────────────────────────────────────────────
@@ -73,6 +75,16 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   traces: {
     kind: "v2",
     render: (ctx) => <TracesScreen ctx={ctx} />,
+  },
+
+  events: {
+    kind: "v2",
+    render: (ctx) => <EventsScreen ctx={ctx} />,
+  },
+
+  analytics: {
+    kind: "v2",
+    render: (ctx) => <AnalyticsScreen ctx={ctx} />,
   },
 
   alerts: {

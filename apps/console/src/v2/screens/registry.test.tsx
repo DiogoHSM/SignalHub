@@ -12,6 +12,9 @@ import * as useTracesModule from "./useTraces";
 import * as useAlertsModule from "./useAlerts";
 import * as useSystemHealthModule from "./useSystemHealth";
 import * as useSetupModule from "./useSetup";
+import * as useEventsModule from "./useEvents";
+import * as useSegmentsModule from "./useSegments";
+import * as useAnalyticsPanelsModule from "./useAnalyticsPanels";
 
 afterEach(cleanup);
 
@@ -100,7 +103,7 @@ function makeCtx(overrides: Partial<ScreenCtx> = {}): ScreenCtx {
 
 describe("screen registry", () => {
   it("has an entry for every nav section", () => {
-    for (const s of ["overview","investigate","incidents","llm","traces","alerts","monitors","system","settings"] as const)
+    for (const s of ["overview","investigate","incidents","llm","traces","events","analytics","alerts","monitors","system","settings"] as const)
       expect(SCREENS[s]).toBeDefined();
   });
 
@@ -200,6 +203,56 @@ describe("screen registry", () => {
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it("routes events to a v2 screen", () => {
+    expect(SCREENS.events.kind).toBe("v2");
+  });
+
+  it("renders the v2 Events screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useEventsModule, "useEvents").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    vi.spyOn(useSegmentsModule, "useSegments").mockReturnValue({
+      data: null,
+      status: "loading",
+      busy: false,
+      reload: vi.fn(),
+      save: vi.fn().mockResolvedValue(true),
+      archive: vi.fn().mockResolvedValue(true),
+    });
+    const ctx = makeCtx();
+    const node = renderSection("events", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    vi.restoreAllMocks();
+  });
+
+  it("routes analytics to a v2 screen", () => {
+    expect(SCREENS.analytics.kind).toBe("v2");
+  });
+
+  it("renders the v2 Analytics screen (not wrapped in the legacy island)", () => {
+    vi.spyOn(useAnalyticsPanelsModule, "useAnalyticsPanels").mockReturnValue({
+      funnel: { state: "idle", data: null, run: vi.fn() },
+      retention: { state: "idle", data: null, run: vi.fn() },
+      paths: { state: "idle", data: null, run: vi.fn() },
+      clickMap: { state: "idle", data: null, run: vi.fn() },
+    });
+    vi.spyOn(useSegmentsModule, "useSegments").mockReturnValue({
+      data: null,
+      status: "loading",
+      busy: false,
+      reload: vi.fn(),
+      save: vi.fn().mockResolvedValue(true),
+      archive: vi.fn().mockResolvedValue(true),
+    });
+    vi.spyOn(useEventsModule, "useEvents").mockReturnValue({ data: null, status: "loading", reload: vi.fn() });
+    const ctx = makeCtx();
+    const node = renderSection("analytics", ctx);
+    const { container } = render(<>{node}</>);
+    expect(container.querySelector(".console-legacy-island")).toBeNull();
+    expect(screen.getByRole("heading", { name: /analytics/i })).toBeInTheDocument();
+    vi.restoreAllMocks();
   });
 
   it("routes alerts to a v2 screen", () => {
