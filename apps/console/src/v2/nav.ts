@@ -8,6 +8,7 @@ export type NavSection =
   | "traces"
   | "alerts"
   | "monitors"
+  | "experiments"
   | "system"
   | "settings";
 
@@ -26,6 +27,7 @@ export const NAV: NavItem[] = [
   { id: "traces",      icon: "waterfall", label: "Traces" },
   { id: "alerts",      icon: "bell",      label: "Alerts" },
   { id: "monitors",    icon: "pulse",     label: "Monitors" },
+  { id: "experiments", icon: "flag",      label: "Experiments" },
 ];
 
 export const NAV_BOTTOM: NavItem[] = [

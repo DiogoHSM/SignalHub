@@ -10,6 +10,7 @@ import { LlmScreen } from "./LlmScreen";
 import { TracesScreen } from "./TracesScreen";
 import { AlertsScreen } from "./AlertsScreen";
 import { MonitorsScreen } from "./MonitorsScreen";
+import { ExperimentsScreen } from "./ExperimentsScreen";
 import { SystemScreen } from "./SystemScreen";
 import type { NavSection } from "../nav";
 
@@ -83,6 +84,11 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
   monitors: {
     kind: "v2",
     render: (ctx) => <MonitorsScreen ctx={ctx} />,
+  },
+
+  experiments: {
+    kind: "v2",
+    render: (ctx) => <ExperimentsScreen ctx={ctx} />,
   },
 
   system: {
