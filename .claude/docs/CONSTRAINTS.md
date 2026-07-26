@@ -18,6 +18,7 @@
 - Cached source-map stack resolutions must be database-bound to the same error scope, artifact scope, release, and minified file.
 - Webhook notification targets must reject local, private, link-local, multicast, loopback, and metadata networks in every environment.
 - External operational calls must be bounded by explicit timeouts or have a documented reason. Retries are allowed only for transient transport, timeout, rate-limit, and server-side failures; deterministic validation, auth, unsafe target, and permanent client errors must fail fast.
+- Internal Postgres reads served by the API must also be bounded: the API's request-serving pool carries a `statement_timeout` (`DB_STATEMENT_TIMEOUT_MS`), separate from the timeout-free pool used for one-time migrations and from the worker's own pool (long-lived rollup/retention/backup jobs default to no timeout). Query shapes whose cost scales with scope (e.g. the event funnel chain) must also have an explicit, configurable cap on that scope, enforced by a cheap pre-check before the expensive query runs, and must fail with a named error rather than degrade Postgres silently.
 - `SESSION_SECRET`, `API_KEY_PEPPER`, and `BOOTSTRAP_ADMIN_PASSWORD` must be at least 32 characters outside tests.
 - Production `POSTGRES_PASSWORD` must be set and must not use the local-only Compose placeholder.
 - API and worker logs must be structured and must redact secret-bearing fields.

@@ -33,6 +33,9 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `SYSTEM_HEALTH_HISTORY_ENABLED` | No | `true` | Non-secret operational config. Enables the worker health-history sampler that records a bounded system_health_samples time-series. |
 | `SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES` | No | `5` | Non-secret operational config. Minutes between health-history samples. |
 | `SYSTEM_HEALTH_HISTORY_RETENTION_HOURS` | No | `48` | Non-secret operational config. Age after which health-history samples are pruned on every sampler run. |
+| `DB_STATEMENT_TIMEOUT_MS` | No | `15000` | Non-secret operational config. Postgres `statement_timeout` (ms) applied to the API's request-serving connection pool; `0` disables it. Migrations run on a separate, timeout-free pool. |
+| `DB_WORKER_STATEMENT_TIMEOUT_MS` | No | `0` | Non-secret operational config. Postgres `statement_timeout` (ms) applied to the worker's connection pool; `0` (default) disables it, since rollups/retention/backups can legitimately run long. |
+| `FUNNEL_MAX_ACTORS` | No | `50000` | Non-secret operational config. Maximum distinct actors allowed into a `GET /query/events/funnel` request before it is rejected with `400 funnel_scope_too_large`; `0` disables the guard. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Yes | `admin@example.com` | Email used by `pnpm seed:admin`. |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Initial admin login password. |
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enables Google OAuth when set to `true` and all Google settings are present. |

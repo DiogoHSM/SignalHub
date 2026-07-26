@@ -138,7 +138,9 @@ Use stable property names and stable value types so dashboards, filters, and fut
 
 ### Conversion funnels
 
-Operators can analyze ordered event funnels with `GET /query/events/funnel`. Funnel analysis is based on stable actor IDs, so send at least one of `user_id`, `tenant_id`, `session_id`, or `trace_id` on product events that should participate in conversion analysis. The whole funnel is aggregated in SQL (no per-actor row data leaves Postgres), so it stays cheap even for large event volumes.
+Operators can analyze ordered event funnels with `GET /query/events/funnel`. Funnel analysis is based on stable actor IDs, so send at least one of `user_id`, `tenant_id`, `session_id`, or `trace_id` on product events that should participate in conversion analysis. The whole funnel is aggregated in SQL (no per-actor row data leaves Postgres) - but the per-step chain is not free: cost grows with the number of distinct actors in scope, so a very large window/step combination on a high-volume project is not automatically cheap.
+
+Two guardrails protect this route: every request is capped by a Postgres `statement_timeout` on the API's connection pool (`DB_STATEMENT_TIMEOUT_MS`, default 15000ms, 0 disables it), and a cheap pre-count of distinct actors matching the requested steps/window rejects requests above a configurable cap (`FUNNEL_MAX_ACTORS`, default 50000, 0 disables it) with `400 { "error": "funnel_scope_too_large" }` before the expensive chain query runs. Narrow the window, add a `segment_id`, or scope by `tenant_id` to bring a request back under the cap.
 
 Optional query params, all backward compatible: `conversion_window` (compact duration like `30m`, `24h`, or `7d`; bounds elapsed time from an actor's first step to each later step, rejecting values that exceed the requested `window`), `breakdown_property` (splits results into up to 20 series by an event property value), `tenant_id` (restricts matched events to one tenant), and `segment_id` (restricts matched actors to a saved analytics segment).
 

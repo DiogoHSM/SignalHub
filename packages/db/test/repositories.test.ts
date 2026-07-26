@@ -159,6 +159,7 @@ import {
   getEventAggregates,
   getEventClickMap,
   getEventFunnel,
+  FunnelScopeTooLargeError,
   getEventPaths,
   getEventPropertyCatalog,
   getEventRetention,
@@ -10363,6 +10364,85 @@ describe("repositories", () => {
 
       expect(scopedBySegment.totals).toMatchObject({ entrants: 1, completed: 1 });
       expect(scopedBySegment.sampleActors.map((actor) => actor.actorId)).toEqual(["user_a1"]);
+    });
+  });
+
+  it("rejects a funnel request whose scope exceeds the configured actor cap (PER-449 guard)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Guard Over Cap" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // Three distinct actors match the step name/window - above a cap of 2, the guard must reject
+      // before the (expensive) chain query ever runs.
+      await insertEvent(db, { ...base, id: "evt_guard_over_u1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_over_u2", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_over_u3", userId: "user_3", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      await expect(
+        getEventFunnel(
+          db,
+          {
+            projectId: project.id,
+            environmentId: environment.id,
+            window: "7d",
+            now: new Date("2026-05-05T12:00:00.000Z"),
+            steps: ["signup.started", "project.created"]
+          },
+          { maxActors: 2 }
+        )
+      ).rejects.toMatchObject({ name: "FunnelScopeTooLargeError", code: "funnel_scope_too_large" });
+      await expect(
+        getEventFunnel(
+          db,
+          {
+            projectId: project.id,
+            environmentId: environment.id,
+            window: "7d",
+            now: new Date("2026-05-05T12:00:00.000Z"),
+            steps: ["signup.started", "project.created"]
+          },
+          { maxActors: 2 }
+        )
+      ).rejects.toBeInstanceOf(FunnelScopeTooLargeError);
+    });
+  });
+
+  it("allows a funnel request whose scope is within the configured actor cap (PER-449 guard)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Guard Within Cap" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_guard_under_u1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_under_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_under_u2", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      const funnel = await getEventFunnel(
+        db,
+        {
+          projectId: project.id,
+          environmentId: environment.id,
+          window: "7d",
+          now: new Date("2026-05-05T12:00:00.000Z"),
+          steps: ["signup.started", "project.created"]
+        },
+        { maxActors: 2 }
+      );
+
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 1 });
     });
   });
 
