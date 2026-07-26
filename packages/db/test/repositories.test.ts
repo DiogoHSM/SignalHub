@@ -10285,6 +10285,53 @@ describe("repositories", () => {
     });
   });
 
+  it("dedupes an actor across multiple breakdown values in totals/steps/sampleActors (PER-448)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Breakdown Dedup" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // user_multi enters the funnel twice within the window, tagged with two different
+      // breakdown values (plan changed between the two "signup.started" firings). Without
+      // dedup, s0 groups by (actor_id, breakdown_value) and this single actor produces two
+      // rows in `chain`, inflating entrants/completed and duplicating the actor in the sample.
+      await insertEvent(db, { ...base, id: "evt_dd_multi_1", userId: "user_multi", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+      await insertEvent(db, { ...base, id: "evt_dd_multi_2", userId: "user_multi", name: "signup.started", timestamp: new Date("2026-05-04T12:00:30.000Z"), properties: { plan: "pro" } });
+      await insertEvent(db, { ...base, id: "evt_dd_multi_3", userId: "user_multi", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "pro" } });
+
+      // user_single enters once, with a single breakdown value, and never completes.
+      await insertEvent(db, { ...base, id: "evt_dd_single_1", userId: "user_single", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        breakdownProperty: "plan"
+      });
+
+      // Correct: 2 distinct actors entered, 1 completed - not 3/2 as a naive count(*)/count(t1)
+      // over the per-breakdown-value chain would report.
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 1, conversionPercent: 50 });
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 2 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 1 })
+      ]);
+
+      // sampleActors must not list the same actorId twice.
+      const actorIds = funnel.sampleActors.map((actor) => actor.actorId);
+      expect(actorIds).toEqual(["user_multi", "user_single"]);
+      expect(new Set(actorIds).size).toBe(actorIds.length);
+    });
+  });
+
   it("ignores events from actors with no identifying key", async () => {
     await withDb(async (db) => {
       await migrate(db);
