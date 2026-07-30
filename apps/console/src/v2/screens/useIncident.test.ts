@@ -182,6 +182,10 @@ const USERS: User[] = [
 function makeClient(overrides: Record<string, unknown> = {}) {
   return {
     getErrorGroupIncident: vi.fn().mockResolvedValue(INCIDENT_RESPONSE),
+    listErrorGroupOccurrences: vi.fn().mockResolvedValue({
+      data: [makeErrorRecord(), makeErrorRecord({ id: "err_2", timestamp: "2026-06-22T11:00:00.000Z" })],
+      cursor: "page_2"
+    }),
     updateErrorGroupTriage: vi
       .fn()
       .mockResolvedValue({ data: makeGroup() }),
@@ -243,6 +247,112 @@ describe("useIncident", () => {
 
     await waitFor(() => expect(result.current.status).toBe("ready"));
     expect(result.current.data).not.toBeNull();
+  });
+
+  it("loads paginated group occurrences and excludes the primary occurrence", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.occurrencesStatus).toBe("ready"));
+    expect(client.listErrorGroupOccurrences).toHaveBeenCalledWith("eg_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      limit: 10
+    });
+    expect(result.current.occurrences.map((item) => item.id)).toEqual(["err_2"]);
+    expect(result.current.occurrencesCursor).toBe("page_2");
+  });
+
+  it("loads the next occurrence page without duplicates", async () => {
+    const client = makeClient({
+      listErrorGroupOccurrences: vi.fn()
+        .mockResolvedValueOnce({ data: [makeErrorRecord({ id: "err_2" })], cursor: "page_2" })
+        .mockResolvedValueOnce({
+          data: [makeErrorRecord({ id: "err_2" }), makeErrorRecord({ id: "err_3" })],
+          cursor: undefined
+        })
+    });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.occurrencesCursor).toBe("page_2"));
+    await act(async () => {
+      await result.current.loadMoreOccurrences();
+    });
+
+    expect(client.listErrorGroupOccurrences).toHaveBeenLastCalledWith("eg_1", {
+      projectId: "prj_1",
+      environmentId: "env_1",
+      limit: 10,
+      cursor: "page_2"
+    });
+    expect(result.current.occurrences.map((item) => item.id)).toEqual(["err_2", "err_3"]);
+    expect(result.current.occurrencesCursor).toBeUndefined();
+  });
+
+  it("retries group occurrences when the incident is reloaded", async () => {
+    const client = makeClient({
+      listErrorGroupOccurrences: vi.fn()
+        .mockRejectedValueOnce(new Error("occurrences unavailable"))
+        .mockResolvedValueOnce({ data: [makeErrorRecord({ id: "err_2" })] })
+    });
+    const { result } = renderHook(() =>
+      useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId: "eg_1",
+        onResolved: vi.fn()
+      })
+    );
+
+    await waitFor(() => expect(result.current.occurrencesStatus).toBe("error"));
+    act(() => result.current.reload());
+
+    await waitFor(() => expect(result.current.occurrencesStatus).toBe("ready"));
+    expect(client.listErrorGroupOccurrences).toHaveBeenCalledTimes(2);
+    expect(result.current.occurrences.map((item) => item.id)).toEqual(["err_2"]);
+  });
+
+  it("ignores stale occurrence responses after the incident scope changes", async () => {
+    let resolveFirst!: (value: { data: ErrorRecord[]; cursor?: string }) => void;
+    const client = makeClient({
+      listErrorGroupOccurrences: vi.fn()
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+        .mockResolvedValueOnce({ data: [makeErrorRecord({ id: "err_fresh", errorGroupId: "eg_2" })] })
+    });
+    const { result, rerender } = renderHook(
+      ({ groupId }) => useIncident({
+        client,
+        projectId: "prj_1",
+        environmentId: "env_1",
+        groupId,
+        onResolved: vi.fn()
+      }),
+      { initialProps: { groupId: "eg_1" } }
+    );
+
+    rerender({ groupId: "eg_2" });
+    await waitFor(() => expect(result.current.occurrences.map((item) => item.id)).toEqual(["err_fresh"]));
+    await act(async () => {
+      resolveFirst({ data: [makeErrorRecord({ id: "err_stale" })] });
+    });
+    expect(result.current.occurrences.map((item) => item.id)).toEqual(["err_fresh"]);
   });
 
   it("transitions to error state on fetch failure", async () => {

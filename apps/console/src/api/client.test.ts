@@ -1655,7 +1655,7 @@ describe("createApiClient", () => {
     );
   });
 
-  it("does not encode event name for event aggregate queries", async () => {
+  it("encodes event name for event aggregate queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: { total: 0 } }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -1666,7 +1666,125 @@ describe("createApiClient", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/query/aggregates/events?project_id=prj_1&environment_id=env_1",
+      "/query/aggregates/events?project_id=prj_1&environment_id=env_1&event_name=checkout.started",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("manages analytics insights and promoted properties", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { insights: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.listAnalyticsInsights?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics/insights?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { insight: { id: "ins_1" } }));
+    await client.createAnalyticsInsight?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Checkout trend",
+      definition: { bucket: "hour", metric: "count", eventName: "checkout.started" }
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics/insights",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "Checkout trend",
+          definition: { bucket: "hour", metric: "count", eventName: "checkout.started" }
+        })
+      })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { insight: { id: "ins_1" } }));
+    await client.updateAnalyticsInsight?.(
+      "ins/1",
+      { projectId: "prj_1", environmentId: "env_1" },
+      { name: "Renamed" }
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics/insights/ins%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Renamed" }) })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await client.archiveAnalyticsInsight?.("ins/1", { projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics/insights/ins%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { properties: [] }));
+    await client.listPromotedEventProperties?.({ projectId: "prj_1", environmentId: "env_1" });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics/promoted-properties?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { property: { id: "prop_1" } }));
+    await client.promoteEventProperty?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      property: "plan",
+      displayName: "Plan"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics/promoted-properties",
+      expect.objectContaining({ method: "POST" })
+    );
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await client.archivePromotedEventProperty?.("prop/1", {
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/admin/analytics/promoted-properties/prop%2F1?project_id=prj_1&environment_id=env_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("previews explicit and saved analytics trends", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () =>
+      jsonResponse(200, { data: { buckets: [], series: [] } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createApiClient("/api");
+
+    await client.queryAnalyticsTrend?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      from: "2026-07-29T00:00:00.000Z",
+      to: "2026-07-30T00:00:00.000Z",
+      bucket: "hour",
+      metric: "count",
+      eventName: "checkout.started",
+      breakdownProperty: "plan",
+      filters: [
+        { property: "country", operator: "neq", value: "US" },
+        { property: "trial", operator: "not_exists" }
+      ]
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/analytics/trends?project_id=prj_1&environment_id=env_1&from=2026-07-29T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z&bucket=hour&metric=count&event_name=checkout.started&breakdown_property=plan&filters=%5B%7B%22property%22%3A%22country%22%2C%22operator%22%3A%22neq%22%2C%22value%22%3A%22US%22%7D%2C%7B%22property%22%3A%22trial%22%2C%22operator%22%3A%22not_exists%22%7D%5D",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    await client.queryAnalyticsTrend?.({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      insightId: "ins/1",
+      from: new Date("2026-07-01T00:00:00.000Z"),
+      to: new Date("2026-07-30T00:00:00.000Z")
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/query/analytics/trends?project_id=prj_1&environment_id=env_1&from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z&insight_id=ins%2F1",
       expect.objectContaining({ method: "GET" })
     );
   });
@@ -2349,6 +2467,37 @@ describe("createApiClient", () => {
       4,
       "/api/admin/projects/prj%2F1/code-integrations/cint%2F1",
       expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("loads fleet environments lazily for one project", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {
+      data: { projectId: "prj/1", envs: [] }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").fetchFleetProjectEnvironments!("prj/1", { window: "7d" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/fleet/projects/prj%2F1/environments?window=7d",
+      expect.objectContaining({ method: "GET", credentials: "include" })
+    );
+  });
+
+  it("lists paginated error-group occurrences with the selected scope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { data: [], cursor: "next_2" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createApiClient("/api").listErrorGroupOccurrences!("egrp/1", {
+      projectId: "prj/1",
+      environmentId: "env 1",
+      limit: 10,
+      cursor: "page/2"
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/query/error-groups/egrp%2F1/errors?project_id=prj%2F1&environment_id=env+1&limit=10&cursor=page%2F2",
+      expect.objectContaining({ method: "GET", credentials: "include" })
     );
   });
 

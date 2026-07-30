@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OverviewVM } from "./useOverview";
@@ -12,6 +12,83 @@ import type { ScreenCtx } from "./registry";
 
 const ALL_CLEAR_VM: OverviewVM = {
   banner: { incidents: 0, alerts: 0, top: null },
+  operations: {
+    posture: {
+      status: "degraded",
+      monitors: { total: 6, up: 2, down: 1, degraded: 0, paused: 1, unknown: 2 },
+      alerts: { enabledRules: 5, events: 2, critical: 1, deliveryFailed: 0 },
+      setupGaps: [
+        { key: "heartbeat_monitor", label: "No heartbeat monitor", severity: "warning", destination: "monitors" },
+        { key: "notification_channel", label: "No notification channel", severity: "warning", destination: "alerts" },
+      ],
+    },
+    recommendedActions: [
+      {
+        key: "prediction-risk",
+        title: "Act on critical predicted risk",
+        description: "Checkout reliability risk: 88% probability with high confidence.",
+        action: "Open traces",
+        tone: "critical",
+        destination: "traces",
+      },
+      {
+        key: "incidents",
+        title: "Investigate active incidents",
+        description: "3 active incidents, including 1 high priority.",
+        action: "Open incident",
+        tone: "warning",
+        destination: "incident",
+        groupId: "egrp_checkout",
+        errorId: "err_checkout",
+      },
+    ],
+    predictions: [
+      {
+        id: "risk",
+        label: "Checkout reliability risk",
+        severity: "critical",
+        score: 0.91,
+        confidence: "high",
+        probabilityPercent: 88,
+        baselineRiskScore: 0.31,
+        delta: 0.6,
+        sampleSize: 44,
+        baselineSampleSize: 39,
+        method: "weighted operational signals",
+        destination: "traces",
+        factors: [
+          {
+            key: "latency",
+            label: "Trace latency",
+            impact: "negative",
+            weight: 0.7,
+            observedValue: 860,
+            baselineValue: 420,
+            reason: "Latency is materially above baseline.",
+          },
+        ],
+      },
+    ],
+    anomalies: [
+      {
+        id: "latency",
+        label: "Checkout latency increased",
+        severity: "critical",
+        observedValue: 860,
+        baselineValue: 420,
+        changePercent: 104.76,
+        sampleSize: 44,
+        baselineSampleSize: 39,
+        threshold: "p95 is at least 50% above baseline",
+        reason: "Checkout p95 more than doubled.",
+        suggestedAlertRuleType: "trace_p95_latency",
+        destination: "traces",
+      },
+    ],
+    topLatency: [
+      { name: "POST /checkout", p95TraceDurationMs: 860, traces: 44, failedTraces: 3 },
+    ],
+  },
   kpis: {
     events: 5000,
     activeUsers: 42,
@@ -114,6 +191,146 @@ afterEach(() => {
 });
 
 describe("OverviewScreen", () => {
+  describe("operations home", () => {
+    it("identifies the promoted screen as Operations", () => {
+      mockUseOverview(ALL_CLEAR_VM);
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByRole("heading", { name: "Operations" })).toBeInTheDocument();
+    });
+
+    it("renders monitor, alert, and setup posture with intentional drilldowns", async () => {
+      mockUseOverview(ALL_CLEAR_VM);
+      const navigate = vi.fn();
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+
+      expect(screen.getByRole("region", { name: "Operational posture" })).toBeInTheDocument();
+      expect(screen.getByText("2 up, 1 down, 0 degraded")).toBeInTheDocument();
+      expect(screen.getByText("1 paused, 2 unknown")).toBeInTheDocument();
+      expect(screen.getByText("5 enabled rules, 1 critical, 0 delivery failures")).toBeInTheDocument();
+      expect(screen.getByText("No heartbeat monitor")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: /open monitors/i }));
+      expect(navigate).toHaveBeenCalledWith("monitors");
+      await userEvent.click(screen.getByRole("button", { name: /no notification channel/i }));
+      expect(navigate).toHaveBeenCalledWith("alerts");
+    });
+
+    it("renders no-setup-gap posture without hiding monitor and alert state", () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: {
+          ...ALL_CLEAR_VM.operations,
+          posture: { ...ALL_CLEAR_VM.operations.posture, setupGaps: [] },
+        },
+      });
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByText("Setup complete")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /open monitors/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /open alerts/i })).toBeInTheDocument();
+    });
+
+    it("renders at most four recommended actions and routes incident detail", async () => {
+      const extraActions = Array.from({ length: 4 }, (_, index) => ({
+        key: `extra-${index}`,
+        title: `Extra action ${index}`,
+        description: "Should be bounded by the screen.",
+        action: "Open alerts",
+        tone: "warning" as const,
+        destination: "alerts" as const,
+      }));
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: {
+          ...ALL_CLEAR_VM.operations,
+          recommendedActions: [...ALL_CLEAR_VM.operations.recommendedActions, ...extraActions],
+        },
+      });
+      const ctx = makeMockCtx();
+      render(<OverviewScreen ctx={ctx} navigate={vi.fn()} />);
+
+      expect(screen.getAllByTestId("recommended-action")).toHaveLength(4);
+      await userEvent.click(screen.getByRole("button", { name: /investigate active incidents/i }));
+      expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "egrp_checkout", errorId: "err_checkout" });
+    });
+
+    it("renders explainable predictive risk, anomaly, and latency details", async () => {
+      mockUseOverview(ALL_CLEAR_VM);
+      const navigate = vi.fn();
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+
+      expect(screen.getByRole("region", { name: "Predictive risk" })).toHaveTextContent("88% probability");
+      expect(screen.getByRole("region", { name: "Predictive risk" })).toHaveTextContent("44 / 39 samples");
+      expect(screen.getByText("Latency is materially above baseline.")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("Observed 860");
+      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("Baseline 420");
+      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("+104.8%");
+      expect(screen.getByRole("region", { name: "Top latency" })).toHaveTextContent("POST /checkout");
+
+      await userEvent.click(screen.getByRole("button", { name: "Open traces" }));
+      expect(navigate).toHaveBeenCalledWith("traces");
+    });
+
+    it("opens error-directed predictions without an invalid risk severity filter", async () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: {
+          ...ALL_CLEAR_VM.operations,
+          predictions: [{ ...ALL_CLEAR_VM.operations.predictions[0], severity: "high", destination: "investigate" }],
+        },
+      });
+      const ctx = makeMockCtx();
+      render(<OverviewScreen ctx={ctx} navigate={ctx.navigate} />);
+
+      await userEvent.click(within(screen.getByRole("region", { name: "Predictive risk" })).getByRole("button", { name: "Open" }));
+
+      expect(ctx.navigate).toHaveBeenCalledWith("investigate", { status: "open" });
+    });
+
+    it("routes recommended alert-rule reviews to Alerts", async () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: {
+          ...ALL_CLEAR_VM.operations,
+          recommendedActions: [{
+            key: "anomaly-rule",
+            title: "Review detected anomaly",
+            description: "Latency crossed the learned threshold.",
+            action: "Review alert rule",
+            tone: "warning",
+            destination: "alerts",
+          }],
+        },
+      });
+      const navigate = vi.fn();
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+
+      await userEvent.click(screen.getByRole("button", { name: "Review detected anomaly" }));
+
+      expect(navigate).toHaveBeenCalledWith("alerts");
+    });
+
+    it("renders robust empty states for operational recommendations and signals", () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: {
+          ...ALL_CLEAR_VM.operations,
+          recommendedActions: [],
+          predictions: [],
+          anomalies: [],
+          topLatency: [],
+        },
+      });
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByText("No urgent actions")).toBeInTheDocument();
+      expect(screen.getByText("No predictive risk")).toBeInTheDocument();
+      expect(screen.getByText("No anomalies detected")).toBeInTheDocument();
+      expect(screen.getByText("No trace latency in this window")).toBeInTheDocument();
+    });
+  });
+
   describe("banner", () => {
     it("renders incident banner when incidents > 0", () => {
       mockUseOverview(INCIDENT_VM);

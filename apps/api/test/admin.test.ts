@@ -6,6 +6,7 @@ import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
 import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
+import { EventPropertyNotPromotedError } from "../../../packages/db/src/repositories/analytics-insights.js";
 import type { ExperimentRecord } from "../../../packages/db/src/repositories/experiments.js";
 import type {
   FeatureFlagAuditRecord,
@@ -29,6 +30,7 @@ import type {
   ReleaseMetadataRecord
 } from "../../../packages/db/src/repositories/code-integrations.js";
 import type { FeedbackWidgetSettings } from "../../../packages/db/src/repositories/feedback-widget.js";
+import { AdminUserInvariantError } from "../../../packages/db/src/repositories/users.js";
 import { buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
@@ -861,6 +863,78 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("creates console users as administrators and rejects explicit operator accounts", async () => {
+    const createUser = vi.fn(async (input) => ({ id: "usr_2", email: input.email, isAdmin: input.isAdmin }));
+    app = await buildApp({ readiness, auth: adminAuth, users: { createUser } });
+
+    const defaultAdmin = await app.inject({
+      method: "POST",
+      url: "/admin/users",
+      payload: { email: "admin-2@example.com", password: "temporary-password" }
+    });
+    const operator = await app.inject({
+      method: "POST",
+      url: "/admin/users",
+      payload: { email: "operator@example.com", password: "temporary-password", isAdmin: false }
+    });
+
+    expect(defaultAdmin.statusCode).toBe(201);
+    expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ isAdmin: true }));
+    expect(operator.statusCode).toBe(400);
+    expect(operator.json()).toEqual({ error: "console_users_must_be_admins" });
+    expect(createUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents the current administrator from demoting or archiving themselves", async () => {
+    const updateUser = vi.fn();
+    const archiveUser = vi.fn();
+    app = await buildApp({ readiness, auth: adminAuth, users: { updateUser, archiveUser } });
+
+    const demote = await app.inject({
+      method: "PATCH",
+      url: "/admin/users/usr_1",
+      payload: { isAdmin: false }
+    });
+    const archive = await app.inject({ method: "DELETE", url: "/admin/users/usr_1" });
+
+    expect(demote.statusCode).toBe(409);
+    expect(demote.json()).toEqual({ error: "cannot_demote_current_admin" });
+    expect(archive.statusCode).toBe(409);
+    expect(archive.json()).toEqual({ error: "cannot_archive_current_admin" });
+    expect(updateUser).not.toHaveBeenCalled();
+    expect(archiveUser).not.toHaveBeenCalled();
+  });
+
+  it("returns repository admin-invariant conflicts with a stable API contract", async () => {
+    const updateUser = vi.fn(async (id: string) => {
+      throw new AdminUserInvariantError(id === "usr_2" ? "last_active_admin" : "console_users_must_be_admins");
+    });
+    const archiveUser = vi.fn(async () => { throw new AdminUserInvariantError("last_active_admin"); });
+    app = await buildApp({ readiness, auth: adminAuth, users: { updateUser, archiveUser } });
+
+    const demote = await app.inject({
+      method: "PATCH",
+      url: "/admin/users/usr_2",
+      payload: { isAdmin: false }
+    });
+    const archive = await app.inject({ method: "DELETE", url: "/admin/users/usr_2" });
+    const unsupportedDemotion = await app.inject({
+      method: "PATCH",
+      url: "/admin/users/usr_3",
+      payload: { isAdmin: false }
+    });
+
+    expect(demote.statusCode).toBe(409);
+    expect(demote.json()).toEqual({ error: "last_active_admin" });
+    expect(archive.statusCode).toBe(409);
+    expect(archive.json()).toEqual({ error: "last_active_admin" });
+    expect(unsupportedDemotion.statusCode).toBe(400);
+    expect(unsupportedDemotion.json()).toEqual({ error: "console_users_must_be_admins" });
+    expect(updateUser).toHaveBeenCalledWith("usr_2", { isAdmin: false }, { actorUserId: "usr_1" });
+    expect(updateUser).toHaveBeenCalledWith("usr_3", { isAdmin: false }, { actorUserId: "usr_1" });
+    expect(archiveUser).toHaveBeenCalledWith("usr_2", { actorUserId: "usr_1" });
+  });
+
   it("rejects unsafe webhook notification-channel URLs in development", async () => {
     const alerts = {
       listNotificationChannels: vi.fn(async () => []),
@@ -1116,6 +1190,33 @@ describe("admin routes", () => {
     const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/projects/prj_1/code-integrations/cint_1" });
     expect(deleteResponse.statusCode).toBe(204);
     expect(revoke).toHaveBeenCalledWith({ projectId: "prj_1", integrationId: "cint_1" });
+  });
+
+  it("rejects release metadata linked to another project's code integration", async () => {
+    const upsertReleaseMetadata = vi.fn(async () => {
+      throw new Error("code_integration_not_found");
+    });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        codeIntegrations: {
+          list: vi.fn(async () => []),
+          create: vi.fn(),
+          revoke: vi.fn(),
+          upsertReleaseMetadata,
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/release-metadata",
+      payload: { environmentId: "env_1", release: "web@2.0.0", integrationId: "cint_other" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "code_integration_not_found" });
   });
 
   it("manages analytics segments for admins", async () => {
@@ -1452,7 +1553,7 @@ describe("admin routes", () => {
     expect(archive).toHaveBeenCalledWith({ id: "dash_1", projectId: "prj_1", environmentId: "env_1" });
   });
 
-  it("rejects dashboards with fewer than three widgets", async () => {
+  it("accepts a focused dashboard with one widget", async () => {
     const create = vi.fn(async () => analyticsDashboard());
 
     app = await buildApp({
@@ -1474,14 +1575,382 @@ describe("admin routes", () => {
       payload: {
         projectId: "prj_1",
         environmentId: "env_1",
-        name: "Too small",
+        name: "Focused operations",
+        widgets: [{ type: "metric.events", title: "Events", width: "half", options: {} }]
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Focused operations",
+      widgets: [expect.objectContaining({ type: "metric.events" })]
+    }));
+  });
+
+  it("rejects dashboard filters that reports cannot evaluate", async () => {
+    const create = vi.fn(async () => analyticsDashboard());
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsDashboards: { list: async () => [], create, update: async () => undefined, archive: async () => undefined }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-dashboards",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Unsupported segment",
+        filters: { window: "7d", segmentId: "seg_1" },
         widgets: [{ type: "metric.events", title: "Events", width: "half", options: {} }]
       }
     });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "invalid_analytics_dashboard_request" });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("accepts insight widgets only when they reference a saved insight", async () => {
+    const create = vi.fn(async (input) => analyticsDashboard(input));
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsDashboards: { list: async () => [], create, update: async () => undefined, archive: async () => undefined }
+      }
+    });
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-dashboards",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Activation",
+        widgets: [{ type: "insight", title: "Activation trend", width: "full", options: { insightId: "ins_1" } }]
+      }
+    });
+    expect(valid.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      widgets: [expect.objectContaining({ type: "insight", options: { insightId: "ins_1" } })]
+    }));
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/admin/analytics-dashboards",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Broken",
+        widgets: [{ type: "insight", title: "Missing reference", width: "half", options: {} }]
+      }
+    });
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  it("manages analytics insights for admins with scoped mutations", async () => {
+    const insight = {
+      id: "ins_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Checkout trend",
+      description: null,
+      definition: { bucket: "hour" as const, metric: "count" as const, eventName: "checkout.started" },
+      createdAt: new Date("2026-07-30T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-30T00:00:00.000Z"),
+      archivedAt: null
+    };
+    const list = vi.fn(async () => [insight]);
+    const create = vi.fn(async () => insight);
+    const update = vi.fn(async () => ({ ...insight, name: "Renamed" }));
+    const archive = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsInsights: {
+          list,
+          create,
+          update,
+          archive,
+          listProperties: async () => [],
+          promoteProperty: async () => ({
+            id: "prop_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            property: "plan",
+            displayName: "Plan",
+            indexName: "analytics_event_property_plan",
+            indexStatus: "ready",
+            indexError: null,
+            indexedAt: new Date("2026-07-30T00:00:00.000Z"),
+            createdAt: new Date("2026-07-30T00:00:00.000Z"),
+            updatedAt: new Date("2026-07-30T00:00:00.000Z"),
+            archivedAt: null
+          }),
+          archiveProperty: async () => undefined
+        }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics/insights?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(list).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+    expect(listResponse.json()).toEqual({
+      insights: [
+        expect.objectContaining({
+          id: "ins_1",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "Checkout trend",
+          createdAt: "2026-07-30T00:00:00.000Z"
+        })
+      ]
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/analytics/insights",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Checkout trend",
+        definition: { bucket: "hour", metric: "count", eventName: "checkout.started" }
+      }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(create).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: "Checkout trend",
+      definition: { bucket: "hour", metric: "count", eventName: "checkout.started" }
+    });
+
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/analytics/insights/ins_1?project_id=prj_1&environment_id=env_1",
+      payload: { name: "Renamed" }
+    });
+    expect(updateResponse.statusCode).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      id: "ins_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      patch: { name: "Renamed" }
+    });
+
+    const archiveResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/analytics/insights/ins_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(archiveResponse.statusCode).toBe(204);
+    expect(archive).toHaveBeenCalledWith({ id: "ins_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("manages promoted event properties for admins within a scope", async () => {
+    const property = {
+      id: "prop_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      property: "plan",
+      displayName: "Plan",
+      indexName: "analytics_event_property_plan",
+      indexStatus: "ready" as const,
+      indexError: null,
+      indexedAt: new Date("2026-07-30T00:00:00.000Z"),
+      createdAt: new Date("2026-07-30T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-30T00:00:00.000Z"),
+      archivedAt: null
+    };
+    const listProperties = vi.fn(async () => [property]);
+    const promoteProperty = vi.fn(async () => property);
+    const archiveProperty = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsInsights: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("unused");
+          },
+          update: async () => undefined,
+          archive: async () => undefined,
+          listProperties,
+          promoteProperty,
+          archiveProperty
+        }
+      }
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/admin/analytics/promoted-properties?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listProperties).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/analytics/promoted-properties",
+      payload: { projectId: "prj_1", environmentId: "env_1", property: "plan", displayName: "Plan" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect(promoteProperty).toHaveBeenCalledWith({
+      projectId: "prj_1",
+      environmentId: "env_1",
+      property: "plan",
+      displayName: "Plan"
+    });
+
+    const archiveResponse = await app.inject({
+      method: "DELETE",
+      url: "/admin/analytics/promoted-properties/prop_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(archiveResponse.statusCode).toBe(204);
+    expect(archiveProperty).toHaveBeenCalledWith({
+      id: "prop_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+  });
+
+  it("reports a conflict when a promoted property is still used by an insight", async () => {
+    const inUse = Object.assign(new Error("event_property_in_use"), { name: "EventPropertyInUseError" });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsInsights: {
+          list: async () => [],
+          create: async () => { throw new Error("unused"); },
+          update: async () => undefined,
+          archive: async () => undefined,
+          listProperties: async () => [],
+          promoteProperty: async () => { throw new Error("unused"); },
+          archiveProperty: async () => { throw inUse; }
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/admin/analytics/promoted-properties/prop_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "event_property_in_use" });
+  });
+
+  it("returns structured authorization, validation, not-found, and capability errors for analytics insights", async () => {
+    app = await buildApp({ readiness, auth: userAuth });
+    const forbidden = await app.inject({
+      method: "GET",
+      url: "/admin/analytics/insights?project_id=prj_1&environment_id=env_1"
+    });
+    expect(forbidden.statusCode).toBe(403);
+    expect(forbidden.json()).toEqual({ error: "admin_required" });
+
+    await app.close();
+    app = await buildApp({ readiness, auth: adminAuth });
+    const unavailable = await app.inject({
+      method: "GET",
+      url: "/admin/analytics/insights?project_id=prj_1&environment_id=env_1"
+    });
+    expect(unavailable.statusCode).toBe(501);
+    expect(unavailable.json()).toEqual({ error: "analytics_insights_repository_unavailable" });
+
+    await app.close();
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsInsights: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("unused");
+          },
+          update: async () => null,
+          archive: async () => undefined,
+          listProperties: async () => [],
+          promoteProperty: async () => {
+            throw new Error("unused");
+          },
+          archiveProperty: async () => undefined
+        }
+      }
+    });
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/admin/analytics/insights",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Invalid",
+        definition: { bucket: "minute", metric: "count" }
+      }
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toEqual({ error: "invalid_analytics_insight_request" });
+
+    const missing = await app.inject({
+      method: "PATCH",
+      url: "/admin/analytics/insights/missing?project_id=prj_1&environment_id=env_1",
+      payload: { name: "Renamed" }
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({ error: "analytics_insight_not_found" });
+
+    const invalidProperty = await app.inject({
+      method: "POST",
+      url: "/admin/analytics/promoted-properties",
+      payload: { projectId: "prj_1", environmentId: "env_1", property: "not valid!" }
+    });
+    expect(invalidProperty.statusCode).toBe(400);
+    expect(invalidProperty.json()).toEqual({ error: "invalid_promoted_event_property_request" });
+  });
+
+  it("returns a structured 400 when an insight uses an unpromoted breakdown", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        analyticsInsights: {
+          list: async () => [],
+          create: async () => {
+            throw new EventPropertyNotPromotedError("plan");
+          },
+          update: async () => undefined,
+          archive: async () => undefined,
+          listProperties: async () => [],
+          promoteProperty: async () => {
+            throw new Error("unused");
+          },
+          archiveProperty: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/analytics/insights",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "By plan",
+        definition: { bucket: "day", metric: "count", breakdownProperty: "plan" }
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "breakdown_property_not_promoted" });
   });
 
   it("manages experiments for admins with scoped mutations", async () => {
@@ -2113,7 +2582,7 @@ describe("admin routes", () => {
         name: "Warehouse prod",
         destinationType: "postgres",
         connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
-        datasets: ["events", "traces"],
+        datasets: ["events", "traces", "userProfiles", "tenantProfiles"],
         batchSize: 1000,
         enabled: true
       }
@@ -2125,11 +2594,25 @@ describe("admin routes", () => {
       name: "Warehouse prod",
       destinationType: "postgres",
       connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
-      datasets: ["events", "traces"],
+      datasets: ["events", "traces", "userProfiles", "tenantProfiles"],
       batchSize: 1000,
       enabled: true
     });
     expect(createResponse.body).not.toContain("secret");
+
+    const invalidDatasetResponse = await app.inject({
+      method: "POST",
+      url: "/admin/warehouse-destinations",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Invalid warehouse",
+        destinationType: "postgres",
+        connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
+        datasets: ["events", "userAccounts"]
+      }
+    });
+    expect(invalidDatasetResponse.statusCode).toBe(400);
 
     const patchResponse = await app.inject({
       method: "PATCH",

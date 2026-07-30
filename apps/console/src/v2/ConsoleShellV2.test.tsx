@@ -17,6 +17,7 @@ const ADMIN_USER: User = { id: "usr_1", email: "jane.doe@example.com", isAdmin: 
 const PROJECT_1 = { id: "prj_1", name: "Acme Prod", createdAt: "", updatedAt: "", archivedAt: null };
 const PROJECT_2 = { id: "prj_2", name: "Acme Staging", createdAt: "", updatedAt: "", archivedAt: null };
 const ENV_1 = { id: "env_1", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
+const ENV_2 = { id: "env_2", projectId: "prj_2", name: "staging", createdAt: "", updatedAt: "", archivedAt: null };
 
 function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
@@ -82,6 +83,7 @@ function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
 
 beforeEach(() => {
   localStorage.clear();
+  window.history.replaceState({}, "", "/console/overview");
 });
 
 afterEach(() => {
@@ -93,6 +95,119 @@ afterEach(() => {
 // ─── tests ──────────────────────────────────────────────────────────────────
 
 describe("ConsoleShellV2", () => {
+  it("opens a canonical section URL directly", async () => {
+    window.history.replaceState({}, "", "/console/traces?project_id=prj_2&environment_id=env_2");
+    const listTraces = vi.fn().mockResolvedValue({ data: [] });
+    const client = makeClient({
+      listTraces,
+      listEnvironments: vi.fn((projectId: string) => Promise.resolve({
+        environments: projectId === "prj_2" ? [ENV_2] : [ENV_1],
+      })),
+    });
+
+    render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+
+    expect(await screen.findByRole("heading", { name: "Traces" })).toBeInTheDocument();
+    await waitFor(() => expect(listTraces).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "prj_2",
+      environmentId: "env_2",
+    })));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem("sh_v2_state") ?? "{}")).toMatchObject({
+      projectId: "prj_2",
+      environmentId: "env_2",
+    }));
+  });
+
+  it("replaces an invalid route with the scoped overview fallback", async () => {
+    window.history.replaceState({}, "", "/console/not-real?project_id=prj_1&environment_id=env_1");
+
+    render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+    expect(await screen.findByRole("heading", { name: "Operations" })).toBeInTheDocument();
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe(
+      "/console/overview?project_id=prj_1&environment_id=env_1",
+    ));
+  });
+
+  it("pushes canonical scoped section URLs and restores them with browser back and forward", async () => {
+    const user = userEvent.setup();
+    render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    await user.click(screen.getByTitle("Settings"));
+    await waitFor(() => expect(window.location.pathname).toBe("/console/settings"));
+    expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_1");
+
+    await user.click(screen.getByTitle("Traces"));
+    await waitFor(() => expect(window.location.pathname).toBe("/console/traces"));
+
+    window.history.back();
+    await waitFor(() => expect(window.location.pathname).toBe("/console/settings"));
+    expect(await screen.findByRole("heading", { name: "Setup" })).toBeInTheDocument();
+
+    window.history.forward();
+    await waitFor(() => expect(window.location.pathname).toBe("/console/traces"));
+    expect(await screen.findByRole("heading", { name: "Traces" })).toBeInTheDocument();
+  });
+
+  it("restores scoped project and environment from popstate", async () => {
+    const listTraces = vi.fn().mockResolvedValue({ data: [] });
+    const client = makeClient({
+      listTraces,
+      listEnvironments: vi.fn((projectId: string) => Promise.resolve({
+        environments: projectId === "prj_2" ? [ENV_2] : [ENV_1],
+      })),
+    });
+    render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    window.history.pushState({}, "", "/console/traces?project_id=prj_2&environment_id=env_2");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(await screen.findByRole("heading", { name: "Traces" })).toBeInTheDocument();
+    await waitFor(() => expect(listTraces).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "prj_2",
+      environmentId: "env_2",
+    })));
+  });
+
+  it("onboards an empty installation by creating its first project and environment", async () => {
+    const project = { ...PROJECT_1, name: "First app" };
+    const environment = { ...ENV_1, name: "production" };
+    const client = makeClient({
+      listProjects: vi.fn()
+        .mockResolvedValueOnce({ projects: [] })
+        .mockResolvedValue({ projects: [project] }),
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [environment] }),
+      createProject: vi.fn().mockResolvedValue({ project }),
+      createEnvironment: vi.fn().mockResolvedValue({ environment }),
+    });
+    const user = userEvent.setup();
+
+    render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+
+    expect(await screen.findByRole("heading", { name: "Create your first project" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Project name"), "First app");
+    await user.clear(screen.getByLabelText("Environment name"));
+    await user.type(screen.getByLabelText("Environment name"), "production");
+    await user.click(screen.getByRole("button", { name: "Create project and environment" }));
+
+    await waitFor(() => expect(client.createProject).toHaveBeenCalledWith({ name: "First app" }));
+    expect(client.createEnvironment).toHaveBeenCalledWith("prj_1", { name: "production" });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Create your first project" })).not.toBeInTheDocument());
+    expect((await screen.findAllByText("First app")).length).toBeGreaterThan(0);
+  });
+
+  it("shows a retryable error instead of onboarding when projects fail to load", async () => {
+    const listProjects = vi.fn().mockRejectedValue(new Error("offline"));
+
+    render(<ConsoleShellV2 client={makeClient({ listProjects })} user={ADMIN_USER} />);
+
+    expect(await screen.findByText("Could not load projects")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Create your first project" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry loading projects" })).toBeInTheDocument();
+  });
+
   it("renders nav rail, top bar, and health rail", async () => {
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
@@ -107,6 +222,79 @@ describe("ConsoleShellV2", () => {
 
     // Overall sh-v2 wrapper
     expect(document.querySelector(".sh-v2")).toBeInTheDocument();
+  });
+
+  it("refreshes fleet core and every expanded project's environment health", async () => {
+    const fetchFleet = vi.fn().mockResolvedValue({
+      data: {
+        window: "24h",
+        generatedAt: "2026-07-30T00:00:00.000Z",
+        projects: [{
+          id: "prj_1",
+          name: "Acme Prod",
+          status: "ok",
+          incidents: 0,
+          alerts: 0,
+          errorRatePercent: 0,
+          errorRateDelta: null,
+          errorTrend: [],
+          events: 1,
+          activeUsers: 0,
+          activeTenants: 0,
+          llmCostUsd: "0.00",
+          llmCostDeltaUsd: null,
+          p95TraceDurationMs: null,
+          p95DeltaMs: null,
+          infra: { api: "ok", db: "ok", redis: "ok", queue: "ok" },
+          topIncident: null,
+        }, {
+          id: "prj_2",
+          name: "Acme Staging",
+          status: "ok",
+          incidents: 0,
+          alerts: 0,
+          errorRatePercent: 0,
+          errorRateDelta: null,
+          errorTrend: [],
+          events: 1,
+          activeUsers: 0,
+          activeTenants: 0,
+          llmCostUsd: "0.00",
+          llmCostDeltaUsd: null,
+          p95TraceDurationMs: null,
+          p95DeltaMs: null,
+          infra: { api: "ok", db: "ok", redis: "ok", queue: "ok" },
+          topIncident: null,
+        }],
+        rollup: {
+          counts: { ok: 2, warning: 0, critical: 0 },
+          incidents: 0,
+          alerts: 0,
+          llmCostUsd: "0.00",
+          overall: "ok",
+          total: 2,
+        },
+      },
+    });
+    const fetchFleetProjectEnvironments = vi.fn().mockImplementation((projectId: string) => Promise.resolve({
+      data: {
+        projectId,
+        envs: [{ name: "production", status: "ok", incidents: 0, errorRatePercent: 0, events: 1, note: null }],
+      },
+    }));
+    const user = userEvent.setup();
+    render(<ConsoleShellV2 client={makeClient({ fetchFleet, fetchFleetProjectEnvironments })} user={ADMIN_USER} />);
+
+    const expandButtons = await screen.findAllByRole("button", { name: "Expand environments" });
+    await user.click(expandButtons[0]!);
+    await user.click(expandButtons[1]!);
+    await waitFor(() => expect(fetchFleetProjectEnvironments).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByTitle("Refresh now"));
+
+    await waitFor(() => expect(fetchFleet).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchFleetProjectEnvironments).toHaveBeenCalledTimes(4));
+    expect(fetchFleetProjectEnvironments).toHaveBeenCalledWith("prj_1", { window: "24h" });
+    expect(fetchFleetProjectEnvironments).toHaveBeenCalledWith("prj_2", { window: "24h" });
   });
 
   it("shows user initials from email in top bar avatar", async () => {
@@ -148,6 +336,7 @@ describe("ConsoleShellV2", () => {
   });
 
   it("restores nav from localStorage on mount", async () => {
+    window.history.replaceState(null, "", "/console");
     localStorage.setItem("sh_v2_state", JSON.stringify({ nav: "settings" }));
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
@@ -178,7 +367,11 @@ describe("ConsoleShellV2", () => {
 
   it("project switch updates top bar and persists projectId", async () => {
     const user = userEvent.setup();
-    render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+    render(<ConsoleShellV2 client={makeClient({
+      listEnvironments: vi.fn((projectId: string) => Promise.resolve({
+        environments: projectId === "prj_2" ? [ENV_2] : [ENV_1],
+      })),
+    })} user={ADMIN_USER} />);
 
     // Wait for projects to load and first project to appear
     await waitFor(() => {
@@ -198,9 +391,27 @@ describe("ConsoleShellV2", () => {
       const stored = JSON.parse(localStorage.getItem("sh_v2_state") ?? "{}");
       expect(stored.projectId).toBe("prj_2");
     });
+    await waitFor(() => expect(window.location.search).toBe("?project_id=prj_2&environment_id=env_2"));
+  });
+
+  it("keeps the canonical URL scope current when the environment changes", async () => {
+    const preview = { ...ENV_1, id: "env_preview", name: "preview" };
+    const user = userEvent.setup();
+    render(<ConsoleShellV2 client={makeClient({
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, preview] }),
+    })} user={ADMIN_USER} />);
+
+    await waitFor(() => expect(document.querySelectorAll(".sw-pill")).toHaveLength(2));
+    await user.click(document.querySelectorAll(".sw-pill")[1] as HTMLElement);
+    const previewOption = Array.from(document.querySelectorAll(".sw-opt"))
+      .find((option) => option.textContent?.includes("preview"));
+    await user.click(previewOption as HTMLElement);
+
+    await waitFor(() => expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_preview"));
   });
 
   it("restores the persisted environment by id instead of duplicate names", async () => {
+    window.history.replaceState(null, "", "/console");
     const envA = { id: "env_1", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
     const envB = { id: "env_2", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
     localStorage.setItem("sh_v2_state", JSON.stringify({ projectId: "prj_1", environmentId: "env_2" }));
@@ -244,6 +455,8 @@ describe("ConsoleShellV2", () => {
     await waitFor(() => {
       expect(document.querySelector(".command-palette")).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: "Open Operations" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Overview" })).not.toBeInTheDocument();
 
     // Press Escape
     await user.keyboard("{Escape}");
@@ -251,6 +464,13 @@ describe("ConsoleShellV2", () => {
     await waitFor(() => {
       expect(document.querySelector(".command-palette")).not.toBeInTheDocument();
     });
+  });
+
+  it("uses Operations in the default project breadcrumb", async () => {
+    render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+    await waitFor(() => expect(document.querySelector(".bc")).toHaveTextContent("Operations"));
+    expect(document.querySelector(".bc")).not.toHaveTextContent("Overview");
   });
 
   it("clicking the top bar search affordance opens the command palette", async () => {
@@ -352,6 +572,7 @@ describe("ConsoleShellV2", () => {
           reason: "Local deterministic analysis only.",
         },
       },
+      primaryOccurrenceId: "err_1",
     };
 
     function setupDrillMocks() {
@@ -372,8 +593,29 @@ describe("ConsoleShellV2", () => {
         addNote: vi.fn().mockResolvedValue(undefined),
         users: [],
         canReassign: false,
+        occurrences: [],
+        occurrencesStatus: "ready" as const,
+        occurrencesCursor: undefined,
+        loadMoreOccurrences: vi.fn().mockResolvedValue(undefined),
+        retryOccurrences: vi.fn(),
       });
     }
+
+    it("opens the legacy incident URL directly and returns to Incidents safely", async () => {
+      setupDrillMocks();
+      const user = userEvent.setup();
+      window.history.replaceState({}, "", "/console/incidents/error-groups/g1?project_id=prj_1&environment_id=env_1&error_id=err_1");
+
+      render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+      expect(await screen.findByRole("heading", { level: 1, name: /TestError: drill navigation test/i })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /^back$/i }));
+
+      expect(await screen.findByRole("heading", { name: "Incidents" })).toBeInTheDocument();
+      expect(`${window.location.pathname}${window.location.search}`).toBe(
+        "/console/incidents?project_id=prj_1&environment_id=env_1",
+      );
+    });
 
     it("drilling into incident renders IncidentScreen instead of section", async () => {
       setupDrillMocks();
@@ -397,6 +639,10 @@ describe("ConsoleShellV2", () => {
       // Click row to drill into incident
       const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
       await user.click(rows[0]);
+
+      expect(`${window.location.pathname}${window.location.search}`).toBe(
+        "/console/incidents/error-groups/g1?project_id=prj_1&environment_id=env_1",
+      );
 
       // IncidentScreen should render (has a "Back" button and incident h1)
       await waitFor(() => {
@@ -440,6 +686,10 @@ describe("ConsoleShellV2", () => {
 
       // Back button (standalone "Back" on IncidentScreen) should no longer be in document
       expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+
+      window.history.back();
+      await waitFor(() => expect(window.location.pathname).toBe("/console/overview"));
+      expect(await screen.findByRole("heading", { name: "Operations" })).toBeInTheDocument();
     });
 
     it("selecting a different NavRail section clears the detail view", async () => {
@@ -466,8 +716,8 @@ describe("ConsoleShellV2", () => {
         expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
       });
 
-      // Click Overview in nav rail — should clear detail and go to OverviewScreen
-      await user.click(screen.getByTitle("Overview"));
+      // Click Operations in nav rail — should clear detail and go to the operational home
+      await user.click(screen.getByTitle("Operations"));
 
       // Should be on OverviewScreen (has h1.sh-h1, no incident back button)
       await waitFor(() => {
@@ -573,6 +823,33 @@ describe("ConsoleShellV2", () => {
       await user.click(screen.getByText("tenant_acme"));
 
       await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: /Acme Corp/i })).toBeInTheDocument());
+    });
+
+    it("opens a tenant URL directly and returns to Entities safely", async () => {
+      const tenant = {
+        tenantId: "tenant_acme", label: "Acme Corp", traits: {}, keyTraits: {},
+        isUnassigned: false, impactScore: 0, lastSeenAt: null,
+        events: 0, errors: 0, openErrors: 0, severeErrors: 0, traces: 0, failedTraces: 0,
+        llmCalls: 0, failedLlmCalls: 0, llmCostUsd: "0", activeUsers: 0, activeSessions: 0,
+      };
+      const user = userEvent.setup();
+      window.history.replaceState({}, "", "/console/entities/tenants/tenant_acme?project_id=prj_1&environment_id=env_1");
+      render(<ConsoleShellV2 client={makeClient({
+        getEntityTenantDetail: vi.fn().mockResolvedValue({
+          data: {
+            window: "24h", generatedAt: "", scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "", to: "" }, tenant, topUsers: [], timeline: [],
+          },
+        }),
+      })} user={ADMIN_USER} />);
+
+      expect(await screen.findByRole("heading", { level: 1, name: "Acme Corp" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /^back$/i }));
+
+      expect(await screen.findByRole("heading", { name: "Tenants" })).toBeInTheDocument();
+      expect(`${window.location.pathname}${window.location.search}`).toBe(
+        "/console/entities?project_id=prj_1&environment_id=env_1",
+      );
     });
   });
 

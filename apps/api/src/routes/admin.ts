@@ -151,8 +151,12 @@ export interface AdminApiKey {
 export type UserAdministrationDependencies = {
   listUsers?: () => Promise<AuthenticatedUser[]>;
   createUser?: (input: CreateUserInput) => Promise<AuthenticatedUser>;
-  updateUser?: (id: string, input: UpdateUserInput) => Promise<AuthenticatedUser | null | undefined>;
-  archiveUser?: (id: string) => Promise<void>;
+  updateUser?: (
+    id: string,
+    input: UpdateUserInput,
+    context: { actorUserId: string }
+  ) => Promise<AuthenticatedUser | null | undefined>;
+  archiveUser?: (id: string, context: { actorUserId: string }) => Promise<void>;
 };
 
 export type ProjectAdministrationDependencies = {
@@ -198,6 +202,7 @@ export type AdminResourceDependencies = {
   codeIntegrations?: CodeIntegrationAdministrationDependencies;
   analyticsSegments?: AnalyticsSegmentAdministrationDependencies;
   analyticsDashboards?: AnalyticsDashboardAdministrationDependencies;
+  analyticsInsights?: AnalyticsInsightAdministrationDependencies;
   experiments?: ExperimentAdministrationDependencies;
   surveys?: SurveyAdministrationDependencies;
   messageCampaigns?: MessageCampaignAdministrationDependencies;
@@ -227,6 +232,77 @@ export type AnalyticsDashboardAdministrationDependencies = {
     patch: UpdateAnalyticsDashboardInput;
   }) => Promise<AnalyticsDashboardRecord | null | undefined>;
   archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
+type CreateAnalyticsInsightInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description?: string | null;
+  definition: AnalyticsInsightDefinitionInput;
+};
+
+type EventTrendFilter = {
+  property: string;
+  operator: "eq" | "neq" | "exists" | "not_exists";
+  value?: string;
+};
+
+type AnalyticsInsightDefinitionInput = {
+  bucket: "hour" | "day";
+  metric: "count" | "unique_actors";
+  eventName?: string;
+  breakdownProperty?: string;
+  filters?: EventTrendFilter[];
+};
+
+type AnalyticsInsightRecord = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description: string | null;
+  definition: AnalyticsInsightDefinitionInput;
+  createdAt: Date;
+  updatedAt: Date;
+  archivedAt: Date | null;
+};
+
+type PromotedEventProperty = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  property: string;
+  displayName: string;
+  indexName: string | null;
+  indexStatus: "pending" | "building" | "ready" | "failed";
+  indexError: string | null;
+  indexedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  archivedAt: Date | null;
+};
+
+type UpdateAnalyticsInsightInput = Partial<Omit<CreateAnalyticsInsightInput, "projectId" | "environmentId">>;
+
+export type AnalyticsInsightAdministrationDependencies = {
+  list: (scope: { projectId: string; environmentId: string }) => Promise<AnalyticsInsightRecord[]>;
+  create: (input: CreateAnalyticsInsightInput) => Promise<AnalyticsInsightRecord>;
+  update: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+    patch: UpdateAnalyticsInsightInput;
+  }) => Promise<AnalyticsInsightRecord | null | undefined>;
+  archive: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+  listProperties: (scope: { projectId: string; environmentId: string }) => Promise<PromotedEventProperty[]>;
+  promoteProperty: (input: {
+    projectId: string;
+    environmentId: string;
+    property: string;
+    displayName?: string;
+  }) => Promise<PromotedEventProperty>;
+  archiveProperty: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
 export type ExperimentAdministrationDependencies = {
@@ -472,7 +548,7 @@ export type AdminRouteOptions = {
 const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().trim().min(12).max(256),
-  isAdmin: z.boolean().default(false)
+  isAdmin: z.boolean().default(true)
 });
 
 const updateUserSchema = z
@@ -487,6 +563,19 @@ const updateUserSchema = z
 
 const idParamsSchema = z.object({ id: z.string().min(1) });
 const projectIdParamsSchema = z.object({ projectId: z.string().min(1) });
+
+function sendAdminUserInvariant(reply: FastifyReply, error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? (error as { code: unknown }).code : "";
+  if (code === "last_active_admin" || code === "cannot_demote_current_admin" || code === "cannot_archive_current_admin") {
+    void reply.status(409).send({ error: code });
+    return true;
+  }
+  if (code === "console_users_must_be_admins") {
+    void reply.status(400).send({ error: code });
+    return true;
+  }
+  return false;
+}
 
 const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(256)
@@ -906,7 +995,7 @@ const dataGovernancePolicySchema = z.object({
   propertyRules: z.array(dataGovernancePropertyRuleSchema).max(100).default([])
 });
 
-const warehouseDatasetSchema = z.enum(["events", "errors", "traces", "llmCalls"]);
+const warehouseDatasetSchema = z.enum(["events", "errors", "traces", "llmCalls", "userProfiles", "tenantProfiles"]);
 const warehouseScopeQuerySchema = analyticsSegmentScopeQuerySchema.extend({
   limit: z.coerce.number().int().min(1).max(100).optional()
 });
@@ -916,7 +1005,7 @@ const warehouseDestinationCreateSchema = z.object({
   name: z.string().trim().min(1).max(256),
   destinationType: z.literal("postgres").default("postgres"),
   connectionUrl: z.string().trim().url(),
-  datasets: z.array(warehouseDatasetSchema).min(1).max(4).default(["events"]),
+  datasets: z.array(warehouseDatasetSchema).min(1).max(6).default(["events"]),
   batchSize: z.coerce.number().int().min(1).max(5000).default(500),
   enabled: z.boolean().default(true)
 });
@@ -926,7 +1015,7 @@ const warehouseDestinationPatchSchema = z
     environmentId: z.string().trim().min(1),
     name: z.string().trim().min(1).max(256).optional(),
     connectionUrl: z.string().trim().url().optional(),
-    datasets: z.array(warehouseDatasetSchema).min(1).max(4).optional(),
+    datasets: z.array(warehouseDatasetSchema).min(1).max(6).optional(),
     batchSize: z.coerce.number().int().min(1).max(5000).optional(),
     enabled: z.boolean().optional()
   })
@@ -968,26 +1057,26 @@ type UpdateAnalyticsSegmentInput = z.infer<typeof updateAnalyticsSegmentSchema> 
 };
 
 const analyticsDashboardCategorySchema = z.enum(["executive", "operational", "product"]);
-const analyticsDashboardWidgetTypeSchema = z.enum(["metric.events", "metric.errors", "top.events", "trend.events", "trend.errors"]);
+const analyticsDashboardWidgetTypeSchema = z.enum(["metric.events", "metric.errors", "top.events", "trend.events", "trend.errors", "insight"]);
 const analyticsDashboardFiltersSchema = z.object({
-  window: analyticsSegmentWindowSchema.optional(),
-  tenantId: z.string().trim().min(1).max(256).optional(),
-  userId: z.string().trim().min(1).max(256).optional(),
-  segmentId: z.string().trim().min(1).max(256).optional()
-});
+  window: analyticsSegmentWindowSchema.optional()
+}).strict();
 const createAnalyticsDashboardFiltersSchema = z.object({
-  window: analyticsSegmentWindowSchema.default("7d"),
-  tenantId: z.string().trim().min(1).max(256).optional(),
-  userId: z.string().trim().min(1).max(256).optional(),
-  segmentId: z.string().trim().min(1).max(256).optional()
-});
-const analyticsDashboardWidgetSchema = z.object({
-  id: z.string().trim().min(1).max(256).optional(),
-  type: analyticsDashboardWidgetTypeSchema,
-  title: z.string().trim().min(1).max(120),
-  width: z.enum(["half", "full"]).default("half"),
-  options: z.record(z.string(), z.unknown()).default({})
-});
+  window: analyticsSegmentWindowSchema.default("7d")
+}).strict();
+const analyticsDashboardWidgetSchema = z
+  .object({
+    id: z.string().trim().min(1).max(256).optional(),
+    type: analyticsDashboardWidgetTypeSchema,
+    title: z.string().trim().min(1).max(120),
+    width: z.enum(["half", "full"]).default("half"),
+    options: z.record(z.string(), z.unknown()).default({})
+  })
+  .superRefine((widget, context) => {
+    if (widget.type === "insight" && (typeof widget.options.insightId !== "string" || !widget.options.insightId.trim())) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["options", "insightId"], message: "insight_id_required" });
+    }
+  });
 const analyticsDashboardScopeQuerySchema = analyticsSegmentScopeQuerySchema;
 const analyticsDashboardSchema = z.object({
   projectId: z.string().trim().min(1),
@@ -996,7 +1085,7 @@ const analyticsDashboardSchema = z.object({
   description: z.string().trim().max(1024).nullable().optional(),
   category: analyticsDashboardCategorySchema.default("operational"),
   filters: createAnalyticsDashboardFiltersSchema.default({ window: "7d" }),
-  widgets: z.array(analyticsDashboardWidgetSchema).min(3).max(20)
+  widgets: z.array(analyticsDashboardWidgetSchema).min(1).max(20)
 });
 const updateAnalyticsDashboardSchema = z
   .object({
@@ -1004,7 +1093,7 @@ const updateAnalyticsDashboardSchema = z
     description: z.string().trim().max(1024).nullable().optional(),
     category: analyticsDashboardCategorySchema.optional(),
     filters: analyticsDashboardFiltersSchema.optional(),
-    widgets: z.array(analyticsDashboardWidgetSchema).min(3).max(20).optional()
+    widgets: z.array(analyticsDashboardWidgetSchema).min(1).max(20).optional()
   })
   .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
 
@@ -1018,6 +1107,43 @@ type UpdateAnalyticsDashboardInput = z.infer<typeof updateAnalyticsDashboardSche
   filters?: AnalyticsDashboardFilters;
   widgets?: Array<AnalyticsDashboardWidgetInput & { type: AnalyticsDashboardWidgetType }>;
 };
+const analyticsPropertyNameSchema = z.string().trim().regex(/^[A-Za-z0-9_.:-]{1,64}$/);
+const eventTrendFilterSchema: z.ZodType<EventTrendFilter> = z.discriminatedUnion("operator", [
+  z.object({
+    property: analyticsPropertyNameSchema,
+    operator: z.enum(["eq", "neq"]),
+    value: z.string().max(512)
+  }),
+  z.object({
+    property: analyticsPropertyNameSchema,
+    operator: z.enum(["exists", "not_exists"])
+  })
+]);
+const analyticsInsightDefinitionSchema = z.object({
+  bucket: z.enum(["hour", "day"]),
+  metric: z.enum(["count", "unique_actors"]),
+  eventName: z.string().trim().min(1).max(256).optional(),
+  breakdownProperty: analyticsPropertyNameSchema.optional(),
+  filters: z.array(eventTrendFilterSchema).max(12).optional()
+});
+const analyticsInsightScopeQuerySchema = analyticsSegmentScopeQuerySchema;
+const analyticsInsightSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(256),
+  description: z.string().trim().max(1024).nullable().optional(),
+  definition: analyticsInsightDefinitionSchema
+});
+const updateAnalyticsInsightSchema = analyticsInsightSchema
+  .omit({ projectId: true, environmentId: true })
+  .partial()
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+const promotedEventPropertySchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  property: analyticsPropertyNameSchema,
+  displayName: z.string().trim().min(1).max(80).optional()
+});
 const experimentStatusSchema = z.enum(["draft", "running", "paused", "completed", "archived"]);
 const experimentActorTypeSchema = z.enum(["user", "tenant", "session"]);
 const experimentVariantSchema = z.object({
@@ -1444,6 +1570,14 @@ function isKnownAdminResourceError(error: unknown, message: string): boolean {
   return error instanceof Error && error.message === message;
 }
 
+function analyticsInsightBadRequestCode(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  if (error.name === "EventPropertyNotPromotedError") return "breakdown_property_not_promoted";
+  if (error.name === "InvalidEventPropertyError") return "invalid_event_property";
+  if (error.name === "EventPropertyInUseError") return "event_property_in_use";
+  return undefined;
+}
+
 const SECRET_HEADER_NAME_PATTERN = /^[A-Za-z0-9-]+$/;
 
 function isValidSecretHeaderName(headerName: string | null | undefined): boolean {
@@ -1742,6 +1876,9 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     if (!parsed.success) {
       return reply.status(400).send({ error: "invalid_user_request" });
     }
+    if (!parsed.data.isAdmin) {
+      return reply.status(400).send({ error: "console_users_must_be_admins" });
+    }
 
     const user = await options.users.createUser(parsed.data);
     return reply.status(201).send({ user });
@@ -1767,7 +1904,17 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_user_request" });
     }
 
-    const user = await options.users.updateUser(params.data.id, parsed.data);
+    if (params.data.id === admin.id && parsed.data.isAdmin === false) {
+      return reply.status(409).send({ error: "cannot_demote_current_admin" });
+    }
+
+    let user: AuthenticatedUser | null | undefined;
+    try {
+      user = await options.users.updateUser(params.data.id, parsed.data, { actorUserId: admin.id });
+    } catch (error) {
+      if (sendAdminUserInvariant(reply, error)) return reply;
+      throw error;
+    }
     if (!user) {
       return reply.status(404).send({ error: "user_not_found" });
     }
@@ -1790,7 +1937,16 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_user_request" });
     }
 
-    await options.users.archiveUser(params.data.id);
+    if (params.data.id === admin.id) {
+      return reply.status(409).send({ error: "cannot_archive_current_admin" });
+    }
+
+    try {
+      await options.users.archiveUser(params.data.id, { actorUserId: admin.id });
+    } catch (error) {
+      if (sendAdminUserInvariant(reply, error)) return reply;
+      throw error;
+    }
 
     return reply.status(204).send();
   });
@@ -2048,11 +2204,18 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_release_metadata_request" });
     }
 
-    const metadata = await options.adminResources.codeIntegrations.upsertReleaseMetadata({
-      projectId: params.data.projectId,
-      ...parsed.data
-    });
-    return reply.status(201).send({ metadata });
+    try {
+      const metadata = await options.adminResources.codeIntegrations.upsertReleaseMetadata({
+        projectId: params.data.projectId,
+        ...parsed.data
+      });
+      return reply.status(201).send({ metadata });
+    } catch (error) {
+      if (error instanceof Error && error.message === "code_integration_not_found") {
+        return reply.status(400).send({ error: "code_integration_not_found" });
+      }
+      throw error;
+    }
   });
 
   app.get("/admin/analytics-segments", async (request, reply) => {
@@ -2303,6 +2466,177 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(204).send();
     } catch {
       return reply.status(503).send({ error: "analytics_dashboards_unavailable" });
+    }
+  });
+
+  app.get("/admin/analytics/insights", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    const repository = options.adminResources?.analyticsInsights;
+    if (!repository) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const query = analyticsInsightScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_analytics_insight_request" });
+    }
+    try {
+      const insights = await repository.list({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ insights });
+    } catch (error) {
+      const code = analyticsInsightBadRequestCode(error);
+      if (code) return reply.status(400).send({ error: code });
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
+    }
+  });
+
+  app.post("/admin/analytics/insights", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    const repository = options.adminResources?.analyticsInsights;
+    if (!repository) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const parsed = analyticsInsightSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_analytics_insight_request" });
+    }
+    try {
+      const insight = await repository.create(parsed.data);
+      return reply.status(201).send({ insight });
+    } catch (error) {
+      const code = analyticsInsightBadRequestCode(error);
+      if (code) return reply.status(400).send({ error: code });
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
+    }
+  });
+
+  app.patch("/admin/analytics/insights/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    const repository = options.adminResources?.analyticsInsights;
+    if (!repository) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const params = idParamsSchema.safeParse(request.params);
+    const query = analyticsInsightScopeQuerySchema.safeParse(request.query);
+    const parsed = updateAnalyticsInsightSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_analytics_insight_request" });
+    }
+    try {
+      const insight = await repository.update({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id,
+        patch: parsed.data
+      });
+      if (!insight) {
+        return reply.status(404).send({ error: "analytics_insight_not_found" });
+      }
+      return reply.send({ insight });
+    } catch (error) {
+      const code = analyticsInsightBadRequestCode(error);
+      if (code) return reply.status(400).send({ error: code });
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
+    }
+  });
+
+  app.delete("/admin/analytics/insights/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    const repository = options.adminResources?.analyticsInsights;
+    if (!repository) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const params = idParamsSchema.safeParse(request.params);
+    const query = analyticsInsightScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_analytics_insight_request" });
+    }
+    try {
+      await repository.archive({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch (error) {
+      const code = analyticsInsightBadRequestCode(error);
+      if (code) return reply.status(400).send({ error: code });
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
+    }
+  });
+
+  app.get("/admin/analytics/promoted-properties", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    const repository = options.adminResources?.analyticsInsights;
+    if (!repository) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const query = analyticsInsightScopeQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.status(400).send({ error: "invalid_promoted_event_property_request" });
+    }
+    try {
+      const properties = await repository.listProperties({
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.send({ properties });
+    } catch {
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
+    }
+  });
+
+  app.post("/admin/analytics/promoted-properties", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    const repository = options.adminResources?.analyticsInsights;
+    if (!repository) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const parsed = promotedEventPropertySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_promoted_event_property_request" });
+    }
+    try {
+      const property = await repository.promoteProperty(parsed.data);
+      return reply.status(201).send({ property });
+    } catch (error) {
+      const code = analyticsInsightBadRequestCode(error);
+      if (code) return reply.status(400).send({ error: code });
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
+    }
+  });
+
+  app.delete("/admin/analytics/promoted-properties/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) return reply;
+    const repository = options.adminResources?.analyticsInsights;
+    if (!repository) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const params = idParamsSchema.safeParse(request.params);
+    const query = analyticsInsightScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_promoted_event_property_request" });
+    }
+    try {
+      await repository.archiveProperty({
+        id: params.data.id,
+        projectId: query.data.project_id,
+        environmentId: query.data.environment_id
+      });
+      return reply.status(204).send();
+    } catch (error) {
+      const code = analyticsInsightBadRequestCode(error);
+      if (code) return reply.status(409).send({ error: code });
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
     }
   });
 

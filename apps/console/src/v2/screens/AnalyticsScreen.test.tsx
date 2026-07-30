@@ -106,14 +106,25 @@ describe("AnalyticsScreen", () => {
     expect(screen.getByText(/no project selected/i)).toBeInTheDocument();
   });
 
-  it("renders the tab bar and defaults to the Funnel tab, idle (no auto-fetch)", () => {
+  it("renders the tab bar and defaults to the Trends workspace without auto-running funnels", () => {
     const panels = mockPanels();
     mockSegments();
     mockEvents();
     render(<AnalyticsScreen ctx={makeCtx()} />);
     expect(screen.getByRole("heading", { name: /analytics/i })).toBeInTheDocument();
-    expect(screen.getByText("Run funnel")).toBeInTheDocument();
+    expect(screen.getByText("Saved trends unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trends" })).toHaveAttribute("aria-pressed", "true");
     expect(panels.funnel.run).not.toHaveBeenCalled();
+  });
+
+  it("opens the dashboard workspace from the analytics tabs", async () => {
+    mockPanels();
+    mockSegments();
+    mockEvents();
+    render(<AnalyticsScreen ctx={makeCtx()} />);
+
+    await userEvent.click(screen.getByText("Dashboards"));
+    expect(screen.getByText(/dashboards unavailable/i)).toBeInTheDocument();
   });
 
   it("Run funnel calls panels.funnel.run with the textarea contents", async () => {
@@ -121,15 +132,17 @@ describe("AnalyticsScreen", () => {
     mockSegments();
     mockEvents();
     render(<AnalyticsScreen ctx={makeCtx()} />);
+    await userEvent.click(screen.getByText("Funnel"));
     await userEvent.click(screen.getByText("Run funnel"));
     expect(panels.funnel.run).toHaveBeenCalledWith("signup.started\nproject.created");
   });
 
-  it("shows the invalid vs error distinction for the funnel panel", () => {
+  it("shows the invalid vs error distinction for the funnel panel", async () => {
     mockPanels({ funnel: { state: "invalid", data: null, run: vi.fn() } });
     mockSegments();
     mockEvents();
     const { rerender } = render(<AnalyticsScreen ctx={makeCtx()} />);
+    await userEvent.click(screen.getByText("Funnel"));
     expect(screen.getByText(/at least two event steps/i)).toBeInTheDocument();
 
     mockPanels({ funnel: { state: "error", data: null, run: vi.fn() } });

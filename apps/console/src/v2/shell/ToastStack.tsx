@@ -3,7 +3,7 @@ import type { Toast } from "../../components/ui/v2";
 
 export function ToastStack({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
   return (
-    <div className="toast-stack">
+    <div className="toast-stack" role="status" aria-live="polite" aria-atomic="true">
       {toasts.map((t) => (
         <ToastView key={t.id} toast={t} onDismiss={onDismiss} />
       ))}

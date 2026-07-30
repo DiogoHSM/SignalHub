@@ -211,6 +211,93 @@ export const openApiDocument = {
           accepted: { type: "boolean", const: true }
         }
       },
+      AnalyticsInsightInput: {
+        type: "object",
+        required: ["projectId", "environmentId", "name", "definition"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string", minLength: 1, maxLength: 256 },
+          description: { type: ["string", "null"], maxLength: 1024 },
+          definition: {
+            type: "object",
+            required: ["bucket", "metric"],
+            properties: {
+              bucket: { type: "string", enum: ["hour", "day"] },
+              metric: { type: "string", enum: ["count", "unique_actors"] },
+              eventName: { type: "string" },
+              breakdownProperty: { type: "string" },
+              filters: { type: "array", items: { type: "object" }, maxItems: 12 }
+            }
+          }
+        }
+      },
+      AnalyticsInsightPatch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 256 },
+          description: { type: ["string", "null"], maxLength: 1024 },
+          definition: { $ref: "#/components/schemas/AnalyticsInsightInput/properties/definition" }
+        }
+      },
+      PromotedEventPropertyInput: {
+        type: "object",
+        required: ["projectId", "environmentId", "property"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          property: { type: "string", pattern: "^[A-Za-z0-9_.:-]{1,64}$" },
+          displayName: { type: "string", maxLength: 80 }
+        }
+      },
+      AnalyticsDashboardInput: {
+        type: "object",
+        required: ["projectId", "environmentId", "name", "widgets"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string", minLength: 1, maxLength: 256 },
+          description: { type: ["string", "null"], maxLength: 1024 },
+          category: { type: "string", enum: ["executive", "operational", "product"], default: "operational" },
+          filters: {
+            type: "object",
+            additionalProperties: false,
+            properties: { window: { type: "string", enum: ["24h", "7d", "30d"], default: "7d" } }
+          },
+          widgets: {
+            type: "array",
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: "object",
+              required: ["type", "title"],
+              properties: {
+                id: { type: "string" },
+                type: { type: "string", enum: ["metric.events", "metric.errors", "top.events", "trend.events", "trend.errors", "insight"] },
+                title: { type: "string", minLength: 1, maxLength: 120 },
+                width: { type: "string", enum: ["half", "full"], default: "half" },
+                options: { type: "object", additionalProperties: true }
+              }
+            }
+          }
+        }
+      },
+      AnalyticsDashboardPatch: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 256 },
+          description: { type: ["string", "null"], maxLength: 1024 },
+          category: { type: "string", enum: ["executive", "operational", "product"] },
+          filters: {
+            type: "object",
+            additionalProperties: false,
+            properties: { window: { type: "string", enum: ["24h", "7d", "30d"] } }
+          },
+          widgets: { $ref: "#/components/schemas/AnalyticsDashboardInput/properties/widgets" }
+        }
+      },
       ErrorResponse: {
         type: "object",
         required: ["error"],
@@ -840,7 +927,14 @@ export const openApiDocument = {
             type: "string",
             description: "Redacted connection URL. The raw URL is write-only and never returned."
           },
-          datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+          datasets: {
+            type: "array",
+            minItems: 1,
+            maxItems: 6,
+            description:
+              "Selected incremental datasets. Identity profiles preserve traits and use a project/environment/actor source id for idempotent destination upserts.",
+            items: { type: "string", enum: ["events", "errors", "traces", "llmCalls", "userProfiles", "tenantProfiles"] }
+          },
           cursor: { type: "object", additionalProperties: true },
           batchSize: { type: "integer", minimum: 1, maximum: 5000 },
           enabled: { type: "boolean" },
@@ -977,7 +1071,7 @@ export const openApiDocument = {
         type: "object",
         required: ["replay_id", "started_at"],
         description:
-          "Privacy-safe browser session timeline linked to errors through replay_id. This is not video replay and must not include screenshots, DOM snapshots, raw text, input values, passwords, cookies, or HTML.",
+          "Privacy-safe browser session timeline linked to errors through replay_id. This is not video replay and must not include screenshots, DOM snapshots, raw text, input values, passwords, cookies, or HTML. The complete JSON payload must not exceed 64 KiB.",
         properties: {
           replay_id: { type: "string", description: "Stable id generated by the browser SDK for this replay buffer." },
           started_at: { type: "string", format: "date-time" },
@@ -996,18 +1090,31 @@ export const openApiDocument = {
           events: {
             type: "array",
             maxItems: 300,
+            description: "Ordered privacy-safe timeline, limited to 300 events per replay payload.",
             items: {
               type: "object",
+              additionalProperties: false,
               required: ["offset_ms", "type"],
               properties: {
                 offset_ms: { type: "integer", minimum: 0 },
-                type: { type: "string", enum: ["navigation", "click", "submit", "error", "custom"] },
+                type: {
+                  type: "string",
+                  enum: ["navigation", "click", "input", "console", "network", "error", "custom"]
+                },
                 route: { type: "string" },
                 selector: { type: "string", description: "Stable safe selector, preferably based on data-sigmon-id." },
-                message: { type: "string", description: "Short sanitized message." },
+                message: {
+                  type: "string",
+                  description: "Optional source message. The API always stores it as the literal [REDACTED]."
+                },
                 x: { type: "number", minimum: 0, maximum: 1 },
                 y: { type: "number", minimum: 0, maximum: 1 },
-                data: { type: "object", additionalProperties: true }
+                data: {
+                  type: "object",
+                  additionalProperties: true,
+                  description:
+                    "Privacy-safe JSON metadata limited to 5 container levels and 64 object keys in total for this event. Keys that can carry raw text, HTML, input values, or passwords are rejected."
+                }
               }
             }
           },
@@ -2571,7 +2678,14 @@ export const openApiDocument = {
                   name: { type: "string" },
                   destinationType: { type: "string", enum: ["postgres"], default: "postgres" },
                   connectionUrl: { type: "string", format: "uri" },
-                  datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+                  datasets: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 6,
+                    description:
+                      "Identity profile datasets export actor-id-ordered cyclic snapshots with scope-safe source ids. The cursor resets after a complete pass, so subsequent cycles re-export current profile state and pick up updates made behind an active cursor.",
+                    items: { type: "string", enum: ["events", "errors", "traces", "llmCalls", "userProfiles", "tenantProfiles"] }
+                  },
                   batchSize: { type: "integer", minimum: 1, maximum: 5000, default: 500 },
                   enabled: { type: "boolean", default: true }
                 }
@@ -2609,7 +2723,14 @@ export const openApiDocument = {
                   environmentId: { type: "string" },
                   name: { type: "string" },
                   connectionUrl: { type: "string", format: "uri" },
-                  datasets: { type: "array", items: { type: "string", enum: ["events", "errors", "traces", "llmCalls"] } },
+                  datasets: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 6,
+                    description:
+                      "Identity profile datasets export actor-id-ordered cyclic snapshots with scope-safe source ids. The cursor resets after a complete pass, so subsequent cycles re-export current profile state and pick up updates made behind an active cursor.",
+                    items: { type: "string", enum: ["events", "errors", "traces", "llmCalls", "userProfiles", "tenantProfiles"] }
+                  },
                   batchSize: { type: "integer", minimum: 1, maximum: 5000 },
                   enabled: { type: "boolean" }
                 }
@@ -2984,6 +3105,191 @@ export const openApiDocument = {
         }
       }
     },
+    "/query/fleet": {
+      get: {
+        ...sessionRoute(
+          "Query fleet operations",
+          "Read a cross-project operations rollup for the selected window. Project environment details are intentionally omitted from this response and can be loaded lazily from the project environments endpoint."
+        ),
+        parameters: [
+          {
+            name: "window",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["24h", "7d", "30d"], default: "24h" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Fleet operations rollup",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["window", "generatedAt", "projects", "rollup"],
+                      properties: {
+                        window: { type: "string", enum: ["24h", "7d", "30d"] },
+                        generatedAt: { type: "string", format: "date-time" },
+                        projects: { type: "array", items: { type: "object", additionalProperties: true } },
+                        rollup: { type: "object", additionalProperties: true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Fleet query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/fleet/projects/{id}/environments": {
+      get: {
+        ...sessionRoute(
+          "Query project fleet environments",
+          "Lazily load environment-level operations status for one fleet project and window."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          {
+            name: "window",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["24h", "7d", "30d"], default: "24h" }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Project environment operations status",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["projectId", "envs"],
+                      properties: {
+                        projectId: { type: "string" },
+                        envs: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["name", "status", "incidents", "events"],
+                            properties: {
+                              name: { type: "string" },
+                              status: { type: "string", enum: ["ok", "warning", "critical"] },
+                              incidents: { type: "integer", minimum: 0 },
+                              errorRatePercent: { type: ["number", "null"] },
+                              events: { type: "integer", minimum: 0 },
+                              note: { type: ["string", "null"] }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Project not found" },
+          "501": { description: "Fleet environment query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/error-groups/{id}/errors": {
+      get: {
+        ...sessionRoute(
+          "List error-group occurrences",
+          "List raw error occurrences for one error group using cursor pagination. Results remain scoped to the requested project and environment."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 500 } },
+          { name: "cursor", in: "query", required: false, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Paginated error-group occurrences",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: { type: "array", items: { type: "object", additionalProperties: true } },
+                    cursor: { type: ["string", "null"] }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Error occurrence query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/aggregates/traces": {
+      get: {
+        ...sessionRoute(
+          "Query trace aggregates",
+          "Read the stable public trace aggregate contract for a project environment: total traces and average trace duration in milliseconds. Optional actor, session, trace, and date filters narrow the aggregate without changing its response fields."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "session_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "trace_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } }
+        ],
+        responses: {
+          "200": {
+            description: "Trace count and average duration",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["total", "averageDurationMs"],
+                      properties: {
+                        total: { type: "integer", minimum: 0 },
+                        averageDurationMs: { type: "number", minimum: 0 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Trace aggregate query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")
     },
@@ -3010,6 +3316,205 @@ export const openApiDocument = {
         "Query event property catalog",
         "Read observed custom event properties for a project environment, including frequency, event coverage, inferred JSON types, safe sample values, type conflicts, and similar property-name groups. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
+    },
+    "/admin/analytics-dashboards": {
+      get: {
+        ...sessionRoute("List analytics dashboards", "List saved dashboards for one project environment."),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ]
+      },
+      post: {
+        ...sessionRoute("Create an analytics dashboard", "Create a dashboard composed of operational, product, and saved-insight widgets."),
+        requestBody: jsonBody("AnalyticsDashboardInput", {
+          projectId: "prj_example",
+          environmentId: "env_example",
+          name: "Checkout operations",
+          category: "operational",
+          filters: { window: "7d" },
+          widgets: [{ type: "insight", title: "Checkout starts", width: "full", options: { insightId: "ins_example" } }]
+        }),
+        responses: {
+          "201": { description: "Analytics dashboard created" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/admin/analytics-dashboards/{id}": {
+      patch: {
+        ...sessionRoute("Update an analytics dashboard", "Update dashboard metadata, supported window filter, or widget layout."),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AnalyticsDashboardPatch" } } }
+        }
+      },
+      delete: {
+        ...sessionRoute("Archive an analytics dashboard", "Archive a dashboard within its project/environment scope."),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Analytics dashboard archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Analytics dashboard not found" }
+        }
+      }
+    },
+    "/admin/analytics/insights": {
+      get: {
+        ...sessionRoute(
+          "List saved analytics insights",
+          "List active saved trend definitions for one project environment."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ]
+      },
+      post: {
+        ...sessionRoute(
+          "Create an analytics insight",
+          "Save a scoped event trend definition with hour/day buckets, count or unique-actor metrics, optional event name, promoted-property breakdown, and property filters."
+        ),
+        requestBody: jsonBody("AnalyticsInsightInput", {
+          projectId: "prj_example",
+          environmentId: "env_example",
+          name: "Checkout starts by plan",
+          definition: { bucket: "hour", metric: "count", eventName: "checkout.started", breakdownProperty: "plan" }
+        }),
+        responses: {
+          "201": { description: "Analytics insight created" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/admin/analytics/insights/{id}": {
+      patch: {
+        ...sessionRoute("Update an analytics insight", "Rename or replace a saved trend definition within its project/environment scope."),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/AnalyticsInsightPatch" } } }
+        }
+      },
+      delete: {
+        ...sessionRoute("Archive an analytics insight", "Archive a saved trend definition."),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Analytics insight archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Analytics insight not found" }
+        }
+      }
+    },
+    "/admin/analytics/promoted-properties": {
+      get: {
+        ...sessionRoute(
+          "List promoted event properties",
+          "List event properties promoted for indexed analytics breakdowns, including index lifecycle state."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ]
+      },
+      post: {
+        ...sessionRoute(
+          "Promote an event property",
+          "Create or retry a scoped expression index for an event property used by saved trend breakdowns."
+        ),
+        requestBody: jsonBody("PromotedEventPropertyInput", {
+          projectId: "prj_example",
+          environmentId: "env_example",
+          property: "plan",
+          displayName: "Subscription plan"
+        }),
+        responses: {
+          "201": { description: "Event property promoted and index prepared" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/analytics/promoted-properties/{id}": {
+      delete: {
+        ...sessionRoute(
+          "Archive a promoted event property",
+          "Remove a scoped property index when no active insight references it."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Promoted event property archived" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Promoted event property not found" },
+          "409": { description: "Property is referenced by an active insight" }
+        }
+      }
+    },
+    "/query/analytics/trends": {
+      get: {
+        ...sessionRoute(
+          "Query an analytics trend",
+          "Execute a saved insight with insight_id or an explicit trend definition. Use either insight_id or bucket plus metric."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "from", in: "query", required: true, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: true, schema: { type: "string", format: "date-time" } },
+          { name: "insight_id", in: "query", schema: { type: "string" } },
+          { name: "bucket", in: "query", schema: { type: "string", enum: ["hour", "day"] } },
+          { name: "metric", in: "query", schema: { type: "string", enum: ["count", "unique_actors"] } },
+          { name: "event_name", in: "query", schema: { type: "string" } },
+          { name: "breakdown_property", in: "query", schema: { type: "string", pattern: "^[A-Za-z0-9_.:-]{1,64}$" } },
+          { name: "filters", in: "query", description: "JSON array with at most 12 exact/exists property filters.", schema: { type: "string" } }
+        ]
+      }
+    },
+    "/query/reports/dashboards/{id}": {
+      get: {
+        ...sessionRoute(
+          "Render a saved analytics dashboard",
+          "Evaluate every dashboard widget for one project environment. Insight widget failures are isolated and returned on that widget instead of failing the full report."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ]
+      }
     },
     "/query/events/funnel": {
       get: sessionRoute(

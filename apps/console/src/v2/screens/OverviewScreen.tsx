@@ -2,7 +2,17 @@ import { useState } from "react";
 import type { NavSection } from "../nav";
 import type { ScreenCtx } from "./registry";
 import { useOverview } from "./useOverview";
-import type { ActivityItemVM, KpisVM, LlmByModelVM, TenantVM } from "./useOverview";
+import type {
+  ActivityItemVM,
+  AnomalyVM,
+  KpisVM,
+  LlmByModelVM,
+  OperationsDestination,
+  OperationsVM,
+  PredictionVM,
+  RecommendedActionVM,
+  TenantVM,
+} from "./useOverview";
 import type { OverviewWindow, ReleaseSummary } from "../../api/types";
 import {
   Card,
@@ -265,6 +275,222 @@ function buildAiItems(kpis: KpisVM): KpiItem[] {
       small: true,
     },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Operations panels
+// ---------------------------------------------------------------------------
+
+function toneColor(tone: RecommendedActionVM["tone"] | PredictionVM["severity"] | AnomalyVM["severity"]): string {
+  if (tone === "critical") return "var(--sev-critical)";
+  if (tone === "high" || tone === "medium" || tone === "warning") return "var(--sev-warning)";
+  return "var(--accent)";
+}
+
+function OperationalPosture({ operations, navigate }: { operations: OperationsVM; navigate: NavigateFn }) {
+  const { posture } = operations;
+  return (
+    <section aria-label="Operational posture" className="sh-card">
+      <div className="sh-card__head">
+        <h2 className="sh-h2">Operational posture</h2>
+        <span className={`sh-tag ${posture.status === "healthy" ? "ok" : posture.status === "unhealthy" ? "critical" : "warn"}`}>
+          {posture.status.replace("_", " ")}
+        </span>
+      </div>
+      <div className="sh-card__body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.35fr", gap: 16 }}>
+        <div>
+          <div className="sh-kpi__label">Monitors</div>
+          <div className="sh-kpi__value" style={{ fontSize: 22, marginTop: 4 }}>{posture.monitors.total}</div>
+          <div className="sh-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            {posture.monitors.up} up, {posture.monitors.down} down, {posture.monitors.degraded} degraded
+          </div>
+          <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+            {posture.monitors.paused} paused, {posture.monitors.unknown} unknown
+          </div>
+          <button className="sh-btn compact" style={{ marginTop: 10 }} onClick={() => navigate("monitors")}>
+            <Icon name="pulse" size={13} /> Open monitors
+          </button>
+        </div>
+        <div>
+          <div className="sh-kpi__label">Alerts</div>
+          <div className="sh-kpi__value" style={{ fontSize: 22, marginTop: 4 }}>{posture.alerts.events}</div>
+          <div className="sh-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            {posture.alerts.enabledRules} enabled rules, {posture.alerts.critical} critical, {posture.alerts.deliveryFailed} delivery failures
+          </div>
+          <button className="sh-btn compact" style={{ marginTop: 10 }} onClick={() => navigate("alerts")}>
+            <Icon name="bell" size={13} /> Open alerts
+          </button>
+        </div>
+        <div>
+          <div className="sh-kpi__label">Setup</div>
+          {posture.setupGaps.length === 0 ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}>
+              <span style={{ color: "var(--accent)" }}><Icon name="check" size={15} /></span>
+              <strong style={{ fontSize: 13 }}>Setup complete</strong>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 6, marginTop: 7 }}>
+              {posture.setupGaps.map((gap) => (
+                <button
+                  aria-label={gap.label}
+                  className="sh-row sh-row--btn"
+                  key={gap.key}
+                  onClick={() => navigate(gap.destination as NavSection)}
+                  style={{ gridTemplateColumns: "auto 1fr auto", minHeight: 34, width: "100%", border: "1px solid var(--border-subtle)", background: "transparent", textAlign: "left" }}
+                >
+                  <span className={`sh-tag ${gap.severity === "warning" ? "warn" : ""}`}>{gap.severity}</span>
+                  <span style={{ fontSize: 12 }}>{gap.label}</span>
+                  <Icon name="chev" size={12} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecommendedActions({ actions, onOpen }: { actions: RecommendedActionVM[]; onOpen: (action: RecommendedActionVM) => void }) {
+  return (
+    <section aria-label="Recommended next actions" className="sh-card">
+      <div className="sh-card__head">
+        <h2 className="sh-h2">Recommended next actions</h2>
+        <span className="sh-tag">priority order</span>
+      </div>
+      {actions.length === 0 ? (
+        <EmptyHint icon="check" title="No urgent actions" sub="Operational signals are stable for this window." />
+      ) : (
+        <div className="sh-card__body" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+          {actions.slice(0, 4).map((action) => (
+            <button
+              aria-label={action.title}
+              className="sh-row sh-row--btn"
+              data-testid="recommended-action"
+              key={action.key}
+              onClick={() => onOpen(action)}
+              style={{ display: "grid", gridTemplateColumns: "auto 1fr", alignItems: "start", minHeight: 118, padding: 12, border: "1px solid var(--border-subtle)", background: "transparent", textAlign: "left" }}
+            >
+              <span style={{ color: toneColor(action.tone), paddingTop: 2 }}><Icon name={action.tone === "critical" ? "error" : "alert"} size={15} /></span>
+              <span style={{ minWidth: 0 }}>
+                <strong style={{ display: "block", fontSize: 12 }}>{action.title}</strong>
+                <span className="sh-muted" style={{ display: "block", fontSize: 11, lineHeight: 1.45, marginTop: 4 }}>{action.description}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 5, color: toneColor(action.tone), fontSize: 11, marginTop: 8 }}>
+                  {action.action} <Icon name="arrow" size={11} />
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PredictiveRiskPanel({ predictions, onOpen }: { predictions: PredictionVM[]; onOpen: (destination: OperationsDestination) => void }) {
+  return (
+    <section aria-label="Predictive risk" className="sh-card">
+      <div className="sh-card__head">
+        <h2 className="sh-h2">Predictive risk</h2>
+        <span className={`sh-tag ${predictions.some((item) => item.severity === "critical") ? "critical" : predictions.length ? "warn" : "ok"}`}>
+          {predictions.length ? `${predictions.length} projected` : "stable"}
+        </span>
+      </div>
+      {predictions.length === 0 ? (
+        <EmptyHint icon="sparkles" title="No predictive risk" sub="The current window is tracking close to the learned baseline." />
+      ) : (
+        <div className="sh-card__body" style={{ display: "grid", gap: 12 }}>
+          {predictions.map((prediction) => (
+            <div key={prediction.id} style={{ borderLeft: `3px solid ${toneColor(prediction.severity)}`, paddingLeft: 12 }}>
+              <div style={{ display: "flex", alignItems: "start", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <strong style={{ fontSize: 13 }}>{prediction.label}</strong>
+                  <div className="sh-muted" style={{ fontSize: 11, marginTop: 3 }}>
+                    {Math.round(prediction.probabilityPercent)}% probability · {prediction.confidence} confidence · score {prediction.score.toFixed(2)} vs {prediction.baselineRiskScore.toFixed(2)} baseline
+                  </div>
+                  <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+                    {prediction.sampleSize} / {prediction.baselineSampleSize} samples · delta {prediction.delta >= 0 ? "+" : ""}{prediction.delta.toFixed(2)} · {prediction.method}
+                  </div>
+                </div>
+                <button className="sh-btn compact" onClick={() => onOpen(prediction.destination)}>
+                  Open <Icon name="arrow" size={11} />
+                </button>
+              </div>
+              {prediction.factors.length > 0 ? (
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(prediction.factors.length, 3)}, minmax(0, 1fr))`, gap: 8, marginTop: 10 }}>
+                  {prediction.factors.map((factor) => (
+                    <div key={factor.key} style={{ padding: 8, background: "var(--bg-canvas)", border: "1px solid var(--border-subtle)", borderRadius: 6 }}>
+                      <strong style={{ fontSize: 11 }}>{factor.label} · {factor.weight.toFixed(2)}</strong>
+                      <div className="sh-muted" style={{ fontSize: 11, marginTop: 3 }}>{factor.reason}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AnomaliesPanel({ anomalies, onOpen }: { anomalies: AnomalyVM[]; onOpen: (destination: OperationsDestination) => void }) {
+  return (
+    <section aria-label="Detected anomalies" className="sh-card">
+      <div className="sh-card__head">
+        <h2 className="sh-h2">Detected anomalies</h2>
+        <span className={`sh-tag ${anomalies.some((item) => item.severity === "critical") ? "critical" : anomalies.length ? "warn" : "ok"}`}>
+          {anomalies.length ? `${anomalies.length} detected` : "stable"}
+        </span>
+      </div>
+      {anomalies.length === 0 ? (
+        <EmptyHint icon="check" title="No anomalies detected" sub="Volume, errors, latency, and cost are within baseline." />
+      ) : (
+        <div className="sh-card__body" style={{ display: "grid", gap: 10 }}>
+          {anomalies.map((anomaly) => (
+            <div key={anomaly.id} style={{ borderLeft: `3px solid ${toneColor(anomaly.severity)}`, paddingLeft: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <div>
+                  <strong style={{ fontSize: 13 }}>{anomaly.label}</strong>
+                  <div className="sh-muted" style={{ fontSize: 11, marginTop: 3 }}>{anomaly.reason}</div>
+                </div>
+                <button className="sh-btn compact" onClick={() => onOpen(anomaly.destination)}>Drill down <Icon name="arrow" size={11} /></button>
+              </div>
+              <div className="sh-faint" style={{ fontSize: 11, marginTop: 7 }}>
+                Observed {anomaly.observedValue} · Baseline {anomaly.baselineValue} · {anomaly.changePercent == null ? "change unavailable" : `${anomaly.changePercent >= 0 ? "+" : ""}${anomaly.changePercent.toFixed(1)}%`} · {anomaly.sampleSize} / {anomaly.baselineSampleSize} samples
+              </div>
+              <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+                Threshold: {anomaly.threshold}{anomaly.suggestedAlertRuleType ? ` · Suggested rule: ${anomaly.suggestedAlertRuleType}` : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TopLatencyPanel({ rows, onOpen }: { rows: OperationsVM["topLatency"]; onOpen: () => void }) {
+  return (
+    <section aria-label="Top latency" className="sh-card">
+      <div className="sh-card__head"><h2 className="sh-h2">Top latency</h2></div>
+      {rows.length === 0 ? (
+        <EmptyHint icon="waterfall" title="No trace latency in this window" sub="Trace routes will appear after telemetry arrives." />
+      ) : (
+        <div>
+          {rows.map((row) => (
+            <div className="sh-row" key={row.name} style={{ gridTemplateColumns: "minmax(0, 1fr) 90px 70px 70px auto" }}>
+              <strong className="sh-mono" style={{ fontSize: 12 }}>{row.name}</strong>
+              <span>{row.p95TraceDurationMs} ms p95</span>
+              <span>{row.traces} traces</span>
+              <span>{row.failedTraces} failed</span>
+              <button aria-label="Open traces" className="sh-btn compact" onClick={onOpen}>Open traces</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -636,12 +862,29 @@ export function OverviewScreen({
     );
   }
 
-  const { banner, kpis, topTenants, llmByModel, releases, selectedRelease, selectRelease, activity } = data;
+  const { banner, operations, kpis, topTenants, llmByModel, releases, selectedRelease, selectRelease, activity } = data;
+
+  const openDestination = (destination: OperationsDestination) => {
+    if (destination === "investigate") {
+      ctx.navigate("investigate", { status: "open" });
+      return;
+    }
+    if (destination === "incident") return;
+    navigate(destination);
+  };
+
+  const openRecommendedAction = (action: RecommendedActionVM) => {
+    if (action.destination === "incident" && action.groupId) {
+      ctx.drill("incident", { groupId: action.groupId, errorId: action.errorId });
+      return;
+    }
+    openDestination(action.destination);
+  };
 
   return (
     <>
       <PageHead
-        title="Overview"
+        title="Operations"
         sub={
           <>
             Pulse of{" "}
@@ -689,6 +932,10 @@ export function OverviewScreen({
         <KpiGroup title="AI cost" icon="sparkles" items={buildAiItems(kpis)} />
       </div>
 
+      <RecommendedActions actions={operations.recommendedActions} onOpen={openRecommendedAction} />
+
+      <OperationalPosture operations={operations} navigate={navigate} />
+
       {/* Bottom row */}
       <div
         style={{
@@ -708,6 +955,13 @@ export function OverviewScreen({
           onOpenIncident={(groupId, errorId) => ctx.drill("incident", { groupId, errorId })}
         />
       </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <PredictiveRiskPanel predictions={operations.predictions} onOpen={openDestination} />
+        <AnomaliesPanel anomalies={operations.anomalies} onOpen={openDestination} />
+      </div>
+
+      <TopLatencyPanel rows={operations.topLatency} onOpen={() => navigate("traces")} />
     </>
   );
 }

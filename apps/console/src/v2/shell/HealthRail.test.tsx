@@ -157,6 +157,33 @@ describe("HealthRail", () => {
     expect(firstButton.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("renders lazy-loaded environment health inside an expanded project", () => {
+    render(
+      <HealthRail
+        collapsed={false}
+        onToggleCollapse={() => {}}
+        selectedProjectId="prj_1"
+        onSelectProject={() => {}}
+        onOpenEnv={() => {}}
+        expandedIds={new Set(["prj_1"])}
+        onToggleExpand={() => {}}
+        fleet={{
+          ...defaultFleet,
+          environments: {
+            prj_1: {
+              status: "ready",
+              data: [{ name: "production", status: "warning", incidents: 2, errorRatePercent: 3.4, events: 88, note: null }]
+            }
+          }
+        }}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /production.*warning/i })).toBeInTheDocument();
+    expect(screen.getByText("2 incidents")).toBeInTheDocument();
+    expect(screen.queryByText("Load environments…")).not.toBeInTheDocument();
+  });
+
   it("renders collapsed mode as aside with hr--collapsed class", () => {
     render(
       <HealthRail

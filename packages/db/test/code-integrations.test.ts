@@ -136,4 +136,23 @@ describe("code integration repositories", () => {
     });
     expect(metadata.commitSha).toBe("abcdef123456");
   });
+
+  it("rejects release metadata linked to a repository from another project", async () => {
+    const { project, environment } = await createScope();
+    const other = await createScope();
+    const integration = await createCodeIntegration(db, {
+      projectId: other.project.id,
+      provider: "github",
+      name: "Other repository",
+      owner: "acme",
+      repo: "other"
+    });
+
+    await expect(upsertReleaseMetadata(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      release: "web@2.0.0",
+      integrationId: integration.id
+    })).rejects.toThrow("code_integration_not_found");
+  });
 });

@@ -95,6 +95,38 @@ describe("AuthGate", () => {
     expect(screen.queryByText("Console loaded")).not.toBeInTheDocument();
   });
 
+  it("shows a normalized Google sign-in link when OAuth is enabled", async () => {
+    render(
+      <AuthGate
+        apiBasePath="/api/"
+        client={client({ getMe: vi.fn().mockRejectedValue(new ApiError(401, "unauthenticated")) })}
+        googleOAuthEnabled
+      >
+        <div>Console loaded</div>
+      </AuthGate>
+    );
+
+    expect(await screen.findByRole("link", { name: "Continue with Google" })).toHaveAttribute(
+      "href",
+      "/api/auth/google"
+    );
+  });
+
+  it("does not offer Google sign-in when OAuth is disabled", async () => {
+    render(
+      <AuthGate
+        apiBasePath="/api"
+        client={client({ getMe: vi.fn().mockRejectedValue(new ApiError(401, "unauthenticated")) })}
+        googleOAuthEnabled={false}
+      >
+        <div>Console loaded</div>
+      </AuthGate>
+    );
+
+    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Continue with Google" })).not.toBeInTheDocument();
+  });
+
   it("shows unavailable state with retry when session lookup fails for non-auth reasons", async () => {
     const api = client({
       getMe: vi
@@ -210,5 +242,28 @@ describe("AuthGate", () => {
 
     await waitFor(() => expect(api.logout).toHaveBeenCalledTimes(1));
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+  });
+
+  it("preserves an authenticated session when logout fails so the caller can retry", async () => {
+    const api = client({
+      getMe: vi.fn().mockResolvedValue({ user: { id: "usr_1", email: "admin@example.com", isAdmin: true } }),
+      logout: vi.fn().mockRejectedValue(new ApiError(500, "request_failed"))
+    });
+
+    render(
+      <AuthGate client={api}>
+        {({ user, signOut }) => (
+          <div>
+            <span>Console loaded for {user.email}</span>
+            <button type="button" onClick={() => void signOut().catch(() => undefined)}>Sign out from console</button>
+          </div>
+        )}
+      </AuthGate>
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Sign out from console" }));
+    await waitFor(() => expect(api.logout).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Console loaded for admin@example.com")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
   });
 });

@@ -99,6 +99,26 @@ describe("SetupScreen", () => {
     expect(await screen.findByText(/Copy/)).toBeInTheDocument();
   });
 
+  it("does not reveal an API key secret after the environment changes", async () => {
+    let finish!: (value: Awaited<ReturnType<ApiClient["createApiKey"]>>) => void;
+    const pending = new Promise<Awaited<ReturnType<ApiClient["createApiKey"]>>>((resolve) => { finish = resolve; });
+    const client = makeClient({ createApiKey: vi.fn().mockReturnValue(pending) });
+    const nextEnvironment = { ...environment, id: "env_2", name: "preview" };
+    const { rerender } = render(<SetupScreen ctx={makeCtx({ client })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    rerender(<SetupScreen ctx={makeCtx({ client, environment: nextEnvironment, environments: [nextEnvironment] })} />);
+    finish({
+      apiKey: {
+        id: "key_old", projectId: "prj_1", environmentId: "env_1", name: "old",
+        prefix: "sh_live_old", createdAt: "x", revokedAt: null, secret: "must_not_leak",
+      },
+    });
+
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledTimes(1));
+    expect(screen.queryByDisplayValue("must_not_leak")).not.toBeInTheDocument();
+  });
+
   it("creates a project from the inline input", async () => {
     const client = makeClient();
     render(<SetupScreen ctx={makeCtx({ client })} />);
@@ -115,6 +135,7 @@ describe("SetupScreen", () => {
     render(<SetupScreen ctx={makeCtx({ client })} />);
     const archive = await screen.findByRole("button", { name: "Archive Acme" });
     fireEvent.click(archive);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm archive Acme" }));
     await waitFor(() => expect(client.archiveProject).toHaveBeenCalledWith("prj_1"));
   });
 
@@ -127,6 +148,28 @@ describe("SetupScreen", () => {
     fireEvent.change(input, { target: { value: "Acme Corp" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(client.updateProject).toHaveBeenCalledWith("prj_1", { name: "Acme Corp" }));
+  });
+
+  it("renames an environment from the inline editor", async () => {
+    const client = makeClient({ updateEnvironment: vi.fn().mockResolvedValue({ environment }) });
+    render(<SetupScreen ctx={makeCtx({ client })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename production" }));
+    const input = screen.getByLabelText("Rename environment");
+    fireEvent.change(input, { target: { value: "Production EU" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(client.updateEnvironment).toHaveBeenCalledWith("env_1", { name: "Production EU" }));
+  });
+
+  it("archives an environment", async () => {
+    const client = makeClient({ archiveEnvironment: vi.fn().mockResolvedValue(undefined) });
+    render(<SetupScreen ctx={makeCtx({ client })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Archive production" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm archive production" }));
+
+    await waitFor(() => expect(client.archiveEnvironment).toHaveBeenCalledWith("env_1"));
   });
 
   it("stubs the test ping with a toast", async () => {

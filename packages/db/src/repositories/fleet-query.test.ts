@@ -690,7 +690,7 @@ describe("getProjectFleetEnvironments", () => {
     expect(result!.envs[0].name).toBe("production");
   });
 
-  it("caps at 5 environments", async () => {
+  it("returns every active project environment without silent truncation", async () => {
     vi.mocked(getProject).mockResolvedValue(makeProject({ id: "proj-1" }));
     // 7 environments
     vi.mocked(listEnvironments).mockResolvedValue([
@@ -708,7 +708,16 @@ describe("getProjectFleetEnvironments", () => {
 
     const result = await getProjectFleetEnvironments(mockDb, { projectId: "proj-1", window: "24h" });
 
-    expect(result!.envs).toHaveLength(5);
+    expect(result!.envs).toHaveLength(7);
+    expect(result!.envs.map((environment) => environment.name)).toEqual([
+      "production",
+      "env-1",
+      "env-2",
+      "env-3",
+      "env-4",
+      "env-5",
+      "env-6"
+    ]);
   });
 
   it("sets note='no data' when events===0 and status==='ok', else null", async () => {

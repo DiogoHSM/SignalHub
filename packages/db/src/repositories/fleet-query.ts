@@ -319,7 +319,7 @@ export async function getProjectFleetEnvironments(
   // Production first, then the rest (stable relative order preserved)
   const prodEnvs = allEnvs.filter((e) => e.name.toLowerCase() === "production");
   const otherEnvs = allEnvs.filter((e) => e.name.toLowerCase() !== "production");
-  const ordered = [...prodEnvs, ...otherEnvs].slice(0, 5);
+  const ordered = [...prodEnvs, ...otherEnvs];
 
   // Run getOperations for each env sequentially-within-parallel (all at once)
   const envResults = await Promise.all(

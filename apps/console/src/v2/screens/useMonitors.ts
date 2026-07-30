@@ -252,6 +252,9 @@ export function useMonitors({ client, projectId, environmentId, endpoint }: UseM
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
+  const scopeKey = `${projectId ?? ""}:${environmentId ?? ""}`;
+  const scopeRef = useRef(scopeKey);
+  scopeRef.current = scopeKey;
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
   const clearSecret = useCallback(() => setLatestSecret(null), []);
@@ -339,6 +342,7 @@ export function useMonitors({ client, projectId, environmentId, endpoint }: UseM
     (form: CreateHeartbeatForm) =>
       run(async () => {
         if (!projectId || !environmentId || !client.createHeartbeatMonitor) return;
+        const operationScope = scopeKey;
         const input: CreateHeartbeatMonitorInput = {
           projectId,
           environmentId,
@@ -349,6 +353,7 @@ export function useMonitors({ client, projectId, environmentId, endpoint }: UseM
           enabled: true,
         };
         const { monitor, secret } = await client.createHeartbeatMonitor(input);
+        if (scopeRef.current !== operationScope) return;
         setLatestSecret({
           monitorId: monitor.id,
           monitorName: monitor.name,
@@ -356,7 +361,7 @@ export function useMonitors({ client, projectId, environmentId, endpoint }: UseM
           url: heartbeatUrl(endpoint, monitor.id),
         });
       }),
-    [client, endpoint, environmentId, projectId, run],
+    [client, endpoint, environmentId, projectId, run, scopeKey],
   );
 
   const updateMonitor = useCallback(

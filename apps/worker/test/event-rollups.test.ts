@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { runEventRollupOnce, startEventRollupScheduler, type EventRollupRuntime } from "../src/event-rollups.js";
 
@@ -144,5 +145,13 @@ describe("startEventRollupScheduler", () => {
     expect(runOnce).toHaveBeenCalledTimes(1);
     resolveRun?.();
     await stop();
+  });
+
+  it("wires bounded hourly backfill into the existing advisory-locked scheduler run", async () => {
+    const source = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("runEventHourlyRollupBackfill");
+    expect(source).toMatch(/withEventRollupLock\(db, async \(\) =>/);
+    expect(source).toContain("maxBackfillHoursPerScope");
   });
 });

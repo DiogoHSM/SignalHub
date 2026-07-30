@@ -86,7 +86,8 @@ describe("NavRail", () => {
     const items = container.querySelectorAll(".nv-item");
     const labels = Array.from(items).map(item => (item as HTMLElement).title);
 
-    expect(labels).toContain("Overview");
+    expect(labels).toContain("Operations");
+    expect(labels).not.toContain("Overview");
     expect(labels).toContain("Incidents");
     expect(labels).toContain("Settings");
   });

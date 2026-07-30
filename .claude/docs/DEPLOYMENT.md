@@ -115,13 +115,21 @@ Before publishing a new SDK release, update `packages/sdk/package.json` version,
 - `worker`: BullMQ telemetry worker with `WORKER_ROLE=queue`.
 - `scheduler`: scheduled retention, event rollups, backup, alert, monitor evaluation, and warehouse export worker with `WORKER_ROLE=scheduler`. For smaller deployments, a single worker can run both responsibilities with `WORKER_ROLE=all`.
 
+### Google OAuth
+
+Google OAuth is optional and belongs to the API service. In Google Cloud Console, create an OAuth 2.0 Web application client and register the exact authorized redirect URI. For the hosted production instance use `https://my.sigmon.app/auth/google/callback`; for local development use `http://localhost:3000/auth/google/callback`. Set `GOOGLE_OAUTH_ENABLED=true`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the matching `GOOGLE_REDIRECT_URI` on `api`. Do not add these variables to the queue worker or scheduler, because neither service serves the callback route.
+
 `WORKER_ROLE` is only operationally meaningful for processes started with `pnpm start:worker`. In split deployments such as the Coolify production instance, set `WORKER_ROLE=queue` on the queue worker service and `WORKER_ROLE=scheduler` on the scheduler service. The scheduler service also needs the same shared runtime env vars as the worker (`DATABASE_URL`, `REDIS_URL`, secrets, SMTP, retention, monitor, alert, and backup settings) because it evaluates background jobs directly.
 
 The API, worker, and scheduler containers are built from the project Dockerfile. The image includes `postgresql16-client`, `curl`, and `tini`, runs as the non-root `sigmon` user, and uses `tini` as the entrypoint. The Dockerfile copies application files with `sigmon` ownership and runs install/build as `sigmon`, avoiding a final recursive ownership rewrite over `/app` during image export. Dependency installation is isolated behind workspace package manifest copies and a BuildKit pnpm-store cache mount, so ordinary source or documentation changes can reuse the install layer. `.dockerignore` excludes local worktrees, `node_modules`, generated `dist` folders, secrets notes, and other non-build artifacts from local Docker contexts. Compose defines healthchecks for all four services.
 
 ## Warehouse Sync
 
-Warehouse sync is built into the scheduler role. Set `WAREHOUSE_EXPORTS_ENABLED` and `WAREHOUSE_EXPORTS_INTERVAL_MINUTES` to control scheduled incremental exports. Operators configure destinations in Console -> Project Settings -> Warehouse sync. The scheduler must be able to reach each destination Postgres URL configured in the console.
+Warehouse sync is built into the scheduler role. `WAREHOUSE_EXPORTS_ENABLED` defaults to `true`; `WAREHOUSE_EXPORTS_INTERVAL_MINUTES` defaults to `15` and controls the delay between incremental export passes. Set both variables on the scheduler service in split deployments. Operators configure destinations in Console -> Project Settings -> Warehouse sync. The scheduler must be able to reach each destination Postgres URL configured in the console.
+
+## Console Bundle
+
+The production console is split by workspace and must be served with all hashed assets from the same build. The entry bundle measured 717.10 kB raw / 177.79 kB gzip before splitting and 285.31 kB raw / 83.31 kB gzip after splitting, including canonical deep-link routing. Operations, observability, analytics/experimentation, and administration emit coherent lazy chunks between 97.08 and 122.57 kB raw (22.01 to 28.95 kB gzip). Reverse proxies and CDNs should cache hashed assets immutably while keeping `index.html` revalidated so a deploy never points at removed chunk names.
 
 The console `System` mode reads separate `worker` and `scheduler` heartbeats and shows a non-secret deploy config summary. Use it after deploy to confirm both background services are alive and that API-visible config such as SMTP, alerts, monitors, retention, backups, and public endpoint settings loaded as expected.
 

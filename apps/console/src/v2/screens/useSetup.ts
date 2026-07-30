@@ -40,6 +40,8 @@ export type UseSetupResult = {
   renameProject: (id: string, name: string) => Promise<void>;
   archiveProject: (id: string) => Promise<void>;
   createEnvironment: (name: string) => Promise<void>;
+  renameEnvironment: (id: string, name: string) => Promise<void>;
+  archiveEnvironment: (id: string) => Promise<void>;
   generateApiKey: () => Promise<void>;
 };
 
@@ -168,6 +170,9 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
+  const scopeKey = `${project?.id ?? ""}:${environment?.id ?? ""}`;
+  const scopeRef = useRef(scopeKey);
+  scopeRef.current = scopeKey;
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
@@ -205,7 +210,7 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
             activeEnvName: environment?.name,
             apiKeys: keysRes.apiKeys,
             ops,
-            endpoint: originEndpoint(),
+            endpoint: ctx.apiEndpoint || originEndpoint(),
             nowMs: Date.now(),
           }),
         );
@@ -264,18 +269,49 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
     [client, project?.id, run],
   );
 
+  const renameEnvironment = useCallback(
+    (id: string, name: string) => run(
+      async () => { await client.updateEnvironment(id, { name }); },
+      "Could not rename environment",
+    ),
+    [client, run],
+  );
+
+  const archiveEnvironment = useCallback(
+    (id: string) => run(
+      async () => { await client.archiveEnvironment(id); },
+      "Could not archive environment",
+    ),
+    [client, run],
+  );
+
   const generateApiKey = useCallback(
     () => run(async () => {
       if (!project?.id || !environment?.id) return;
+      const operationScope = scopeKey;
       const { apiKey } = await client.createApiKey(project.id, {
         environmentId: environment.id,
         name: `console-${environment.name}`,
       });
+      if (scopeRef.current !== operationScope) return;
       setLatestSecret(apiKey.secret);
       ctx.pushToast("API key created — copy it now, it is shown only once");
     }, "Could not create API key"),
-    [client, ctx, environment?.id, environment?.name, project?.id, run],
+    [client, ctx, environment?.id, environment?.name, project?.id, run, scopeKey],
   );
 
-  return { data, status, latestSecret, busy, reload, createProject, renameProject, archiveProject, createEnvironment, generateApiKey };
+  return {
+    data,
+    status,
+    latestSecret,
+    busy,
+    reload,
+    createProject,
+    renameProject,
+    archiveProject,
+    createEnvironment,
+    renameEnvironment,
+    archiveEnvironment,
+    generateApiKey,
+  };
 }

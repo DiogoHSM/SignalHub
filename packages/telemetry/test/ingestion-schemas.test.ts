@@ -335,6 +335,22 @@ describe("ingestion schemas", () => {
     expect(parsed.events[0]?.message).toBeUndefined();
   });
 
+  it.each([
+    "person@example.com entered the checkout form",
+    "Cookie: session=raw-cookie-value",
+    "Authorization: Bearer raw-access-token",
+    "The customer typed private free-form text"
+  ])("redacts replay event message text instead of preserving %s", (message) => {
+    const parsed = sessionReplayPayloadSchema.parse({
+      replay_id: "rpl_redacted_message",
+      started_at: "2026-05-02T12:00:00.000Z",
+      events: [{ offset_ms: 0, type: "console", message }]
+    });
+
+    expect(parsed.events[0]?.message).toBe("[REDACTED]");
+    expect(JSON.stringify(parsed)).not.toContain(message);
+  });
+
   it("rejects replay events that include raw input values", () => {
     expect(() =>
       sessionReplayPayloadSchema.parse({
@@ -350,6 +366,244 @@ describe("ingestion schemas", () => {
         ]
       })
     ).toThrow();
+  });
+
+  it("rejects replay payloads above the 64 KiB UTF-8 budget", () => {
+    const multibyteChunk = "é".repeat(9_000);
+
+    const result = sessionReplayPayloadSchema.safeParse({
+      replay_id: "rpl_oversized",
+      started_at: "2026-05-02T12:00:00.000Z",
+      events: [
+        {
+          offset_ms: 0,
+          type: "custom",
+          data: {
+            first: multibyteChunk,
+            second: multibyteChunk,
+            third: multibyteChunk,
+            fourth: multibyteChunk
+          }
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: [],
+            message: "Session replay payload must not exceed 64 KiB"
+          })
+        ])
+      );
+    }
+  });
+
+  it("measures the replay HTTP payload before unknown fields are stripped", () => {
+    const result = sessionReplayPayloadSchema.safeParse({
+      replay_id: "rpl_unknown_oversized",
+      started_at: "2026-05-02T12:00:00.000Z",
+      ignored_blob: "x".repeat(66_000)
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: [],
+            message: "Session replay payload must not exceed 64 KiB"
+          })
+        ])
+      );
+    }
+  });
+
+  it("accepts multibyte replay payloads within the 64 KiB UTF-8 budget", () => {
+    const multibyteChunk = "é".repeat(7_000);
+
+    expect(() =>
+      sessionReplayPayloadSchema.parse({
+        replay_id: "rpl_within_budget",
+        started_at: "2026-05-02T12:00:00.000Z",
+        events: [
+          {
+            offset_ms: 0,
+            type: "custom",
+            data: {
+              first: multibyteChunk,
+              second: multibyteChunk,
+              third: multibyteChunk,
+              fourth: multibyteChunk
+            }
+          }
+        ]
+      })
+    ).not.toThrow();
+  });
+
+  it("preserves the existing 300-event replay limit", () => {
+    expect(() =>
+      sessionReplayPayloadSchema.parse({
+        replay_id: "rpl_too_many_events",
+        started_at: "2026-05-02T12:00:00.000Z",
+        events: Array.from({ length: 301 }, (_, offset_ms) => ({
+          offset_ms,
+          type: "custom"
+        }))
+      })
+    ).toThrow();
+  });
+
+  it("rejects replay event data deeper than five container levels", () => {
+    const result = sessionReplayPayloadSchema.safeParse({
+      replay_id: "rpl_deep",
+      started_at: "2026-05-02T12:00:00.000Z",
+      events: [
+        {
+          offset_ms: 0,
+          type: "custom",
+          data: { one: { two: { three: { four: { five: { six: true } } } } } }
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["events", 0, "data"],
+            message: "Replay event data must not exceed 5 container levels"
+          })
+        ])
+      );
+    }
+  });
+
+  it("rejects extremely deep replay data without overflowing the parser stack", () => {
+    const root: Record<string, unknown> = {};
+    let cursor = root;
+    for (let depth = 0; depth < 6_000; depth += 1) {
+      const nested: Record<string, unknown> = {};
+      cursor.next = nested;
+      cursor = nested;
+    }
+
+    expect(() =>
+      sessionReplayPayloadSchema.safeParse({
+        replay_id: "rpl_extremely_deep",
+        started_at: "2026-05-02T12:00:00.000Z",
+        events: [{ offset_ms: 0, type: "custom", data: root }]
+      })
+    ).not.toThrow();
+
+    const result = sessionReplayPayloadSchema.safeParse({
+      replay_id: "rpl_extremely_deep",
+      started_at: "2026-05-02T12:00:00.000Z",
+      events: [{ offset_ms: 0, type: "custom", data: root }]
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["events", 0, "data"],
+            message: "Replay event data must not exceed 5 container levels"
+          })
+        ])
+      );
+    }
+  });
+
+  it.each([
+    {
+      name: "object",
+      createData: () => {
+        const data: Record<string, unknown> = {};
+        data.self = data;
+        return data;
+      },
+      path: ["events", 0, "data", "self"]
+    },
+    {
+      name: "array",
+      createData: () => {
+        const items: unknown[] = [];
+        items.push(items);
+        return { items };
+      },
+      path: ["events", 0, "data", "items", 0]
+    }
+  ])("rejects cyclic replay $name data deterministically without hanging", ({ createData, path }) => {
+    const parse = () =>
+      sessionReplayPayloadSchema.safeParse({
+        replay_id: "rpl_cyclic",
+        started_at: "2026-05-02T12:00:00.000Z",
+        events: [{ offset_ms: 0, type: "custom", data: createData() }]
+      });
+
+    expect(parse).not.toThrow();
+    const first = parse();
+    const second = parse();
+    expect(first.success).toBe(false);
+    expect(second.success).toBe(false);
+    if (!first.success && !second.success) {
+      const expectedIssue = expect.objectContaining({
+        path,
+        message: "Replay event data must not contain cyclic references"
+      });
+      expect(first.error.issues).toEqual(expect.arrayContaining([expectedIssue]));
+      expect(second.error.issues).toEqual(expect.arrayContaining([expectedIssue]));
+    }
+  });
+
+  it("rejects replay event data with more than 64 object keys", () => {
+    const result = sessionReplayPayloadSchema.safeParse({
+      replay_id: "rpl_wide",
+      started_at: "2026-05-02T12:00:00.000Z",
+      events: [
+        {
+          offset_ms: 0,
+          type: "custom",
+          data: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`key_${index}`, index]))
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["events", 0, "data"],
+            message: "Replay event data must not exceed 64 object keys"
+          })
+        ])
+      );
+    }
+  });
+
+  it.each(["password", "Password", "INNERHTML"])("rejects nested sensitive replay key %s", (key) => {
+    const result = sessionReplayPayloadSchema.safeParse({
+      replay_id: "rpl_nested_secret",
+      started_at: "2026-05-02T12:00:00.000Z",
+      events: [{ offset_ms: 0, type: "custom", data: { nested: { [key]: "secret" } } }]
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects unknown replay event fields instead of letting them bypass data bounds", () => {
+    const result = sessionReplayPayloadSchema.safeParse({
+      replay_id: "rpl_extra_deep",
+      started_at: "2026-05-02T12:00:00.000Z",
+      events: [{ offset_ms: 0, type: "custom", extra: { one: { two: { three: { four: { five: { six: true } } } } } } }]
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts a user identify payload with traits and envelope fields", () => {

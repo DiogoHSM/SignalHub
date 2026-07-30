@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const oldIdentifierPatterns = [
@@ -38,7 +38,7 @@ const activeExtensionlessFiles = new Set([
 function trackedFiles() {
   return execFileSync("git", ["ls-files"], { encoding: "utf8" })
     .split("\n")
-    .filter(Boolean);
+    .filter((path) => path.length > 0 && existsSync(path));
 }
 
 function extensionOf(path: string) {

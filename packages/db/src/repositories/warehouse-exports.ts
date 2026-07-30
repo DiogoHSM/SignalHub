@@ -7,12 +7,14 @@ import type {
   ErrorsTable,
   EventsTable,
   LlmCallsTable,
+  TenantProfilesTable,
   TracesTable,
+  UserProfilesTable,
   WarehouseDestinationsTable,
   WarehouseExportRunsTable
 } from "../schema.js";
 
-export const warehouseDatasets = ["events", "errors", "traces", "llmCalls"] as const;
+export const warehouseDatasets = ["events", "errors", "traces", "llmCalls", "userProfiles", "tenantProfiles"] as const;
 
 export type WarehouseDataset = (typeof warehouseDatasets)[number];
 export type WarehouseDestinationType = "postgres";
@@ -86,6 +88,14 @@ export type WarehouseExportRows = {
   errors: Array<Selectable<ErrorsTable>>;
   traces: Array<Selectable<TracesTable>>;
   llmCalls: Array<Selectable<LlmCallsTable>>;
+  userProfiles: Array<Selectable<UserProfilesTable> & WarehouseIdentityExportColumns>;
+  tenantProfiles: Array<Selectable<TenantProfilesTable> & WarehouseIdentityExportColumns>;
+};
+
+type WarehouseIdentityExportColumns = {
+  id: string;
+  timestamp: Date;
+  received_at: Date;
 };
 
 export type WarehouseExportBatch = {
@@ -153,13 +163,40 @@ function normalizeBatchSize(value: number | undefined): number {
   return Math.min(Math.max(Math.trunc(value ?? 500), 1), 5000);
 }
 
+const sensitiveConnectionParameter = /(?:pass(?:word)?|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|ssl(?:key|cert))/i;
+
+function redactConnectionQuery(rawUrl: string): string {
+  const queryIndex = rawUrl.indexOf("?");
+  if (queryIndex < 0) return rawUrl;
+  const fragmentIndex = rawUrl.indexOf("#", queryIndex);
+  const queryEnd = fragmentIndex < 0 ? rawUrl.length : fragmentIndex;
+  const redacted = rawUrl
+    .slice(queryIndex + 1, queryEnd)
+    .split("&")
+    .map((part) => {
+      const separator = part.indexOf("=");
+      const rawKey = separator < 0 ? part : part.slice(0, separator);
+      let key = rawKey;
+      try {
+        key = decodeURIComponent(rawKey.replace(/\+/g, " "));
+      } catch {
+        // Keep malformed keys intact while still applying the conservative raw-name check.
+      }
+      return sensitiveConnectionParameter.test(key) || sensitiveConnectionParameter.test(rawKey)
+        ? `${rawKey}=***`
+        : part;
+    })
+    .join("&");
+  return `${rawUrl.slice(0, queryIndex + 1)}${redacted}${rawUrl.slice(queryEnd)}`;
+}
+
 function redactConnectionUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     if (url.password) url.password = "***";
-    return url.toString();
+    return redactConnectionQuery(url.toString()).replaceAll("%2A%2A%2A", "***");
   } catch {
-    return rawUrl.replace(/:\/\/([^:@/]+):([^@/]+)@/, "://$1:***@");
+    return redactConnectionQuery(rawUrl.replace(/:\/\/([^:@/]+):([^@/]+)@/, "://$1:***@"));
   }
 }
 
@@ -420,12 +457,31 @@ function afterCursor(cursor: WarehouseCursorValue | undefined) {
   return sql<boolean>`(timestamp > ${timestamp} or (timestamp = ${timestamp} and id > ${cursor.id}))`;
 }
 
+function scopedProfileSourceId(projectId: string, environmentId: string, actorId: string): string {
+  return `${projectId}:${environmentId}:${actorId}`;
+}
+
+function nextProfileCursor(
+  row: { updated_at: Date } | undefined,
+  actorId: string | undefined,
+  current: WarehouseCursorValue | undefined
+): WarehouseCursorValue | undefined {
+  return row && actorId ? { timestamp: row.updated_at.toISOString(), id: actorId } : current;
+}
+
 export async function selectWarehouseExportBatch(
   db: WarehouseDb,
   destination: Pick<WarehouseDestinationRecord, "projectId" | "environmentId" | "datasets" | "cursor" | "batchSize">,
   _input: { now: Date }
 ): Promise<WarehouseExportBatch> {
-  const rows: WarehouseExportRows = { events: [], errors: [], traces: [], llmCalls: [] };
+  const rows: WarehouseExportRows = {
+    events: [],
+    errors: [],
+    traces: [],
+    llmCalls: [],
+    userProfiles: [],
+    tenantProfiles: []
+  };
   const counts: WarehouseExportCounts = {};
   const nextCursor: WarehouseCursor = { ...destination.cursor };
 
@@ -499,6 +555,54 @@ export async function selectWarehouseExportBatch(
     rows.llmCalls = applyCursor(sourceRows, destination.cursor.llmCalls, destination.batchSize);
     counts.llmCalls = rows.llmCalls.length;
     nextCursor.llmCalls = nextCursorForRows(rows.llmCalls, destination.cursor.llmCalls);
+  }
+
+  if (destination.datasets.includes("userProfiles")) {
+    let query = db
+      .selectFrom("user_profiles")
+      .selectAll()
+      .where("project_id", "=", destination.projectId)
+      .where("environment_id", "=", destination.environmentId);
+    const cursor = destination.cursor.userProfiles;
+    if (cursor) query = query.where("user_id", ">", cursor.id);
+    const sourceRows = await query
+      .orderBy("user_id", "asc")
+      .limit(destination.batchSize)
+      .execute();
+    rows.userProfiles = sourceRows.map((row) => ({
+      ...row,
+      id: scopedProfileSourceId(row.project_id, row.environment_id, row.user_id),
+      timestamp: row.updated_at,
+      received_at: row.updated_at
+    }));
+    counts.userProfiles = rows.userProfiles.length;
+    const last = sourceRows.at(-1);
+    if (last) nextCursor.userProfiles = nextProfileCursor(last, last.user_id, cursor);
+    else if (cursor) delete nextCursor.userProfiles;
+  }
+
+  if (destination.datasets.includes("tenantProfiles")) {
+    let query = db
+      .selectFrom("tenant_profiles")
+      .selectAll()
+      .where("project_id", "=", destination.projectId)
+      .where("environment_id", "=", destination.environmentId);
+    const cursor = destination.cursor.tenantProfiles;
+    if (cursor) query = query.where("tenant_id", ">", cursor.id);
+    const sourceRows = await query
+      .orderBy("tenant_id", "asc")
+      .limit(destination.batchSize)
+      .execute();
+    rows.tenantProfiles = sourceRows.map((row) => ({
+      ...row,
+      id: scopedProfileSourceId(row.project_id, row.environment_id, row.tenant_id),
+      timestamp: row.updated_at,
+      received_at: row.updated_at
+    }));
+    counts.tenantProfiles = rows.tenantProfiles.length;
+    const last = sourceRows.at(-1);
+    if (last) nextCursor.tenantProfiles = nextProfileCursor(last, last.tenant_id, cursor);
+    else if (cursor) delete nextCursor.tenantProfiles;
   }
 
   return {

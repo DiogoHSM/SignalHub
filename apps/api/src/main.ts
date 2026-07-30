@@ -36,6 +36,16 @@ import {
   listAnalyticsDashboards,
   updateAnalyticsDashboard
 } from "@sigmon/db/repositories/analytics-dashboards.js";
+import * as analyticsInsightsRepository from "@sigmon/db/repositories/analytics-insights.js";
+import {
+  archiveAnalyticsInsight,
+  archiveEventProperty,
+  createAnalyticsInsight,
+  getAnalyticsInsight,
+  promoteEventProperty,
+  queryEventTrend,
+  updateAnalyticsInsight
+} from "@sigmon/db/repositories/analytics-insights.js";
 import {
   archiveExperiment,
   createExperiment,
@@ -112,14 +122,14 @@ import {
   listDeadLetterJobs
 } from "@sigmon/db/repositories/dead-letter.js";
 import {
-  archiveUser,
+  archiveUserAsAdmin,
   createUser,
   findUserByEmail,
   findUserByGoogleSubject,
   findUserById,
   linkGoogleSubject,
   listUsers,
-  updateUser
+  updateUserAsAdmin
 } from "@sigmon/db/repositories/users.js";
 import { getBackupStatus, recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups.js";
 import {
@@ -649,15 +659,15 @@ const app = await buildApp({
           isAdmin: input.isAdmin
         })
       ),
-    updateUser: async (id, input) => {
-      const user = await updateUser(db, id, {
+    updateUser: async (id, input, context) => {
+      const user = await updateUserAsAdmin(db, context.actorUserId, id, {
         email: input.email,
         passwordHash: input.password ? await hashPassword(input.password) : undefined,
         isAdmin: input.isAdmin
       });
       return user ? toAuthUser(user) : null;
     },
-    archiveUser: (id) => archiveUser(db, id)
+    archiveUser: (id, context) => archiveUserAsAdmin(db, context.actorUserId, id)
   },
   adminResources: {
     projects: {
@@ -703,6 +713,32 @@ const app = await buildApp({
       create: (input) => createAnalyticsDashboard(db, input),
       update: (input) => updateAnalyticsDashboard(db, input),
       archive: (input) => archiveAnalyticsDashboard(db, input)
+    },
+    analyticsInsights: {
+      list: (scope) => {
+        const repository = analyticsInsightsRepository as unknown as {
+          listAnalyticsInsights?: (database: typeof db, input: typeof scope) => Promise<unknown[]>;
+          listAnalyticsInsight?: (database: typeof db, input: typeof scope) => Promise<unknown[]>;
+        };
+        const list = repository.listAnalyticsInsights ?? repository.listAnalyticsInsight;
+        if (!list) throw new Error("analytics_insights_repository_unavailable");
+        return list(db, scope) as ReturnType<NonNullable<typeof list>> as never;
+      },
+      create: (input) => createAnalyticsInsight(db, input as never) as never,
+      update: (input) => updateAnalyticsInsight(db, input as never) as never,
+      archive: (input) => archiveAnalyticsInsight(db, input),
+      listProperties: (scope) => {
+        const repository = analyticsInsightsRepository as unknown as {
+          listEventProperties?: (database: typeof db, input: typeof scope) => Promise<unknown[]>;
+          listEventProperty?: (database: typeof db, input: typeof scope) => Promise<unknown[]>;
+        };
+        const list = repository.listEventProperties ?? repository.listEventProperty;
+        if (!list) throw new Error("analytics_insights_repository_unavailable");
+        return list(db, scope) as ReturnType<NonNullable<typeof list>> as never;
+      },
+      promoteProperty: (input) =>
+        promoteEventProperty(db, { ...input, propertyName: input.property } as never) as never,
+      archiveProperty: (input) => archiveEventProperty(db, input)
     },
     experiments: {
       list: (filters) => listExperiments(db, filters),
@@ -817,6 +853,8 @@ const app = await buildApp({
     listTraces: (filters) => listTraces(db, filters),
     listTraceSpans: (_traceId, filters) => listTraceSpans(db, filters),
     getEventAggregates: (filters) => getEventAggregates(db, filters),
+    getAnalyticsInsight: (input) => getAnalyticsInsight(db, input) as never,
+    queryEventTrend: (input) => queryEventTrend(db, input as never),
     getErrorAggregates: (filters) => getErrorAggregates(db, filters),
     getLlmAggregates: (filters) => getLlmAggregates(db, filters),
     getLlmSummary: (filters) => getLlmSummary(db, filters),

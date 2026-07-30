@@ -15,6 +15,7 @@ import {
 import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
 import { FunnelScopeTooLargeError } from "@sigmon/db/repositories/telemetry-query.js";
+import { EventPropertyNotPromotedError } from "../../../packages/db/src/repositories/analytics-insights.js";
 
 vi.mock("@sigmon/db/repositories/source-maps.js", () => ({
   createSourceMapArtifact: vi.fn(),
@@ -1312,7 +1313,7 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ data: { total: 2, byName: { "account.created": 2 } } });
   });
 
-  it("does not forward event_name for event aggregate queries", async () => {
+  it("forwards event_name for event aggregate queries", async () => {
     const receivedFilters: unknown[] = [];
 
     app = await buildApp({
@@ -1336,9 +1337,163 @@ describe("query routes", () => {
       {
         projectId: "prj_1",
         environmentId: "env_1",
+        eventName: "checkout.started",
         limit: 50
       }
     ]);
+  });
+
+  it("previews an explicit analytics trend within the requested scope", async () => {
+    const calls: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        queryEventTrend: async (input) => {
+          calls.push(input);
+          return {
+            buckets: ["2026-07-30T00:00:00.000Z"],
+            series: [{ key: "all", values: [3] }]
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/analytics/trends?project_id=prj_1&environment_id=env_1&from=2026-07-29T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z&bucket=hour&metric=count&event_name=checkout.started&breakdown_property=plan&filters=%5B%7B%22property%22%3A%22country%22%2C%22operator%22%3A%22eq%22%2C%22value%22%3A%22BR%22%7D%2C%7B%22property%22%3A%22trial%22%2C%22operator%22%3A%22exists%22%7D%5D"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: {
+        buckets: ["2026-07-30T00:00:00.000Z"],
+        series: [{ key: "all", values: [3] }]
+      }
+    });
+    expect(calls).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        from: new Date("2026-07-29T00:00:00.000Z"),
+        to: new Date("2026-07-30T00:00:00.000Z"),
+        bucket: "hour",
+        metric: "count",
+        eventName: "checkout.started",
+        breakdownProperty: "plan",
+        filters: [
+          { property: "country", operator: "eq", value: "BR" },
+          { property: "trial", operator: "exists" }
+        ]
+      }
+    ]);
+  });
+
+  it("queries a saved analytics insight only inside the requested scope", async () => {
+    const getCalls: unknown[] = [];
+    const queryCalls: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getAnalyticsInsight: async (input) => {
+          getCalls.push(input);
+          return {
+            id: "ins_1",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            name: "Checkout trend",
+            description: null,
+            definition: { bucket: "day", metric: "unique_actors", eventName: "checkout.started" },
+            createdAt: new Date("2026-07-30T00:00:00.000Z"),
+            updatedAt: new Date("2026-07-30T00:00:00.000Z"),
+            archivedAt: null
+          };
+        },
+        queryEventTrend: async (input) => {
+          queryCalls.push(input);
+          return { buckets: [], series: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/analytics/trends?project_id=prj_1&environment_id=env_1&insight_id=ins_1&from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(getCalls).toEqual([{ id: "ins_1", projectId: "prj_1", environmentId: "env_1" }]);
+    expect(queryCalls).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        from: new Date("2026-07-01T00:00:00.000Z"),
+        to: new Date("2026-07-30T00:00:00.000Z"),
+        bucket: "day",
+        metric: "unique_actors",
+        eventName: "checkout.started"
+      }
+    ]);
+  });
+
+  it("returns structured validation, not-found, and capability errors for analytics trends", async () => {
+    app = await buildApp({ readiness, auth: humanAuth });
+    const unavailable = await app.inject({
+      method: "GET",
+      url:
+        "/query/analytics/trends?project_id=prj_1&environment_id=env_1&from=2026-07-29T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z&bucket=hour&metric=count"
+    });
+    expect(unavailable.statusCode).toBe(501);
+    expect(unavailable.json()).toEqual({ error: "analytics_insights_repository_unavailable" });
+
+    await app.close();
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getAnalyticsInsight: async () => null,
+        queryEventTrend: async () => ({ buckets: [], series: [] })
+      }
+    });
+    const missing = await app.inject({
+      method: "GET",
+      url:
+        "/query/analytics/trends?project_id=prj_1&environment_id=env_1&insight_id=missing&from=2026-07-29T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z"
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({ error: "analytics_insight_not_found" });
+
+    const invalid = await app.inject({
+      method: "GET",
+      url:
+        "/query/analytics/trends?project_id=prj_1&environment_id=env_1&from=nope&to=2026-07-30T00%3A00%3A00.000Z&bucket=minute&metric=count"
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toEqual({ error: "invalid_analytics_trend_request" });
+  });
+
+  it("returns a structured 400 when a trend breakdown is not promoted", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        queryEventTrend: async () => {
+          throw new EventPropertyNotPromotedError("plan");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/analytics/trends?project_id=prj_1&environment_id=env_1&from=2026-07-29T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z&bucket=hour&metric=count&breakdown_property=plan"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "breakdown_property_not_promoted" });
   });
 
   it("forwards LLM-specific filters for LLM call queries", async () => {
@@ -1631,6 +1786,81 @@ describe("query routes", () => {
     });
     expect(dashboardCalls).toEqual([{ id: "dash_1", projectId: "prj_1", environmentId: "env_1" }]);
     expect(overviewCalls).toEqual([{ projectId: "prj_1", environmentId: "env_1", window: "30d" }]);
+  });
+
+  it("evaluates insight dashboard widgets independently and preserves partial failures", async () => {
+    const trendCalls: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getAnalyticsDashboard: async () => ({
+          id: "dash_insights",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "Product signals",
+          description: null,
+          category: "product",
+          filters: { window: "7d" },
+          widgets: [
+            { id: "wid_ok", type: "insight", title: "Activation", width: "full", options: { insightId: "ins_ok" } },
+            { id: "wid_missing", type: "insight", title: "Missing", width: "half", options: { insightId: "ins_missing" } }
+          ],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          archivedAt: null
+        }),
+        getAnalyticsInsight: async ({ id }) => id === "ins_ok"
+          ? { definition: { bucket: "day", metric: "count", eventName: "project.created" } }
+          : undefined,
+        queryEventTrend: async (input) => {
+          trendCalls.push(input);
+          return { buckets: ["2026-07-01T00:00:00.000Z"], series: [{ key: "all", label: "All events", values: [3] }] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/reports/dashboards/dash_insights?project_id=prj_1&environment_id=env_1"
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.widgets).toEqual([
+      expect.objectContaining({ widgetId: "wid_ok", status: "ok", data: expect.objectContaining({ series: expect.any(Array) }) }),
+      expect.objectContaining({ widgetId: "wid_missing", status: "error", error: "analytics_insight_not_found" })
+    ]);
+    expect(trendCalls).toEqual([expect.objectContaining({
+      projectId: "prj_1", environmentId: "env_1", bucket: "day", metric: "count", eventName: "project.created",
+      from: expect.any(Date), to: expect.any(Date)
+    })]);
+  });
+
+  it("does not silently ignore unsupported saved dashboard filters", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getAnalyticsDashboard: async () => ({
+          id: "dash_filtered",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "Filtered",
+          description: null,
+          category: "product",
+          filters: { window: "7d", tenantId: "tenant_1", segmentId: "segment_1" },
+          widgets: [{ id: "wid_1", type: "metric.events", title: "Events", width: "half", options: {} }],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          archivedAt: null
+        })
+      }
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/reports/dashboards/dash_filtered?project_id=prj_1&environment_id=env_1"
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toEqual({ error: "unsupported_dashboard_filters", filters: ["tenantId", "segmentId"] });
   });
 
   it("rejects unsupported overview windows", async () => {

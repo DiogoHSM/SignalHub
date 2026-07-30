@@ -78,11 +78,12 @@ export type DataGovernancePolicy = {
   updatedAt: string;
 };
 
-export type WarehouseDataset = "events" | "errors" | "traces" | "llmCalls";
+export type WarehouseDataset = "events" | "errors" | "traces" | "llmCalls" | "userProfiles" | "tenantProfiles";
 
 export type WarehouseCursorValue = {
   timestamp: string;
   id: string;
+  revision?: string;
 };
 
 export type WarehouseCursor = Partial<Record<WarehouseDataset, WarehouseCursorValue>>;
@@ -227,7 +228,7 @@ export type AnalyticsSegmentPreview = {
 };
 
 export type AnalyticsDashboardCategory = "executive" | "operational" | "product";
-export type AnalyticsDashboardWidgetType = "metric.events" | "metric.errors" | "top.events" | "trend.events" | "trend.errors";
+export type AnalyticsDashboardWidgetType = "metric.events" | "metric.errors" | "top.events" | "trend.events" | "trend.errors" | "insight";
 
 export type AnalyticsDashboardFilters = {
   window?: ApmWindow;
@@ -269,6 +270,94 @@ export type CreateAnalyticsDashboardInput = {
 };
 
 export type UpdateAnalyticsDashboardInput = Partial<Omit<CreateAnalyticsDashboardInput, "projectId" | "environmentId">>;
+
+export type AnalyticsTrendBucket = "hour" | "day";
+export type AnalyticsTrendMetric = "count" | "unique_actors";
+export type AnalyticsTrendFilterOperator = "eq" | "neq" | "exists" | "not_exists";
+
+export type AnalyticsTrendFilter = {
+  property: string;
+  operator: AnalyticsTrendFilterOperator;
+  value?: string;
+};
+
+export type AnalyticsInsightDefinition = {
+  bucket: AnalyticsTrendBucket;
+  metric: AnalyticsTrendMetric;
+  eventName?: string;
+  breakdownProperty?: string;
+  filters?: AnalyticsTrendFilter[];
+};
+
+export type AnalyticsInsight = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description: string | null;
+  definition: AnalyticsInsightDefinition;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type CreateAnalyticsInsightInput = {
+  projectId: string;
+  environmentId: string;
+  name: string;
+  description?: string | null;
+  definition: AnalyticsInsightDefinition;
+};
+
+export type UpdateAnalyticsInsightInput = Partial<
+  Omit<CreateAnalyticsInsightInput, "projectId" | "environmentId">
+>;
+
+export type PromotedEventProperty = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  property: string;
+  displayName: string;
+  indexName: string | null;
+  indexStatus: "pending" | "building" | "ready" | "failed";
+  indexError: string | null;
+  indexedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+export type PromoteEventPropertyInput = {
+  projectId: string;
+  environmentId: string;
+  property: string;
+  displayName?: string;
+};
+
+export type AnalyticsTrendQuery = {
+  projectId: string;
+  environmentId: string;
+  from: Date | string;
+  to: Date | string;
+  insightId?: string;
+  bucket?: AnalyticsTrendBucket;
+  metric?: AnalyticsTrendMetric;
+  eventName?: string;
+  breakdownProperty?: string;
+  filters?: AnalyticsTrendFilter[];
+};
+
+export type AnalyticsTrendSeries = {
+  key: string;
+  label: string;
+  values: number[];
+};
+
+export type AnalyticsTrendResult = {
+  buckets: string[];
+  series: AnalyticsTrendSeries[];
+};
 
 export type DashboardReportWidget = {
   widgetId: string;
@@ -1316,6 +1405,13 @@ export type ErrorGroupIncidentQuery = {
   errorId?: string;
 };
 
+export type ErrorGroupOccurrencesQuery = {
+  projectId: string;
+  environmentId: string;
+  limit?: number;
+  cursor?: string;
+};
+
 export type UpdateErrorGroupStatusInput = {
   projectId: string;
   environmentId: string;
@@ -1708,6 +1804,32 @@ export type CodeIntegration = {
   createdAt: string;
   updatedAt: string;
   revokedAt: string | null;
+};
+
+export type ReleaseMetadata = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  release: string;
+  integrationId: string | null;
+  commitSha: string | null;
+  commitUrl: string | null;
+  pullRequestNumber: number | null;
+  pullRequestUrl: string | null;
+  deployedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpsertReleaseMetadataInput = {
+  environmentId: string;
+  release: string;
+  integrationId?: string | null;
+  commitSha?: string | null;
+  commitUrl?: string | null;
+  pullRequestNumber?: number | null;
+  pullRequestUrl?: string | null;
+  deployedBy?: string | null;
 };
 
 export type IncidentExternalLink = {

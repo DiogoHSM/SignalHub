@@ -21,7 +21,7 @@ Implemented capabilities:
 - Worker-side sanitization and typed Postgres writes.
 - Human-session query endpoints for raw records and aggregates.
 - Deterministic error grouping with operational group status workflow.
-- Error-first Incident view with shareable URLs, priority triage, primary occurrence details, source-map status, strongly related signals, and nearby context.
+- Error-first Incident view with shareable URLs, priority triage, primary occurrence details, paginated occurrence history, source-map status, strongly related signals, and nearby context.
 - Local-first source-map artifact storage, admin `.map` / `.zip` uploads, and on-demand raw error stack resolution.
 - Dedicated source-map upload tokens, CI upload API, CLI uploader, and Artifacts token management.
 - Worker-owned source-map artifact retention for local files, metadata, and cached stack resolutions.
@@ -30,6 +30,8 @@ Implemented capabilities:
 - Read-only Overview dashboard for project/environment KPIs, prior-window KPI deltas, trends, top lists, and a mixed recent activity feed across events, errors, traces, and LLM calls.
 - Read-only Operations cockpit for project/environment monitor health, alert state, p95 latency, error rate, ingestion freshness, and active incidents.
 - Read-only Events investigation workspace with exact event-name filtering.
+- Saved product trends with count or exact unique-actor metrics, event/property filters, promoted-property breakdowns, hourly rollup acceleration, live preview, and reusable dashboard widgets.
+- Editable analytics dashboards composed from saved insights, with per-widget report isolation and project/environment-scoped execution.
 - Errors investigation workspace with grouped triage, status updates, and raw occurrence drilldown/filtering.
 - Read-only Traces investigation workspace with lazy ordered span details.
 - Endpoint-level APM rollups for project/environment traces, including request volume, error count/rate, p50/p95/p99 latency, average latency, Apdex, and drilldown from an endpoint row into matching recent traces/spans.
@@ -46,6 +48,8 @@ Implemented capabilities:
 - Worker-owned simple alert evaluation for critical error count, total error count, trace p95 latency, and LLM cost thresholds over rolling windows.
 - Internal alert history with email, generic webhook, and native Slack/Discord notification channels, recorded delivery attempts, event triage, and optional escalation delivery when an alert remains unacknowledged.
 - Admin dead-letter job operations for permanently failed telemetry queue jobs, including sanitized inspection, deletion, controlled replay, automatic expiration, and retained replay/delete/expiration audit actions.
+- Project settings for browser origins, release/commit/PR metadata, data governance, and incremental warehouse export of telemetry plus user/tenant identity profiles.
+- Operations fleet drilldown with project summaries and environment health fetched only when expanded.
 - Shared webhook target validation blocks local, private, link-local, multicast, loopback, and metadata network targets in every environment.
 - Deterministic telemetry queue job IDs and idempotent database writes make duplicate telemetry retries safe.
 - Structured API and worker logs redact secret-bearing fields, and unhandled API errors return sanitized JSON.

@@ -372,7 +372,7 @@ function MonitorRow({
 export function MonitorsScreen({ ctx }: { ctx: ScreenCtx }) {
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
-  const monitors = useMonitors({ client: ctx.client, projectId, environmentId, endpoint: originEndpoint() });
+  const monitors = useMonitors({ client: ctx.client, projectId, environmentId, endpoint: ctx.apiEndpoint || originEndpoint() });
 
   const [filter, setFilter] = useState<KindFilter>("All");
   const [showCreate, setShowCreate] = useState(false);

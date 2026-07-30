@@ -55,17 +55,54 @@ export type WarehouseExportResult = {
 type IntervalHandle = ReturnType<typeof setInterval>;
 type TimeoutHandle = ReturnType<typeof setTimeout>;
 
+const warehouseCredentialPattern = /\b((?:(?:access|refresh)[_-]?)?token|api[_-]?key|password|secret|(?:access|private|secret)[_-]?key(?:[_-]?id)?|ssl[_-]?(?:key|cert(?:ificate)?))\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;'"})\]]+)/gi;
+
+function isSensitiveWarehouseUrlParameter(key: string): boolean {
+  const normalized = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  return normalized.endsWith("token") ||
+    normalized.includes("apikey") ||
+    normalized.endsWith("password") ||
+    normalized.endsWith("secret") ||
+    normalized.includes("accesskey") ||
+    normalized.includes("privatekey") ||
+    (normalized.startsWith("ssl") && (normalized.includes("key") || normalized.includes("cert")));
+}
+
+function redactConfiguredCredentialValues(message: string, values: Iterable<string>): string {
+  const variants = new Set<string>();
+  for (const value of values) {
+    if (!value || value === "[REDACTED]") continue;
+    variants.add(value);
+    variants.add(encodeURIComponent(value));
+    try {
+      variants.add(decodeURIComponent(value));
+    } catch {
+      // The configured value is already decoded or contains a literal percent sign.
+    }
+  }
+
+  return [...variants]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
+    .reduce((sanitized, value) => sanitized.replaceAll(value, "[REDACTED]"), message);
+}
+
 function sanitizeWarehouseError(error: unknown, destination: WarehouseDestinationRecord): string {
   let message = error instanceof Error ? error.message : String(error);
   if (destination.connectionUrl) {
     message = message.replaceAll(destination.connectionUrl, destination.connectionUrlPreview);
     try {
       const parsed = new URL(destination.connectionUrl);
-      if (parsed.password) message = message.replaceAll(parsed.password, "[REDACTED]");
+      const credentialValues = [parsed.password];
+      for (const [key, value] of parsed.searchParams) {
+        if (isSensitiveWarehouseUrlParameter(key)) credentialValues.push(value);
+      }
+      message = redactConfiguredCredentialValues(message, credentialValues);
     } catch {
       // Best effort only.
     }
   }
+  message = message.replace(warehouseCredentialPattern, "$1=[REDACTED]");
   return sanitizePreviewText(message) ?? "Warehouse export failed";
 }
 
@@ -106,19 +143,23 @@ export async function runWarehouseExportOnce(
           now: finishedAt,
           status: "success"
         });
-        await runtime.recordRun({
-          destinationId: destination.id,
-          projectId: destination.projectId,
-          environmentId: destination.environmentId,
-          trigger,
-          status: "success",
-          startedAt,
-          finishedAt,
-          cursorBefore: batch.cursorBefore,
-          cursorAfter: batch.nextCursor,
-          exported: batch.counts
-        });
         exported += rowCount(batch);
+        try {
+          await runtime.recordRun({
+            destinationId: destination.id,
+            projectId: destination.projectId,
+            environmentId: destination.environmentId,
+            trigger,
+            status: "success",
+            startedAt,
+            finishedAt,
+            cursorBefore: batch.cursorBefore,
+            cursorAfter: batch.nextCursor,
+            exported: batch.counts
+          });
+        } catch (error) {
+          console.error("Could not record successful warehouse export run", error);
+        }
       } catch (error) {
         failed += 1;
         const finishedAt = runtime.now();
@@ -189,31 +230,38 @@ async function writeDataset(
     received_at?: Date | null;
   }>
 ): Promise<void> {
-  for (const row of rows) {
-    await client.query(
-      `
-        insert into sigmon_telemetry_export (
-          dataset,
-          source_id,
-          project_id,
-          environment_id,
-          occurred_at,
-          received_at,
-          payload,
-          exported_at
-        )
-        values ($1, $2, $3, $4, $5, $6, $7::jsonb, now())
-        on conflict (dataset, source_id) do update set
-          project_id = excluded.project_id,
-          environment_id = excluded.environment_id,
-          occurred_at = excluded.occurred_at,
-          received_at = excluded.received_at,
-          payload = excluded.payload,
-          exported_at = now()
-      `,
-      [dataset, row.id, row.project_id, row.environment_id, row.timestamp, row.received_at ?? null, serializeRow(row)]
-    );
-  }
+  if (rows.length === 0) return;
+
+  const values: unknown[] = [];
+  const tuples = rows.map((row, index) => {
+    const offset = index * 7;
+    values.push(dataset, row.id, row.project_id, row.environment_id, row.timestamp, row.received_at ?? null, serializeRow(row));
+    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}::jsonb, now())`;
+  });
+
+  await client.query(
+    `
+      insert into sigmon_telemetry_export (
+        dataset,
+        source_id,
+        project_id,
+        environment_id,
+        occurred_at,
+        received_at,
+        payload,
+        exported_at
+      )
+      values ${tuples.join(", ")}
+      on conflict (dataset, source_id) do update set
+        project_id = excluded.project_id,
+        environment_id = excluded.environment_id,
+        occurred_at = excluded.occurred_at,
+        received_at = excluded.received_at,
+        payload = excluded.payload,
+        exported_at = now()
+    `,
+    values
+  );
 }
 
 export async function writePostgresWarehouseBatch(input: WarehousePostgresWriteInput): Promise<void> {
@@ -226,6 +274,8 @@ export async function writePostgresWarehouseBatch(input: WarehousePostgresWriteI
     await writeDataset(client, "errors", input.batch.rows.errors);
     await writeDataset(client, "traces", input.batch.rows.traces);
     await writeDataset(client, "llm_calls", input.batch.rows.llmCalls);
+    await writeDataset(client, "user_profiles", input.batch.rows.userProfiles);
+    await writeDataset(client, "tenant_profiles", input.batch.rows.tenantProfiles);
     await client.query("commit");
   } catch (error) {
     try {

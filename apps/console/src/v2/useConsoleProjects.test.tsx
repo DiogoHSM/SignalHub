@@ -73,6 +73,68 @@ afterEach(() => {
 });
 
 describe("useConsoleProjects", () => {
+  it("reports a project load failure instead of treating it as an empty installation", async () => {
+    const api = client({ listProjects: vi.fn().mockRejectedValue(new Error("offline")) });
+
+    const { result } = renderHook(() => useConsoleProjects(api));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.projectError).toBe(true);
+    expect(result.current.projects).toEqual([]);
+  });
+
+  it("remains loading until environments for the active project resolve", async () => {
+    let resolveEnvironments!: (value: { environments: [] }) => void;
+    const environmentsPending = new Promise<{ environments: [] }>((resolve) => {
+      resolveEnvironments = resolve;
+    });
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Alpha", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockReturnValue(environmentsPending)
+    });
+
+    const { result } = renderHook(() => useConsoleProjects(api));
+
+    await waitFor(() => expect(result.current.activeProject?.id).toBe("prj_1"));
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => {
+      resolveEnvironments({ environments: [] });
+      await environmentsPending;
+    });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.environmentError).toBe(false);
+  });
+
+  it("retries environments after a failed load", async () => {
+    const listEnvironments = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      });
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Alpha", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments
+    });
+
+    const { result } = renderHook(() => useConsoleProjects(api));
+
+    await waitFor(() => expect(result.current.environmentError).toBe(true));
+
+    act(() => {
+      result.current.reload();
+    });
+
+    await waitFor(() => expect(result.current.activeEnvironment?.id).toBe("env_1"));
+    expect(result.current.environmentError).toBe(false);
+    expect(listEnvironments).toHaveBeenCalledTimes(2);
+  });
+
   it("loads two projects and defaults activeProject to the first", async () => {
     const api = client({
       listProjects: vi.fn().mockResolvedValue({
@@ -94,6 +156,27 @@ describe("useConsoleProjects", () => {
 
     expect(result.current.projects).toHaveLength(2);
     expect(result.current.activeProject?.id).toBe("prj_1");
+  });
+
+  it("selects the next available project when the active project disappears on reload", async () => {
+    const listProjects = vi.fn()
+      .mockResolvedValueOnce({
+        projects: [
+          { id: "prj_1", name: "Alpha", createdAt: "", updatedAt: "", archivedAt: null },
+          { id: "prj_2", name: "Beta", createdAt: "", updatedAt: "", archivedAt: null }
+        ]
+      })
+      .mockResolvedValue({
+        projects: [{ id: "prj_2", name: "Beta", createdAt: "", updatedAt: "", archivedAt: null }]
+      });
+    const api = client({ listProjects });
+    const { result } = renderHook(() => useConsoleProjects(api));
+
+    await waitFor(() => expect(result.current.activeProject?.id).toBe("prj_1"));
+    act(() => result.current.reload());
+
+    await waitFor(() => expect(result.current.activeProject?.id).toBe("prj_2"));
+    expect(result.current.projects.map((project) => project.id)).toEqual(["prj_2"]);
   });
 
   it("loads environments for the default active project", async () => {
@@ -143,10 +226,35 @@ describe("useConsoleProjects", () => {
       result.current.selectProject("prj_2");
     });
 
+    expect(result.current.activeEnvironment).toBeUndefined();
+    expect(result.current.environments).toEqual([]);
+    expect(result.current.isLoading).toBe(true);
     await waitFor(() => expect(result.current.activeProject?.id).toBe("prj_2"));
     await waitFor(() => expect(result.current.activeEnvironment?.id).toBe("env_2"));
     expect(result.current.environments).toHaveLength(1);
     expect(result.current.environments[0].name).toBe("Preview");
+  });
+
+  it("keeps the current environment when the active project is selected again", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [{ id: "prj_1", name: "Alpha", createdAt: "", updatedAt: "", archivedAt: null }]
+      }),
+      listEnvironments: vi.fn().mockResolvedValue({
+        environments: [{ id: "env_1", projectId: "prj_1", name: "Production", createdAt: "", updatedAt: "", archivedAt: null }]
+      })
+    });
+
+    const { result } = renderHook(() => useConsoleProjects(api));
+    await waitFor(() => expect(result.current.activeEnvironment?.id).toBe("env_1"));
+
+    act(() => {
+      result.current.selectProject("prj_1");
+    });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.activeEnvironment?.id).toBe("env_1");
+    expect(api.listEnvironments).toHaveBeenCalledTimes(1);
   });
 
   it("selectEnvironment switches the active environment by id", async () => {
@@ -171,6 +279,32 @@ describe("useConsoleProjects", () => {
     });
 
     expect(result.current.activeEnvironment?.id).toBe("env_2");
+  });
+
+  it("opens a named environment after switching to another project", async () => {
+    const api = client({
+      listProjects: vi.fn().mockResolvedValue({
+        projects: [
+          { id: "prj_1", name: "Alpha", createdAt: "", updatedAt: "", archivedAt: null },
+          { id: "prj_2", name: "Beta", createdAt: "", updatedAt: "", archivedAt: null }
+        ]
+      }),
+      listEnvironments: vi.fn((projectId: string) => Promise.resolve({
+        environments: projectId === "prj_1"
+          ? [{ id: "env_1", projectId, name: "production", createdAt: "", updatedAt: "", archivedAt: null }]
+          : [
+              { id: "env_2", projectId, name: "preview", createdAt: "", updatedAt: "", archivedAt: null },
+              { id: "env_3", projectId, name: "production", createdAt: "", updatedAt: "", archivedAt: null }
+            ]
+      }))
+    });
+    const { result } = renderHook(() => useConsoleProjects(api));
+    await waitFor(() => expect(result.current.activeEnvironment?.id).toBe("env_1"));
+
+    act(() => result.current.selectProjectEnvironmentByName("prj_2", "production"));
+
+    await waitFor(() => expect(result.current.activeProject?.id).toBe("prj_2"));
+    await waitFor(() => expect(result.current.activeEnvironment?.id).toBe("env_3"));
   });
 
   it("starts with isLoading=true and resolves to false", async () => {

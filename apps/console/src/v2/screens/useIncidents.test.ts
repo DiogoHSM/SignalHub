@@ -178,8 +178,9 @@ describe("useIncidents", () => {
   });
 
   it("history view fetches resolved and ignored incidents", async () => {
-    const resolved = makeGroup({ id: "resolved-1", status: "resolved" });
-    const ignored = makeGroup({ id: "ignored-1", status: "ignored" });
+    const lastSeenAt = "2026-07-29T12:00:00.000Z";
+    const resolved = makeGroup({ id: "resolved-1", status: "resolved", lastSeenAt });
+    const ignored = makeGroup({ id: "ignored-1", status: "ignored", lastSeenAt });
     const { client, listErrorGroups } = makeFakeClient({
       resolvedGroups: [resolved],
       ignoredGroups: [ignored]

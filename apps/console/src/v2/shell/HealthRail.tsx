@@ -3,6 +3,7 @@ import { MicroSpark } from "../../components/ui/v2/charts";
 import { StatusDot } from "../../components/ui/v2/status-dot";
 import { sev } from "../../components/ui/v2/status";
 import type { FleetProject, FleetRollup } from "../../api/client";
+import type { FleetEnvironmentState } from "../useFleet";
 
 // ─── Infra helpers ───────────────────────────────────────────────────────────
 
@@ -86,9 +87,10 @@ type ProjectCardProps = {
   onSelect: (id: string) => void;
   onToggle: (id: string) => void;
   onOpenEnv: (projectId: string, envName: string) => void;
+  environments?: FleetEnvironmentState;
 };
 
-export function ProjectCard({ p, selected, expanded, onSelect, onToggle, onOpenEnv }: ProjectCardProps) {
+export function ProjectCard({ p, selected, expanded, onSelect, onToggle, onOpenEnv, environments }: ProjectCardProps) {
   const s = sev(p.status);
   const errorRateDisplay =
     p.errorRatePercent !== null ? `${p.errorRatePercent.toFixed(1)}%` : "—";
@@ -190,15 +192,29 @@ export function ProjectCard({ p, selected, expanded, onSelect, onToggle, onOpenE
       {/* accordion: environments — lazy loaded on expand */}
       <div className="hr-acc" data-open={expanded}>
         <div className="hr-acc__inner">
-          {expanded ? (
-            <button
-              className="hr-env hr-env--load"
-              onClick={() => onOpenEnv(p.id, "production")}
-            >
-              <Icon name="chev" size={11} style={{ color: "var(--fg-faint)" }} />
-              <span className="hr-env__name">Load environments…</span>
-            </button>
+          {expanded && environments?.status === "loading" ? (
+            <div className="hr-env hr-env--load"><span className="hr-env__name">Loading environments…</span></div>
           ) : null}
+          {expanded && environments?.status === "error" ? (
+            <div className="hr-env hr-env--load"><span className="hr-env__name">Environment health unavailable</span></div>
+          ) : null}
+          {expanded && environments?.status === "ready" && environments.data.length === 0 ? (
+            <div className="hr-env hr-env--load"><span className="hr-env__name">No environments</span></div>
+          ) : null}
+          {expanded && environments?.status === "ready" ? environments.data.map((environment) => (
+            <button
+              className="hr-env"
+              key={environment.name}
+              aria-label={`${environment.name} · ${environment.status}`}
+              onClick={() => onOpenEnv(p.id, environment.name)}
+            >
+              <StatusDot status={environment.status} size={6} />
+              <span className="hr-env__name">{environment.name}</span>
+              <span className="hr-mono" style={{ color: "var(--fg-faint)", marginLeft: "auto" }}>
+                {environment.incidents} incidents
+              </span>
+            </button>
+          )) : null}
         </div>
       </div>
     </div>
@@ -211,6 +227,7 @@ export type HealthRailFleet = {
   projects: FleetProject[];
   rollup: FleetRollup;
   lastUpdated: number;
+  environments?: Record<string, FleetEnvironmentState>;
 };
 
 export type HealthRailProps = {
@@ -357,6 +374,7 @@ export function HealthRail({
             onSelect={onSelectProject}
             onToggle={onToggleExpand}
             onOpenEnv={onOpenEnv}
+            environments={fleet.environments?.[p.id]}
           />
         ))}
       </div>

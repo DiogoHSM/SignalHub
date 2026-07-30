@@ -54,6 +54,112 @@ afterEach(() => {
 });
 
 describe("useFleet", () => {
+  it("loads project environments only when explicitly requested and caches the result", async () => {
+    const fetchFleet = vi.fn().mockResolvedValue(successResponse);
+    const seeds = [seedProject("prj_1", "Alpha")];
+    const fetchProjectEnvironments = vi.fn().mockResolvedValue({
+      data: {
+        projectId: "prj_1",
+        envs: [{ name: "production", status: "ok", incidents: 0, errorRatePercent: 0.2, events: 42, note: null }]
+      }
+    });
+
+    const { result } = renderHook(() => useFleet({
+      fetchFleet,
+      fetchProjectEnvironments,
+      seedProjects: seeds
+    }));
+
+    expect(fetchProjectEnvironments).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.loadProjectEnvironments("prj_1");
+    });
+
+    expect(fetchProjectEnvironments).toHaveBeenCalledTimes(1);
+    expect(fetchProjectEnvironments).toHaveBeenCalledWith("prj_1", { window: "24h" });
+    expect(result.current.environments.prj_1?.status).toBe("ready");
+    expect(result.current.environments.prj_1?.data[0]?.name).toBe("production");
+
+    await act(async () => {
+      await result.current.loadProjectEnvironments("prj_1");
+    });
+    expect(fetchProjectEnvironments).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates cached project health and refetches it on demand", async () => {
+    const fetchFleet = vi.fn().mockResolvedValue(successResponse);
+    const fetchProjectEnvironments = vi.fn()
+      .mockResolvedValueOnce({
+        data: { projectId: "prj_1", envs: [{ name: "production", status: "ok", incidents: 0, errorRatePercent: 0, events: 1, note: null }] }
+      })
+      .mockResolvedValueOnce({
+        data: { projectId: "prj_1", envs: [{ name: "production", status: "critical", incidents: 1, errorRatePercent: 10, events: 2, note: null }] }
+      });
+    const { result } = renderHook(() => useFleet({
+      fetchFleet,
+      fetchProjectEnvironments,
+      seedProjects: [seedProject("prj_1", "Alpha")]
+    }));
+
+    await act(async () => result.current.loadProjectEnvironments("prj_1"));
+    expect(result.current.environments.prj_1?.data[0]?.status).toBe("ok");
+
+    await act(async () => result.current.refreshProjectEnvironments("prj_1"));
+
+    expect(fetchProjectEnvironments).toHaveBeenCalledTimes(2);
+    expect(result.current.environments.prj_1?.data[0]?.status).toBe("critical");
+  });
+
+  it("does not start overlapping project-health refreshes", async () => {
+    let resolve!: (value: { data: { projectId: string; envs: [] } }) => void;
+    const fetchProjectEnvironments = vi.fn(() => new Promise<{ data: { projectId: string; envs: [] } }>((done) => {
+      resolve = done;
+    }));
+    const { result } = renderHook(() => useFleet({
+      fetchFleet: vi.fn().mockResolvedValue(successResponse),
+      fetchProjectEnvironments,
+      seedProjects: [seedProject("prj_1", "Alpha")]
+    }));
+
+    let firstRefresh!: Promise<void>;
+    let overlappingRefresh!: Promise<void>;
+    act(() => {
+      firstRefresh = result.current.refreshProjectEnvironments("prj_1");
+      overlappingRefresh = result.current.refreshProjectEnvironments("prj_1");
+    });
+    expect(fetchProjectEnvironments).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolve({ data: { projectId: "prj_1", envs: [] } });
+      await Promise.all([firstRefresh, overlappingRefresh]);
+    });
+  });
+
+  it("ignores a stale project-environment response after the project leaves the fleet", async () => {
+    let resolveEnvironments!: (value: { data: { projectId: string; envs: [] } }) => void;
+    const fetchProjectEnvironments = vi.fn(() => new Promise<{ data: { projectId: string; envs: [] } }>((resolve) => {
+      resolveEnvironments = resolve;
+    }));
+    const fetchFleet = vi.fn().mockRejectedValue(new Error("offline"));
+    const { result, rerender } = renderHook(
+      ({ seeds }) => useFleet({
+        fetchFleet,
+        fetchProjectEnvironments,
+        seedProjects: seeds
+      }),
+      { initialProps: { seeds: [seedProject("prj_1", "Alpha")] } }
+    );
+
+    act(() => {
+      void result.current.loadProjectEnvironments("prj_1");
+    });
+    rerender({ seeds: [] });
+    await act(async () => {
+      resolveEnvironments({ data: { projectId: "prj_1", envs: [] } });
+    });
+
+    expect(result.current.environments.prj_1).toBeUndefined();
+  });
+
   it("returns fallback status and seed-derived projects when fetchFleet rejects", async () => {
     const fetchFleet = vi.fn().mockRejectedValue(new Error("network error"));
     const seeds = [seedProject("prj_1", "Alpha"), seedProject("prj_2", "Beta")];
@@ -86,6 +192,56 @@ describe("useFleet", () => {
     expect(result.current.projects[0].status).toBe("ok");
     expect(result.current.rollup.total).toBe(2);
     expect(result.current.rollup.overall).toBe("ok");
+  });
+
+  it("refreshes the fleet core without starting overlapping requests", async () => {
+    let resolveRefresh!: (value: FleetResponse) => void;
+    const fetchFleet = vi.fn()
+      .mockResolvedValueOnce(successResponse)
+      .mockImplementationOnce(() => new Promise<FleetResponse>((resolve) => {
+        resolveRefresh = resolve;
+      }));
+    const { result } = renderHook(() => useFleet({
+      fetchFleet,
+      seedProjects: [seedProject("prj_1", "Alpha")]
+    }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    act(() => {
+      void result.current.refreshFleet();
+      void result.current.refreshFleet();
+    });
+    expect(fetchFleet).toHaveBeenCalledTimes(2);
+
+    await act(async () => resolveRefresh({
+      data: {
+        ...successResponse.data,
+        projects: [mockFleetProject("prj_1", "Refreshed")]
+      }
+    }));
+    expect(result.current.projects[0]?.name).toBe("Refreshed");
+  });
+
+  it("ignores a stale fleet response after the fetch dependency changes", async () => {
+    let resolveStale!: (value: FleetResponse) => void;
+    const staleFetch = vi.fn(() => new Promise<FleetResponse>((resolve) => {
+      resolveStale = resolve;
+    }));
+    const freshFetch = vi.fn().mockResolvedValue({
+      data: { ...successResponse.data, projects: [mockFleetProject("prj_1", "Fresh")] }
+    });
+    const { result, rerender } = renderHook(
+      ({ fetchFleet }) => useFleet({ fetchFleet, seedProjects: [seedProject("prj_1", "Alpha")] }),
+      { initialProps: { fetchFleet: staleFetch } }
+    );
+
+    rerender({ fetchFleet: freshFetch });
+    await waitFor(() => expect(result.current.projects[0]?.name).toBe("Fresh"));
+    await act(async () => resolveStale({
+      data: { ...successResponse.data, projects: [mockFleetProject("prj_1", "Stale")] }
+    }));
+
+    expect(result.current.projects[0]?.name).toBe("Fresh");
   });
 
   it("lastUpdated increments each second", async () => {

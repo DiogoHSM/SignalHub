@@ -8,10 +8,14 @@ import { useSegments } from "./useSegments";
 import type { SaveSegmentForm } from "./useSegments";
 import { ConfirmButton, EmptyHint, Icon, PageHead, Segmented } from "../../components/ui/v2";
 import { runMutation } from "../lib/run-mutation";
+import { TrendsTab } from "./analytics/TrendsTab";
+import { DashboardsTab } from "./analytics/DashboardsTab";
 
-type Tab = "funnel" | "retention" | "paths" | "clickMap" | "segments" | "properties";
-const TABS: Tab[] = ["funnel", "retention", "paths", "clickMap", "segments", "properties"];
+type Tab = "trends" | "dashboards" | "funnel" | "retention" | "paths" | "clickMap" | "segments" | "properties";
+const TABS: Tab[] = ["trends", "dashboards", "funnel", "retention", "paths", "clickMap", "segments", "properties"];
 const TAB_LABEL: Record<Tab, string> = {
+  trends: "Trends",
+  dashboards: "Dashboards",
   funnel: "Funnel",
   retention: "Retention",
   paths: "Paths",
@@ -514,7 +518,7 @@ function PropertiesPanel({ ctx }: { ctx: ScreenCtx }) {
 // ---------------------------------------------------------------------------
 
 export function AnalyticsScreen({ ctx }: { ctx: ScreenCtx }) {
-  const [tab, setTab] = useState<Tab>("funnel");
+  const [tab, setTab] = useState<Tab>("trends");
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
 
@@ -535,7 +539,7 @@ export function AnalyticsScreen({ ctx }: { ctx: ScreenCtx }) {
         title="Analytics"
         sub={
           <>
-            Funnels, retention, paths, click maps, segments, and property governance for{" "}
+            Saved trends, dashboards, funnels, retention, paths, segments, and property governance for{" "}
             <strong style={{ color: "var(--fg)" }}>{ctx.project.name} · {ctx.environment.name}</strong>
           </>
         }
@@ -546,6 +550,8 @@ export function AnalyticsScreen({ ctx }: { ctx: ScreenCtx }) {
         if (next) setTab(next);
       }} />
 
+      {tab === "trends" ? <TrendsTab key={`${projectId}:${environmentId}`} ctx={ctx} /> : null}
+      {tab === "dashboards" ? <DashboardsTab key={`${projectId}:${environmentId}`} ctx={ctx} /> : null}
       {tab === "funnel" ? <FunnelPanel state={panels.funnel.state} data={panels.funnel.data} run={panels.funnel.run} /> : null}
       {tab === "retention" ? <RetentionPanel state={panels.retention.state} data={panels.retention.data} run={panels.retention.run} /> : null}
       {tab === "paths" ? (

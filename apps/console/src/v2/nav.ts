@@ -24,7 +24,7 @@ export type NavItem = {
 };
 
 export const NAV: NavItem[] = [
-  { id: "overview",    icon: "home",      label: "Overview" },
+  { id: "overview",    icon: "home",      label: "Operations" },
   { id: "investigate", icon: "activity",  label: "Investigate" },
   { id: "incidents",   icon: "error",     label: "Incidents", badge: true },
   { id: "llm",         icon: "sparkles",  label: "LLM" },

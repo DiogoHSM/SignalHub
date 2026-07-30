@@ -19,6 +19,7 @@ export type BrowserReplayRecorder = {
 };
 
 const DEFAULT_MAX_EVENTS = 200;
+const MAX_REPLAY_EVENTS = 300;
 
 export function createBrowserReplayRecorder(
   client: Pick<SignalMonitorClient, "replay">,
@@ -28,7 +29,7 @@ export function createBrowserReplayRecorder(
   const documentRef = options.document ?? win?.document;
   const enabled = options.enabled ?? false;
   const replayId = options.replayId ?? `rpl_${randomId()}`;
-  const maxEvents = Math.max(1, Math.min(options.maxEvents ?? DEFAULT_MAX_EVENTS, 500));
+  const maxEvents = Math.max(1, Math.min(options.maxEvents ?? DEFAULT_MAX_EVENTS, MAX_REPLAY_EVENTS));
   const startedAt = new Date();
   const events: SessionReplayEventInput[] = [];
   const disposers: Array<() => void> = [];
@@ -39,6 +40,7 @@ export function createBrowserReplayRecorder(
     events.push({
       ...event,
       offsetMs: Math.max(0, Math.round(event.offsetMs)),
+      message: event.message === undefined ? undefined : "[REDACTED]",
       data: event.data ?? {}
     });
     if (events.length > maxEvents) {

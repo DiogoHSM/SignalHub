@@ -3,7 +3,9 @@ import { ApiError, type ApiClient } from "../api/client";
 import type { User } from "../api/types";
 
 type AuthGateProps = {
+  apiBasePath?: string;
   client: ApiClient;
+  googleOAuthEnabled?: boolean;
   children: ReactNode | ((session: { user: User; signOut: () => Promise<void> }) => ReactNode);
 };
 
@@ -18,6 +20,11 @@ function isAuthStatus(error: unknown): boolean {
   return error instanceof ApiError && [400, 401, 403].includes(error.status);
 }
 
+function authPath(apiBasePath: string, route: string): string {
+  const normalizedBasePath = !apiBasePath || apiBasePath === "/" ? "" : apiBasePath.replace(/\/+$/, "");
+  return `${normalizedBasePath}${route}`;
+}
+
 function HeartbeatLogo() {
   return (
     <div className="auth-logo" role="img" aria-label="sigmon heartbeat logo">
@@ -28,7 +35,7 @@ function HeartbeatLogo() {
   );
 }
 
-export function AuthGate({ client, children }: AuthGateProps) {
+export function AuthGate({ apiBasePath = "/", client, googleOAuthEnabled = false, children }: AuthGateProps) {
   const [authState, setAuthState] = useState<AuthState>({ status: "loading" });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -75,10 +82,14 @@ export function AuthGate({ client, children }: AuthGateProps) {
   async function handleSignOut() {
     try {
       await client.logout();
-    } catch {
-      // Denied users need a local escape hatch even if the logout endpoint is unavailable.
-    } finally {
       setAuthState({ status: "login" });
+    } catch (error) {
+      if (authState.status === "denied") {
+        // Denied users need a local escape hatch even if the logout endpoint is unavailable.
+        setAuthState({ status: "login" });
+        return;
+      }
+      throw error;
     }
   }
 
@@ -155,6 +166,7 @@ export function AuthGate({ client, children }: AuthGateProps) {
         <button disabled={submitting} type="submit">
           Sign in
         </button>
+        {googleOAuthEnabled ? <a href={authPath(apiBasePath, "/auth/google")}>Continue with Google</a> : null}
       </form>
     </main>
   );

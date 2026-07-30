@@ -1,21 +1,20 @@
 import { useEffect, useState } from "react";
 import { createApiClient } from "./api/client";
-import type { ConsoleConfig } from "./api/types";
 import { AuthGate } from "./components/AuthGate";
-import { ConsoleShell } from "./components/ConsoleShell";
 import { ConsoleShellV2 } from "./v2/ConsoleShellV2";
-import { resolveV2ShellFlag } from "./v2/flag";
 
 const bootstrapClient = createApiClient();
 
 type RuntimeState =
   | { status: "loading" }
-  | { status: "ready"; config: ConsoleConfig; client: ReturnType<typeof createApiClient> }
+  | {
+      status: "ready";
+      client: ReturnType<typeof createApiClient>;
+      apiBasePath: string;
+      apiEndpoint: string;
+      googleOAuthEnabled: boolean;
+    }
   | { status: "unavailable" };
-
-function resolveApiEndpoint(apiEndpoint: string): string {
-  return apiEndpoint || window.location.origin;
-}
 
 export function App() {
   const [runtime, setRuntime] = useState<RuntimeState>({ status: "loading" });
@@ -28,8 +27,10 @@ export function App() {
         if (cancelled) return;
         setRuntime({
           status: "ready",
-          config,
-          client: createApiClient(config.apiBasePath)
+          client: createApiClient(config.apiBasePath),
+          apiBasePath: config.apiBasePath,
+          apiEndpoint: config.apiEndpoint,
+          googleOAuthEnabled: config.googleOAuthEnabled
         });
       },
       () => {
@@ -59,23 +60,15 @@ export function App() {
     );
   }
 
-  const useV2 = resolveV2ShellFlag();
-
   return (
-    <AuthGate client={runtime.client}>
-      {({ user, signOut }) =>
-        useV2 ? (
-          <ConsoleShellV2 client={runtime.client} user={user} />
-        ) : (
-          <ConsoleShell
-            apiEndpoint={resolveApiEndpoint(runtime.config.apiEndpoint)}
-            browserCorsOrigins={runtime.config.browserCorsOrigins}
-            client={runtime.client}
-            onSignOut={signOut}
-            user={user}
-          />
-        )
-      }
+    <AuthGate
+      apiBasePath={runtime.apiBasePath}
+      client={runtime.client}
+      googleOAuthEnabled={runtime.googleOAuthEnabled}
+    >
+      {({ user, signOut }) => (
+        <ConsoleShellV2 client={runtime.client} apiEndpoint={runtime.apiEndpoint} user={user} onSignOut={signOut} />
+      )}
     </AuthGate>
   );
 }

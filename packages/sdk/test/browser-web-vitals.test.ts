@@ -5,6 +5,8 @@ import type { SignalMonitorClient } from "../src/types.js";
 function makeClient(): SignalMonitorClient {
   return {
     track: vi.fn(),
+    assignExperiment: vi.fn(),
+    evaluateFlag: vi.fn(),
     click: vi.fn(),
     captureError: vi.fn(),
     breadcrumb: vi.fn(),
@@ -13,6 +15,10 @@ function makeClient(): SignalMonitorClient {
     startTrace: vi.fn(),
     span: vi.fn(),
     webVital: vi.fn(),
+    replay: vi.fn(),
+    profile: vi.fn(),
+    submitSurvey: vi.fn(),
+    feedback: vi.fn(),
     identify: vi.fn(),
     identifyUser: vi.fn(),
     identifyTenant: vi.fn(),
@@ -24,8 +30,8 @@ function makeClient(): SignalMonitorClient {
 describe("installBrowserWebVitals", () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    delete (globalThis as typeof globalThis & { PerformanceObserver?: unknown }).PerformanceObserver;
-    delete (globalThis as typeof globalThis & { location?: unknown }).location;
+    Reflect.deleteProperty(globalThis, "PerformanceObserver");
+    Reflect.deleteProperty(globalThis, "location");
   });
 
   it("reports observed paint and layout metrics with route context", () => {
@@ -42,8 +48,14 @@ describe("installBrowserWebVitals", () => {
       }
       disconnect = vi.fn();
     }
-    (globalThis as typeof globalThis & { PerformanceObserver?: unknown }).PerformanceObserver = FakePerformanceObserver;
-    (globalThis as typeof globalThis & { location?: { pathname: string } }).location = { pathname: "/dashboard" };
+    Object.defineProperty(globalThis, "PerformanceObserver", {
+      configurable: true,
+      value: FakePerformanceObserver
+    });
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { pathname: "/dashboard" }
+    });
 
     const client = makeClient();
     const stop = installBrowserWebVitals(client, { flush: true });

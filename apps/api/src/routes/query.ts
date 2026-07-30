@@ -245,6 +245,12 @@ export type QueryDependencies = {
   listTraces?: (filters: QueryFilters) => Promise<QueryListResult>;
   listTraceSpans?: (traceId: string, filters: QueryFilters) => Promise<QueryListResult>;
   getEventAggregates?: (filters: QueryFilters) => Promise<unknown>;
+  getAnalyticsInsight?: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+  }) => Promise<AnalyticsInsightQueryRecord | null | undefined>;
+  queryEventTrend?: (input: AnalyticsTrendInput) => Promise<unknown>;
   getErrorAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getLlmAggregates?: (filters: QueryFilters) => Promise<unknown>;
   getTraceAggregates?: (filters: QueryFilters) => Promise<unknown>;
@@ -360,6 +366,28 @@ export type QueryDependencies = {
   getLlmByPrompt?: (filters: LlmAggregateFilters) => Promise<unknown>;
   getLlmCostByModel?: (filters: LlmAggregateFilters) => Promise<unknown>;
   getAnalyticsDashboard?: (input: { id: string; projectId: string; environmentId: string }) => Promise<AnalyticsDashboardRecord | null | undefined>;
+};
+
+export type AnalyticsTrendInput = {
+  projectId: string;
+  environmentId: string;
+  from: Date;
+  to: Date;
+  bucket: "hour" | "day";
+  metric: "count" | "unique_actors";
+  eventName?: string;
+  breakdownProperty?: string;
+  filters?: EventTrendFilter[];
+};
+
+type EventTrendFilter = {
+  property: string;
+  operator: "eq" | "neq" | "exists" | "not_exists";
+  value?: string;
+};
+
+type AnalyticsInsightQueryRecord = {
+  definition: Omit<AnalyticsTrendInput, "projectId" | "environmentId" | "from" | "to">;
 };
 
 export type QueryRouteOptions = {
@@ -601,6 +629,78 @@ function parseFilters(
   }
 
   return filters;
+}
+
+type AnalyticsTrendRequest = {
+  projectId: string;
+  environmentId: string;
+  from: Date;
+  to: Date;
+  insightId?: string;
+  definition?: Omit<AnalyticsTrendInput, "projectId" | "environmentId" | "from" | "to">;
+};
+
+function parseAnalyticsTrendRequest(query: unknown): AnalyticsTrendRequest | undefined {
+  const raw = (query ?? {}) as RawQuery;
+  const projectId = parseRequiredId(raw, "project_id");
+  const environmentId = parseRequiredId(raw, "environment_id");
+  const from = parseDate(raw, "from");
+  const to = parseDate(raw, "to");
+  if (!projectId || !environmentId || !from || !to || from >= to) return undefined;
+
+  const insightId = optionalNonEmpty(raw, "insight_id");
+  const bucket = optionalNonEmpty(raw, "bucket");
+  const metric = optionalNonEmpty(raw, "metric");
+  if (insightId) {
+    if (bucket || metric || optionalNonEmpty(raw, "event_name") || optionalNonEmpty(raw, "breakdown_property") || raw.filters) {
+      return undefined;
+    }
+    return { projectId, environmentId, from, to, insightId };
+  }
+  if ((bucket !== "hour" && bucket !== "day") || (metric !== "count" && metric !== "unique_actors")) {
+    return undefined;
+  }
+
+  let filters: EventTrendFilter[] | undefined;
+  const rawFilters = optionalNonEmpty(raw, "filters");
+  if (rawFilters) {
+    try {
+      const parsed = JSON.parse(rawFilters) as unknown;
+      if (!Array.isArray(parsed) || parsed.length > 12) return undefined;
+      filters = [];
+      for (const value of parsed) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+        const candidate = value as Record<string, unknown>;
+        const property = typeof candidate.property === "string" ? candidate.property.trim() : "";
+        const operator = candidate.operator;
+        if (
+          !/^[A-Za-z0-9_.:-]{1,64}$/.test(property) ||
+          (operator !== "eq" && operator !== "neq" && operator !== "exists" && operator !== "not_exists")
+        ) {
+          return undefined;
+        }
+        if (operator === "eq" || operator === "neq") {
+          if (typeof candidate.value !== "string" || candidate.value.length > 512) return undefined;
+          filters.push({ property, operator, value: candidate.value });
+        } else {
+          filters.push({ property, operator });
+        }
+      }
+    } catch {
+      return undefined;
+    }
+  }
+
+  const definition: AnalyticsTrendRequest["definition"] = { bucket, metric };
+  const eventName = optionalNonEmpty(raw, "event_name");
+  const breakdownProperty = optionalNonEmpty(raw, "breakdown_property");
+  if (eventName) definition.eventName = eventName;
+  if (breakdownProperty) {
+    if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(breakdownProperty)) return undefined;
+    definition.breakdownProperty = breakdownProperty;
+  }
+  if (filters && filters.length > 0) definition.filters = filters;
+  return { projectId, environmentId, from, to, definition };
 }
 
 function parseErrorGroupFilters(query: unknown): ErrorGroupFilters | undefined {
@@ -1815,13 +1915,23 @@ function dashboardWidgetData(widget: AnalyticsDashboardWidget, overview: unknown
   return null;
 }
 
+function dashboardTrendRange(window: OverviewWindow): { from: Date; to: Date; bucket: "hour" | "day" } {
+  const to = new Date();
+  const hours = window === "24h" ? 24 : window === "7d" ? 24 * 7 : 24 * 30;
+  return {
+    from: new Date(to.getTime() - hours * 60 * 60 * 1000),
+    to,
+    bucket: window === "24h" ? "hour" : "day"
+  };
+}
+
 async function handleDashboardReportRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const user = await requireHumanUser(request, reply, options.auth);
   if (!user) {
     return reply;
   }
 
-  if (!options.query?.getAnalyticsDashboard || !options.query?.getOverview) {
+  if (!options.query?.getAnalyticsDashboard) {
     return reply.status(501).send({ error: "dashboard_reports_unavailable" });
   }
 
@@ -1841,8 +1951,63 @@ async function handleDashboardReportRoute(request: FastifyRequest, reply: Fastif
       return reply.status(404).send({ error: "dashboard_not_found" });
     }
 
+    const unsupportedFilters = ["tenantId", "userId", "segmentId"].filter(
+      (key) => Boolean(dashboard.filters[key as keyof typeof dashboard.filters])
+    );
+    if (unsupportedFilters.length > 0) {
+      return reply.status(422).send({ error: "unsupported_dashboard_filters", filters: unsupportedFilters });
+    }
+
     const window = filters.window ?? dashboard.filters.window ?? "7d";
-    const overview = await options.query.getOverview({ projectId: filters.projectId, environmentId: filters.environmentId, window });
+    const legacyWidgets = dashboard.widgets.filter((widget) => widget.type !== "insight");
+    let overview: unknown;
+    let overviewError: string | undefined;
+    if (legacyWidgets.length > 0) {
+      if (!options.query.getOverview) {
+        overviewError = "overview_query_unavailable";
+      } else {
+        try {
+          overview = await options.query.getOverview({ projectId: filters.projectId, environmentId: filters.environmentId, window });
+        } catch {
+          overviewError = "overview_query_failed";
+        }
+      }
+    }
+
+    const widgets = await Promise.all(dashboard.widgets.map(async (widget) => {
+      const base = { widgetId: widget.id, type: widget.type, title: widget.title, width: widget.width };
+      if (widget.type !== "insight") {
+        return overviewError
+          ? { ...base, status: "error", data: null, error: overviewError }
+          : { ...base, status: "ok", data: dashboardWidgetData(widget, overview) };
+      }
+
+      const insightId = typeof widget.options.insightId === "string" ? widget.options.insightId.trim() : "";
+      if (!insightId || !options.query?.getAnalyticsInsight || !options.query.queryEventTrend) {
+        return { ...base, status: "error", data: null, error: insightId ? "analytics_insights_unavailable" : "insight_id_missing" };
+      }
+      try {
+        const insight = await options.query.getAnalyticsInsight({
+          id: insightId,
+          projectId: filters.projectId,
+          environmentId: filters.environmentId
+        });
+        if (!insight) return { ...base, status: "error", data: null, error: "analytics_insight_not_found" };
+        const definition = analyticsInsightDefinition(insight);
+        if (!definition) return { ...base, status: "error", data: null, error: "analytics_insight_invalid" };
+        const range = dashboardTrendRange(window);
+        const data = await options.query.queryEventTrend({
+          projectId: filters.projectId,
+          environmentId: filters.environmentId,
+          from: range.from,
+          to: range.to,
+          ...definition
+        });
+        return { ...base, status: "ok", data };
+      } catch {
+        return { ...base, status: "error", data: null, error: "analytics_insight_query_failed" };
+      }
+    }));
 
     return reply.send({
       data: {
@@ -1853,14 +2018,7 @@ async function handleDashboardReportRoute(request: FastifyRequest, reply: Fastif
           environmentId: filters.environmentId
         },
         window,
-        widgets: dashboard.widgets.map((widget) => ({
-          widgetId: widget.id,
-          type: widget.type,
-          title: widget.title,
-          width: widget.width,
-          status: "ok",
-          data: dashboardWidgetData(widget, overview)
-        }))
+        widgets
       }
     });
   } catch {
@@ -2032,6 +2190,64 @@ async function handleExperimentResultsRoute(request: FastifyRequest, reply: Fast
     return reply.send({ data: result });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
+  }
+}
+
+function analyticsInsightDefinition(insight: AnalyticsInsightQueryRecord): AnalyticsTrendRequest["definition"] | undefined {
+  return insight.definition;
+}
+
+async function handleAnalyticsTrendRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const user = await requireHumanUser(request, reply, options.auth);
+  if (!user) return reply;
+  if (!options.query?.queryEventTrend) {
+    return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+  }
+
+  const parsed = parseAnalyticsTrendRequest(request.query);
+  if (!parsed) {
+    return reply.status(400).send({ error: "invalid_analytics_trend_request" });
+  }
+
+  let definition = parsed.definition;
+  if (parsed.insightId) {
+    if (!options.query.getAnalyticsInsight) {
+      return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
+    }
+    const insight = await options.query.getAnalyticsInsight({
+      id: parsed.insightId,
+      projectId: parsed.projectId,
+      environmentId: parsed.environmentId
+    });
+    if (!insight) {
+      return reply.status(404).send({ error: "analytics_insight_not_found" });
+    }
+    definition = analyticsInsightDefinition(insight);
+    if (!definition) {
+      return reply.status(503).send({ error: "analytics_insights_unavailable" });
+    }
+  }
+
+  try {
+    const data = await options.query.queryEventTrend({
+      projectId: parsed.projectId,
+      environmentId: parsed.environmentId,
+      from: parsed.from,
+      to: parsed.to,
+      ...definition!
+    });
+    return reply.send({ data });
+  } catch (error) {
+    if (error instanceof Error && error.name === "EventPropertyNotPromotedError") {
+      return reply.status(400).send({ error: "breakdown_property_not_promoted" });
+    }
+    if (error instanceof Error && error.name === "InvalidEventPropertyError") {
+      return reply.status(400).send({ error: "invalid_event_property" });
+    }
+    if (error instanceof RangeError) {
+      return reply.status(400).send({ error: "invalid_analytics_trend_request" });
+    }
+    return reply.status(503).send({ error: "analytics_insights_unavailable" });
   }
 }
 
@@ -2964,6 +3180,7 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/feedback", (request, reply) => handleFeedbackListRoute(request, reply, options));
   app.patch("/query/feedback/:id", (request, reply) => handleFeedbackStatusRoute(request, reply, options));
   app.get("/query/events/retention", (request, reply) => handleEventRetentionRoute(request, reply, options));
+  app.get("/query/analytics/trends", (request, reply) => handleAnalyticsTrendRoute(request, reply, options));
   app.get("/query/reports/dashboards/:id", (request, reply) => handleDashboardReportRoute(request, reply, options));
   app.get("/query/sessions/:sessionId/timeline", (request, reply) => handleSessionTimelineRoute(request, reply, options));
   app.get("/query/replays", (request, reply) => handleSessionReplayListRoute(request, reply, options));
@@ -3043,8 +3260,13 @@ export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOpt
   app.get("/query/traces/:id/spans", (request, reply) => handleTraceSpansRoute(request, reply, options));
 
   app.get("/query/aggregates/events", (request, reply) =>
-    handleAggregateRoute(request, reply, options, () => !!options.query?.getEventAggregates, (filters) =>
-      options.query!.getEventAggregates!(filters)
+    handleAggregateRoute(
+      request,
+      reply,
+      options,
+      () => !!options.query?.getEventAggregates,
+      (filters) => options.query!.getEventAggregates!(filters),
+      { includeEventName: true }
     )
   );
   app.get("/query/aggregates/errors", (request, reply) =>

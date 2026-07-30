@@ -8,7 +8,13 @@ import type { ApmWindow } from "./telemetry-query.js";
 type AnalyticsDashboardRow = Selectable<AnalyticsDashboardsTable>;
 
 export type AnalyticsDashboardCategory = "executive" | "operational" | "product";
-export type AnalyticsDashboardWidgetType = "metric.events" | "metric.errors" | "top.events" | "trend.events" | "trend.errors";
+export type AnalyticsDashboardWidgetType =
+  | "metric.events"
+  | "metric.errors"
+  | "top.events"
+  | "trend.events"
+  | "trend.errors"
+  | "insight";
 
 export interface AnalyticsDashboardFilters {
   window?: ApmWindow;
@@ -55,7 +61,14 @@ export type UpdateAnalyticsDashboardInput = Partial<
   Pick<CreateAnalyticsDashboardInput, "name" | "description" | "category" | "filters" | "widgets">
 >;
 
-const allowedTypes = new Set<AnalyticsDashboardWidgetType>(["metric.events", "metric.errors", "top.events", "trend.events", "trend.errors"]);
+const allowedTypes = new Set<AnalyticsDashboardWidgetType>([
+  "metric.events",
+  "metric.errors",
+  "top.events",
+  "trend.events",
+  "trend.errors",
+  "insight"
+]);
 
 function normalizeText(value: string, fallback: string, max = 120): string {
   const trimmed = value.trim();

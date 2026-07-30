@@ -4,6 +4,7 @@ import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
 import { createEnvironment, createProject } from "../src/repositories/admin.js";
+import { identifyTenantProfile, identifyUserProfile } from "../src/repositories/identity-profiles.js";
 import { insertError, insertEvent, insertLlmCall, insertTrace } from "../src/repositories/telemetry-writes.js";
 import {
   archiveWarehouseDestination,
@@ -49,13 +50,16 @@ describe("warehouse export repositories", () => {
       environmentId: environment.id,
       name: "Lakehouse",
       destinationType: "postgres",
-      connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
+      connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics?sslmode=require&token=query-secret&api_key=key-secret&application_name=sigmon",
       datasets: ["events", "errors"],
       batchSize: 250,
       enabled: true
     });
 
-    expect(destination.connectionUrlPreview).toBe("postgres://writer:***@warehouse.internal:5432/analytics");
+    expect(destination.connectionUrlPreview).toBe(
+      "postgres://writer:***@warehouse.internal:5432/analytics?sslmode=require&token=***&api_key=***&application_name=sigmon",
+    );
+    expect(destination.connectionUrlPreview).not.toContain("secret");
     expect(destination.connectionUrl).toBeUndefined();
     expect(destination.datasets).toEqual(["events", "errors"]);
     expect(destination.cursor).toEqual({});
@@ -184,4 +188,133 @@ describe("warehouse export repositories", () => {
     });
     expect(runs.map((item) => item.id)).toEqual([run.id]);
   });
+
+  it("exports identity profiles with scope-safe ids without skipping actors that share a timestamp", async () => {
+    const { project, environment } = await createScope();
+    const sharedTimestamp = new Date("2026-01-02T03:04:05.000Z");
+
+    await identifyUserProfile(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      userId: "user_a",
+      tenantId: "tenant_a",
+      traits: { email: "a@example.com", plan: "team" },
+      timestamp: sharedTimestamp
+    });
+    await identifyUserProfile(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      userId: "user_b",
+      tenantId: "tenant_b",
+      traits: { email: "b@example.com", plan: "enterprise" },
+      timestamp: sharedTimestamp
+    });
+    await identifyTenantProfile(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      tenantId: "tenant_a",
+      traits: { name: "Tenant A", region: "br" },
+      timestamp: sharedTimestamp
+    });
+    await identifyTenantProfile(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      tenantId: "tenant_b",
+      traits: { name: "Tenant B", region: "eu" },
+      timestamp: sharedTimestamp
+    });
+
+    const destination = await createWarehouseDestination(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      name: "Identity warehouse",
+      destinationType: "postgres",
+      connectionUrl: "postgres://writer:secret@warehouse.internal:5432/analytics",
+      datasets: ["userProfiles", "tenantProfiles"],
+      batchSize: 1,
+      enabled: true
+    });
+
+    const first = await selectWarehouseExportBatch(db, destination, { now: sharedTimestamp });
+    expect(first.rows.userProfiles).toEqual([
+      expect.objectContaining({
+        id: `${project.id}:${environment.id}:user_a`,
+        project_id: project.id,
+        environment_id: environment.id,
+        user_id: "user_a",
+        tenant_id: "tenant_a",
+        traits: { email: "a@example.com", plan: "team" },
+        timestamp: sharedTimestamp
+      })
+    ]);
+    expect(first.rows.tenantProfiles).toEqual([
+      expect.objectContaining({
+        id: `${project.id}:${environment.id}:tenant_a`,
+        project_id: project.id,
+        environment_id: environment.id,
+        tenant_id: "tenant_a",
+        traits: { name: "Tenant A", region: "br" },
+        timestamp: sharedTimestamp
+      })
+    ]);
+    expect(first.nextCursor.userProfiles).toEqual({ timestamp: sharedTimestamp.toISOString(), id: "user_a" });
+    expect(first.nextCursor.tenantProfiles).toEqual({ timestamp: sharedTimestamp.toISOString(), id: "tenant_a" });
+
+    const retry = await selectWarehouseExportBatch(db, destination, { now: sharedTimestamp });
+    expect(retry.rows.userProfiles.map((row) => row.id)).toEqual(first.rows.userProfiles.map((row) => row.id));
+    expect(retry.rows.tenantProfiles.map((row) => row.id)).toEqual(first.rows.tenantProfiles.map((row) => row.id));
+
+    const second = await selectWarehouseExportBatch(
+      db,
+      { ...destination, cursor: first.nextCursor },
+      { now: sharedTimestamp }
+    );
+    expect(second.rows.userProfiles.map((row) => row.user_id)).toEqual(["user_b"]);
+    expect(second.rows.tenantProfiles.map((row) => row.tenant_id)).toEqual(["tenant_b"]);
+    expect(second.nextCursor.userProfiles).toEqual({ timestamp: sharedTimestamp.toISOString(), id: "user_b" });
+    expect(second.nextCursor.tenantProfiles).toEqual({ timestamp: sharedTimestamp.toISOString(), id: "tenant_b" });
+
+    await identifyUserProfile(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      userId: "user_a",
+      tenantId: "tenant_a",
+      traits: { plan: "updated-behind-active-cursor" },
+      timestamp: new Date("2026-01-02T04:00:00.000Z")
+    });
+
+    const stillActive = await selectWarehouseExportBatch(
+      db,
+      { ...destination, cursor: first.nextCursor },
+      { now: sharedTimestamp }
+    );
+    expect(stillActive.rows.userProfiles.map((row) => row.user_id)).toEqual(["user_b"]);
+    expect(stillActive.rows.userProfiles).not.toEqual([
+      expect.objectContaining({ user_id: "user_a", traits: expect.objectContaining({ plan: "updated-behind-active-cursor" }) })
+    ]);
+
+    const exhausted = await selectWarehouseExportBatch(
+      db,
+      { ...destination, cursor: second.nextCursor },
+      { now: sharedTimestamp }
+    );
+    expect(exhausted.rowCount).toBe(0);
+    expect(exhausted.rows.userProfiles).toEqual([]);
+    expect(exhausted.rows.tenantProfiles).toEqual([]);
+    expect(exhausted.nextCursor.userProfiles).toBeUndefined();
+    expect(exhausted.nextCursor.tenantProfiles).toBeUndefined();
+
+    const changedAfterCursor = await selectWarehouseExportBatch(
+      db,
+      { ...destination, cursor: exhausted.nextCursor },
+      { now: sharedTimestamp }
+    );
+    expect(changedAfterCursor.rows.userProfiles).toEqual([
+      expect.objectContaining({
+        user_id: "user_a",
+        traits: expect.objectContaining({ plan: "updated-behind-active-cursor" })
+      })
+    ]);
+  });
+
 });

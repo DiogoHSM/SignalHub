@@ -4,6 +4,7 @@ import type {
   ErrorGroupIncident,
   ErrorGroupPriority,
   ErrorGroupStatus,
+  ErrorRecord,
   IncidentExternalLink,
   IncidentReplay,
   IncidentTimelineItem,
@@ -31,6 +32,7 @@ export type IncidentVM = {
   status: string;
   priority: "P1" | "P2" | "P3" | "P4" | null;
   groupId: string;
+  primaryOccurrenceId: string;
   release: string | null;
   incidentNumber: string | null;
   openedRelative: string;
@@ -74,7 +76,8 @@ type UseIncidentClient = Pick<
   Pick<
     ErrorGroupApiClient,
     "getErrorGroupIncident" | "updateErrorGroupTriage" | "silenceIncident" | "addTriageNote"
-  >;
+  > &
+  Partial<Pick<ErrorGroupApiClient, "listErrorGroupOccurrences">>;
 
 type UseIncidentOptions = {
   client: UseIncidentClient;
@@ -97,6 +100,11 @@ export type UseIncidentResult = {
   addNote: (body: string) => Promise<void>;
   users: User[] | null;
   canReassign: boolean;
+  occurrences: ErrorRecord[];
+  occurrencesStatus: "loading" | "ready" | "error";
+  occurrencesCursor: string | undefined;
+  loadMoreOccurrences: () => Promise<void>;
+  retryOccurrences: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -341,6 +349,7 @@ function buildVM(incident: ErrorGroupIncident, resolution: SourceMapResolution |
     status: group.status,
     priority: mapPriority(incident.priority),
     groupId: group.id,
+    primaryOccurrenceId: primaryOccurrence.id,
     release: group.latestRelease,
     incidentNumber: incident.incidentNumber,
     openedRelative: relativeTime(group.firstSeenAt),
@@ -381,12 +390,23 @@ export function useIncident({
   const [hookStatus, setHookStatus] = useState<"loading" | "ready" | "error">("loading");
   const [data, setData] = useState<IncidentVM | null>(null);
   const [tick, setTick] = useState(0);
+  const [occurrenceTick, setOccurrenceTick] = useState(0);
   const [users, setUsers] = useState<User[] | null>(null);
   const [canReassign, setCanReassign] = useState(false);
   const genRef = useRef(0);
+  const occurrenceGenRef = useRef(0);
+  const occurrenceCursorRef = useRef<string | undefined>(undefined);
+  const occurrenceItemsRef = useRef<ErrorRecord[]>([]);
+  const [occurrenceItems, setOccurrenceItems] = useState<ErrorRecord[]>([]);
+  const [occurrencesStatus, setOccurrencesStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [occurrencesCursor, setOccurrencesCursor] = useState<string | undefined>(undefined);
 
   const reload = useCallback(() => {
     setTick((t) => t + 1);
+  }, []);
+
+  const retryOccurrences = useCallback(() => {
+    setOccurrenceTick((value) => value + 1);
   }, []);
 
   // Fetch incident — gen-counter guard for stale-fetch + unmount safety
@@ -426,6 +446,69 @@ export function useIncident({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, environmentId, groupId, errorId, tick]);
+
+  useEffect(() => {
+    const generation = ++occurrenceGenRef.current;
+    occurrenceItemsRef.current = [];
+    occurrenceCursorRef.current = undefined;
+    setOccurrenceItems([]);
+    setOccurrencesCursor(undefined);
+    setOccurrencesStatus("loading");
+
+    if (!client.listErrorGroupOccurrences) {
+      setOccurrencesStatus("ready");
+      return () => {
+        ++occurrenceGenRef.current;
+      };
+    }
+
+    client.listErrorGroupOccurrences(groupId, { projectId, environmentId, limit: 10 })
+      .then((response) => {
+        if (generation !== occurrenceGenRef.current) return;
+        occurrenceItemsRef.current = response.data;
+        occurrenceCursorRef.current = response.cursor;
+        setOccurrenceItems(response.data);
+        setOccurrencesCursor(response.cursor);
+        setOccurrencesStatus("ready");
+      })
+      .catch((error: unknown) => {
+        if (generation !== occurrenceGenRef.current) return;
+        console.error(error);
+        setOccurrencesStatus("error");
+      });
+
+    return () => {
+      ++occurrenceGenRef.current;
+    };
+  }, [client, environmentId, groupId, occurrenceTick, projectId, tick]);
+
+  const loadMoreOccurrences = useCallback(async () => {
+    const cursor = occurrenceCursorRef.current;
+    if (!client.listErrorGroupOccurrences || !cursor || occurrencesStatus === "loading") return;
+    const generation = occurrenceGenRef.current;
+    setOccurrencesStatus("loading");
+    try {
+      const response = await client.listErrorGroupOccurrences(groupId, {
+        projectId,
+        environmentId,
+        limit: 10,
+        cursor
+      });
+      if (generation !== occurrenceGenRef.current) return;
+      const byId = new Map(occurrenceItemsRef.current.map((item) => [item.id, item]));
+      for (const item of response.data) byId.set(item.id, item);
+      const next = [...byId.values()];
+      occurrenceItemsRef.current = next;
+      occurrenceCursorRef.current = response.cursor;
+      setOccurrenceItems(next);
+      setOccurrencesCursor(response.cursor);
+      setOccurrencesStatus("ready");
+    } catch (error) {
+      if (generation !== occurrenceGenRef.current) return;
+      console.error(error);
+      setOccurrencesStatus("error");
+    }
+  }, [client, environmentId, groupId, occurrencesStatus, projectId]);
 
   // Fetch users (admin-gated) — on mount only
   useEffect(() => {
@@ -507,6 +590,8 @@ export function useIncident({
     [client, groupId, projectId, environmentId, reload]
   );
 
+  const occurrences = occurrenceItems.filter((item) => item.id !== data?.primaryOccurrenceId);
+
   return {
     data,
     status: hookStatus,
@@ -518,6 +603,11 @@ export function useIncident({
     silence,
     addNote,
     users,
-    canReassign
+    canReassign,
+    occurrences,
+    occurrencesStatus,
+    occurrencesCursor,
+    loadMoreOccurrences,
+    retryOccurrences
   };
 }

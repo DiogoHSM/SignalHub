@@ -427,6 +427,206 @@ describe("ingestion routes", () => {
     });
   });
 
+  it("redacts replay event messages before enqueueing them", async () => {
+    const enqueued: EnqueuedJob[] = [];
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue: async (job) => {
+          enqueued.push(job);
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        replay_id: "rpl_redacted_message",
+        started_at: "2026-05-11T12:00:00.000Z",
+        events: [
+          {
+            offset_ms: 0,
+            type: "console",
+            message: "person@example.com Cookie: session=raw Authorization: Bearer token"
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(enqueued[0]).toMatchObject({
+      kind: "replay",
+      payload: { events: [expect.objectContaining({ message: "[REDACTED]" })] }
+    });
+    expect(JSON.stringify(enqueued)).not.toContain("person@example.com");
+    expect(JSON.stringify(enqueued)).not.toContain("Bearer token");
+  });
+
+  it("rejects 6000-level replay data with a validation error instead of a stack overflow", async () => {
+    const enqueue = vi.fn();
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue
+      }
+    });
+    const nestedData = `${'{"next":'.repeat(6_000)}{}${"}".repeat(6_000)}`;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: {
+        authorization: "Bearer sh_valid",
+        "content-type": "application/json"
+      },
+      payload: `{"replay_id":"rpl_extremely_deep","started_at":"2026-05-11T12:00:00.000Z","events":[{"offset_ms":0,"type":"custom","data":${nestedData}}]}`
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "invalid_ingestion_payload",
+      details: expect.arrayContaining([
+        expect.objectContaining({
+          path: ["events", 0, "data"],
+          message: "Replay event data must not exceed 5 container levels"
+        })
+      ])
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized session replays with the structured ingestion payload error", async () => {
+    const enqueue = vi.fn();
+    const multibyteChunk = "é".repeat(9_000);
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        replay_id: "rpl_oversized",
+        started_at: "2026-05-11T12:00:00.000Z",
+        events: [
+          {
+            offset_ms: 0,
+            type: "custom",
+            data: {
+              first: multibyteChunk,
+              second: multibyteChunk,
+              third: multibyteChunk,
+              fourth: multibyteChunk
+            }
+          }
+        ]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "invalid_ingestion_payload",
+      details: expect.arrayContaining([
+        expect.objectContaining({
+          path: [],
+          message: "Session replay payload must not exceed 64 KiB"
+        })
+      ])
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("applies the replay byte budget before unknown HTTP fields are stripped", async () => {
+    const enqueue = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        replay_id: "rpl_unknown_oversized",
+        started_at: "2026-05-11T12:00:00.000Z",
+        ignored_blob: "x".repeat(66_000)
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "invalid_ingestion_payload",
+      details: expect.arrayContaining([
+        expect.objectContaining({
+          path: [],
+          message: "Session replay payload must not exceed 64 KiB"
+        })
+      ])
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "deep",
+      data: { one: { two: { three: { four: { five: { six: true } } } } } },
+      message: "Replay event data must not exceed 5 container levels"
+    },
+    {
+      name: "wide",
+      data: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`key_${index}`, index])),
+      message: "Replay event data must not exceed 64 object keys"
+    }
+  ])("rejects $name replay event data with the structured ingestion payload error", async ({ data, message }) => {
+    const enqueue = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      ingestion: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        enqueue
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/replays",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: {
+        replay_id: "rpl_bounded_data",
+        started_at: "2026-05-11T12:00:00.000Z",
+        events: [{ offset_ms: 0, type: "custom", data }]
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "invalid_ingestion_payload",
+      details: expect.arrayContaining([
+        expect.objectContaining({
+          path: ["events", 0, "data"],
+          message
+        })
+      ])
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it("returns 503 when enqueue fails", async () => {
     app = await buildApp({
       readiness,

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SystemScreen } from "./SystemScreen";
@@ -65,6 +65,104 @@ function mockHook(over: Partial<hookModule.UseSystemHealthResult>) {
 }
 
 describe("SystemScreen", () => {
+  it("manages installation console users for administrators", async () => {
+    const api = {
+      ...makeCtx().client,
+      listUsers: vi.fn().mockResolvedValue({
+        users: [{ id: "usr_2", email: "administrator@example.com", isAdmin: true }],
+      }),
+      createUser: vi.fn().mockResolvedValue({
+        user: { id: "usr_3", email: "new@example.com", isAdmin: true },
+      }),
+      updateUser: vi.fn().mockResolvedValue({
+        user: { id: "usr_2", email: "lead@example.com", isAdmin: true },
+      }),
+      archiveUser: vi.fn().mockResolvedValue(undefined),
+    };
+    mockHook({ status: "ok", data: vm });
+    render(
+      <SystemScreen
+        ctx={makeCtx({
+          client: api as never,
+          user: { id: "usr_admin", email: "admin@example.com", isAdmin: true },
+        })}
+      />
+    );
+
+    expect(await screen.findByRole("heading", { name: "Console access" })).toBeInTheDocument();
+    expect(screen.getByText("administrator@example.com")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Administrator access")).not.toBeInTheDocument();
+    expect(screen.queryByText("Operator")).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("New user email"), " new@example.com ");
+    await userEvent.type(screen.getByLabelText("Temporary password"), "temporary-password");
+    await userEvent.click(screen.getByRole("button", { name: "Create console user" }));
+    await waitFor(() => expect(api.createUser).toHaveBeenCalledWith({
+      email: "new@example.com",
+      password: "temporary-password",
+      isAdmin: true,
+    }));
+    expect(await screen.findByText("new@example.com")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit administrator@example.com" }));
+    await userEvent.clear(screen.getByLabelText("User email"));
+    await userEvent.type(screen.getByLabelText("User email"), "lead@example.com");
+    await userEvent.click(screen.getByRole("button", { name: "Save console user" }));
+    await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith("usr_2", {
+      email: "lead@example.com",
+    }));
+    expect(await screen.findByText("lead@example.com")).toBeInTheDocument();
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Archive new@example.com" }));
+    await waitFor(() => expect(api.archiveUser).toHaveBeenCalledWith("usr_3"));
+    expect(screen.queryByText("new@example.com")).not.toBeInTheDocument();
+  });
+
+  it("does not expose installation user management to non-admin users", () => {
+    const listUsers = vi.fn();
+    mockHook({ status: "ok", data: vm });
+    render(
+      <SystemScreen
+        ctx={makeCtx({
+          client: { ...makeCtx().client, listUsers } as never,
+          user: { id: "usr_operator", email: "operator@example.com", isAdmin: false },
+        })}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Console access" })).not.toBeInTheDocument();
+    expect(listUsers).not.toHaveBeenCalled();
+  });
+
+  it("keeps the user editor recoverable when creation fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const api = {
+      ...makeCtx().client,
+      listUsers: vi.fn().mockResolvedValue({ users: [] }),
+      createUser: vi.fn().mockRejectedValue(new Error("duplicate email")),
+      updateUser: vi.fn(),
+      archiveUser: vi.fn(),
+    };
+    mockHook({ status: "ok", data: vm });
+    render(
+      <SystemScreen
+        ctx={makeCtx({
+          client: api as never,
+          user: { id: "usr_admin", email: "admin@example.com", isAdmin: true },
+        })}
+      />
+    );
+
+    await userEvent.type(await screen.findByLabelText("New user email"), "duplicate@example.com");
+    await userEvent.type(screen.getByLabelText("Temporary password"), "temporary-password");
+    await userEvent.click(screen.getByRole("button", { name: "Create console user" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not create console user.");
+    expect(screen.getByLabelText("New user email")).toHaveValue("duplicate@example.com");
+    expect(screen.getByLabelText("Temporary password")).toHaveValue("");
+  });
+
   it("shows a loading state", () => {
     mockHook({ status: "loading", data: null });
     render(<SystemScreen ctx={makeCtx()} />);

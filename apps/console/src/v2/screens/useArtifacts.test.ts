@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { buildArtifactsVM, formatBytes, useArtifacts } from "./useArtifacts";
-import type { ApiClient } from "../../api/client";
+import {
+  MAX_SOURCE_MAP_UPLOAD_BYTES,
+  buildArtifactsVM,
+  formatBytes,
+  useArtifacts,
+  validateSourceMapUploadFile,
+} from "./useArtifacts";
+import { ApiError, type ApiClient } from "../../api/client";
 import type { SourceMapArtifact, SourceMapUploadToken } from "../../api/types";
 
 const NOW = Date.parse("2026-06-24T12:00:00.000Z");
@@ -29,6 +35,21 @@ describe("formatBytes", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2.0 KB");
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+  });
+});
+
+describe("validateSourceMapUploadFile", () => {
+  it("accepts .map files and .zip bundles within the server upload limit", () => {
+    expect(validateSourceMapUploadFile(new File(["{}"], "app.js.map"), "map")).toBeNull();
+    expect(validateSourceMapUploadFile(new File(["zip"], "maps.ZIP"), "bundle")).toBeNull();
+  });
+
+  it("rejects mismatched extensions and files above the 50 MB server limit", () => {
+    expect(validateSourceMapUploadFile(new File(["{}"], "app.json"), "map")).toMatch(/\.map/);
+    expect(validateSourceMapUploadFile(new File(["zip"], "maps.tar"), "bundle")).toMatch(/\.zip/);
+    const oversized = new File(["x"], "maps.zip");
+    Object.defineProperty(oversized, "size", { value: MAX_SOURCE_MAP_UPLOAD_BYTES + 1 });
+    expect(validateSourceMapUploadFile(oversized, "bundle")).toMatch(/50 MB/);
   });
 });
 
@@ -80,6 +101,8 @@ describe("useArtifacts hook", () => {
     return {
       listSourceMapArtifacts: vi.fn().mockResolvedValue([artifact()]),
       listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [token()] }),
+      uploadSourceMap: vi.fn().mockResolvedValue([artifact()]),
+      uploadSourceMapBundle: vi.fn().mockResolvedValue([artifact({ id: "sm_bundle" })]),
       deleteSourceMapArtifact: vi.fn().mockResolvedValue(undefined),
       createSourceMapUploadToken: vi.fn().mockResolvedValue({ token: { ...token({ id: "tok_new", name: "CI new", prefix: "shsmap_zz" }), secret: "shsmap_secret_value" } }),
       updateSourceMapUploadToken: vi.fn().mockResolvedValue({ token: token({ name: "renamed" }) }),
@@ -114,11 +137,152 @@ describe("useArtifacts hook", () => {
     expect(result.current.latestSecret).toEqual({ name: "CI new", prefix: "shsmap_zz", secret: "shsmap_secret_value" });
   });
 
+  it("does not expose a token secret after the scope changes", async () => {
+    let finish!: (value: { token: ReturnType<typeof token> & { secret: string } }) => void;
+    const pending = new Promise<{ token: ReturnType<typeof token> & { secret: string } }>((resolve) => { finish = resolve; });
+    const client = makeClient({ createSourceMapUploadToken: vi.fn().mockReturnValue(pending) });
+    const { result, rerender } = renderHook(
+      ({ projectId }) => useArtifacts({ client, projectId, environmentId: "e" }),
+      { initialProps: { projectId: "p" } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let creation!: Promise<boolean>;
+    act(() => { creation = result.current.createToken("CI old scope"); });
+    rerender({ projectId: "p2" });
+    finish({ token: { ...token({ name: "CI old scope" }), secret: "must_not_leak" } });
+    await act(async () => { await creation; });
+
+    expect(result.current.latestSecret).toBeNull();
+  });
+
   it("revokes a token via the right client call", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
     await waitFor(() => expect(result.current.status).toBe("ok"));
     await act(async () => { await result.current.revokeToken("tok_1"); });
     expect(client.revokeSourceMapUploadToken).toHaveBeenCalledWith("tok_1", { projectId: "p", environmentId: "e" });
+  });
+
+  it("uploads one source map through the scoped client", async () => {
+    const client = makeClient();
+    const file = new File(["{}"], "app.min.js.map", { type: "application/json" });
+    const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let ok: Awaited<ReturnType<typeof result.current.uploadMap>> | undefined;
+    await act(async () => {
+      ok = await result.current.uploadMap({ release: "2026.07.29", minifiedFile: "assets/app.min.js", file });
+    });
+
+    expect(ok).toEqual({ ok: true });
+    expect(client.uploadSourceMap).toHaveBeenCalledWith({
+      projectId: "p",
+      environmentId: "e",
+      release: "2026.07.29",
+      minifiedFile: "assets/app.min.js",
+      file,
+    });
+  });
+
+  it("uploads a source-map bundle through the scoped client", async () => {
+    const client = makeClient();
+    const bundle = new File(["zip"], "source-maps.zip", { type: "application/zip" });
+    const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let ok: Awaited<ReturnType<typeof result.current.uploadBundle>> | undefined;
+    await act(async () => {
+      ok = await result.current.uploadBundle({ release: "2026.07.29", bundle });
+    });
+
+    expect(ok).toEqual({ ok: true });
+    expect(client.uploadSourceMapBundle).toHaveBeenCalledWith({
+      projectId: "p",
+      environmentId: "e",
+      release: "2026.07.29",
+      bundle,
+    });
+  });
+
+  it("uses a synchronous single-flight lock for uploads", async () => {
+    let finish: ((value: SourceMapArtifact[]) => void) | undefined;
+    const pending = new Promise<SourceMapArtifact[]>((resolve) => { finish = resolve; });
+    const client = makeClient({ uploadSourceMap: vi.fn().mockReturnValue(pending) });
+    const file = new File(["{}"], "app.min.js.map");
+    const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let first: ReturnType<typeof result.current.uploadMap>;
+    let second: Awaited<ReturnType<typeof result.current.uploadMap>> | undefined;
+    act(() => {
+      first = result.current.uploadMap({ release: "r1", minifiedFile: "app.js", file });
+      void result.current.uploadMap({ release: "r1", minifiedFile: "app.js", file }).then((value) => { second = value; });
+    });
+    await waitFor(() => expect(second).toEqual({ ok: false, reason: "busy" }));
+    expect(client.uploadSourceMap).toHaveBeenCalledTimes(1);
+    finish?.([artifact()]);
+    await act(async () => { await first!; });
+  });
+
+  it("ignores a mutation completion from a previous project scope", async () => {
+    let finish: ((value: SourceMapArtifact[]) => void) | undefined;
+    const pending = new Promise<SourceMapArtifact[]>((resolve) => { finish = resolve; });
+    const client = makeClient({ uploadSourceMap: vi.fn().mockReturnValue(pending) });
+    const file = new File(["{}"], "app.min.js.map");
+    const { result, rerender } = renderHook(
+      ({ projectId }) => useArtifacts({ client, projectId, environmentId: "e" }),
+      { initialProps: { projectId: "p" } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let uploadResult: Awaited<ReturnType<typeof result.current.uploadMap>> | undefined;
+    act(() => {
+      void result.current.uploadMap({ release: "r1", minifiedFile: "app.js", file }).then((value) => { uploadResult = value; });
+    });
+    rerender({ projectId: "p2" });
+    finish?.([artifact()]);
+
+    await waitFor(() => expect(uploadResult).toEqual({ ok: false, reason: "stale" }));
+  });
+
+  it.each([
+    [400, "invalid_source_map_request", "invalid", "Check the release"],
+    [401, "unauthorized", "unauthorized", "sign in again"],
+    [413, "invalid_source_map_request", "too_large", "50 MB"],
+    [501, "source_maps_repository_unavailable", "unavailable", "not enabled"],
+  ] as const)("preserves and maps ApiError %s/%s", async (status, code, kind, message) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client = makeClient({ uploadSourceMap: vi.fn().mockRejectedValue(new ApiError(status, code)) });
+    const file = new File(["{}"], "app.min.js.map");
+    const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let uploadResult: Awaited<ReturnType<typeof result.current.uploadMap>> | undefined;
+    await act(async () => {
+      uploadResult = await result.current.uploadMap({ release: "r1", minifiedFile: "app.js", file });
+    });
+
+    expect(uploadResult).toMatchObject({
+      ok: false,
+      reason: "error",
+      error: { kind, status, code, message: expect.stringMatching(new RegExp(message, "i")) },
+    });
+    if (status === 501) expect(result.current.canUploadMap).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it("maps browser network failures without losing the actionable state", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client = makeClient({ uploadSourceMapBundle: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")) });
+    const bundle = new File(["zip"], "maps.zip");
+    const { result } = renderHook(() => useArtifacts({ client, projectId: "p", environmentId: "e" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let uploadResult: Awaited<ReturnType<typeof result.current.uploadBundle>> | undefined;
+    await act(async () => { uploadResult = await result.current.uploadBundle({ release: "r1", bundle }); });
+
+    expect(uploadResult).toMatchObject({ ok: false, reason: "error", error: { kind: "network", status: null, code: null } });
+    consoleError.mockRestore();
   });
 });

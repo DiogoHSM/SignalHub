@@ -11,6 +11,9 @@ SignalMonitor includes an admin-only Integration Console.
 - Project Workspace destinations are `Operations`, `Analyze`, `Traces`, `Errors`, `Experiments`, and `Configure`.
 - `Operations` is the default project dashboard and should summarize active incidents, monitors, alert state, error rate, p95/p99 latency, ingestion freshness, current release/deploy, and recommended drilldowns.
 - `Analyze` owns event, tenant, user, funnel, retention, cohort, dashboard, and export workflows.
+- `Analyze > Trends` is the default analytics workspace. It combines a saved-insight library, explicit event/metric/window/filter builder, live preview, and project-scoped indexed-property management. Operators can create, rename, duplicate, archive, and reuse an insight without writing SQL.
+- Indexed properties expose their lifecycle and failures in context. Only ready indexes appear in breakdown selectors; failed entries explain that submitting the same property retries index creation, and removal requires confirmation.
+- `Analyze > Dashboards` composes saved insights into ordered half/full-width widgets. Dashboard reports preserve successful widgets when another widget fails, display the failure in place, and keep legacy overview widgets readable during migration.
 - `Traces` owns route grouping, p50/p95/p99, trace waterfall, span attributes, related errors/events, and release comparison.
 - `Errors` owns issue inbox, error groups, raw occurrences, Incident view, source-map state, triage, resolve/ignore, and reopen workflows.
 - `Experiments` is the home for event-based A/B readouts, feature flags, prompt variants, model comparison, and quality/cost/latency analysis.
@@ -220,6 +223,12 @@ SignalMonitor includes an admin-only Integration Console.
 - Data governance retention copy must explain that project/environment windows can shorten installation-level retention; installation-level retention remains the maximum retention boundary.
 - Sensitive property rules use dot paths and explicit actions: `mask` keeps the key with `[REDACTED]`; `block` removes the key before persistence. The UI should keep this distinction visible beside the rule list and add form.
 - Warehouse Sync is a Project Settings section for the selected project/environment. It shows destination health, redacted connection details, selected datasets, batch size, pause/resume, archive, manual run, and recent export runs so operators can verify external analytics exports without leaving the console.
+- Warehouse dataset selection includes user and tenant identity profiles alongside telemetry datasets, with each option named explicitly rather than hidden behind a generic identity toggle.
+- Project Settings includes a project/environment-scoped `Releases & code` section for release identifier, commit, pull request, and deployer metadata. Mutation completion is guarded by the active scope so a slow response cannot update a newly selected project.
+- Fleet environment rows are lazy-loaded when their project is expanded; loading, unavailable, empty, and ready states stay inside the accordion rather than blocking the global operations view.
+- Incident occurrence history is cursor-paginated with a compact load-more action. Reload retries both incident summary and occurrence history, and the selected primary occurrence is not duplicated in the history.
+- Lazy console workspaces show a centered `Loading workspace` state inside the content region while the shell, project context, and navigation remain interactive. A failed workspace chunk shows a concise connection explanation and `Retry loading workspace`; retry must clear the cached rejected import rather than repeat the same promise.
+- Console sections, incident details, and tenant details use canonical shareable URLs that retain project/environment scope. Browser back/forward restores the corresponding workspace, while an internal detail Back action returns to the originating workspace without leaving duplicate history entries.
 - Code Hosting is a Project Settings section for the selected project. It stores tokenless GitHub/GitLab repository references used for issue-draft links and incident external issue linkage. Rows should expose provider, owner/group, repository, repository URL, and a compact disconnect action.
 
 ## Releases UX

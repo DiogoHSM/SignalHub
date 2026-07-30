@@ -308,6 +308,17 @@ export async function upsertReleaseMetadata(
   db: Db,
   input: UpsertReleaseMetadataInput
 ): Promise<ReleaseMetadataRecord> {
+  if (input.integrationId) {
+    const integration = await db
+      .selectFrom("project_code_integrations")
+      .select("id")
+      .where("id", "=", input.integrationId)
+      .where("project_id", "=", input.projectId)
+      .where("revoked_at", "is", null)
+      .executeTakeFirst();
+    if (!integration) throw new Error("code_integration_not_found");
+  }
+
   const row = await db
     .insertInto("release_metadata")
     .values({

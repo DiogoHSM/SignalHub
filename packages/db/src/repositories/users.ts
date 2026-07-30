@@ -31,6 +31,42 @@ export interface UpdateUserInput {
   isAdmin?: boolean;
 }
 
+export type AdminUserInvariantCode =
+  | "cannot_demote_current_admin"
+  | "cannot_archive_current_admin"
+  | "last_active_admin"
+  | "console_users_must_be_admins";
+
+export class AdminUserInvariantError extends Error {
+  readonly code: AdminUserInvariantCode;
+
+  constructor(code: AdminUserInvariantCode) {
+    super(code);
+    this.name = "AdminUserInvariantError";
+    this.code = code;
+  }
+}
+
+export function assertAdminUserMutation(input: {
+  action: "demote" | "archive";
+  actorUserId: string;
+  targetUserId: string;
+  targetIsAdmin: boolean;
+  activeAdminCount: number;
+}): void {
+  if (input.actorUserId === input.targetUserId) {
+    throw new AdminUserInvariantError(
+      input.action === "demote" ? "cannot_demote_current_admin" : "cannot_archive_current_admin"
+    );
+  }
+  if (input.targetIsAdmin && input.activeAdminCount <= 1) {
+    throw new AdminUserInvariantError("last_active_admin");
+  }
+  if (input.action === "demote") {
+    throw new AdminUserInvariantError("console_users_must_be_admins");
+  }
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -156,4 +192,61 @@ export async function archiveUser(db: UserDb, id: string): Promise<void> {
     .where("id", "=", id)
     .where("archived_at", "is", null)
     .execute();
+}
+
+async function lockAdminMutationRows(db: Transaction<Database>, targetUserId: string) {
+  await sql`select pg_advisory_xact_lock(824746109271)`.execute(db);
+  const activeAdmins = await db
+    .selectFrom("users")
+    .select("id")
+    .where("archived_at", "is", null)
+    .where("is_admin", "=", true)
+    .orderBy("id", "asc")
+    .forUpdate()
+    .execute();
+  const target = await db
+    .selectFrom("users")
+    .selectAll()
+    .where("id", "=", targetUserId)
+    .where("archived_at", "is", null)
+    .forUpdate()
+    .executeTakeFirst();
+  return { activeAdminCount: activeAdmins.length, target };
+}
+
+export async function updateUserAsAdmin(
+  db: Db,
+  actorUserId: string,
+  id: string,
+  input: UpdateUserInput
+): Promise<User | undefined> {
+  return db.transaction().execute(async (trx) => {
+    const { activeAdminCount, target } = await lockAdminMutationRows(trx, id);
+    if (!target) return undefined;
+    if (input.isAdmin === false) {
+      assertAdminUserMutation({
+        action: "demote",
+        actorUserId,
+        targetUserId: id,
+        targetIsAdmin: target.is_admin,
+        activeAdminCount
+      });
+    }
+    return updateUser(trx, id, input);
+  });
+}
+
+export async function archiveUserAsAdmin(db: Db, actorUserId: string, id: string): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    const { activeAdminCount, target } = await lockAdminMutationRows(trx, id);
+    if (!target) return;
+    assertAdminUserMutation({
+      action: "archive",
+      actorUserId,
+      targetUserId: id,
+      targetIsAdmin: target.is_admin,
+      activeAdminCount
+    });
+    await archiveUser(trx, id);
+  });
 }

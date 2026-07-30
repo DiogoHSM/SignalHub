@@ -5,7 +5,11 @@ const MEDIUM_TEXT_MAX = 2_000;
 const LONG_TEXT_MAX = 20_000;
 const PROFILE_TOP_FUNCTIONS_MAX = 100;
 const REPLAY_EVENTS_MAX = 300;
-const REPLAY_FORBIDDEN_EVENT_KEYS = new Set(["value", "text", "innerText", "innerHTML", "html", "password"]);
+const REPLAY_PAYLOAD_MAX_BYTES = 64 * 1024;
+const REPLAY_EVENT_DATA_MAX_DEPTH = 5;
+const REPLAY_EVENT_DATA_MAX_KEYS = 64;
+const REPLAY_FORBIDDEN_EVENT_KEYS = new Set(["value", "text", "innertext", "innerhtml", "html", "password"]);
+const UTF8_ENCODER = new TextEncoder();
 
 const shortTextSchema = z.string().min(1).max(SHORT_TEXT_MAX);
 const mediumTextSchema = z.string().min(1).max(MEDIUM_TEXT_MAX);
@@ -24,6 +28,154 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
 );
 
 const jsonObjectSchema = z.record(z.string(), jsonValueSchema).default({});
+
+type JsonObjectBounds = {
+  maxDepth: number;
+  maxKeys: number;
+};
+
+function serializedUtf8ByteLength(value: unknown): number | null {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? null : UTF8_ENCODER.encode(serialized).byteLength;
+  } catch {
+    return null;
+  }
+}
+
+type ReplayDataInspection = {
+  depthExceeded: boolean;
+  keyCount: number;
+  forbiddenPath: Array<string | number> | null;
+  cyclePath: Array<string | number> | null;
+};
+
+function inspectReplayData(value: unknown, bounds: JsonObjectBounds): ReplayDataInspection {
+  const pending: Array<{
+    value: unknown;
+    depth: number;
+    path: Array<string | number>;
+    phase: "enter" | "exit";
+  }> = [
+    { value, depth: 1, path: [], phase: "enter" }
+  ];
+  const active = new WeakSet<object>();
+  const completed = new WeakSet<object>();
+  let depthExceeded = false;
+  let keyCount = 0;
+  let forbiddenPath: Array<string | number> | null = null;
+  let cyclePath: Array<string | number> | null = null;
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || current.value === null || typeof current.value !== "object") continue;
+    const objectValue = current.value as object;
+    if (current.phase === "exit") {
+      active.delete(objectValue);
+      completed.add(objectValue);
+      continue;
+    }
+    if (active.has(objectValue)) {
+      cyclePath ??= current.path;
+      continue;
+    }
+    if (completed.has(objectValue)) continue;
+    if (current.depth > bounds.maxDepth) {
+      depthExceeded = true;
+      continue;
+    }
+
+    active.add(objectValue);
+    pending.push({ ...current, phase: "exit" });
+    if (Array.isArray(current.value)) {
+      for (let index = current.value.length - 1; index >= 0; index -= 1) {
+        pending.push({
+          value: current.value[index],
+          depth: current.depth + 1,
+          path: [...current.path, index],
+          phase: "enter"
+        });
+      }
+      continue;
+    }
+
+    const entries = Object.entries(current.value);
+    keyCount += entries.length;
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [key, nested] = entries[index]!;
+      const path = [...current.path, key];
+      if (!forbiddenPath && REPLAY_FORBIDDEN_EVENT_KEYS.has(key.toLowerCase())) forbiddenPath = path;
+      if (nested !== null && typeof nested === "object") {
+        pending.push({ value: nested, depth: current.depth + 1, path, phase: "enter" });
+      }
+    }
+  }
+
+  return { depthExceeded, keyCount, forbiddenPath, cyclePath };
+}
+
+function preflightReplayPayload(value: unknown, context: z.RefinementCtx): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return true;
+  const events = (value as Record<string, unknown>).events;
+  if (!Array.isArray(events)) return true;
+
+  let safeForRecursiveParsing = true;
+  events.forEach((event, index) => {
+    if (event === null || typeof event !== "object" || Array.isArray(event)) return;
+    const eventRecord = event as Record<string, unknown>;
+    for (const key of Object.keys(eventRecord)) {
+      if (REPLAY_FORBIDDEN_EVENT_KEYS.has(key.toLowerCase())) {
+        safeForRecursiveParsing = false;
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["events", index, key],
+          message: "Replay events must not include raw text, HTML, input values, or passwords"
+        });
+      }
+    }
+
+    const data = eventRecord.data;
+    if (data === null || typeof data !== "object" || Array.isArray(data)) return;
+    const inspection = inspectReplayData(data, {
+      maxDepth: REPLAY_EVENT_DATA_MAX_DEPTH,
+      maxKeys: REPLAY_EVENT_DATA_MAX_KEYS
+    });
+    if (inspection.depthExceeded) {
+      safeForRecursiveParsing = false;
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["events", index, "data"],
+        message: "Replay event data must not exceed 5 container levels"
+      });
+    }
+    if (inspection.keyCount > REPLAY_EVENT_DATA_MAX_KEYS) {
+      safeForRecursiveParsing = false;
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["events", index, "data"],
+        message: "Replay event data must not exceed 64 object keys"
+      });
+    }
+    if (inspection.forbiddenPath) {
+      safeForRecursiveParsing = false;
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["events", index, "data", ...inspection.forbiddenPath],
+        message: "Replay events must not include raw text, HTML, input values, or passwords"
+      });
+    }
+    if (inspection.cyclePath) {
+      safeForRecursiveParsing = false;
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["events", index, "data", ...inspection.cyclePath],
+        message: "Replay event data must not contain cyclic references"
+      });
+    }
+  });
+
+  return safeForRecursiveParsing;
+}
 
 const timestampSchema = z.string().datetime();
 
@@ -112,17 +264,8 @@ export const clickEventPayloadSchema = sharedEnvelopeSchema.extend({
   masked: z.boolean().default(true)
 });
 
-const replayEventDataSchema = jsonObjectSchema.superRefine((value, context) => {
-  for (const key of Object.keys(value)) {
-    if (REPLAY_FORBIDDEN_EVENT_KEYS.has(key)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [key],
-        message: "Replay events must not include raw text, HTML, input values, or passwords"
-      });
-    }
-  }
-});
+const replayEventDataSchema = jsonObjectSchema;
+const replayMessageSchema = z.string().max(MEDIUM_TEXT_MAX).transform(() => "[REDACTED]").optional();
 
 const replayEventSchema = z
   .object({
@@ -130,25 +273,14 @@ const replayEventSchema = z
     type: z.enum(["navigation", "click", "input", "console", "network", "error", "custom"]),
     route: shortTextSchema.optional(),
     selector: shortTextSchema.optional(),
-    message: optionalMediumTextSchema,
+    message: replayMessageSchema,
     x: z.number().min(0).max(1).optional(),
     y: z.number().min(0).max(1).optional(),
     data: replayEventDataSchema
   })
-  .passthrough()
-  .superRefine((value, context) => {
-    for (const key of Object.keys(value)) {
-      if (REPLAY_FORBIDDEN_EVENT_KEYS.has(key)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: [key],
-          message: "Replay events must not include raw text, HTML, input values, or passwords"
-        });
-      }
-    }
-  });
+  .strict();
 
-export const sessionReplayPayloadSchema = sharedEnvelopeSchema.extend({
+const sessionReplayPayloadShapeSchema = sharedEnvelopeSchema.extend({
   replay_id: shortTextSchema,
   started_at: timestampSchema,
   ended_at: timestampSchema.optional(),
@@ -158,6 +290,20 @@ export const sessionReplayPayloadSchema = sharedEnvelopeSchema.extend({
   masked: z.boolean().default(true),
   events: z.array(replayEventSchema).max(REPLAY_EVENTS_MAX).default([])
 });
+
+export const sessionReplayPayloadSchema = z
+  .unknown()
+  .superRefine((value, context) => {
+    if (!preflightReplayPayload(value, context)) return;
+    const byteLength = serializedUtf8ByteLength(value);
+    if (byteLength !== null && byteLength > REPLAY_PAYLOAD_MAX_BYTES) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Session replay payload must not exceed 64 KiB"
+      });
+    }
+  })
+  .pipe(sessionReplayPayloadShapeSchema);
 
 const profileFunctionSchema = z.object({
   function_name: shortTextSchema,

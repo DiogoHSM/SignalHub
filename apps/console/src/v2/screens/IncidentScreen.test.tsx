@@ -17,6 +17,7 @@ const MOCK_VM: IncidentVM = {
   status: "investigating",
   priority: "P1",
   groupId: "err_grp_8a2f91d0",
+  primaryOccurrenceId: "err_primary",
   release: "v2026.05.14",
   incidentNumber: "4821",
   openedRelative: "18 min ago",
@@ -172,6 +173,11 @@ function mockUseIncident(
     reassign: vi.fn().mockResolvedValue(undefined),
     silence: vi.fn().mockResolvedValue(undefined),
     addNote: vi.fn().mockResolvedValue(undefined),
+    occurrences: [],
+    occurrencesStatus: "ready",
+    occurrencesCursor: undefined,
+    loadMoreOccurrences: vi.fn().mockResolvedValue(undefined),
+    retryOccurrences: vi.fn(),
     users: [
       { id: "usr_1", email: "ana@acme.dev", isAdmin: false },
       { id: "usr_2", email: "marco@acme.dev", isAdmin: false },
@@ -191,6 +197,47 @@ afterEach(() => {
 });
 
 describe("IncidentScreen", () => {
+  it("shows paginated occurrence history without repeating the primary error", async () => {
+    const loadMoreOccurrences = vi.fn().mockResolvedValue(undefined);
+    mockUseIncident(MOCK_VM, {
+      occurrences: [
+        {
+          id: "err_secondary",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          tenantId: "tenant_1",
+          userId: "user_1",
+          sessionId: null,
+          traceId: null,
+          timestamp: "2026-06-01T11:50:00.000Z",
+          receivedAt: "2026-06-01T11:50:01.000Z",
+          source: "browser",
+          release: "v2026.05.14",
+          metadata: {},
+          message: "PaymentTimeoutError: provider timeout after 12000ms",
+          type: "PaymentTimeoutError",
+          severity: "error",
+          stack: null,
+          status: "open",
+          fingerprint: null,
+          errorGroupId: MOCK_VM.groupId,
+          groupingFingerprint: "fp_1",
+          context: {}
+        }
+      ],
+      occurrencesStatus: "ready",
+      occurrencesCursor: "page_2",
+      loadMoreOccurrences
+    });
+
+    render(<IncidentScreen ctx={makeMockCtx()} groupId={MOCK_VM.groupId} errorId={undefined} />);
+    expect(screen.getByText("Occurrence history")).toBeInTheDocument();
+    expect(screen.getByText("err_secondary")).toBeInTheDocument();
+    expect(screen.queryByText("err_primary")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more occurrences" }));
+    await waitFor(() => expect(loadMoreOccurrences).toHaveBeenCalled());
+  });
+
   describe("loading state", () => {
     it("shows loading hint while data is loading", () => {
       mockUseIncident(null, { status: "loading" });
@@ -200,6 +247,21 @@ describe("IncidentScreen", () => {
   });
 
   describe("error state", () => {
+    it("offers a local retry when initial occurrence history loading fails", () => {
+      const retryOccurrences = vi.fn();
+      mockUseIncident(MOCK_VM, {
+        status: "ready",
+        occurrences: [],
+        occurrencesStatus: "error",
+        retryOccurrences,
+      });
+
+      render(<IncidentScreen ctx={makeMockCtx()} groupId={MOCK_VM.groupId} errorId={undefined} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Retry occurrence history" }));
+      expect(retryOccurrences).toHaveBeenCalledOnce();
+    });
+
     it("shows 'Couldn't load this incident' on error", () => {
       mockUseIncident(null, { status: "error", data: null });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);

@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { EmptyHint, Icon, PageHead, SecretField, Segmented, StatusDot } from "../../components/ui/v2";
+import { ConfirmButton, EmptyHint, Icon, PageHead, SecretField, Segmented, StatusDot } from "../../components/ui/v2";
 import type { CodeIntegration, CodeIntegrationProvider } from "../../api/types";
 import type { ScreenCtx } from "./registry";
 import { useSetup } from "./useSetup";
 import { ArtifactsSection } from "./ArtifactsSection";
 import { FeedbackSection } from "./FeedbackSection";
+import { ProjectSettingsSection } from "./settings/ProjectSettingsSection";
 
 const SNIPPET_TABS = ["Browser", "Node", "Python", "HTTP"] as const;
 type SnippetTab = (typeof SNIPPET_TABS)[number];
@@ -186,6 +187,8 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
   const [renameValue, setRenameValue] = useState("");
   const [creatingEnv, setCreatingEnv] = useState(false);
   const [newEnvName, setNewEnvName] = useState("");
+  const [renamingEnvId, setRenamingEnvId] = useState<string | null>(null);
+  const [renameEnvValue, setRenameEnvValue] = useState("");
 
   if (setup.status === "loading" && !setup.data) {
     return (
@@ -229,6 +232,12 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
     await setup.createEnvironment(name);
     setNewEnvName("");
     setCreatingEnv(false);
+  }
+  async function submitEnvRename(id: string) {
+    const name = renameEnvValue.trim();
+    if (!name) { setRenamingEnvId(null); return; }
+    await setup.renameEnvironment(id, name);
+    setRenamingEnvId(null);
   }
 
   const keyValue = setup.latestSecret;
@@ -284,7 +293,7 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
                   {p.isActive ? <span className="sh-tag ok">selected</span> : <span />}
                   <div style={{ display: "flex", gap: 4 }}>
                     <button className="sh-iconbtn-sm" type="button" title="Rename" aria-label={`Rename ${p.name}`} onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }}><Icon name="edit" size={12} /></button>
-                    <button className="sh-iconbtn-sm" type="button" title="Archive" aria-label={`Archive ${p.name}`} onClick={() => void setup.archiveProject(p.id)}><Icon name="archive" size={12} /></button>
+                    <ConfirmButton label="" confirmLabel="Confirm" ariaLabel={`Archive ${p.name}`} confirmAriaLabel={`Confirm archive ${p.name}`} icon="archive" kind="ghost sh-iconbtn-sm" onConfirm={() => void setup.archiveProject(p.id)} />
                   </div>
                 </div>
               ))}
@@ -307,9 +316,27 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
                 </div>
               ) : null}
               {vm.environments.map((e) => (
-                <div key={e.id} className={`sh-row ${e.isActive ? "is-active" : ""}`} style={{ gridTemplateColumns: "1fr auto" }}>
-                  <div><strong style={{ fontSize: 12.5 }}>{e.name}</strong><div className="sh-faint" style={{ fontSize: 11 }}>{e.detail}</div></div>
+                <div key={e.id} className={`sh-row ${e.isActive ? "is-active" : ""}`} style={{ gridTemplateColumns: "1fr auto auto" }}>
+                  {renamingEnvId === e.id ? (
+                    <input
+                      autoFocus
+                      className="sh-input"
+                      aria-label="Rename environment"
+                      value={renameEnvValue}
+                      onChange={(event) => setRenameEnvValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void submitEnvRename(e.id);
+                        if (event.key === "Escape") setRenamingEnvId(null);
+                      }}
+                    />
+                  ) : (
+                    <div><strong style={{ fontSize: 12.5 }}>{e.name}</strong><div className="sh-faint" style={{ fontSize: 11 }}>{e.detail}</div></div>
+                  )}
                   <StatusDot status={e.status} size={7} />
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button className="sh-iconbtn-sm" type="button" title="Rename" aria-label={`Rename ${e.name}`} onClick={() => { setRenamingEnvId(e.id); setRenameEnvValue(e.name); }}><Icon name="edit" size={12} /></button>
+                    <ConfirmButton label="" confirmLabel="Confirm" ariaLabel={`Archive ${e.name}`} confirmAriaLabel={`Confirm archive ${e.name}`} icon="archive" kind="ghost sh-iconbtn-sm" onConfirm={() => void setup.archiveEnvironment(e.id)} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -372,6 +399,7 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
       </div>
 
+      <ProjectSettingsSection ctx={ctx} />
       <ArtifactsSection ctx={ctx} />
       <FeedbackSection ctx={ctx} />
     </>

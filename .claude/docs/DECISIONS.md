@@ -66,6 +66,12 @@ Rationale: Public npm gives programmers and code agents the lowest-friction inst
 
 Publishing uses npm Trusted Publishing through GitHub Actions OIDC instead of a long-lived `NPM_TOKEN`. This keeps release automation tied to repository workflow identity and avoids storing a broad npm publish secret in GitHub.
 
+## 2026-07-30: Use promoted properties and hybrid rollups for saved trends
+
+Decision: Saved event trends are persisted as bounded definitions, not SQL. Property breakdowns require a project/environment-scoped promoted-property record and expression index. Count trends may combine completed hourly rollups with a raw recent tail, while filtered queries and exact unique actors retain a raw-data correctness path. Dashboard widgets reference insight ids and resolve them inside the dashboard scope.
+
+Rationale: Arbitrary JSON-property breakdowns over the full event table make dashboard latency and storage cost unpredictable. Explicit promotion makes the performance decision visible and reversible while preserving safe ad-hoc property filters. The hybrid policy keeps recent and late-arriving data correct without giving up the lower-cost historical count path. Referencing an insight avoids silently diverging copies of the same product metric across dashboards.
+
 ## 2026-05-24: Deploy only application services from GitHub Actions (superseded 2026-07-26)
 
 Superseded by "Move hosting to Coolify with manual-only CI and manual deploys" (2026-07-26). Kept for historical context.

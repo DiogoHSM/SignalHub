@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ConfirmButton, EmptyHint, Icon, SecretField } from "../../components/ui/v2";
 import type { ScreenCtx } from "./registry";
-import { useArtifacts, type ArtifactRowVM, type TokenRowVM } from "./useArtifacts";
+import { useArtifacts, validateSourceMapUploadFile, type ArtifactRowVM, type TokenRowVM } from "./useArtifacts";
 
 export function ArtifactsSection({ ctx }: { ctx: ScreenCtx }) {
   const art = useArtifacts({
@@ -15,6 +15,29 @@ export function ArtifactsSection({ ctx }: { ctx: ScreenCtx }) {
   const [newTokenName, setNewTokenName] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [mapRelease, setMapRelease] = useState("");
+  const [minifiedFile, setMinifiedFile] = useState("");
+  const [mapFile, setMapFile] = useState<File | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [bundleRelease, setBundleRelease] = useState("");
+  const [bundleFile, setBundleFile] = useState<File | null>(null);
+  const [bundleError, setBundleError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<"map" | "bundle" | null>(null);
+  const mapFileRef = useRef<HTMLInputElement | null>(null);
+  const bundleFileRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setMapRelease("");
+    setMinifiedFile("");
+    setMapFile(null);
+    setMapError(null);
+    setBundleRelease("");
+    setBundleFile(null);
+    setBundleError(null);
+    setUploading(null);
+    if (mapFileRef.current) mapFileRef.current.value = "";
+    if (bundleFileRef.current) bundleFileRef.current.value = "";
+  }, [ctx.project?.id, ctx.environment?.id]);
 
   if (art.status === "unavailable") {
     return (
@@ -55,9 +78,125 @@ export function ArtifactsSection({ ctx }: { ctx: ScreenCtx }) {
     if (!ok) ctx.pushToast("Could not revoke upload token");
   }
 
+  async function submitMap(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const release = mapRelease.trim();
+    const minified = minifiedFile.trim();
+    if (!release || !minified || !mapFile) {
+      setMapError("Release, minified file path, and source map file are required.");
+      return;
+    }
+    const validationError = validateSourceMapUploadFile(mapFile, "map");
+    if (validationError) {
+      setMapError(validationError);
+      return;
+    }
+    setMapError(null);
+    setUploading("map");
+    const result = await art.uploadMap({ release, minifiedFile: minified, file: mapFile });
+    if (!result.ok) {
+      if (result.reason !== "error") return;
+      setUploading(null);
+      setMapError(result.error.message);
+      return;
+    }
+    setUploading(null);
+    setMapRelease("");
+    setMinifiedFile("");
+    setMapFile(null);
+    if (mapFileRef.current) mapFileRef.current.value = "";
+    ctx.pushToast("Source map uploaded");
+  }
+
+  async function submitBundle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const release = bundleRelease.trim();
+    if (!release || !bundleFile) {
+      setBundleError("Release and source map bundle are required.");
+      return;
+    }
+    const validationError = validateSourceMapUploadFile(bundleFile, "bundle");
+    if (validationError) {
+      setBundleError(validationError);
+      return;
+    }
+    setBundleError(null);
+    setUploading("bundle");
+    const result = await art.uploadBundle({ release, bundle: bundleFile });
+    if (!result.ok) {
+      if (result.reason !== "error") return;
+      setUploading(null);
+      setBundleError(
+        result.error.kind === "unknown"
+          ? "Could not upload source map bundle. Check the ZIP file and try again."
+          : result.error.message,
+      );
+      return;
+    }
+    setUploading(null);
+    setBundleRelease("");
+    setBundleFile(null);
+    if (bundleFileRef.current) bundleFileRef.current.value = "";
+    ctx.pushToast("Source map bundle uploaded");
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div className="sh-eyebrow">Source maps &amp; CI upload tokens</div>
+
+      <section className="sh-card" aria-labelledby="manual-source-map-upload-title">
+        <div className="sh-card__head">
+          <div>
+            <h2 className="sh-h2" id="manual-source-map-upload-title">Manual upload</h2>
+            <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>Upload one map for a known asset, or a ZIP bundle produced by your build.</div>
+          </div>
+        </div>
+        <div className="sh-card__body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: 20 }}>
+          <form aria-label="Upload source map" noValidate onSubmit={(event) => void submitMap(event)} style={{ display: "grid", gap: 10, alignContent: "start" }}>
+            <div>
+              <strong style={{ fontSize: 12.5 }}>Single source map</strong>
+              <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>Use the exact release and minified asset path emitted by telemetry.</div>
+            </div>
+            <label style={{ display: "grid", gap: 5, fontSize: 11.5 }}>
+              <span>Release</span>
+              <input className="sh-input" value={mapRelease} onChange={(event) => setMapRelease(event.target.value)} placeholder="2026.07.29 or commit SHA" />
+            </label>
+            <label style={{ display: "grid", gap: 5, fontSize: 11.5 }}>
+              <span>Minified file path</span>
+              <input className="sh-input" value={minifiedFile} onChange={(event) => setMinifiedFile(event.target.value)} placeholder="assets/app.min.js" />
+            </label>
+            <label style={{ display: "grid", gap: 5, fontSize: 11.5 }}>
+              <span>Source map file</span>
+              <input ref={mapFileRef} className="sh-input" type="file" accept=".map,application/json" onChange={(event) => { setMapFile(event.target.files?.[0] ?? null); setMapError(null); }} />
+            </label>
+            {mapError ? <div className="sh-stripe bad" role="alert" style={{ padding: 10 }}>{mapError}</div> : null}
+            <button className="sh-btn primary" type="submit" disabled={art.busy || !art.canUploadMap}>
+              {uploading === "map" ? "Uploading map…" : "Upload map"}
+            </button>
+            {!art.canUploadMap ? <div className="sh-faint" style={{ fontSize: 11 }}>Single-file upload is unavailable in this deployment.</div> : null}
+          </form>
+
+          <form aria-label="Upload source map bundle" noValidate onSubmit={(event) => void submitBundle(event)} style={{ display: "grid", gap: 10, alignContent: "start" }}>
+            <div>
+              <strong style={{ fontSize: 12.5 }}>ZIP bundle</strong>
+              <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>Best for builds with multiple chunks and maps.</div>
+            </div>
+            <label style={{ display: "grid", gap: 5, fontSize: 11.5 }}>
+              <span>Bundle release</span>
+              <input className="sh-input" value={bundleRelease} onChange={(event) => setBundleRelease(event.target.value)} placeholder="2026.07.29 or commit SHA" />
+            </label>
+            <label style={{ display: "grid", gap: 5, fontSize: 11.5 }}>
+              <span>Source map bundle</span>
+              <input ref={bundleFileRef} className="sh-input" type="file" accept=".zip,application/zip" onChange={(event) => { setBundleFile(event.target.files?.[0] ?? null); setBundleError(null); }} />
+            </label>
+            {bundleError ? <div className="sh-stripe bad" role="alert" style={{ padding: 10 }}>{bundleError}</div> : null}
+            <button className="sh-btn primary" type="submit" disabled={art.busy || !art.canUploadBundle}>
+              {uploading === "bundle" ? "Uploading bundle…" : "Upload bundle"}
+            </button>
+            {!art.canUploadBundle ? <div className="sh-faint" style={{ fontSize: 11 }}>Bundle upload is unavailable in this deployment.</div> : null}
+          </form>
+        </div>
+      </section>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Source-map artifacts */}

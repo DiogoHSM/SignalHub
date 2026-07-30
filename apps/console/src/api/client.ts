@@ -2,8 +2,11 @@ import type {
   AddTriageNoteInput,
   AggregateResponse,
   AnalyticsDashboard,
+  AnalyticsInsight,
   AnalyticsSegment,
   AnalyticsSegmentPreview,
+  AnalyticsTrendQuery,
+  AnalyticsTrendResult,
   ApmEndpointsResponse,
   ApmQuery,
   ApiKey,
@@ -22,6 +25,7 @@ import type {
   ConsoleConfig,
   CreateAlertRuleInput,
   CreateAnalyticsDashboardInput,
+  CreateAnalyticsInsightInput,
   CreateAnalyticsSegmentInput,
   CreateBetaProgramInput,
   CreateExperimentInput,
@@ -34,6 +38,8 @@ import type {
   CreatedApiKey,
   CreatedSourceMapUploadToken,
   CreateNotificationChannelInput,
+  PromoteEventPropertyInput,
+  PromotedEventProperty,
   DashboardReportResponse,
   DataGovernancePolicy,
   DeadLetterJobActionResponse,
@@ -53,6 +59,7 @@ import type {
   FeedbackWidgetSettings,
   ErrorGroupIncident,
   ErrorGroupIncidentQuery,
+  ErrorGroupOccurrencesQuery,
   ErrorGroupQuery,
   ErrorGroupRecord,
   IncidentMttrQuery,
@@ -125,6 +132,7 @@ import type {
   UserListResponse,
   UpdateAlertRuleInput,
   UpdateAnalyticsDashboardInput,
+  UpdateAnalyticsInsightInput,
   UpdateAnalyticsSegmentInput,
   UpdateBetaProgramInput,
   UpdateExperimentInput,
@@ -143,7 +151,9 @@ import type {
   LlmSummary,
   LlmTenantRow,
   LlmPromptRow,
-  LlmCostByModel
+  LlmCostByModel,
+  ReleaseMetadata,
+  UpsertReleaseMetadataInput
 } from "./types";
 
 // Fleet types — matching B1 spec §2 verbatim
@@ -196,6 +206,22 @@ export type FleetData = {
 
 export type FleetResponse = {
   data: FleetData;
+};
+
+export type FleetProjectEnvironment = {
+  name: string;
+  status: "ok" | "warning" | "critical";
+  incidents: number;
+  errorRatePercent: number | null;
+  events: number;
+  note: string | null;
+};
+
+export type FleetProjectEnvironmentsResponse = {
+  data: {
+    projectId: string;
+    envs: FleetProjectEnvironment[];
+  };
 };
 
 export class ApiError extends Error {
@@ -258,6 +284,10 @@ export type ErrorGroupApiClient = {
     id: string,
     query: ErrorGroupIncidentQuery
   ) => Promise<AggregateResponse<ErrorGroupIncident>>;
+  listErrorGroupOccurrences?: (
+    id: string,
+    query: ErrorGroupOccurrencesQuery
+  ) => Promise<QueryListResponse<ErrorRecord>>;
   updateErrorGroupStatus: (id: string, input: UpdateErrorGroupStatusInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
   updateErrorGroupTriage: (id: string, input: UpdateErrorGroupTriageInput) => Promise<AggregateResponse<ErrorGroupRecord>>;
   addTriageNote: (id: string, input: AddTriageNoteInput) => Promise<AggregateResponse<TriageNoteRecord>>;
@@ -358,6 +388,28 @@ export type ApiClient = {
     input: UpdateAnalyticsDashboardInput
   ) => Promise<{ dashboard: AnalyticsDashboard }>;
   archiveAnalyticsDashboard?: (id: string, query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId">) => Promise<void>;
+  listAnalyticsInsights?: (
+    query: Pick<CreateAnalyticsInsightInput, "projectId" | "environmentId">
+  ) => Promise<{ insights: AnalyticsInsight[] }>;
+  createAnalyticsInsight?: (input: CreateAnalyticsInsightInput) => Promise<{ insight: AnalyticsInsight }>;
+  updateAnalyticsInsight?: (
+    id: string,
+    query: Pick<CreateAnalyticsInsightInput, "projectId" | "environmentId">,
+    input: UpdateAnalyticsInsightInput
+  ) => Promise<{ insight: AnalyticsInsight }>;
+  archiveAnalyticsInsight?: (
+    id: string,
+    query: Pick<CreateAnalyticsInsightInput, "projectId" | "environmentId">
+  ) => Promise<void>;
+  listPromotedEventProperties?: (
+    query: Pick<PromoteEventPropertyInput, "projectId" | "environmentId">
+  ) => Promise<{ properties: PromotedEventProperty[] }>;
+  promoteEventProperty?: (input: PromoteEventPropertyInput) => Promise<{ property: PromotedEventProperty }>;
+  archivePromotedEventProperty?: (
+    id: string,
+    query: Pick<PromoteEventPropertyInput, "projectId" | "environmentId">
+  ) => Promise<void>;
+  queryAnalyticsTrend?: (query: AnalyticsTrendQuery) => Promise<AggregateResponse<AnalyticsTrendResult>>;
   getDashboardReport?: (
     id: string,
     query: Pick<CreateAnalyticsDashboardInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
@@ -449,17 +501,8 @@ export type ApiClient = {
   revokeCodeIntegration?: (projectId: string, id: string) => Promise<void>;
   upsertReleaseMetadata?: (
     projectId: string,
-    input: {
-      environmentId: string;
-      release: string;
-      integrationId?: string | null;
-      commitSha?: string | null;
-      commitUrl?: string | null;
-      pullRequestNumber?: number | null;
-      pullRequestUrl?: string | null;
-      deployedBy?: string | null;
-    }
-  ) => Promise<{ metadata: unknown }>;
+    input: UpsertReleaseMetadataInput
+  ) => Promise<{ metadata: ReleaseMetadata }>;
   listEvents: (filters: QueryFilters) => Promise<QueryListResponse<EventRecord>>;
   listErrors: (filters: QueryFilters) => Promise<QueryListResponse<ErrorRecord>>;
   listTraces: (filters: QueryFilters) => Promise<QueryListResponse<TraceRecord>>;
@@ -505,6 +548,10 @@ export type ApiClient = {
   updateUser: (id: string, input: { email?: string; password?: string; isAdmin?: boolean }) => Promise<{ user: User }>;
   archiveUser: (id: string) => Promise<void>;
   fetchFleet: () => Promise<FleetResponse>;
+  fetchFleetProjectEnvironments?: (
+    projectId: string,
+    options?: { window?: "24h" | "7d" | "30d" }
+  ) => Promise<FleetProjectEnvironmentsResponse>;
   getDataGovernancePolicy?: (query: { projectId: string; environmentId: string }) => Promise<{ policy: DataGovernancePolicy }>;
   updateDataGovernancePolicy?: (input: {
     projectId: string;
@@ -708,6 +755,23 @@ function errorGroupIncidentPath(id: string, query: ErrorGroupIncidentQuery): str
   if (query.errorId) params.set("error_id", query.errorId);
 
   return `/query/incidents/error-groups/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function errorGroupOccurrencesPath(id: string, query: ErrorGroupOccurrencesQuery): string {
+  const params = errorGroupScopeParams(query);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor) params.set("cursor", query.cursor);
+  return `/query/error-groups/${encodePathSegment(id)}/errors?${params.toString()}`;
+}
+
+function fleetProjectEnvironmentsPath(
+  projectId: string,
+  options: { window?: "24h" | "7d" | "30d" } = {}
+): string {
+  const params = new URLSearchParams();
+  if (options.window) params.set("window", options.window);
+  const query = params.toString();
+  return `/query/fleet/projects/${encodePathSegment(projectId)}/environments${query ? `?${query}` : ""}`;
 }
 
 function triageNotePath(id: string, scope: Pick<ErrorGroupQuery, "projectId" | "environmentId">): string {
@@ -941,6 +1005,52 @@ function analyticsDashboardScopedPath(id: string, query: Pick<CreateAnalyticsDas
   params.set("environment_id", query.environmentId);
 
   return `/admin/analytics-dashboards/${encodePathSegment(id)}?${params.toString()}`;
+}
+
+function analyticsScopeParams(query: { projectId: string; environmentId: string }): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+  return params;
+}
+
+function analyticsInsightsPath(query: Pick<CreateAnalyticsInsightInput, "projectId" | "environmentId">): string {
+  return `/admin/analytics/insights?${analyticsScopeParams(query).toString()}`;
+}
+
+function analyticsInsightScopedPath(
+  id: string,
+  query: Pick<CreateAnalyticsInsightInput, "projectId" | "environmentId">
+): string {
+  return `/admin/analytics/insights/${encodePathSegment(id)}?${analyticsScopeParams(query).toString()}`;
+}
+
+function promotedEventPropertiesPath(
+  query: Pick<PromoteEventPropertyInput, "projectId" | "environmentId">
+): string {
+  return `/admin/analytics/promoted-properties?${analyticsScopeParams(query).toString()}`;
+}
+
+function promotedEventPropertyScopedPath(
+  id: string,
+  query: Pick<PromoteEventPropertyInput, "projectId" | "environmentId">
+): string {
+  return `/admin/analytics/promoted-properties/${encodePathSegment(id)}?${analyticsScopeParams(query).toString()}`;
+}
+
+function analyticsTrendPath(query: AnalyticsTrendQuery): string {
+  const params = analyticsScopeParams(query);
+  params.set("from", query.from instanceof Date ? query.from.toISOString() : query.from);
+  params.set("to", query.to instanceof Date ? query.to.toISOString() : query.to);
+  if (query.insightId) params.set("insight_id", query.insightId);
+  if (query.bucket) params.set("bucket", query.bucket);
+  if (query.metric) params.set("metric", query.metric);
+  if (query.eventName) params.set("event_name", query.eventName);
+  if (query.breakdownProperty) params.set("breakdown_property", query.breakdownProperty);
+  if (query.filters && query.filters.length > 0) {
+    params.set("filters", JSON.stringify(query.filters));
+  }
+  return `/query/analytics/trends?${params.toString()}`;
 }
 
 function dashboardReportPath(
@@ -1393,6 +1503,31 @@ export function createApiClient(
       }),
     archiveAnalyticsDashboard: (id, query) =>
       request<void>(path(apiBasePath, analyticsDashboardScopedPath(id, query)), { method: "DELETE" }),
+    listAnalyticsInsights: (query) =>
+      request<{ insights: AnalyticsInsight[] }>(path(apiBasePath, analyticsInsightsPath(query))),
+    createAnalyticsInsight: (input) =>
+      request<{ insight: AnalyticsInsight }>(path(apiBasePath, "/admin/analytics/insights"), {
+        method: "POST",
+        body: input
+      }),
+    updateAnalyticsInsight: (id, query, input) =>
+      request<{ insight: AnalyticsInsight }>(path(apiBasePath, analyticsInsightScopedPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    archiveAnalyticsInsight: (id, query) =>
+      request<void>(path(apiBasePath, analyticsInsightScopedPath(id, query)), { method: "DELETE" }),
+    listPromotedEventProperties: (query) =>
+      request<{ properties: PromotedEventProperty[] }>(path(apiBasePath, promotedEventPropertiesPath(query))),
+    promoteEventProperty: (input) =>
+      request<{ property: PromotedEventProperty }>(path(apiBasePath, "/admin/analytics/promoted-properties"), {
+        method: "POST",
+        body: input
+      }),
+    archivePromotedEventProperty: (id, query) =>
+      request<void>(path(apiBasePath, promotedEventPropertyScopedPath(id, query)), { method: "DELETE" }),
+    queryAnalyticsTrend: (query) =>
+      request<AggregateResponse<AnalyticsTrendResult>>(path(apiBasePath, analyticsTrendPath(query))),
     getDashboardReport: (id, query) =>
       request<AggregateResponse<DashboardReportResponse>>(path(apiBasePath, dashboardReportPath(id, query))),
     listExperiments: (query) =>
@@ -1524,7 +1659,7 @@ export function createApiClient(
         { method: "DELETE" }
       ),
     upsertReleaseMetadata: (projectId, input) =>
-      request<{ metadata: unknown }>(
+      request<{ metadata: ReleaseMetadata }>(
         path(apiBasePath, `/admin/projects/${encodePathSegment(projectId)}/release-metadata`),
         { method: "POST", body: input }
       ),
@@ -1537,6 +1672,8 @@ export function createApiClient(
       request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupPath(id, query))),
     getErrorGroupIncident: (id, query) =>
       request<AggregateResponse<ErrorGroupIncident>>(path(apiBasePath, errorGroupIncidentPath(id, query))),
+    listErrorGroupOccurrences: (id, query) =>
+      request<QueryListResponse<ErrorRecord>>(path(apiBasePath, errorGroupOccurrencesPath(id, query))),
     updateErrorGroupStatus: (id, input) =>
       request<AggregateResponse<ErrorGroupRecord>>(path(apiBasePath, errorGroupPath(id, input)), {
         method: "PATCH",
@@ -1624,7 +1761,9 @@ export function createApiClient(
         path(apiBasePath, queryPath("/query/aggregates/llm", filters, { includeLlmFilters: true, includeLimit: false }))
       ),
     getEventAggregates: (filters) =>
-      request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/events", filters))),
+      request<AggregateResponse<unknown>>(
+        path(apiBasePath, queryPath("/query/aggregates/events", filters, { includeEventName: true }))
+      ),
     getErrorAggregates: (filters) =>
       request<AggregateResponse<unknown>>(path(apiBasePath, queryPath("/query/aggregates/errors", filters))),
     getSessionTimeline: (sessionId, query) =>
@@ -1795,6 +1934,10 @@ export function createApiClient(
       ),
     listAlertSuggestions: (query) =>
       request<{ suggestions: AlertSuggestionResponse[] }>(path(apiBasePath, alertSuggestionsPath(query))),
-    fetchFleet: () => request<FleetResponse>(path(apiBasePath, "/query/fleet"))
+    fetchFleet: () => request<FleetResponse>(path(apiBasePath, "/query/fleet")),
+    fetchFleetProjectEnvironments: (projectId, options) =>
+      request<FleetProjectEnvironmentsResponse>(
+        path(apiBasePath, fleetProjectEnvironmentsPath(projectId, options))
+      )
   };
 }

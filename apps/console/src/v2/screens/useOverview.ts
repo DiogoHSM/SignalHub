@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
-import type { OperationsResponse, OverviewWindow, ReleaseSummary } from "../../api/types";
+import type {
+  OperationsAnomaly,
+  OperationsPrediction,
+  OperationsResponse,
+  OverviewWindow,
+  ReleaseSummary
+} from "../../api/types";
 
 // ---------------------------------------------------------------------------
 // OverviewVM — the view-model the Overview screen consumes
@@ -59,8 +65,81 @@ export type ActivityItemVM = {
   tenantId?: string | null;
 };
 
+export type OperationsDestination =
+  | "alerts"
+  | "events"
+  | "incident"
+  | "incidents"
+  | "investigate"
+  | "llm"
+  | "monitors"
+  | "overview"
+  | "settings"
+  | "traces";
+
+export type RecommendedActionVM = {
+  key: string;
+  title: string;
+  description: string;
+  action: string;
+  tone: "neutral" | "warning" | "critical";
+  destination: OperationsDestination;
+  groupId?: string;
+  errorId?: string;
+};
+
+export type PredictionVM = {
+  id: string;
+  label: string;
+  severity: OperationsPrediction["severity"];
+  score: number;
+  confidence: OperationsPrediction["confidence"];
+  probabilityPercent: number;
+  baselineRiskScore: number;
+  delta: number;
+  sampleSize: number;
+  baselineSampleSize: number;
+  method: string;
+  destination: OperationsDestination;
+  factors: OperationsPrediction["factors"];
+};
+
+export type AnomalyVM = {
+  id: string;
+  label: string;
+  severity: OperationsAnomaly["severity"];
+  observedValue: number;
+  baselineValue: number;
+  changePercent: number | null;
+  sampleSize: number;
+  baselineSampleSize: number;
+  threshold: string;
+  reason: string;
+  suggestedAlertRuleType: OperationsAnomaly["suggestedAlertRuleType"];
+  destination: OperationsDestination;
+};
+
+export type OperationsVM = {
+  posture: {
+    status: OperationsResponse["status"];
+    monitors: { total: number; up: number; down: number; degraded: number; paused: number; unknown: number };
+    alerts: { enabledRules: number; events: number; critical: number; deliveryFailed: number };
+    setupGaps: Array<{
+      key: string;
+      label: string;
+      severity: "info" | "warning";
+      destination: OperationsDestination;
+    }>;
+  };
+  recommendedActions: RecommendedActionVM[];
+  predictions: PredictionVM[];
+  anomalies: AnomalyVM[];
+  topLatency: OperationsResponse["topLatency"];
+};
+
 export type OverviewVM = {
   banner: BannerVM;
+  operations: OperationsVM;
   kpis: KpisVM;
   topTenants: TenantVM[];
   llmByModel: LlmByModelVM[];
@@ -111,6 +190,224 @@ function buildBanner(ops: OperationsResponse | null): BannerVM {
     top: topIncident
       ? { message: topIncident.message, severity: topIncident.severity, groupId: topIncident.id, errorId: topIncident.latestErrorId }
       : null
+  };
+}
+
+function predictionSeverityRank(severity: OperationsPrediction["severity"]): number {
+  if (severity === "critical") return 4;
+  if (severity === "high") return 3;
+  if (severity === "medium") return 2;
+  return 1;
+}
+
+function predictionDestination(
+  drilldown: OperationsPrediction["suggestedDrilldown"]
+): OperationsDestination {
+  return drilldown === "errors" ? "investigate" : drilldown === "operations" ? "overview" : drilldown;
+}
+
+function anomalyDestination(drilldown: OperationsAnomaly["drilldown"]): OperationsDestination {
+  return drilldown === "errors" ? "investigate" : drilldown;
+}
+
+function setupDestination(action: OperationsResponse["setupGaps"][number]["action"]): OperationsDestination {
+  if (action === "setup") return "settings";
+  return action;
+}
+
+function actionLabel(destination: OperationsDestination): string {
+  if (destination === "investigate" || destination === "incidents" || destination === "incident") return "Open incident";
+  if (destination === "overview") return "Review operations";
+  return `Open ${destination}`;
+}
+
+function buildRecommendedActions(data: OperationsResponse): RecommendedActionVM[] {
+  const actions: RecommendedActionVM[] = [];
+  const predictions = [...(data.predictions ?? [])].sort((left, right) => {
+    const severity = predictionSeverityRank(right.severity) - predictionSeverityRank(left.severity);
+    return severity || right.score - left.score;
+  });
+  const topPrediction = predictions[0];
+  const topAnomaly = data.anomalies[0];
+  const activeIncidents = data.summary.incidents.open + data.summary.incidents.investigating;
+  const downMonitors = data.summary.monitors.http.down + data.summary.monitors.heartbeat.down;
+  const degradedMonitors = data.summary.monitors.http.degraded + data.summary.monitors.heartbeat.degraded;
+  const monitorGaps = data.setupGaps.filter((gap) => gap.action === "monitors").length;
+  const slowestTrace = data.topLatency[0];
+
+  if (topPrediction && (topPrediction.severity === "high" || topPrediction.severity === "critical")) {
+    const destination = predictionDestination(topPrediction.suggestedDrilldown);
+    actions.push({
+      key: `prediction-${topPrediction.id}`,
+      title: topPrediction.severity === "critical" ? "Act on critical predicted risk" : "Review high predicted risk",
+      description: `${topPrediction.label}: ${Math.round(topPrediction.probabilityPercent)}% probability with ${topPrediction.confidence} confidence.`,
+      action: actionLabel(destination),
+      tone: topPrediction.severity === "critical" ? "critical" : "warning",
+      destination
+    });
+  }
+
+  if (topAnomaly) {
+    const destination = topAnomaly.suggestedAlertRuleType ? "alerts" : anomalyDestination(topAnomaly.drilldown);
+    actions.push({
+      key: `anomaly-${topAnomaly.id}`,
+      title: topAnomaly.severity === "critical" ? "Respond to critical anomaly" : "Review detected anomaly",
+      description: `${topAnomaly.label}: ${topAnomaly.reason}`,
+      action: topAnomaly.suggestedAlertRuleType ? "Review alert rule" : actionLabel(destination),
+      tone: topAnomaly.severity === "critical" ? "critical" : topAnomaly.severity === "warning" ? "warning" : "neutral",
+      destination
+    });
+  }
+
+  if (activeIncidents > 0) {
+    const incident = data.recent.incidents[0];
+    actions.push({
+      key: "incidents",
+      title: "Investigate active incidents",
+      description: `${activeIncidents} active incidents, including ${data.summary.incidents.high} high priority.`,
+      action: incident ? "Open incident" : "Open incidents",
+      tone: data.summary.incidents.urgent > 0 ? "critical" : "warning",
+      destination: incident ? "incident" : "incidents",
+      groupId: incident?.id,
+      errorId: incident?.latestErrorId ?? undefined
+    });
+  }
+
+  if (downMonitors > 0 || degradedMonitors > 0 || monitorGaps > 0) {
+    actions.push({
+      key: "monitors",
+      title: downMonitors > 0 ? "Recover down monitors" : "Fix monitor coverage gaps",
+      description: downMonitors > 0
+        ? `${downMonitors} monitors are down and ${degradedMonitors} are degraded.`
+        : `${monitorGaps} monitor setup gaps are still open.`,
+      action: "Open monitors",
+      tone: downMonitors > 0 ? "critical" : "warning",
+      destination: "monitors"
+    });
+  }
+
+  if (data.summary.alerts.events.critical > 0 || data.summary.alerts.events.deliveryFailed > 0) {
+    actions.push({
+      key: "alerts",
+      title: data.summary.alerts.events.critical > 0 ? "Review critical alert firings" : "Review failed alert deliveries",
+      description: `${data.summary.alerts.events.critical} critical alerts and ${data.summary.alerts.events.deliveryFailed} failed deliveries in this window.`,
+      action: "Open alerts",
+      tone: data.summary.alerts.events.critical > 0 ? "critical" : "warning",
+      destination: "alerts"
+    });
+  }
+
+  if (slowestTrace && slowestTrace.p95TraceDurationMs >= 500) {
+    actions.push({
+      key: "latency",
+      title: "Inspect slow traces",
+      description: `p95 latency is ${slowestTrace.p95TraceDurationMs} ms across ${slowestTrace.traces} traces.`,
+      action: "Open traces",
+      tone: slowestTrace.failedTraces > 0 ? "warning" : "neutral",
+      destination: "traces"
+    });
+  }
+
+  if (data.summary.telemetry.errorRatePercent !== null && data.summary.telemetry.errorRatePercent >= 5) {
+    actions.push({
+      key: "error-rate",
+      title: "Check error-rate outlier",
+      description: `Error rate is ${data.summary.telemetry.errorRatePercent.toFixed(1)}% for this window.`,
+      action: "Open errors",
+      tone: data.summary.telemetry.errorRatePercent >= 10 ? "critical" : "warning",
+      destination: "investigate"
+    });
+  }
+
+  const toneRank: Record<RecommendedActionVM["tone"], number> = {
+    critical: 3,
+    warning: 2,
+    neutral: 1
+  };
+  return actions.sort((left, right) => toneRank[right.tone] - toneRank[left.tone]).slice(0, 4);
+}
+
+function buildOperations(ops: OperationsResponse | null): OperationsVM {
+  if (!ops) {
+    return {
+      posture: {
+        status: "healthy",
+        monitors: { total: 0, up: 0, down: 0, degraded: 0, paused: 0, unknown: 0 },
+        alerts: { enabledRules: 0, events: 0, critical: 0, deliveryFailed: 0 },
+        setupGaps: []
+      },
+      recommendedActions: [],
+      predictions: [],
+      anomalies: [],
+      topLatency: []
+    };
+  }
+
+  const monitorStatus = [ops.summary.monitors.http, ops.summary.monitors.heartbeat];
+  const predictions = [...(ops.predictions ?? [])]
+    .sort((left, right) => {
+      const severity = predictionSeverityRank(right.severity) - predictionSeverityRank(left.severity);
+      return severity || right.score - left.score;
+    })
+    .map((prediction): PredictionVM => ({
+      id: prediction.id,
+      label: prediction.label,
+      severity: prediction.severity,
+      score: prediction.score,
+      confidence: prediction.confidence,
+      probabilityPercent: prediction.probabilityPercent,
+      baselineRiskScore: prediction.validation.baselineRiskScore,
+      delta: prediction.validation.delta,
+      sampleSize: prediction.validation.sampleSize,
+      baselineSampleSize: prediction.validation.baselineSampleSize,
+      method: prediction.validation.method,
+      destination: predictionDestination(prediction.suggestedDrilldown),
+      factors: [...prediction.factors].sort((left, right) => right.weight - left.weight).slice(0, 3)
+    }));
+
+  return {
+    posture: {
+      status: ops.status,
+      monitors: {
+        total: ops.summary.monitors.total,
+        up: monitorStatus.reduce((sum, counts) => sum + counts.up, 0),
+        down: monitorStatus.reduce((sum, counts) => sum + counts.down, 0),
+        degraded: monitorStatus.reduce((sum, counts) => sum + counts.degraded, 0),
+        paused: monitorStatus.reduce((sum, counts) => sum + counts.paused, 0),
+        unknown: monitorStatus.reduce((sum, counts) => sum + counts.unknown, 0)
+      },
+      alerts: {
+        enabledRules: ops.summary.alerts.rules.enabled,
+        events: ops.summary.alerts.events.total,
+        critical: ops.summary.alerts.events.critical,
+        deliveryFailed: ops.summary.alerts.events.deliveryFailed
+      },
+      setupGaps: ops.setupGaps
+        .filter((gap) => gap.key !== "recent_telemetry")
+        .map((gap) => ({
+          key: gap.key,
+          label: gap.label,
+          severity: gap.severity,
+          destination: setupDestination(gap.action)
+        }))
+    },
+    recommendedActions: buildRecommendedActions(ops),
+    predictions,
+    anomalies: ops.anomalies.map((anomaly) => ({
+      id: anomaly.id,
+      label: anomaly.label,
+      severity: anomaly.severity,
+      observedValue: anomaly.observedValue,
+      baselineValue: anomaly.baselineValue,
+      changePercent: anomaly.changePercent,
+      sampleSize: anomaly.sampleSize,
+      baselineSampleSize: anomaly.baselineSampleSize,
+      threshold: anomaly.threshold,
+      reason: anomaly.reason,
+      suggestedAlertRuleType: anomaly.suggestedAlertRuleType,
+      destination: anomalyDestination(anomaly.drilldown)
+    })),
+    topLatency: ops.topLatency
   };
 }
 
@@ -171,6 +468,7 @@ export function useOverview({
 
         // banner
         const banner = buildBanner(ops);
+        const operations = buildOperations(ops);
 
         // kpis
         const { kpis, trends, top } = overview;
@@ -249,6 +547,7 @@ export function useOverview({
 
         setData({
           banner,
+          operations,
           kpis: kpisVM,
           topTenants,
           llmByModel,

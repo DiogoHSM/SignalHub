@@ -190,6 +190,11 @@ export function IncidentScreen({
     addNote,
     users,
     canReassign,
+    occurrences,
+    occurrencesStatus,
+    occurrencesCursor,
+    loadMoreOccurrences,
+    retryOccurrences,
   } = useIncident({
       client: ctx.client,
       projectId,
@@ -742,6 +747,52 @@ export function IncidentScreen({
                 {vm.occurrenceCount} occurrences · first {vm.firstSeenRelative}{" "}
                 · last {vm.lastSeenRelative}
               </span>
+            </div>
+          </div>
+
+          <div className="sh-card">
+            <div className="sh-card__head">
+              <h2 className="sh-h2">Occurrence history</h2>
+              <span className="sh-tag">{occurrences.length} loaded</span>
+            </div>
+            <div className="sh-card__body" style={{ display: "grid", gap: 6 }}>
+              {occurrencesStatus === "loading" && occurrences.length === 0 ? (
+                <span className="sh-muted">Loading occurrences…</span>
+              ) : occurrencesStatus === "error" && occurrences.length === 0 ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span className="sh-muted">Occurrence history is unavailable.</span>
+                  <button className="sh-btn ghost" type="button" onClick={retryOccurrences}>
+                    Retry occurrence history
+                  </button>
+                </div>
+              ) : occurrences.length === 0 ? (
+                <span className="sh-muted">No additional occurrences in this group.</span>
+              ) : occurrences.map((occurrence) => (
+                <div className="sh-row" key={occurrence.id} style={{ gridTemplateColumns: "minmax(0, 1fr) auto" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <strong className="sh-mono" style={{ fontSize: 11.5 }}>{occurrence.id}</strong>
+                    <div className="sh-faint" style={{ fontSize: 10.5 }}>
+                      {occurrence.release ?? "no release"} · {occurrence.userId ?? "anonymous user"} · {occurrence.tenantId ?? "no tenant"}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span className="sh-tag">{occurrence.severity}</span>
+                    <div className="sh-faint" style={{ fontSize: 10.5, marginTop: 3 }}>
+                      {new Date(occurrence.timestamp).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {occurrencesCursor ? (
+                <button
+                  className="sh-btn ghost"
+                  type="button"
+                  disabled={occurrencesStatus === "loading"}
+                  onClick={() => void loadMoreOccurrences()}
+                >
+                  {occurrencesStatus === "loading" ? "Loading…" : "Load more occurrences"}
+                </button>
+              ) : null}
             </div>
           </div>
 

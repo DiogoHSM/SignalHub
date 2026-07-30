@@ -59,6 +59,7 @@ import {
 } from "@sigmon/db/repositories/warehouse-exports.js";
 import {
   getEventRollupWatermark,
+  runEventHourlyRollupBackfill,
   setEventRollupWatermark,
   upsertEventActorDaily,
   withEventRollupLock,
@@ -234,7 +235,16 @@ const stopEventRollups = runsScheduler && config.eventRollups.enabled
           lookbackDays: config.eventRollups.lookbackDays,
           maintenanceWindowDays: 2,
           maxDaysPerTick: 60,
-          withLock: (run) => withEventRollupLock(db, run),
+          withLock: (run) =>
+            withEventRollupLock(db, async () => {
+              const dailyResult = await run();
+              await runEventHourlyRollupBackfill(db, {
+                now: new Date(),
+                lookbackHours: config.eventRollups.lookbackDays * 24,
+                maxBackfillHoursPerScope: 24
+              });
+              return dailyResult;
+            }),
           readWatermark: () => getEventRollupWatermark(db, { rollup: EVENT_ACTOR_DAILY_ROLLUP }),
           writeWatermark: (watermarkAt) =>
             setEventRollupWatermark(db, { rollup: EVENT_ACTOR_DAILY_ROLLUP, watermarkAt }),

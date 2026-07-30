@@ -114,8 +114,17 @@ describe("screen registry", () => {
       expect(SCREENS[s]).toBeDefined();
   });
 
-  it("overview entry has kind === 'v2'", () => {
-    expect(SCREENS.overview.kind).toBe("v2");
+  it("contains only direct v2 renderers without legacy discriminators", () => {
+    for (const entry of Object.values(SCREENS)) {
+      expect(entry).not.toHaveProperty("kind");
+      expect(entry.render).toBeTypeOf("function");
+    }
+  });
+
+  it("shows the shared workspace loading state while a screen group is imported", () => {
+    render(<>{renderSection("overview", makeCtx())}</>);
+
+    expect(screen.getByRole("status", { name: "Loading workspace" })).toBeInTheDocument();
   });
 
   it("renderSection('overview') renders OverviewScreen NOT inside .console-legacy-island", () => {
@@ -135,10 +144,6 @@ describe("screen registry", () => {
     vi.restoreAllMocks();
   });
 
-  it("investigate entry has kind === 'v2'", () => {
-    expect(SCREENS.investigate.kind).toBe("v2");
-  });
-
   it("renderSection('investigate') renders ErrorsScreen NOT inside .console-legacy-island", () => {
     // Stub useErrors so ErrorsScreen renders deterministically without client calls
     vi.spyOn(useErrorsModule, "useErrors").mockReturnValue({
@@ -152,10 +157,6 @@ describe("screen registry", () => {
     // ErrorsScreen shows loading hint text when data is null and status is loading
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     vi.restoreAllMocks();
-  });
-
-  it("incidents entry has kind === 'v2'", () => {
-    expect(SCREENS.incidents.kind).toBe("v2");
   });
 
   it("renderSection('incidents') renders IncidentsScreen NOT inside .console-legacy-island", () => {
@@ -173,10 +174,6 @@ describe("screen registry", () => {
     vi.restoreAllMocks();
   });
 
-  it("llm entry has kind === 'v2'", () => {
-    expect(SCREENS.llm.kind).toBe("v2");
-  });
-
   it("renderSection('llm') renders LlmScreen NOT inside .console-legacy-island", () => {
     vi.spyOn(useLlmModule, "useLlm").mockReturnValue({
       data: null,
@@ -188,10 +185,6 @@ describe("screen registry", () => {
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     vi.restoreAllMocks();
-  });
-
-  it("routes traces to a v2 screen", () => {
-    expect(SCREENS.traces.kind).toBe("v2");
   });
 
   it("renders the v2 Traces screen (not wrapped in the legacy island)", () => {
@@ -212,10 +205,6 @@ describe("screen registry", () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
-  it("routes entities to a v2 screen", () => {
-    expect(SCREENS.entities.kind).toBe("v2");
-  });
-
   it("renders the v2 Tenants (entities) screen (not wrapped in the legacy island)", () => {
     vi.spyOn(useTenantsModule, "useTenants").mockReturnValue({
       data: null,
@@ -230,10 +219,6 @@ describe("screen registry", () => {
     expect(container.querySelector(".console-legacy-island")).toBeNull();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
     vi.restoreAllMocks();
-  });
-
-  it("routes events to a v2 screen", () => {
-    expect(SCREENS.events.kind).toBe("v2");
   });
 
   it("renders the v2 Events screen (not wrapped in the legacy island)", () => {
@@ -254,10 +239,6 @@ describe("screen registry", () => {
     vi.restoreAllMocks();
   });
 
-  it("routes users to a v2 screen", () => {
-    expect(SCREENS.users.kind).toBe("v2");
-  });
-
   it("renders the v2 Users screen (not wrapped in the legacy island)", () => {
     vi.spyOn(useUsersModule, "useUsers").mockReturnValue({
       data: null,
@@ -273,11 +254,7 @@ describe("screen registry", () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
-  it("routes analytics to a v2 screen", () => {
-    expect(SCREENS.analytics.kind).toBe("v2");
-  });
-
-  it("renders the v2 Analytics screen (not wrapped in the legacy island)", () => {
+  it("renders the v2 Analytics screen (not wrapped in the legacy island)", async () => {
     vi.spyOn(useAnalyticsPanelsModule, "useAnalyticsPanels").mockReturnValue({
       funnel: { state: "idle", data: null, run: vi.fn() },
       retention: { state: "idle", data: null, run: vi.fn() },
@@ -297,12 +274,8 @@ describe("screen registry", () => {
     const node = renderSection("analytics", ctx);
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
-    expect(screen.getByRole("heading", { name: /analytics/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /analytics/i })).toBeInTheDocument();
     vi.restoreAllMocks();
-  });
-
-  it("routes alerts to a v2 screen", () => {
-    expect(SCREENS.alerts.kind).toBe("v2");
   });
 
   it("renders the v2 Alerts screen (not wrapped in the legacy island)", () => {
@@ -327,20 +300,12 @@ describe("screen registry", () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
-  it("routes monitors to a v2 screen", () => {
-    expect(SCREENS.monitors.kind).toBe("v2");
-  });
-
   it("renders the v2 Monitors screen (not wrapped in the legacy island)", () => {
     const { container } = render(<>{renderSection("monitors", makeCtx())}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
   });
 
-  it("routes experiments to a v2 screen", () => {
-    expect(SCREENS.experiments.kind).toBe("v2");
-  });
-
-  it("renders the v2 Experiments screen (not wrapped in the legacy island)", () => {
+  it("renders the v2 Experiments screen (not wrapped in the legacy island)", async () => {
     vi.spyOn(useAbTestsModule, "useAbTests").mockReturnValue({
       data: null,
       status: "loading",
@@ -365,12 +330,8 @@ describe("screen registry", () => {
     const node = renderSection("experiments", ctx);
     const { container } = render(<>{node}</>);
     expect(container.querySelector(".console-legacy-island")).toBeNull();
-    expect(screen.getByText(/loading a\/b tests/i)).toBeInTheDocument();
+    expect(await screen.findByText(/loading a\/b tests/i)).toBeInTheDocument();
     vi.restoreAllMocks();
-  });
-
-  it("routes system to a v2 screen", () => {
-    expect(SCREENS.system.kind).toBe("v2");
   });
 
   it("renders the v2 System screen (not wrapped in the legacy island)", () => {
@@ -389,10 +350,6 @@ describe("screen registry", () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
-  it("routes settings to a v2 screen", () => {
-    expect(SCREENS.settings.kind).toBe("v2");
-  });
-
   it("renders the v2 Setup screen (not wrapped in the legacy island)", () => {
     vi.spyOn(useSetupModule, "useSetup").mockReturnValue({
       data: null,
@@ -404,6 +361,8 @@ describe("screen registry", () => {
       renameProject: vi.fn(),
       archiveProject: vi.fn(),
       createEnvironment: vi.fn(),
+      renameEnvironment: vi.fn(),
+      archiveEnvironment: vi.fn(),
       generateApiKey: vi.fn(),
     });
     const ctx = makeCtx();

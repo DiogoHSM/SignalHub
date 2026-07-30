@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./api/client";
 import { App } from "./App";
-import { resolveV2ShellFlag } from "./v2/flag";
 
 const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() => {
   const bootstrapClient = {
@@ -132,10 +131,6 @@ const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() =>
   return { bootstrapClient, operationalClient, createApiClient };
 });
 
-vi.mock("./v2/flag", () => ({
-  resolveV2ShellFlag: vi.fn(() => false)
-}));
-
 vi.mock("./api/client", () => ({
   ApiError: class ApiError extends Error {
     readonly status: number;
@@ -150,47 +145,47 @@ vi.mock("./api/client", () => ({
   createApiClient
 }));
 
+afterEach(() => {
+  cleanup();
+  window.history.replaceState({}, "", "/");
+  vi.clearAllMocks();
+});
+
 describe("App", () => {
   it("renders the authenticated console workspace", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Current project" })).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Operations" }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Current project" })).toHaveValue("prj_1"));
-    expect(await screen.findByText("Environment: Production")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Operations" })).toBeInTheDocument();
+    expect((await screen.findAllByRole("button", { name: /Acme App/ }))[0]).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Production" })).toBeInTheDocument();
     expect(createApiClient).toHaveBeenNthCalledWith(1);
     expect(createApiClient).toHaveBeenNthCalledWith(2, "/api");
     expect(operationalClient.getMe).toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+    await userEvent.click(screen.getByText("Search events, errors, tenants, traces…"));
     const commandPalette = screen.getByRole("dialog", { name: "Command palette" });
-    await userEvent.type(within(commandPalette).getByRole("textbox", { name: "Search commands" }), "onboarding");
-    await userEvent.click(within(commandPalette).getByRole("button", { name: "Open Onboarding" }));
-    expect(screen.getAllByText(/https:\/\/sigmon.example.com/)).toHaveLength(4);
+    await userEvent.type(within(commandPalette).getByRole("textbox", { name: "Search commands" }), "settings");
+    await userEvent.click(within(commandPalette).getByRole("button", { name: "Open Settings" }));
+    expect(await screen.findByRole("heading", { name: "Setup" })).toBeInTheDocument();
+    await waitFor(() => expect(document.body).toHaveTextContent('endpoint: "https://sigmon.example.com"'));
   });
 
-  describe("v2 shell flag", () => {
-    const mockResolveV2ShellFlag = vi.mocked(resolveV2ShellFlag);
-
-    afterEach(() => {
-      mockResolveV2ShellFlag.mockReturnValue(false);
-      cleanup();
-    });
-
-    it("renders ConsoleShellV2 when flag is on", async () => {
-      mockResolveV2ShellFlag.mockReturnValue(true);
+  describe("v2-only shell", () => {
+    it("renders ConsoleShellV2 even when the removed v2 flag is disabled", async () => {
+      window.history.replaceState({}, "", "/?v2=0");
       render(<App />);
       await waitFor(() => expect(document.querySelector(".sh-v2")).toBeInTheDocument());
       expect(document.querySelector(".sh-v2")).toBeInTheDocument();
     });
 
-    it("renders legacy ConsoleShell when flag is off", async () => {
-      mockResolveV2ShellFlag.mockReturnValue(false);
+    it("wires AuthGate sign-out into the v2 account menu", async () => {
+      operationalClient.logout.mockResolvedValue({ ok: true });
       render(<App />);
-      expect(await screen.findByRole("heading", { name: "Executive risk dashboard" })).toBeInTheDocument();
-      expect(document.querySelector(".sh-v2")).not.toBeInTheDocument();
+
+      await userEvent.click(await screen.findByRole("button", { name: "Open account menu" }));
+      await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+      await waitFor(() => expect(operationalClient.logout).toHaveBeenCalledTimes(1));
     });
   });
 });

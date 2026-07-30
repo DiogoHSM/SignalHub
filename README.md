@@ -60,9 +60,11 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `GOOGLE_OAUTH_ENABLED` | No | Enables Google OAuth when set to `true` and all Google settings are present. |
 | `GOOGLE_CLIENT_ID` | If OAuth enabled | Google OAuth client ID. |
 | `GOOGLE_CLIENT_SECRET` | If OAuth enabled | Google OAuth client secret. |
-| `GOOGLE_REDIRECT_URI` | If OAuth enabled | OAuth callback URL, usually `http://localhost:3000/auth/google/callback` locally. |
+| `GOOGLE_REDIRECT_URI` | If OAuth enabled | Exact API callback URL: `http://localhost:3000/auth/google/callback` locally or `https://my.sigmon.app/auth/google/callback` for the hosted production instance. |
 
 Google OAuth is optional. It is not open signup: Google sign-in only succeeds for an existing, unarchived local user with a verified Google email. On first successful Google login, SignalMonitor links that user's Google subject to the local account.
+
+To enable it, create a Google Cloud OAuth 2.0 **Web application** client and register the exact authorized redirect URI for each deployment. Configure `GOOGLE_OAUTH_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` on the **API service only**; the worker and scheduler do not own OAuth callbacks. The production redirect must match `https://my.sigmon.app/auth/google/callback` exactly, including scheme and path.
 
 Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operator notes. The committed `.claude/docs/SECRETS.md` contains sanitized variable names and safe examples only.
 

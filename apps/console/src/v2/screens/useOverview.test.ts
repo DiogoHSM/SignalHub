@@ -204,9 +204,73 @@ const OPERATIONS: OperationsResponse = {
       }
     ]
   },
-  topLatency: [],
-  anomalies: [],
-  setupGaps: []
+  topLatency: [
+    { name: "POST /checkout", p95TraceDurationMs: 860, traces: 44, failedTraces: 3 }
+  ],
+  anomalies: [
+    {
+      id: "anomaly_latency",
+      type: "trace_p95_latency",
+      label: "Checkout latency increased",
+      severity: "critical",
+      observedValue: 860,
+      baselineValue: 420,
+      changePercent: 104.76,
+      sampleSize: 44,
+      baselineSampleSize: 39,
+      threshold: "p95 is at least 50% above baseline",
+      reason: "Checkout p95 more than doubled against the previous window.",
+      suggestedAlertRuleType: "trace_p95_latency",
+      routePattern: "POST /checkout",
+      drilldown: "traces"
+    }
+  ],
+  predictions: [
+    {
+      id: "prediction_checkout",
+      type: "operational_risk",
+      label: "Checkout reliability risk",
+      horizon: "next_window",
+      severity: "critical",
+      score: 0.91,
+      confidence: "high",
+      probabilityPercent: 88,
+      validation: {
+        baselineWindow: { from: "2026-06-20T00:00:00Z", to: "2026-06-21T00:00:00Z" },
+        currentWindow: { from: "2026-06-21T00:00:00Z", to: "2026-06-22T00:00:00Z" },
+        baselineRiskScore: 0.31,
+        delta: 0.6,
+        sampleSize: 44,
+        baselineSampleSize: 39,
+        method: "weighted operational signals"
+      },
+      factors: [
+        {
+          key: "latency",
+          label: "Trace latency",
+          impact: "negative",
+          weight: 0.7,
+          observedValue: 860,
+          baselineValue: 420,
+          reason: "Latency is materially above baseline."
+        },
+        {
+          key: "monitor",
+          label: "Monitor health",
+          impact: "negative",
+          weight: 0.3,
+          observedValue: 1,
+          baselineValue: 0,
+          reason: "One endpoint monitor is down."
+        }
+      ],
+      suggestedDrilldown: "traces"
+    }
+  ],
+  setupGaps: [
+    { key: "heartbeat_monitor", label: "No heartbeat monitor", severity: "warning", action: "monitors" },
+    { key: "notification_channel", label: "No notification channel", severity: "warning", action: "alerts" }
+  ]
 };
 
 const TENANTS: TenantListResponse = {
@@ -385,6 +449,216 @@ describe("useOverview", () => {
     expect(banner.incidents).toBe(0);
     expect(banner.alerts).toBe(0);
     expect(banner.top).toBeNull();
+  });
+
+  it("maps operations posture for monitors, alerts, and setup", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.operations.posture).toEqual({
+      status: "degraded",
+      monitors: { total: 3, up: 2, down: 1, degraded: 0, paused: 0, unknown: 0 },
+      alerts: { enabledRules: 5, events: 2, critical: 1, deliveryFailed: 0 },
+      setupGaps: [
+        { key: "heartbeat_monitor", label: "No heartbeat monitor", severity: "warning", destination: "monitors" },
+        { key: "notification_channel", label: "No notification channel", severity: "warning", destination: "alerts" }
+      ]
+    });
+  });
+
+  it("prioritizes at most four recommended operational actions", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const actions = result.current.data!.operations.recommendedActions;
+    expect(actions).toHaveLength(4);
+    expect(actions.map((action) => action.key)).toEqual([
+      "prediction-prediction_checkout",
+      "anomaly-anomaly_latency",
+      "incidents",
+      "monitors"
+    ]);
+    expect(actions[0]).toMatchObject({ destination: "traces", tone: "critical" });
+    expect(actions[1]).toMatchObject({ destination: "alerts", action: "Review alert rule" });
+    expect(actions[2]).toMatchObject({ destination: "incident", groupId: "inc_1", errorId: "err_1" });
+  });
+
+  it("globally sorts recommended actions by severity before truncating", async () => {
+    const operations: OperationsResponse = {
+      ...OPERATIONS,
+      predictions: [{ ...OPERATIONS.predictions![0], severity: "high" }],
+      anomalies: [{ ...OPERATIONS.anomalies[0], severity: "info", suggestedAlertRuleType: null }],
+      summary: {
+        ...OPERATIONS.summary,
+        alerts: {
+          ...OPERATIONS.summary.alerts,
+          events: { ...OPERATIONS.summary.alerts.events, critical: 1 }
+        },
+        telemetry: { ...OPERATIONS.summary.telemetry, errorRatePercent: 0 }
+      }
+    };
+    const client = makeClient(OVERVIEW, operations);
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.operations.recommendedActions.map((action) => action.key)).toEqual([
+      "incidents",
+      "monitors",
+      "alerts",
+      "prediction-prediction_checkout"
+    ]);
+    expect(result.current.data!.operations.recommendedActions.map((action) => action.tone)).toEqual([
+      "critical",
+      "critical",
+      "critical",
+      "warning"
+    ]);
+  });
+
+  it("does not reuse predictive risk severity as error telemetry severity", async () => {
+    const operations: OperationsResponse = {
+      ...OPERATIONS,
+      predictions: [{ ...OPERATIONS.predictions![0], severity: "high", suggestedDrilldown: "errors" }],
+      anomalies: [],
+      setupGaps: [],
+      topLatency: [],
+      summary: {
+        ...OPERATIONS.summary,
+        monitors: {
+          total: 1,
+          http: { total: 1, up: 1, degraded: 0, down: 0, paused: 0, unknown: 0 },
+          heartbeat: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 }
+        },
+        alerts: {
+          rules: { total: 1, enabled: 1 },
+          events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 }
+        },
+        incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 },
+        telemetry: { ...OPERATIONS.summary.telemetry, errorRatePercent: 0 }
+      },
+      recent: { ...OPERATIONS.recent, incidents: [] }
+    };
+    const client = makeClient(OVERVIEW, operations);
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const predictionAction = result.current.data!.operations.recommendedActions.find((action) =>
+      action.key.startsWith("prediction-")
+    );
+    expect(predictionAction).toMatchObject({ destination: "investigate" });
+    expect(predictionAction).not.toHaveProperty("severity");
+  });
+
+  it("exposes paused and unknown monitors and omits recent telemetry setup actions", async () => {
+    const operations: OperationsResponse = {
+      ...OPERATIONS,
+      summary: {
+        ...OPERATIONS.summary,
+        monitors: {
+          total: 6,
+          http: { total: 4, up: 1, degraded: 0, down: 0, paused: 1, unknown: 2 },
+          heartbeat: { total: 2, up: 1, degraded: 0, down: 0, paused: 0, unknown: 1 }
+        }
+      },
+      setupGaps: [
+        { key: "recent_telemetry", label: "No recent telemetry", severity: "warning", action: "overview" },
+        { key: "alert_rule", label: "No alert rule", severity: "warning", action: "alerts" }
+      ]
+    };
+    const client = makeClient(OVERVIEW, operations);
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.operations.posture.monitors).toEqual({
+      total: 6,
+      up: 2,
+      down: 0,
+      degraded: 0,
+      paused: 1,
+      unknown: 3
+    });
+    expect(result.current.data!.operations.posture.setupGaps).toEqual([
+      { key: "alert_rule", label: "No alert rule", severity: "warning", destination: "alerts" }
+    ]);
+  });
+
+  it("uses generic latency action copy when route context cannot be retained", async () => {
+    const operations: OperationsResponse = {
+      ...OPERATIONS,
+      predictions: [],
+      anomalies: [],
+      setupGaps: [],
+      summary: {
+        ...OPERATIONS.summary,
+        monitors: {
+          total: 1,
+          http: { total: 1, up: 1, degraded: 0, down: 0, paused: 0, unknown: 0 },
+          heartbeat: { total: 0, up: 0, degraded: 0, down: 0, paused: 0, unknown: 0 }
+        },
+        alerts: {
+          rules: { total: 1, enabled: 1 },
+          events: { total: 0, critical: 0, warning: 0, deliveryFailed: 0, deliveryPending: 0 }
+        },
+        incidents: { open: 0, investigating: 0, urgent: 0, high: 0, regressed: 0 },
+        telemetry: { ...OPERATIONS.summary.telemetry, errorRatePercent: 0 }
+      },
+      recent: { ...OPERATIONS.recent, incidents: [] }
+    };
+    const client = makeClient(OVERVIEW, operations);
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.data!.operations.recommendedActions).toEqual([
+      expect.objectContaining({ key: "latency", description: "p95 latency is 860 ms across 44 traces." })
+    ]);
+    expect(result.current.data!.operations.recommendedActions[0].description).not.toContain("POST /checkout");
+  });
+
+  it("maps explainable predictive risk, anomalies, and top latency", async () => {
+    const client = makeClient();
+    const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
+
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    const operations = result.current.data!.operations;
+    expect(operations.predictions[0]).toMatchObject({
+      label: "Checkout reliability risk",
+      severity: "critical",
+      score: 0.91,
+      probabilityPercent: 88,
+      confidence: "high",
+      baselineRiskScore: 0.31,
+      sampleSize: 44,
+      baselineSampleSize: 39,
+      destination: "traces"
+    });
+    expect(operations.predictions[0].factors[0]).toMatchObject({
+      label: "Trace latency",
+      weight: 0.7,
+      reason: "Latency is materially above baseline."
+    });
+    expect(operations.anomalies[0]).toMatchObject({
+      label: "Checkout latency increased",
+      observedValue: 860,
+      baselineValue: 420,
+      changePercent: 104.76,
+      threshold: "p95 is at least 50% above baseline",
+      destination: "traces"
+    });
+    expect(operations.topLatency[0]).toEqual({
+      name: "POST /checkout",
+      p95TraceDurationMs: 860,
+      traces: 44,
+      failedTraces: 3
+    });
   });
 
   it("computes errorRate correctly when traces > 0", async () => {

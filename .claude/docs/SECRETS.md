@@ -38,7 +38,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `GOOGLE_OAUTH_ENABLED` | No | `false` | Enables Google OAuth when set to `true` and all Google settings are present. |
 | `GOOGLE_CLIENT_ID` | If OAuth enabled | `example-client-id.apps.googleusercontent.com` | Google OAuth client ID. |
 | `GOOGLE_CLIENT_SECRET` | If OAuth enabled | `example-client-secret` | Google OAuth client secret. |
-| `GOOGLE_REDIRECT_URI` | If OAuth enabled | `http://localhost:3000/auth/google/callback` | OAuth callback URL. |
+| `GOOGLE_REDIRECT_URI` | If OAuth enabled | `https://my.sigmon.app/auth/google/callback` | Exact Google OAuth callback URL. Configure all four `GOOGLE_*` variables on the API service only; use `http://localhost:3000/auth/google/callback` for local development. |
 | `RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled telemetry deletion in the worker. |
 | `RETENTION_INTERVAL_MINUTES` | No | `60` | Non-secret operational config. Minutes between scheduled retention runs. |
 | `RETENTION_BATCH_SIZE` | No | `1000` | Non-secret operational config. Maximum rows deleted per telemetry table per delete batch. |
@@ -56,8 +56,8 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `ALERTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled alert evaluation in the worker. |
 | `ALERTS_INTERVAL_MINUTES` | No | `1` | Non-secret operational config. Minutes between scheduled alert evaluation runs. |
 | `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |
-| `WAREHOUSE_EXPORTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled warehouse exports in the scheduler worker. |
-| `WAREHOUSE_EXPORTS_INTERVAL_MINUTES` | No | `15` | Non-secret operational config. Minutes between scheduled warehouse export passes. |
+| `WAREHOUSE_EXPORTS_ENABLED` | No | `true` | Non-secret scheduler config. Enables scheduled warehouse exports; set it on the scheduler service in split deployments. |
+| `WAREHOUSE_EXPORTS_INTERVAL_MINUTES` | No | `15` | Non-secret scheduler config. Minutes between scheduled warehouse export passes; set it on the scheduler service in split deployments. |
 | `BACKUPS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled Postgres logical backups in the worker. |
 | `BACKUPS_INTERVAL_HOURS` | No | `24` | Non-secret operational config. Hours between scheduled backup runs. |
 | `BACKUPS_LOCAL_DIR` | No | `/var/lib/sigmon/backups` | Non-secret operational config. Local directory for backup dump files. |

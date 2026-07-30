@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { buildMonitorsVM, buildCheckVMs, monitorStatusToV2, useMonitors } from "./useMonitors";
 import type { ApiClient } from "../../api/client";
@@ -136,5 +136,32 @@ describe("useMonitors hook", () => {
     );
     await waitFor(() => expect(result.current.status).toBe("unavailable"));
     expect(result.current.data).toBeNull();
+  });
+
+  it("does not expose a heartbeat secret after the scope changes", async () => {
+    let finish!: (value: { monitor: MonitorResponse; secret: string }) => void;
+    const pending = new Promise<{ monitor: MonitorResponse; secret: string }>((resolve) => { finish = resolve; });
+    const client = {
+      listMonitors: vi.fn().mockResolvedValue({ monitors: [] }),
+      listNotificationChannels: vi.fn().mockResolvedValue({ channels: [] }),
+      createHeartbeatMonitor: vi.fn().mockReturnValue(pending),
+    } as unknown as ApiClient;
+    const { result, rerender } = renderHook(
+      ({ projectId }) => useMonitors({ client, projectId, environmentId: "e", endpoint: "https://sigmon.example.com" }),
+      { initialProps: { projectId: "p" } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    let creation!: Promise<boolean>;
+    act(() => {
+      creation = result.current.createHeartbeatMonitor({
+        name: "Worker", expectedIntervalMinutes: 5, graceMinutes: 2, notificationChannelId: "",
+      });
+    });
+    rerender({ projectId: "p2" });
+    finish({ monitor: heartbeatMonitor({ projectId: "p", name: "Worker" }), secret: "must_not_leak" });
+    await act(async () => { await creation; });
+
+    expect(result.current.latestSecret).toBeNull();
   });
 });

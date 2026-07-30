@@ -132,14 +132,18 @@ import {
   updateMonitor
 } from "../src/repositories/monitors.js";
 import {
+  AdminUserInvariantError,
+  assertAdminUserMutation,
   archiveUser,
+  archiveUserAsAdmin,
   createUser,
   findUserByEmail,
   findUserByGoogleSubject,
   findUserById,
   linkGoogleSubject,
   listUsers,
-  updateUser
+  updateUser,
+  updateUserAsAdmin
 } from "../src/repositories/users.js";
 import {
   insertBreadcrumb,
@@ -959,7 +963,7 @@ describe("repositories", () => {
       expect(outOfOrderUser.traits).toEqual({ name: "Ana Historical", role: "admin", token: "[REDACTED]" });
       expect(outOfOrderUser.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
       expect(outOfOrderUser.last_seen_at).toEqual(new Date("2026-05-25T10:10:00.000Z"));
-      expect(outOfOrderUser.updated_at).toEqual(new Date("2026-05-25T09:55:00.000Z"));
+      expect(outOfOrderUser.updated_at).toEqual(new Date("2026-05-25T10:10:00.001Z"));
 
       const tenant = await db
         .selectFrom("tenant_profiles")
@@ -1011,7 +1015,7 @@ describe("repositories", () => {
       expect(outOfOrderTenant.traits).toEqual({ plan: "legacy", region: "br" });
       expect(outOfOrderTenant.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
       expect(outOfOrderTenant.last_seen_at).toEqual(new Date("2026-05-25T10:11:00.000Z"));
-      expect(outOfOrderTenant.updated_at).toEqual(new Date("2026-05-25T09:56:00.000Z"));
+      expect(outOfOrderTenant.updated_at).toEqual(new Date("2026-05-25T10:11:00.001Z"));
     });
   });
 
@@ -1067,7 +1071,7 @@ describe("repositories", () => {
       expect(userTouchedWithoutTenant.traits).toEqual({ name: "Ana", token: "[REDACTED]" });
       expect(userTouchedWithoutTenant.first_seen_at).toEqual(new Date("2026-05-25T10:00:00.000Z"));
       expect(userTouchedWithoutTenant.last_seen_at).toEqual(new Date("2026-05-25T10:05:00.000Z"));
-      expect(userTouchedWithoutTenant.updated_at).toEqual(new Date("2026-05-25T10:03:00.000Z"));
+      expect(userTouchedWithoutTenant.updated_at).toEqual(new Date("2026-05-25T10:05:00.001Z"));
 
       await identifyTenantProfile(db, {
         projectId: "prj_identity_touch",
@@ -1112,7 +1116,7 @@ describe("repositories", () => {
       expect(tenantTouchedOlder.traits).toEqual({ plan: "pro" });
       expect(tenantTouchedOlder.first_seen_at).toEqual(new Date("2026-05-25T10:01:00.000Z"));
       expect(tenantTouchedOlder.last_seen_at).toEqual(new Date("2026-05-25T10:06:00.000Z"));
-      expect(tenantTouchedOlder.updated_at).toEqual(new Date("2026-05-25T10:04:00.000Z"));
+      expect(tenantTouchedOlder.updated_at).toEqual(new Date("2026-05-25T10:06:00.001Z"));
     });
   });
 
@@ -6994,6 +6998,69 @@ describe("repositories", () => {
       await expect(listEnvironments(db, project.id)).resolves.toEqual([]);
       await archiveProject(db, project.id);
       await expect(getProject(db, project.id)).resolves.toBeUndefined();
+    });
+  });
+
+  it("enforces console-admin self, last-admin, and admin-only invariants", () => {
+    expect(() => assertAdminUserMutation({
+      action: "demote", actorUserId: "usr_1", targetUserId: "usr_1", targetIsAdmin: true, activeAdminCount: 2
+    })).toThrowError(new AdminUserInvariantError("cannot_demote_current_admin"));
+    expect(() => assertAdminUserMutation({
+      action: "archive", actorUserId: "usr_1", targetUserId: "usr_1", targetIsAdmin: true, activeAdminCount: 2
+    })).toThrowError(new AdminUserInvariantError("cannot_archive_current_admin"));
+    expect(() => assertAdminUserMutation({
+      action: "archive", actorUserId: "usr_1", targetUserId: "usr_2", targetIsAdmin: true, activeAdminCount: 1
+    })).toThrowError(new AdminUserInvariantError("last_active_admin"));
+    expect(() => assertAdminUserMutation({
+      action: "demote", actorUserId: "usr_1", targetUserId: "usr_2", targetIsAdmin: true, activeAdminCount: 2
+    })).toThrowError(new AdminUserInvariantError("console_users_must_be_admins"));
+  });
+
+  it("enforces self-protection inside admin user repository transactions", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "protected-admin@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+
+      await expect(updateUserAsAdmin(db, actor.id, actor.id, { isAdmin: false }))
+        .rejects.toMatchObject({ code: "cannot_demote_current_admin" });
+      await expect(archiveUserAsAdmin(db, actor.id, actor.id))
+        .rejects.toMatchObject({ code: "cannot_archive_current_admin" });
+      await expect(findUserById(db, actor.id)).resolves.toMatchObject({ id: actor.id, isAdmin: true });
+    });
+  });
+
+  it("preserves one active admin under concurrent archive attempts", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await db
+        .updateTable("users")
+        .set({ archived_at: new Date(), updated_at: new Date() })
+        .where("archived_at", "is", null)
+        .execute();
+      const first = await createUser(db, {
+        email: "concurrent-admin-a@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const second = await createUser(db, {
+        email: "concurrent-admin-b@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+
+      const results = await Promise.allSettled([
+        archiveUserAsAdmin(db, first.id, second.id),
+        archiveUserAsAdmin(db, second.id, first.id)
+      ]);
+
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const active = (await listUsers(db)).filter((user) => user.archivedAt == null && user.isAdmin);
+      expect(active).toHaveLength(1);
     });
   });
 

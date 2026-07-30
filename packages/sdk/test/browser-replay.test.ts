@@ -70,4 +70,49 @@ describe("createBrowserReplayRecorder", () => {
     );
     expect(JSON.stringify(replay.mock.calls[0]?.[0])).not.toContain("person@example.com");
   });
+
+  it("caps configured replay buffers at the API limit of 300 events", () => {
+    const replay = vi.fn();
+    const recorder = createBrowserReplayRecorder(
+      { replay },
+      { enabled: true, maxEvents: 500, document: undefined, window: undefined }
+    );
+
+    for (let index = 0; index < 350; index += 1) {
+      recorder.record({ offsetMs: index, type: "custom", data: { index } });
+    }
+    recorder.flush();
+
+    const payload = replay.mock.calls[0]?.[0];
+    expect(payload.events).toHaveLength(300);
+    expect(payload.events[0]?.data).toEqual({ index: 50 });
+    expect(payload.events[299]?.data).toEqual({ index: 349 });
+  });
+
+  it("redacts arbitrary replay messages before handing them to the client", () => {
+    const replay = vi.fn();
+    const recorder = createBrowserReplayRecorder({ replay }, { enabled: true });
+    const messages = [
+      "person@example.com",
+      "Cookie: session=raw-cookie-value",
+      "Authorization: Bearer raw-access-token",
+      "private free-form text"
+    ];
+
+    messages.forEach((message, index) => {
+      recorder.record({ offsetMs: index, type: "console", message });
+    });
+    recorder.flush();
+
+    const serialized = JSON.stringify(replay.mock.calls[0]?.[0]);
+    expect(serialized).not.toContain("person@example.com");
+    expect(serialized).not.toContain("raw-cookie-value");
+    expect(serialized).not.toContain("raw-access-token");
+    expect(serialized).not.toContain("private free-form text");
+    expect(replay.mock.calls[0]?.[0].events.slice(-4)).toEqual(
+      messages.map((_, index) =>
+        expect.objectContaining({ offsetMs: index, type: "console", message: "[REDACTED]" })
+      )
+    );
+  });
 });

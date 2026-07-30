@@ -9,13 +9,17 @@ import { ToastStack } from "./shell/ToastStack";
 import { useConsoleProjects } from "./useConsoleProjects";
 import { useToasts } from "./useToasts";
 import { useFleet } from "./useFleet";
-import { renderSection } from "./screens/registry";
+import { renderIncidentDetail, renderSection, renderTenantDetail } from "./screens/registry";
 import type { ScreenCtx, DrillTarget, DrillParams, FilterableSection, NavPayload, SectionFilters } from "./screens/registry";
-import { IncidentScreen } from "./screens/IncidentScreen";
-import { TenantScreen } from "./screens/TenantScreen";
 import type { NavSection } from "./nav";
 import type { BreadcrumbItem } from "./shell/TopBar";
-import { EmptyHint } from "../components/ui/v2";
+import { EmptyHint, Icon } from "../components/ui/v2";
+import {
+  buildConsoleUrl,
+  detailOwner as defaultDetailOwner,
+  parseConsoleRoute,
+  type ConsoleDetail,
+} from "./console-route";
 
 // ─── persistence ─────────────────────────────────────────────────────────────
 
@@ -29,6 +33,23 @@ type PersistedState = {
   env?: string;
   railCollapsed?: boolean;
 };
+
+type DesiredScope = {
+  projectId?: string;
+  environmentId?: string;
+  environmentName?: string;
+};
+
+type ConsoleHistoryState = {
+  sigmonConsole?: true;
+  detailOwner?: NavSection;
+  detailEntry?: true;
+};
+
+function historyDetailOwner(detail: ConsoleDetail): NavSection {
+  const state = window.history.state as ConsoleHistoryState | null;
+  return state?.sigmonConsole && state.detailOwner ? state.detailOwner : defaultDetailOwner(detail);
+}
 
 function loadState(): PersistedState {
   try {
@@ -50,7 +71,7 @@ function saveState(patch: Partial<PersistedState>) {
 // ─── breadcrumb derivation ───────────────────────────────────────────────────
 
 const NAV_LABELS: Record<NavSection, string> = {
-  overview: "Overview",
+  overview: "Operations",
   investigate: "Investigate",
   incidents: "Incidents",
   llm: "LLM",
@@ -76,23 +97,127 @@ function buildCrumb(nav: NavSection, drillStack: string[]): BreadcrumbItem[] {
 
 export type ConsoleShellV2Props = {
   client: ApiClient;
+  apiEndpoint?: string;
   user: User;
+  onSignOut?: () => Promise<void>;
 };
 
-export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
+function FirstProjectOnboarding({
+  client,
+  onComplete,
+  onError,
+}: {
+  client: ApiClient;
+  onComplete: () => void;
+  onError: (message: string) => void;
+}) {
+  const [projectName, setProjectName] = useState("");
+  const [environmentName, setEnvironmentName] = useState("production");
+  const [busy, setBusy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const submit = useCallback(async () => {
+    const project = projectName.trim();
+    const environment = environmentName.trim();
+    if (!project || !environment || busy) return;
+
+    setBusy(true);
+    setErrorMessage(null);
+    let createdProjectId: string;
+    try {
+      const created = await client.createProject({ name: project });
+      createdProjectId = created.project.id;
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("Could not create the project. Check the name and try again.");
+      setBusy(false);
+      return;
+    }
+
+    try {
+      await client.createEnvironment(createdProjectId, { name: environment });
+    } catch (error) {
+      console.error(error);
+      onError("Project created, but the environment could not be created. Finish setup from the project workspace.");
+    } finally {
+      onComplete();
+      setBusy(false);
+    }
+  }, [busy, client, environmentName, onComplete, onError, projectName]);
+
+  return (
+    <div style={{ minHeight: "100%", display: "grid", placeItems: "center", padding: 24 }}>
+      <div className="sh-card" style={{ width: "min(100%, 560px)" }}>
+        <div className="sh-card__body" style={{ display: "grid", gap: 20, padding: 28 }}>
+          <div style={{ display: "grid", gap: 8 }}>
+            <span style={{ color: "var(--accent)" }}><Icon name="activity" size={24} /></span>
+            <h1 className="sh-h1">Create your first project</h1>
+            <p className="sh-muted" style={{ margin: 0 }}>
+              Projects isolate telemetry and environments keep production, preview, and development signals separate.
+            </p>
+          </div>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span className="sh-label">Project name</span>
+            <input
+              autoFocus
+              className="sh-input"
+              aria-label="Project name"
+              value={projectName}
+              placeholder="Customer portal"
+              onChange={(event) => setProjectName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void submit(); }}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 6 }}>
+            <span className="sh-label">Environment name</span>
+            <input
+              className="sh-input"
+              aria-label="Environment name"
+              value={environmentName}
+              placeholder="production"
+              onChange={(event) => setEnvironmentName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void submit(); }}
+            />
+          </label>
+          <button
+            className="sh-btn primary"
+            type="button"
+            disabled={busy || !projectName.trim() || !environmentName.trim()}
+            onClick={() => void submit()}
+          >
+            {busy ? "Creating…" : "Create project and environment"}
+          </button>
+          {errorMessage ? <p role="alert" className="sh-error" style={{ margin: 0 }}>{errorMessage}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleShellV2Props) {
   // Restore persisted state on mount
   const persisted = useRef(loadState()).current;
+  const initialRoute = useRef(parseConsoleRoute(window.location)).current;
+  const initialNav = initialRoute.valid
+    ? initialRoute.nav
+    : initialRoute.root
+      ? persisted.nav ?? "overview"
+      : "overview";
 
-  const [nav, setNavRaw] = useState<NavSection>(persisted.nav ?? "overview");
+  const [nav, setNavRaw] = useState<NavSection>(initialNav);
   const [railCollapsed, setRailCollapsedRaw] = useState(persisted.railCollapsed ?? false);
   const [drillStack, setDrillStack] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<NavPayload | null>(null);
-  const [detail, setDetail] = useState<
-    | { target: "incident"; groupId: string; errorId?: string }
-    | { target: "tenant"; tenantId: string }
-    | null
-  >(null);
+  const [detail, setDetail] = useState<ConsoleDetail | null>(initialRoute.valid ? initialRoute.detail : null);
+  const [detailReturnNav, setDetailReturnNav] = useState<NavSection>(
+    initialRoute.detail ? historyDetailOwner(initialRoute.detail) : initialNav,
+  );
+  const [desiredScope, setDesiredScope] = useState<DesiredScope>({
+    projectId: initialRoute.projectId ?? persisted.projectId,
+    environmentId: initialRoute.environmentId ?? persisted.environmentId,
+    environmentName: initialRoute.environmentId ? undefined : persisted.env,
+  });
 
   // Page-transition state (remount the page div on nav change)
   const [seq, setSeq] = useState(0);
@@ -112,35 +237,139 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
     activeEnvironment,
     selectProject,
     selectEnvironment,
-    selectEnvironmentByName,
+    selectProjectEnvironmentByName,
+    isLoading: isLoadingProjects,
+    projectError,
+    environmentError,
     reload: reloadProjects,
   } = useConsoleProjects(client);
 
   const fleet = useFleet({
     fetchFleet: client.fetchFleet,
+    fetchProjectEnvironments: client.fetchFleetProjectEnvironments,
     seedProjects: projects,
   });
 
-  // ─── restore persisted project/env after load ─────────────────────────────
+  // ─── restore URL/persisted project and environment after load ─────────────
 
   useEffect(() => {
-    if (!persisted.projectId || projects.length === 0) return;
-    const project = projects.find((p) => p.id === persisted.projectId);
-    if (project) selectProject(project.id);
-    // only run once after initial project load
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.length > 0]);
+    if (!desiredScope.projectId || projects.length === 0) return;
+    const project = projects.find((candidate) => candidate.id === desiredScope.projectId);
+    if (project) {
+      if (activeProject?.id !== project.id) selectProject(project.id);
+      return;
+    }
+    if (!isLoadingProjects) {
+      setDesiredScope((current) => ({
+        ...current,
+        projectId: undefined,
+        environmentId: undefined,
+        environmentName: undefined,
+      }));
+    }
+  }, [activeProject?.id, desiredScope.projectId, isLoadingProjects, projects, selectProject]);
 
   useEffect(() => {
-    if (environments.length === 0) return;
-    const env = persisted.environmentId
-      ? environments.find((e) => e.id === persisted.environmentId)
-      : persisted.env
-        ? environments.find((e) => e.name === persisted.env)
+    if (!activeProject || isLoadingProjects) return;
+    if (desiredScope.projectId && activeProject.id !== desiredScope.projectId) return;
+    const environment = desiredScope.environmentId
+      ? environments.find((candidate) => candidate.id === desiredScope.environmentId)
+      : desiredScope.environmentName
+        ? environments.find((candidate) => candidate.name === desiredScope.environmentName)
         : undefined;
-    if (env) selectEnvironment(env.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [environments.length > 0]);
+    if (environment) {
+      if (activeEnvironment?.id !== environment.id) selectEnvironment(environment.id);
+      return;
+    }
+    if ((desiredScope.environmentId || desiredScope.environmentName) && (activeEnvironment || environments.length > 0)) {
+      setDesiredScope((current) => ({
+        ...current,
+        environmentId: undefined,
+        environmentName: undefined,
+      }));
+    }
+  }, [
+    activeEnvironment?.id,
+    activeProject,
+    desiredScope.environmentId,
+    desiredScope.environmentName,
+    desiredScope.projectId,
+    environments,
+    isLoadingProjects,
+    selectEnvironment,
+  ]);
+
+  const isRestoringScope = Boolean(
+    (desiredScope.projectId && activeProject?.id !== desiredScope.projectId)
+    || (desiredScope.environmentId && activeEnvironment?.id !== desiredScope.environmentId)
+    || (desiredScope.environmentName && activeEnvironment?.name !== desiredScope.environmentName)
+  );
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = parseConsoleRoute(window.location);
+      const nextNav = route.valid
+        ? route.nav
+        : route.root
+          ? loadState().nav ?? "overview"
+          : "overview";
+      setNavRaw(nextNav);
+      setDetail(route.valid ? route.detail : null);
+      setDetailReturnNav(route.detail ? historyDetailOwner(route.detail) : nextNav);
+      setPending(null);
+      setDrillStack([]);
+      setAnim("back");
+      setSeq((current) => current + 1);
+      setDesiredScope({
+        projectId: route.projectId,
+        environmentId: route.environmentId,
+      });
+      saveState({
+        nav: nextNav,
+        ...(route.projectId ? { projectId: route.projectId } : {}),
+        ...(route.environmentId ? { environmentId: route.environmentId } : {}),
+      });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (isLoadingProjects || isRestoringScope) return;
+    const url = buildConsoleUrl(nav, detail, {
+      projectId: activeProject?.id,
+      environmentId: activeEnvironment?.id,
+    });
+    const current = `${window.location.pathname}${window.location.search}`;
+    const state: ConsoleHistoryState = {
+      sigmonConsole: true,
+      ...(detail ? { detailOwner: detailReturnNav } : {}),
+    };
+    if (current !== url || !(window.history.state as ConsoleHistoryState | null)?.sigmonConsole) {
+      window.history.replaceState(state, "", url);
+    }
+  }, [
+    activeEnvironment?.id,
+    activeProject?.id,
+    detail,
+    detailReturnNav,
+    isLoadingProjects,
+    isRestoringScope,
+    nav,
+  ]);
+
+  useEffect(() => {
+    if (isLoadingProjects || isRestoringScope || !activeProject) return;
+    const environmentId = activeEnvironment?.projectId === activeProject.id
+      ? activeEnvironment.id
+      : undefined;
+    saveState({
+      projectId: activeProject.id,
+      environmentId,
+      env: undefined,
+    });
+  }, [activeEnvironment, activeProject, isLoadingProjects, isRestoringScope]);
 
   // ─── document title ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -173,8 +402,16 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
       setAnim("nav");
       setSeq((s) => s + 1);
       saveState({ nav: section });
+      window.history.pushState(
+        { sigmonConsole: true } satisfies ConsoleHistoryState,
+        "",
+        buildConsoleUrl(section, null, {
+          projectId: activeProject?.id,
+          environmentId: activeEnvironment?.id,
+        }),
+      );
     },
-    []
+    [activeEnvironment?.id, activeProject?.id]
   );
 
   const clearPendingFilters = useCallback(() => setPending(null), []);
@@ -190,43 +427,71 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   const handleSelectProject = useCallback(
     (id: string) => {
       setDetail(null);
+      setDesiredScope({ projectId: id });
       selectProject(id);
       saveState({ projectId: id, environmentId: undefined, env: undefined });
+      window.history.replaceState(
+        { sigmonConsole: true } satisfies ConsoleHistoryState,
+        "",
+        buildConsoleUrl(nav, null, { projectId: id }),
+      );
     },
-    [selectProject]
+    [nav, selectProject]
   );
 
   const handleSelectEnv = useCallback(
     (environmentId: string) => {
       setDetail(null);
+      setDesiredScope({ projectId: activeProject?.id, environmentId });
       selectEnvironment(environmentId);
       saveState({ environmentId, env: undefined });
+      window.history.replaceState(
+        { sigmonConsole: true } satisfies ConsoleHistoryState,
+        "",
+        buildConsoleUrl(nav, null, { projectId: activeProject?.id, environmentId }),
+      );
     },
-    [selectEnvironment]
+    [activeProject?.id, nav, selectEnvironment]
   );
 
   const handleToggleExpand = useCallback((id: string) => {
+    const opening = !expandedIds.has(id);
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }, []);
+    if (opening) void fleet.loadProjectEnvironments(id);
+  }, [expandedIds, fleet.loadProjectEnvironments]);
 
   const handleOpenEnv = useCallback(
     (projectId: string, envName: string) => {
-      handleSelectProject(projectId);
-      selectEnvironmentByName(envName);
+      setDetail(null);
+      const knownEnvironment = projectId === activeProject?.id
+        ? environments.find((candidate) => candidate.name === envName)
+        : undefined;
+      setDesiredScope({ projectId, environmentId: knownEnvironment?.id, environmentName: envName });
+      selectProjectEnvironmentByName(projectId, envName);
+      saveState({ projectId, environmentId: undefined, env: envName });
+      window.history.replaceState(
+        { sigmonConsole: true } satisfies ConsoleHistoryState,
+        "",
+        buildConsoleUrl(nav, null, { projectId, environmentId: knownEnvironment?.id }),
+      );
       if (railCollapsed) toggleRail();
     },
-    [handleSelectProject, railCollapsed, selectEnvironmentByName, toggleRail]
+    [activeProject?.id, environments, nav, railCollapsed, selectProjectEnvironmentByName, toggleRail]
   );
 
   const handleRefresh = useCallback(() => {
-    // Bump seq to remount the current page section
+    void fleet.refreshFleet();
+    for (const projectId of expandedIds) {
+      void fleet.refreshProjectEnvironments(projectId);
+    }
+    // Bump seq to remount the current page section.
     setSeq((s) => s + 1);
-  }, []);
+  }, [expandedIds, fleet.refreshFleet, fleet.refreshProjectEnvironments]);
 
   // ─── breadcrumb ──────────────────────────────────────────────────────────
   const crumb = buildCrumb(nav, drillStack);
@@ -263,10 +528,16 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   const handleSelectEnvironmentObj = useCallback(
     (env: Environment) => {
+      setDesiredScope({ projectId: env.projectId, environmentId: env.id });
       selectEnvironment(env.id);
       saveState({ environmentId: env.id, env: undefined });
+      window.history.replaceState(
+        { sigmonConsole: true } satisfies ConsoleHistoryState,
+        "",
+        buildConsoleUrl(nav, detail, { projectId: env.projectId, environmentId: env.id }),
+      );
     },
-    [selectEnvironment]
+    [detail, nav, selectEnvironment]
   );
 
   const handleUpdateProject = useCallback(
@@ -284,20 +555,53 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
   );
 
   const handleDrill = useCallback((target: DrillTarget, params: DrillParams) => {
+    let nextDetail: ConsoleDetail | null = null;
     if (target === "tenant" && "tenantId" in params) {
-      setDetail({ target: "tenant", tenantId: params.tenantId });
+      nextDetail = { target: "tenant", tenantId: params.tenantId };
     } else if (target === "incident" && "groupId" in params) {
-      setDetail({ target: "incident", groupId: params.groupId, errorId: params.errorId });
+      nextDetail = { target: "incident", groupId: params.groupId, errorId: params.errorId };
     }
-  }, []);
+    if (!nextDetail) return;
+    setDetailReturnNav(nav);
+    setDetail(nextDetail);
+    window.history.pushState(
+      { sigmonConsole: true, detailOwner: nav, detailEntry: true } satisfies ConsoleHistoryState,
+      "",
+      buildConsoleUrl(nav, nextDetail, {
+        projectId: activeProject?.id,
+        environmentId: activeEnvironment?.id,
+      }),
+    );
+  }, [activeEnvironment?.id, activeProject?.id, nav]);
 
   const handleBack = useCallback(() => {
+    const historyState = window.history.state as ConsoleHistoryState | null;
+    if (detail && historyState?.sigmonConsole && historyState.detailEntry) {
+      window.history.back();
+      return;
+    }
+    const owner = detail ? detailReturnNav : nav;
+    setNavRaw(owner);
     setDetail(null);
-  }, []);
+    setDrillStack([]);
+    setAnim("back");
+    setSeq((current) => current + 1);
+    saveState({ nav: owner });
+    window.history.replaceState(
+      { sigmonConsole: true } satisfies ConsoleHistoryState,
+      "",
+      buildConsoleUrl(owner, null, {
+        projectId: activeProject?.id,
+        environmentId: activeEnvironment?.id,
+      }),
+    );
+  }, [activeEnvironment?.id, activeProject?.id, detail, detailReturnNav, nav]);
 
   // ─── render section context ───────────────────────────────────────────────
   const screenCtx: ScreenCtx = {
     client,
+    apiEndpoint: apiEndpoint || (typeof window === "undefined" ? "https://your-instance.example.com" : window.location.origin),
+    user,
     project: activeProject,
     environment: activeEnvironment,
     environments,
@@ -322,7 +626,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
 
   // ─── command palette commands ─────────────────────────────────────────────
   const commandDestinations: Array<{ section: NavSection; title: string; description: string }> = [
-    { section: "overview", title: "Overview", description: "Project health overview" },
+    { section: "overview", title: "Operations", description: "Project health, risks, monitors, and alerts" },
     { section: "investigate", title: "Investigate", description: "Events, errors, traces, and LLM calls" },
     { section: "incidents", title: "Incidents", description: "Active and resolved incidents" },
     { section: "llm", title: "LLM", description: "LLM call logs, costs, and analysis" },
@@ -365,22 +669,47 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
             onRefresh={handleRefresh}
             onOpenSearch={() => setIsCommandPaletteOpen(true)}
             userEmail={user.email}
+            onSignOut={onSignOut}
           />
 
           <div className="app-workspace">
             <div className="page" key={seq} data-anim={anim}>
-              {activeProject && activeEnvironment
+              {isLoadingProjects || isRestoringScope
+                ? (
+                  <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+                    <EmptyHint icon="activity" title="Loading projects…" sub="Fetching project and environment data." />
+                  </div>
+                )
+                : projectError
+                  ? (
+                    <div role="alert" style={{ padding: "48px 24px", display: "grid", placeItems: "center", gap: 16 }}>
+                      <EmptyHint icon="alert" title="Could not load projects" sub="The console could not reach the project API." />
+                      <button className="sh-btn" type="button" onClick={reloadProjects}>Retry loading projects</button>
+                    </div>
+                  )
+                : projects.length === 0
+                  ? <FirstProjectOnboarding client={client} onComplete={reloadProjects} onError={(message) => toast({ title: message, tone: "critical" })} />
+                  : environmentError
+                    ? (
+                      <div role="alert" style={{ padding: "48px 24px", display: "grid", placeItems: "center", gap: 16 }}>
+                        <EmptyHint icon="alert" title="Could not load environments" sub="Retry before changing the active project." />
+                        <button className="sh-btn" type="button" onClick={reloadProjects}>Retry loading environments</button>
+                      </div>
+                    )
+                  : activeProject && activeEnvironment
                 ? detail
                   ? detail.target === "tenant"
-                    ? <TenantScreen ctx={screenCtx} tenantId={detail.tenantId} />
-                    : <IncidentScreen ctx={screenCtx} groupId={detail.groupId} errorId={detail.errorId} />
+                    ? renderTenantDetail(screenCtx, detail.tenantId)
+                    : renderIncidentDetail(screenCtx, detail.groupId, detail.errorId)
                   : renderSection(nav, screenCtx)
+                : activeProject
+                  ? renderSection("settings", screenCtx)
                 : (
                   <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
                     <EmptyHint
                       icon="activity"
-                      title="Loading project…"
-                      sub="Waiting for project and environment data."
+                      title="Project unavailable"
+                      sub="Refresh the page or select another project."
                     />
                   </div>
                 )}
@@ -401,6 +730,7 @@ export function ConsoleShellV2({ client, user }: ConsoleShellV2Props) {
             projects: fleet.projects,
             rollup: fleet.rollup,
             lastUpdated: fleet.lastUpdated,
+            environments: fleet.environments,
           }}
         />
 

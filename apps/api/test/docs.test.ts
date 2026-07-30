@@ -67,6 +67,10 @@ describe("API docs", () => {
         "/admin/dead-letter-jobs/{id}/actions",
         "/admin/dead-letter-jobs/{id}/replay",
         "/query/events",
+        "/query/fleet",
+        "/query/fleet/projects/{id}/environments",
+        "/query/error-groups/{id}/errors",
+        "/query/aggregates/traces",
         "/query/events/click-map",
         "/query/message-campaigns/{id}/results",
         "/query/replays",
@@ -119,6 +123,22 @@ describe("API docs", () => {
       ])
     );
     expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/query/fleet/projects/{id}/environments"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "id",
+      "window"
+    ]);
+    expect(spec.paths["/query/error-groups/{id}/errors"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "id",
+      "project_id",
+      "environment_id",
+      "limit",
+      "cursor"
+    ]);
+    expect(spec.paths["/query/error-groups/{id}/errors"].get.responses["200"].content["application/json"].schema).toMatchObject({
+      required: ["data"],
+      properties: { cursor: { type: ["string", "null"] } }
+    });
+    expect(spec.paths["/query/aggregates/traces"].get.description).toContain("trace duration");
     expect(spec.components.schemas.EventPayload.description).toContain("tenant");
     expect(spec.components.schemas.ErrorPayload.properties.severity.enum).toEqual([
       "debug",
@@ -132,6 +152,33 @@ describe("API docs", () => {
     expect(spec.components.schemas.BreadcrumbPayload.required).toEqual(["type", "message"]);
     expect(spec.components.schemas.ClickEventPayload.required).toEqual(["route", "selector", "x", "y", "viewport_width", "viewport_height"]);
     expect(spec.components.schemas.ClickEventPayload.description).toContain("privacy-safe");
+    expect(spec.components.schemas.SessionReplayPayload).toMatchObject({
+      properties: {
+        events: {
+          type: "array",
+          maxItems: 300,
+          description: expect.stringContaining("300 events"),
+          items: {
+            additionalProperties: false,
+            properties: {
+              type: {
+                enum: ["navigation", "click", "input", "console", "network", "error", "custom"]
+              },
+              message: {
+                description: expect.stringContaining("[REDACTED]")
+              },
+              data: {
+                description: expect.stringContaining("5 container levels")
+              }
+            }
+          }
+        }
+      }
+    });
+    expect(spec.components.schemas.SessionReplayPayload.description).toContain("64 KiB");
+    expect(spec.components.schemas.SessionReplayPayload.properties.events.items.properties.data.description).toContain(
+      "64 object keys"
+    );
     expect(spec.components.schemas.BreadcrumbPayload.properties.type.enum).toEqual([
       "navigation",
       "click",
@@ -173,6 +220,16 @@ describe("API docs", () => {
       name: "MicroERP",
       operation_mode: "production"
     });
+    const warehouseCreateDatasets =
+      spec.paths["/admin/warehouse-destinations"].post.requestBody.content["application/json"].schema.properties.datasets;
+    const warehouseUpdateDatasets =
+      spec.paths["/admin/warehouse-destinations/{id}"].patch.requestBody.content["application/json"].schema.properties.datasets;
+    for (const datasets of [warehouseCreateDatasets, warehouseUpdateDatasets]) {
+      expect(datasets.description).toContain("actor-id-ordered cyclic snapshots");
+      expect(datasets.description).toContain("cursor resets");
+      expect(datasets.description).not.toContain("updated_at");
+      expect(datasets.description).not.toContain("revision");
+    }
   });
 
   it("redirects /docs to the Scalar docs page", async () => {

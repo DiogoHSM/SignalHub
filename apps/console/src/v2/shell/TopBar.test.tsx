@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Project, Environment } from "../../api/types";
 import { TopBar } from "./TopBar";
 import type { BreadcrumbItem } from "./TopBar";
@@ -22,6 +22,8 @@ const CRUMB: BreadcrumbItem[] = [
   { label: "Overview" },
   { label: "Incidents" },
 ];
+
+afterEach(() => cleanup());
 
 describe("TopBar", () => {
   it("renders the active project name in the pill", () => {
@@ -229,5 +231,74 @@ describe("TopBar", () => {
 
     expect(container.querySelector(".tb")).toBeInTheDocument();
     expect(container.querySelector(".tb-actions")).toBeInTheDocument();
+  });
+
+  it("opens an accessible account menu and signs out", async () => {
+    const onSignOut = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TopBar
+        projects={PROJECTS}
+        project={PROJECT}
+        environments={ENVIRONMENTS}
+        env={ENV}
+        onSelectProject={() => {}}
+        onSelectEnv={() => {}}
+        crumb={CRUMB}
+        railCollapsed={false}
+        onToggleRail={() => {}}
+        onRefresh={() => {}}
+        onOpenSearch={() => {}}
+        userEmail="jane.doe@example.com"
+        onSignOut={onSignOut}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open account menu" }));
+    const menu = screen.getByRole("menu", { name: "Account" });
+    expect(screen.getByText("jane.doe@example.com")).toBeInTheDocument();
+    const signOut = within(menu).getByRole("menuitem", { name: "Sign out" });
+    expect(signOut).toHaveFocus();
+    expect(Array.from(menu.children).every((child) => child.getAttribute("role") === "menuitem")).toBe(true);
+    await userEvent.click(signOut);
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports account-menu arrow navigation and returns focus on Escape", async () => {
+    render(
+      <TopBar
+        projects={PROJECTS} project={PROJECT} environments={ENVIRONMENTS} env={ENV}
+        onSelectProject={() => {}} onSelectEnv={() => {}} crumb={CRUMB}
+        railCollapsed={false} onToggleRail={() => {}} onRefresh={() => {}} onOpenSearch={() => {}}
+        userEmail="jane.doe@example.com" onSignOut={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    const trigger = screen.getByRole("button", { name: "Open account menu" });
+    await userEvent.click(trigger);
+    const item = screen.getByRole("menuitem", { name: "Sign out" });
+
+    await userEvent.keyboard("{ArrowDown}{ArrowUp}");
+    expect(item).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu", { name: "Account" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps the account menu open and surfaces a retryable logout error", async () => {
+    const onSignOut = vi.fn().mockRejectedValue(new Error("offline"));
+    render(
+      <TopBar
+        projects={PROJECTS} project={PROJECT} environments={ENVIRONMENTS} env={ENV}
+        onSelectProject={() => {}} onSelectEnv={() => {}} crumb={CRUMB}
+        railCollapsed={false} onToggleRail={() => {}} onRefresh={() => {}} onOpenSearch={() => {}}
+        userEmail="jane.doe@example.com" onSignOut={onSignOut}
+      />
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open account menu" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not sign out. Try again.");
+    expect(screen.getByRole("menu", { name: "Account" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeEnabled();
   });
 });

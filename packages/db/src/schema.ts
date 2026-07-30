@@ -112,6 +112,33 @@ export interface AnalyticsDashboardsTable {
   archived_at: NullableTimestamp;
 }
 
+export interface AnalyticsPromotedEventPropertiesTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  property_key: string;
+  display_name: string;
+  index_name: string | null;
+  index_status: ColumnType<"pending" | "building" | "ready" | "failed", "pending" | "building" | "ready" | "failed" | undefined, "pending" | "building" | "ready" | "failed">;
+  index_error: string | null;
+  indexed_at: NullableTimestamp;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
+export interface AnalyticsInsightsTable {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  description: string | null;
+  definition: JsonColumn;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  archived_at: NullableTimestamp;
+}
+
 export type ExperimentStatus = "draft" | "running" | "paused" | "completed" | "archived";
 export type ExperimentActorType = "user" | "tenant" | "session";
 
@@ -434,6 +461,19 @@ export interface EventRollupStateTable {
   environment_id: string;
   rollup: string;
   watermark_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface EventRollupHourlyTable {
+  project_id: string;
+  environment_id: string;
+  bucket_start: Timestamp;
+  event_name: string;
+  breakdown_property: string;
+  breakdown_value: string;
+  actor_type: ColumnType<EventActorDailyActorType | "", EventActorDailyActorType | "" | undefined, EventActorDailyActorType | "">;
+  actor_id: string;
+  event_count: RequiredNumericString;
   updated_at: Timestamp;
 }
 
@@ -1006,6 +1046,8 @@ export interface Database {
   release_metadata: ReleaseMetadataTable;
   analytics_segments: AnalyticsSegmentsTable;
   analytics_dashboards: AnalyticsDashboardsTable;
+  analytics_promoted_event_properties: AnalyticsPromotedEventPropertiesTable;
+  analytics_insights: AnalyticsInsightsTable;
   experiments: ExperimentsTable;
   feature_flags: FeatureFlagsTable;
   feature_flag_audit: FeatureFlagAuditTable;
@@ -1026,6 +1068,7 @@ export interface Database {
   tenant_profiles: TenantProfilesTable;
   event_actor_daily: EventActorDailyTable;
   event_rollup_state: EventRollupStateTable;
+  event_rollup_hourly: EventRollupHourlyTable;
   api_keys: ApiKeysTable;
   source_map_upload_tokens: SourceMapUploadTokensTable;
   events: EventsTable;

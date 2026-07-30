@@ -3,8 +3,8 @@ import { Icon, type IconName } from "./icon";
 
 const DEFAULT_CONFIRM_LABEL = "Confirm?";
 
-export function ConfirmButton({ label, confirmLabel = DEFAULT_CONFIRM_LABEL, icon = "check", kind = "primary", onConfirm }:
-  { label: ReactNode; confirmLabel?: ReactNode; icon?: IconName; kind?: string; onConfirm: () => void }) {
+export function ConfirmButton({ label, confirmLabel = DEFAULT_CONFIRM_LABEL, icon = "check", kind = "primary", ariaLabel, confirmAriaLabel, onConfirm }:
+  { label: ReactNode; confirmLabel?: ReactNode; icon?: IconName; kind?: string; ariaLabel?: string; confirmAriaLabel?: string; onConfirm: () => void }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (!armed) return;
@@ -25,7 +25,7 @@ export function ConfirmButton({ label, confirmLabel = DEFAULT_CONFIRM_LABEL, ico
 
   return (
     <button className={`sh-btn ${armed ? "danger" : kind}`} type="button"
-      aria-label={armed ? armedAriaLabel : undefined}
+      aria-label={armed ? confirmAriaLabel ?? armedAriaLabel : ariaLabel}
       onClick={() => { if (armed) { onConfirm(); setArmed(false); } else setArmed(true); }}>
       <Icon name={armed ? "alert" : icon} size={14} />{armed ? confirmLabel : label}
     </button>

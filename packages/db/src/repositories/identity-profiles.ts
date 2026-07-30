@@ -48,7 +48,7 @@ export async function identifyUserProfile(db: Db, input: IdentifyUserProfileInpu
         tenant_id: sql<string | null>`coalesce(excluded.tenant_id, user_profiles.tenant_id)`,
         traits: sql<unknown>`user_profiles.traits || excluded.traits`,
         last_seen_at: sql<Date>`greatest(user_profiles.last_seen_at, excluded.last_seen_at)`,
-        updated_at: input.timestamp
+        updated_at: sql<Date>`greatest(user_profiles.updated_at + interval '1 millisecond', excluded.updated_at)`
       })
     )
     .execute();
@@ -70,7 +70,7 @@ export async function identifyTenantProfile(db: Db, input: IdentifyTenantProfile
       oc.columns(["project_id", "environment_id", "tenant_id"]).doUpdateSet({
         traits: sql<unknown>`tenant_profiles.traits || excluded.traits`,
         last_seen_at: sql<Date>`greatest(tenant_profiles.last_seen_at, excluded.last_seen_at)`,
-        updated_at: input.timestamp
+        updated_at: sql<Date>`greatest(tenant_profiles.updated_at + interval '1 millisecond', excluded.updated_at)`
       })
     )
     .execute();
@@ -93,7 +93,7 @@ export async function touchUserProfileLastSeen(db: Db, input: TouchUserProfileIn
       oc.columns(["project_id", "environment_id", "user_id"]).doUpdateSet({
         tenant_id: sql<string | null>`coalesce(excluded.tenant_id, user_profiles.tenant_id)`,
         last_seen_at: sql<Date>`greatest(user_profiles.last_seen_at, excluded.last_seen_at)`,
-        updated_at: input.timestamp
+        updated_at: sql<Date>`greatest(user_profiles.updated_at + interval '1 millisecond', excluded.updated_at)`
       })
     )
     .execute();
@@ -114,7 +114,7 @@ export async function touchTenantProfileLastSeen(db: Db, input: TouchTenantProfi
     .onConflict((oc) =>
       oc.columns(["project_id", "environment_id", "tenant_id"]).doUpdateSet({
         last_seen_at: sql<Date>`greatest(tenant_profiles.last_seen_at, excluded.last_seen_at)`,
-        updated_at: input.timestamp
+        updated_at: sql<Date>`greatest(tenant_profiles.updated_at + interval '1 millisecond', excluded.updated_at)`
       })
     )
     .execute();

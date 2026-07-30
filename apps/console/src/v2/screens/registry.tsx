@@ -1,22 +1,8 @@
 import type { ReactNode } from "react";
 import type { ApiClient } from "../../api/client";
-import type { Environment, Project } from "../../api/types";
-import { LegacyIsland } from "./LegacyIsland";
-import { SetupScreen } from "./SetupScreen";
-import { OverviewScreen } from "./OverviewScreen";
-import { ErrorsScreen } from "./ErrorsScreen";
-import { IncidentsScreen } from "./IncidentsScreen";
-import { LlmScreen } from "./LlmScreen";
-import { TracesScreen } from "./TracesScreen";
-import { TenantsScreen } from "./TenantsScreen";
-import { UsersScreen } from "./UsersScreen";
-import { AlertsScreen } from "./AlertsScreen";
-import { MonitorsScreen } from "./MonitorsScreen";
-import { ExperimentsScreen } from "./ExperimentsScreen";
-import { SystemScreen } from "./SystemScreen";
-import { EventsScreen } from "./EventsScreen";
-import { AnalyticsScreen } from "./AnalyticsScreen";
+import type { Environment, Project, User } from "../../api/types";
 import type { NavSection } from "../nav";
+import { createSharedGroupLoader, LazyScreen, selectLazyExport } from "./lazy/LazyScreen";
 
 // ─── Drill types ─────────────────────────────────────────────────────────────
 
@@ -47,6 +33,8 @@ export type NavPayload = { [S in FilterableSection]: { section: S; filters: Sect
 
 export type ScreenCtx = {
   client: ApiClient;
+  apiEndpoint?: string;
+  user?: User;
   project: Project | undefined;
   environment: Environment | undefined;
   environments: Environment[];
@@ -74,84 +62,106 @@ export type ScreenCtx = {
 
 // ─── Screen entries ───────────────────────────────────────────────────────────
 
-export type ScreenEntry = { kind: "v2" | "legacy"; render: (ctx: ScreenCtx) => ReactNode };
+export type ScreenEntry = { render: (ctx: ScreenCtx) => ReactNode };
+
+type CtxProps = { ctx: ScreenCtx };
+type NavigableProps = CtxProps & { navigate: ScreenCtx["navigate"] };
+type IncidentProps = CtxProps & { groupId: string; errorId?: string };
+type TenantProps = CtxProps & { tenantId: string };
+
+const operationsGroup = createSharedGroupLoader(() => import("./screen-groups/operations"));
+const observabilityGroup = createSharedGroupLoader(() => import("./screen-groups/observability"));
+const analyticsExperimentsGroup = createSharedGroupLoader(() => import("./screen-groups/analytics-experiments"));
+const adminGroup = createSharedGroupLoader(() => import("./screen-groups/admin"));
+
+const overviewScreen = selectLazyExport<typeof import("./screen-groups/operations"), "OverviewScreen", NavigableProps>(operationsGroup, "OverviewScreen");
+const incidentsScreen = selectLazyExport<typeof import("./screen-groups/operations"), "IncidentsScreen", CtxProps>(operationsGroup, "IncidentsScreen");
+const incidentScreen = selectLazyExport<typeof import("./screen-groups/operations"), "IncidentScreen", IncidentProps>(operationsGroup, "IncidentScreen");
+const alertsScreen = selectLazyExport<typeof import("./screen-groups/operations"), "AlertsScreen", CtxProps>(operationsGroup, "AlertsScreen");
+const monitorsScreen = selectLazyExport<typeof import("./screen-groups/operations"), "MonitorsScreen", CtxProps>(operationsGroup, "MonitorsScreen");
+
+const errorsScreen = selectLazyExport<typeof import("./screen-groups/observability"), "ErrorsScreen", NavigableProps>(observabilityGroup, "ErrorsScreen");
+const eventsScreen = selectLazyExport<typeof import("./screen-groups/observability"), "EventsScreen", CtxProps>(observabilityGroup, "EventsScreen");
+const llmScreen = selectLazyExport<typeof import("./screen-groups/observability"), "LlmScreen", CtxProps>(observabilityGroup, "LlmScreen");
+const tracesScreen = selectLazyExport<typeof import("./screen-groups/observability"), "TracesScreen", CtxProps>(observabilityGroup, "TracesScreen");
+const tenantsScreen = selectLazyExport<typeof import("./screen-groups/observability"), "TenantsScreen", CtxProps>(observabilityGroup, "TenantsScreen");
+const tenantScreen = selectLazyExport<typeof import("./screen-groups/observability"), "TenantScreen", TenantProps>(observabilityGroup, "TenantScreen");
+const usersScreen = selectLazyExport<typeof import("./screen-groups/observability"), "UsersScreen", CtxProps>(observabilityGroup, "UsersScreen");
+
+const analyticsScreen = selectLazyExport<typeof import("./screen-groups/analytics-experiments"), "AnalyticsScreen", CtxProps>(analyticsExperimentsGroup, "AnalyticsScreen");
+const experimentsScreen = selectLazyExport<typeof import("./screen-groups/analytics-experiments"), "ExperimentsScreen", CtxProps>(analyticsExperimentsGroup, "ExperimentsScreen");
+
+const setupScreen = selectLazyExport<typeof import("./screen-groups/admin"), "SetupScreen", CtxProps>(adminGroup, "SetupScreen");
+const systemScreen = selectLazyExport<typeof import("./screen-groups/admin"), "SystemScreen", CtxProps>(adminGroup, "SystemScreen");
 
 export const SCREENS: Record<NavSection, ScreenEntry> = {
   overview: {
-    kind: "v2",
-    render: (ctx) => <OverviewScreen ctx={ctx} navigate={ctx.navigate} />,
+    render: (ctx) => <LazyScreen loader={overviewScreen} props={{ ctx, navigate: ctx.navigate }} />,
   },
 
   investigate: {
-    kind: "v2",
-    render: (ctx) => <ErrorsScreen ctx={ctx} navigate={ctx.navigate} />,
+    render: (ctx) => <LazyScreen loader={errorsScreen} props={{ ctx, navigate: ctx.navigate }} />,
   },
 
   incidents: {
-    kind: "v2",
-    render: (ctx) => <IncidentsScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={incidentsScreen} props={{ ctx }} />,
   },
 
   llm: {
-    kind: "v2",
-    render: (ctx) => <LlmScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={llmScreen} props={{ ctx }} />,
   },
 
   traces: {
-    kind: "v2",
-    render: (ctx) => <TracesScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={tracesScreen} props={{ ctx }} />,
   },
 
   entities: {
-    kind: "v2",
-    render: (ctx) => <TenantsScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={tenantsScreen} props={{ ctx }} />,
   },
 
   users: {
-    kind: "v2",
-    render: (ctx) => <UsersScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={usersScreen} props={{ ctx }} />,
   },
 
   events: {
-    kind: "v2",
-    render: (ctx) => <EventsScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={eventsScreen} props={{ ctx }} />,
   },
 
   analytics: {
-    kind: "v2",
-    render: (ctx) => <AnalyticsScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={analyticsScreen} props={{ ctx }} />,
   },
 
   alerts: {
-    kind: "v2",
-    render: (ctx) => <AlertsScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={alertsScreen} props={{ ctx }} />,
   },
 
   monitors: {
-    kind: "v2",
-    render: (ctx) => <MonitorsScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={monitorsScreen} props={{ ctx }} />,
   },
 
   experiments: {
-    kind: "v2",
-    render: (ctx) => <ExperimentsScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={experimentsScreen} props={{ ctx }} />,
   },
 
   system: {
-    kind: "v2",
-    render: (ctx) => <SystemScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={systemScreen} props={{ ctx }} />,
   },
 
   settings: {
-    kind: "v2",
-    render: (ctx) => <SetupScreen ctx={ctx} />,
+    render: (ctx) => <LazyScreen loader={setupScreen} props={{ ctx }} />,
   },
 };
 
 // ─── renderSection ────────────────────────────────────────────────────────────
 
 export function renderSection(section: NavSection, ctx: ScreenCtx): ReactNode {
-  const entry = SCREENS[section];
-  const node = entry.render(ctx);
-  return entry.kind === "legacy" ? <LegacyIsland>{node}</LegacyIsland> : node;
+  return SCREENS[section].render(ctx);
+}
+
+export function renderIncidentDetail(ctx: ScreenCtx, groupId: string, errorId?: string): ReactNode {
+  return <LazyScreen loader={incidentScreen} props={{ ctx, groupId, errorId }} />;
+}
+
+export function renderTenantDetail(ctx: ScreenCtx, tenantId: string): ReactNode {
+  return <LazyScreen loader={tenantScreen} props={{ ctx, tenantId }} />;
 }
