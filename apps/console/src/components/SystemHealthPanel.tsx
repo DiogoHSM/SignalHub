@@ -237,7 +237,7 @@ function SystemAttentionBanner({ items }: { items: AttentionItem[] }) {
       <div>
         <span className="section-label">Installation warning</span>
         <strong>System needs attention</strong>
-        <p>These checks are read-only. Use server logs, EasyPanel, or the doctor CLI to repair the underlying service.</p>
+        <p>These checks are read-only. Use server logs, your hosting panel, or the doctor CLI to repair the underlying service.</p>
       </div>
       <ul>
         {items.map((item) => (

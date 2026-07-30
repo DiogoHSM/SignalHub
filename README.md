@@ -102,7 +102,7 @@ Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENA
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
-The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, dead-letter count, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split EasyPanel services can be checked independently. Admin users can also run manual doctor, backup, and retention actions from this screen.
+The console `System` mode is available to logged-in users. It shows API, queue worker, scheduler, Postgres, Redis, queue, dead-letter count, ingestion freshness, deploy config, retention, and backup status from the system health endpoint. The queue worker and scheduler cards use separate heartbeats, so split worker and scheduler services can be checked independently. Admin users can also run manual doctor, backup, and retention actions from this screen.
 
 ## Backups and Restore
 
@@ -328,19 +328,13 @@ Use `--project-name` or `SIGMON_SMOKE_PROJECT_NAME` when running multiple smoke 
 
 ## Continuous Integration
 
-Pull requests to `main` and pushes to `main` run the GitHub Actions CI gate. CI installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness.
+The GitHub Actions CI workflow is manual-only by policy (2026-07): it runs only through `workflow_dispatch`, and the same gate runs locally before every push. The workflow installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness.
 
 The workflow uses GitHub-maintained actions on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). SignalMonitor's application runtime remains Node.js 22.
 
 The smoke job runs `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 
-On pushes to `main`, CI also triggers EasyPanel deploy hooks after all gates pass. Configure GitHub Actions secrets for the app services only:
-
-- `EASYPANEL_API_DEPLOY_URL` for the EasyPanel `api` service. The legacy `EASYPANEL_DEPLOY_URL` secret is also accepted as an API deploy URL.
-- `EASYPANEL_WORKER_DEPLOY_URL` for the EasyPanel `worker` service.
-- `EASYPANEL_SCHEDULER_DEPLOY_URL` for the EasyPanel `scheduler` service when scheduler work runs as a split service. Omit it when scheduler work runs inside the worker service.
-
-Do not configure deploy hooks for Postgres or Redis. They are stateful EasyPanel template services and should not be redeployed from the repository build.
+Production deploys are not part of CI. The hosted instance runs on Coolify and is deployed manually after merging to `main`, by triggering each application's Coolify deploy webhook (or the panel's Deploy action). Postgres and Redis are stateful Coolify-managed database resources and are never redeployed from repository builds.
 
 ## Upgrade Flow
 
@@ -426,7 +420,7 @@ Copy the one-time `apiKey.secret` from the response. The stored record keeps onl
 
 Deployed SignalMonitor instances expose public SDK documentation at `/sdk`, API reference docs at `/docs`, and the raw OpenAPI 3.1 document at `/openapi.json`.
 
-For the EasyPanel deployment, use:
+For the hosted deployment, use:
 
 - `https://my.sigmon.app/sdk`
 - `https://my.sigmon.app/docs`

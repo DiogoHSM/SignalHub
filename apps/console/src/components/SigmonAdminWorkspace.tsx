@@ -56,7 +56,7 @@ export function SigmonAdminWorkspace({ browserCorsOrigins = [], client }: Props)
             </div>
             <p>Deployment readiness is installation-scoped and read-only here while Sigmon admin editing is still being built.</p>
             <p className="muted-text">
-              Server settings are configured through EasyPanel, Docker, and environment variables until admin editing exists.
+              Server settings are configured through your hosting panel, Docker, and environment variables until admin editing exists.
             </p>
           </section>
         );

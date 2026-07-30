@@ -38,7 +38,7 @@ Keep these scopes separate:
 
 | Scope | Lives in | Purpose |
 | --- | --- | --- |
-| Sigmon server/admin config | Sigmon API, worker, scheduler, EasyPanel, Docker Compose | Database, Redis, sessions, retention, backups, SMTP/webhook delivery, CORS defaults, source-map storage. |
+| Sigmon server/admin config | Sigmon API, worker, scheduler, hosting platform, Docker Compose | Database, Redis, sessions, retention, backups, SMTP/webhook delivery, CORS defaults, source-map storage. |
 | Monitored project config | The app being monitored | `SIGMON_ENDPOINT`, server ingestion key, browser ingestion key, release/deploy id, source-map upload token in CI. |
 
 ## Node.js

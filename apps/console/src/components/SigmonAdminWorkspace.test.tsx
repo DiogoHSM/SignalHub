@@ -189,7 +189,7 @@ describe("SigmonAdminWorkspace", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Deploy" }));
     expect(screen.getByText("Deployment readiness is installation-scoped and read-only here while Sigmon admin editing is still being built.")).toBeInTheDocument();
-    expect(screen.getByText(/configured through EasyPanel, Docker, and environment variables/i)).toBeInTheDocument();
+    expect(screen.getByText(/configured through your hosting panel, Docker, and environment variables/i)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
     expect(screen.getByText("SMTP is installation-level configuration for outbound console and alert delivery.")).toBeInTheDocument();

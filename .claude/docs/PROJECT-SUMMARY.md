@@ -8,7 +8,7 @@ MicroERP is Diogo's personal project and the first real validation target for te
 
 ## Current Phase
 
-Phase 6G: Product hardening and documentation reconciliation. The audit top hardening items are implemented, EasyPanel VPS deployment is operational, and the current focus is keeping product/API/SDK documentation aligned with the implementation while the console evolves from MVP to product-grade operations tooling.
+Phase 6G: Product hardening and documentation reconciliation. The audit top hardening items are implemented, the Coolify VPS deployment is operational, and the current focus is keeping product/API/SDK documentation aligned with the implementation while the console evolves from MVP to product-grade operations tooling.
 
 Implemented capabilities:
 
