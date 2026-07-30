@@ -7,6 +7,7 @@ import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/
 import type { AddTriageNoteResult, AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
 import type { AnalyticsDashboardRecord, AnalyticsDashboardWidget } from "@sigmon/db/repositories/analytics-dashboards.js";
 import type { CodeIntegrationProvider, IncidentExternalLinkRecord, IssueDraft } from "@sigmon/db/repositories/code-integrations.js";
+import { FunnelScopeTooLargeError } from "@sigmon/db/repositories/telemetry-query.js";
 
 export type QueryFilters = {
   projectId: string;
@@ -127,12 +128,22 @@ export type EntityCursor = {
   id: string;
 };
 
+export type ActivitySort = "impact" | "usage" | "errors" | "llm_cost" | "recent";
+
+export type EntityTenantListCursor = {
+  sort: ActivitySort;
+  value: number;
+  actorId: string;
+};
+
 export type EntityTenantListFilters = {
   projectId: string;
   environmentId: string;
   window: EntityWindow;
   search?: string;
   limit: number;
+  sort?: ActivitySort;
+  cursor?: EntityTenantListCursor;
 };
 
 export type EntityTenantDetailFilters = {
@@ -155,6 +166,12 @@ export type UserCursor = {
   id: string;
 };
 
+export type UserListCursor = {
+  sort: ActivitySort;
+  value: number;
+  actorId: string;
+};
+
 export type UserListFilters = {
   projectId: string;
   environmentId: string;
@@ -162,6 +179,8 @@ export type UserListFilters = {
   search?: string;
   tenantId?: string;
   limit: number;
+  sort?: ActivitySort;
+  cursor?: UserListCursor;
 };
 
 export type UserDetailFilters = {
@@ -348,6 +367,7 @@ export type QueryRouteOptions = {
   query?: QueryDependencies;
 };
 
+const activitySortSchema = z.enum(["impact", "usage", "errors", "llm_cost", "recent"]);
 const traceParamsSchema = z.object({ id: z.string().trim().min(1) });
 const sessionParamsSchema = z.object({ sessionId: z.string().trim().min(1) });
 const replayParamsSchema = z.object({ replayId: z.string().trim().min(1) });
@@ -1314,12 +1334,58 @@ function parseEntityCursor(raw: RawQuery): EntityCursor | undefined | null {
   }
 }
 
+function parseActivitySort(raw: RawQuery): ActivitySort | undefined | null {
+  const value = optionalNonEmpty(raw, "sort");
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = activitySortSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Decodes the keyset cursor for list routes. `effectiveSort` guards against a cursor minted for a different sort. */
+function parseActivityListCursor(
+  raw: RawQuery,
+  effectiveSort: ActivitySort
+): { sort: ActivitySort; value: number; actorId: string } | undefined | null {
+  const value = optionalNonEmpty(raw, "cursor");
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+    if (!decoded || typeof decoded !== "object") {
+      return null;
+    }
+
+    const cursor = decoded as Record<string, unknown>;
+    const sortResult = activitySortSchema.safeParse(cursor.sort);
+    const cursorValue = typeof cursor.value === "number" && Number.isFinite(cursor.value) ? cursor.value : null;
+    const actorId = typeof cursor.actorId === "string" ? cursor.actorId : null;
+    if (!sortResult.success || cursorValue === null || actorId === null || sortResult.data !== effectiveSort) {
+      return null;
+    }
+
+    return { sort: sortResult.data, value: cursorValue, actorId };
+  } catch {
+    return null;
+  }
+}
+
 function parseEntityTenantListFilters(query: unknown): EntityTenantListFilters | undefined {
   const raw = (query ?? {}) as RawQuery;
   const projectId = parseRequiredId(raw, "project_id");
   const environmentId = parseRequiredId(raw, "environment_id");
   const window = parseEntityWindow(raw);
-  if (!projectId || !environmentId || !window) {
+  const sort = parseActivitySort(raw);
+  if (!projectId || !environmentId || !window || sort === null) {
+    return undefined;
+  }
+
+  const cursor = parseActivityListCursor(raw, sort ?? "impact");
+  if (cursor === null) {
     return undefined;
   }
 
@@ -1333,6 +1399,12 @@ function parseEntityTenantListFilters(query: unknown): EntityTenantListFilters |
   const search = optionalNonEmpty(raw, "search");
   if (search) {
     filters.search = search;
+  }
+  if (sort) {
+    filters.sort = sort;
+  }
+  if (cursor) {
+    filters.cursor = cursor;
   }
 
   return filters;
@@ -1445,7 +1517,13 @@ function parseUserListFilters(query: unknown): UserListFilters | undefined {
   const projectId = parseRequiredId(raw, "project_id");
   const environmentId = parseRequiredId(raw, "environment_id");
   const window = parseUserWindow(raw);
-  if (!projectId || !environmentId || !window) {
+  const sort = parseActivitySort(raw);
+  if (!projectId || !environmentId || !window || sort === null) {
+    return undefined;
+  }
+
+  const cursor = parseActivityListCursor(raw, sort ?? "impact");
+  if (cursor === null) {
     return undefined;
   }
 
@@ -1463,6 +1541,12 @@ function parseUserListFilters(query: unknown): UserListFilters | undefined {
   }
   if (tenantId) {
     filters.tenantId = tenantId;
+  }
+  if (sort) {
+    filters.sort = sort;
+  }
+  if (cursor) {
+    filters.cursor = cursor;
   }
 
   return filters;
@@ -1917,7 +2001,10 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
 
   try {
     return reply.send({ data: await options.query.getEventFunnel(filters) });
-  } catch {
+  } catch (error) {
+    if (error instanceof FunnelScopeTooLargeError) {
+      return reply.status(400).send({ error: error.code });
+    }
     return reply.status(503).send({ error: "query_unavailable" });
   }
 }

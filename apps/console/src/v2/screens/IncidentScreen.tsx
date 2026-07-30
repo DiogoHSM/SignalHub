@@ -12,6 +12,7 @@ import {
 } from "../../components/ui/v2";
 import { IncidentReplayPanel } from "../../components/IncidentReplayPanel";
 import { IncidentCodeContextPanel } from "../../components/IncidentCodeContextPanel";
+import { runMutation } from "../lib/run-mutation";
 
 // ---------------------------------------------------------------------------
 // RelItem — local subcomponent
@@ -363,7 +364,10 @@ export function IncidentScreen({
                     className="sh-menu__item"
                     style={MENU_ITEM_STYLE}
                     onClick={() => {
-                      void setStatus(s);
+                      void runMutation(() => setStatus(s), {
+                        pushToast: ctx.pushToast,
+                        message: "Could not update status",
+                      });
                       setStatusOpen(false);
                     }}
                   >
@@ -456,7 +460,10 @@ export function IncidentScreen({
           icon="check"
           kind="primary"
           onConfirm={() => {
-            void resolve();
+            void runMutation(resolve, {
+              pushToast: ctx.pushToast,
+              message: "Could not resolve incident",
+            });
           }}
         />
 
@@ -500,7 +507,10 @@ export function IncidentScreen({
                   color: "var(--fg-muted)",
                 }}
                 onClick={() => {
-                  void reassign(null);
+                  void runMutation(() => reassign(null), {
+                    pushToast: ctx.pushToast,
+                    message: "Could not reassign incident",
+                  });
                   setReassignOpen(false);
                 }}
               >
@@ -521,7 +531,10 @@ export function IncidentScreen({
                     fontSize: 12,
                   }}
                   onClick={() => {
-                    void reassign(u.id);
+                    void runMutation(() => reassign(u.id), {
+                      pushToast: ctx.pushToast,
+                      message: "Could not reassign incident",
+                    });
                     setReassignOpen(false);
                   }}
                 >
@@ -544,7 +557,12 @@ export function IncidentScreen({
             </span>
             <button
               className="sh-btn"
-              onClick={() => void silence(null)}
+              onClick={() =>
+                void runMutation(() => silence(null), {
+                  pushToast: ctx.pushToast,
+                  message: "Could not update silence",
+                })
+              }
             >
               <Icon name="bell" size={14} />
               Unsilence
@@ -563,7 +581,10 @@ export function IncidentScreen({
                     key={opt.minutes}
                     style={MENU_ITEM_STYLE}
                     onClick={() => {
-                      void silence(opt.minutes);
+                      void runMutation(() => silence(opt.minutes), {
+                        pushToast: ctx.pushToast,
+                        message: "Could not update silence",
+                      });
                       setSilenceOpen(false);
                     }}
                   >
@@ -587,7 +608,10 @@ export function IncidentScreen({
                     onClick={() => {
                       const minutes = Number(customSilenceMinutes);
                       if (minutes > 0) {
-                        void silence(minutes);
+                        void runMutation(() => silence(minutes), {
+                          pushToast: ctx.pushToast,
+                          message: "Could not update silence",
+                        });
                         setCustomSilenceMinutes("");
                         setSilenceOpen(false);
                       }
@@ -638,7 +662,10 @@ export function IncidentScreen({
         <div style={{ position: "relative" }}>
           <button
             className="sh-btn ghost"
-            aria-label="Priority"
+            // Reflect the current selection so a screen reader announces the
+            // priority state up front, instead of a bare "Priority" that
+            // requires opening the menu to discover the value.
+            aria-label={`Priority: ${vm.priority ?? "none"}`}
             style={{ padding: "2px 6px", gap: 4 }}
             onClick={() => setPriorityOpen((o) => !o)}
           >
@@ -652,7 +679,10 @@ export function IncidentScreen({
                   key={p}
                   style={MENU_ITEM_STYLE}
                   onClick={() => {
-                    void setPriority(p);
+                    void runMutation(() => setPriority(p), {
+                      pushToast: ctx.pushToast,
+                      message: "Could not update priority",
+                    });
                     setPriorityOpen(false);
                   }}
                 >
@@ -662,7 +692,10 @@ export function IncidentScreen({
               <button
                 style={{ ...MENU_ITEM_STYLE, borderBottom: "none" }}
                 onClick={() => {
-                  void setPriority(null);
+                  void runMutation(() => setPriority(null), {
+                    pushToast: ctx.pushToast,
+                    message: "Could not update priority",
+                  });
                   setPriorityOpen(false);
                 }}
               >
@@ -1032,7 +1065,10 @@ export function IncidentScreen({
                     if (e.key === "Enter" && noteBody.trim()) {
                       const body = noteBody.trim();
                       setNoteBody("");
-                      void addNote(body);
+                      void runMutation(() => addNote(body), {
+                        pushToast: ctx.pushToast,
+                        message: "Could not add note",
+                      });
                     }
                   }}
                 />
@@ -1045,7 +1081,10 @@ export function IncidentScreen({
                     const body = noteBody.trim();
                     if (!body) return;
                     setNoteBody("");
-                    void addNote(body);
+                    void runMutation(() => addNote(body), {
+                      pushToast: ctx.pushToast,
+                      message: "Could not add note",
+                    });
                   }}
                 >
                   <Icon name="arrow" size={13} />

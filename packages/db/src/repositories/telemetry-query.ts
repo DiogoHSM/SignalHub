@@ -1949,6 +1949,21 @@ function percentage(part: number, whole: number): number {
 const MAX_FUNNEL_STEPS = 12;
 const FUNNEL_BREAKDOWN_LIMIT = 20;
 
+// PER-449: default cap on distinct actors in scope before the funnel chain (materialized CTE +
+// per-step LEFT JOIN LATERAL, cost ~|s0 actors| x steps x |matched|) is allowed to run. Measured
+// O(n^2) behavior made a single request over a large window/step pair expensive enough to degrade
+// Postgres from a trivial input; see .claude/docs/AUDIT-2026-07-26/findings/PER-439.md (F2).
+export const DEFAULT_FUNNEL_MAX_ACTORS = 50_000;
+
+export class FunnelScopeTooLargeError extends Error {
+  readonly code = "funnel_scope_too_large";
+
+  constructor() {
+    super("funnel_scope_too_large");
+    this.name = "FunnelScopeTooLargeError";
+  }
+}
+
 // Shared actor-identity fallback used by getEventFunnel and (per PER-439's decision log) intended for
 // reuse by PER-440/PER-442. A dedicated `actor` param (user|tenant|session|trace|auto) is deferred to a
 // future issue; today's behavior is always the "auto" coalesce below.
@@ -2013,23 +2028,57 @@ interface FunnelChainParams {
 // remaining steps with one LEFT JOIN LATERAL per step so timestamps stay strictly increasing and
 // the optional conversion window is anchored on entry (s0.t0). A recursive CTE cannot express this
 // because Postgres forbids aggregates (min()) referencing the recursive term.
-function buildFunnelChainCte(params: FunnelChainParams) {
-  const {
-    projectId,
-    environmentId,
-    from,
-    to,
-    steps,
-    breakdownProperty,
-    conversionWindowSeconds,
-    tenantId,
-    segmentActorColumn,
-    segmentActorIds
-  } = params;
+// WHERE clause shared by the `matched` CTE (below) and the cheap pre-count guard in
+// getEventFunnel: both must scope to the exact same rows so the guard's actor count is a faithful
+// prediction of the chain's cost.
+function funnelMatchedWhere(params: FunnelChainParams) {
+  const { projectId, environmentId, from, to, steps, tenantId, segmentActorColumn, segmentActorIds } = params;
 
   const tenantPredicate = tenantId ? sql`AND tenant_id = ${tenantId}` : sql``;
   const segmentPredicate =
     segmentActorColumn && segmentActorIds ? sql`AND ${sql.ref(segmentActorColumn)} = ANY(${segmentActorIds})` : sql``;
+
+  return sql`
+    project_id = ${projectId}
+      AND environment_id = ${environmentId}
+      AND timestamp >= ${from}
+      AND timestamp < ${to}
+      AND name = ANY(${steps})
+      AND ${actorKeySql()} IS NOT NULL
+      ${tenantPredicate}
+      ${segmentPredicate}
+  `;
+}
+
+// PER-449: cheap pre-flight check before the funnel chain runs. Counts distinct actors over the
+// same predicates as `matched` with a single scan + count(distinct) - no LATERAL join, no
+// materialization - so it stays roughly linear even when the full chain would be quadratic.
+async function assertFunnelScopeWithinLimit(db: Db, params: FunnelChainParams, maxActors: number): Promise<void> {
+  if (maxActors <= 0) {
+    return;
+  }
+
+  const result = await sql<{ distinct_actors: string }>`
+    SELECT count(DISTINCT ${actorKeySql()}) AS distinct_actors
+    FROM events
+    WHERE ${funnelMatchedWhere(params)}
+  `.execute(db);
+
+  const distinctActors = toNumber(result.rows[0]?.distinct_actors);
+  if (distinctActors > maxActors) {
+    throw new FunnelScopeTooLargeError();
+  }
+}
+
+// PER-448: `perBreakdownValue` controls whether `s0` (and therefore `chain`) is grouped by
+// (actor_id, actor_type, breakdown_value) or by (actor_id, actor_type) alone. Totals/steps/
+// sampleActors must count each actor once regardless of how many breakdown values their step-0
+// events carry, so callers building those must pass `perBreakdownValue: false`. Only the
+// breakdown-by-value series intentionally re-groups by value and may count the same actor once
+// per distinct value they touched - that per-value semantics is unchanged by this flag.
+function buildFunnelChainCte(params: FunnelChainParams, options: { perBreakdownValue: boolean }) {
+  const { steps, breakdownProperty, conversionWindowSeconds } = params;
+  const { perBreakdownValue } = options;
 
   const matchedCte = sql`
     matched AS MATERIALIZED (
@@ -2040,27 +2089,31 @@ function buildFunnelChainCte(params: FunnelChainParams) {
         timestamp,
         properties ->> ${breakdownProperty} AS breakdown_value
       FROM events
-      WHERE project_id = ${projectId}
-        AND environment_id = ${environmentId}
-        AND timestamp >= ${from}
-        AND timestamp < ${to}
-        AND name = ANY(${steps})
-        AND ${actorKeySql()} IS NOT NULL
-        ${tenantPredicate}
-        ${segmentPredicate}
+      WHERE ${funnelMatchedWhere(params)}
     )
   `;
 
-  const s0Cte = sql`
-    s0 AS (
-      SELECT actor_id, actor_type, breakdown_value, min(timestamp) AS t0
-      FROM matched
-      WHERE name = ${steps[0]}
-      GROUP BY actor_id, actor_type, breakdown_value
-    )
-  `;
+  const s0Cte = perBreakdownValue
+    ? sql`
+      s0 AS (
+        SELECT actor_id, actor_type, breakdown_value, min(timestamp) AS t0
+        FROM matched
+        WHERE name = ${steps[0]}
+        GROUP BY actor_id, actor_type, breakdown_value
+      )
+    `
+    : sql`
+      s0 AS (
+        SELECT actor_id, actor_type, min(timestamp) AS t0
+        FROM matched
+        WHERE name = ${steps[0]}
+        GROUP BY actor_id, actor_type
+      )
+    `;
 
-  const selectCols = [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.breakdown_value"), sql.raw("s0.t0")];
+  const selectCols = perBreakdownValue
+    ? [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.breakdown_value"), sql.raw("s0.t0")]
+    : [sql.raw("s0.actor_id"), sql.raw("s0.actor_type"), sql.raw("s0.t0")];
   const lateralFragments: ReturnType<typeof sql>[] = [];
 
   for (let index = 1; index < steps.length; index += 1) {
@@ -2113,7 +2166,16 @@ function emptyEventFunnelResponse(filters: EventFunnelFilters, steps: string[], 
   };
 }
 
-export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promise<EventFunnelResponse> {
+export interface GetEventFunnelOptions {
+  /** Distinct-actor cap enforced by assertFunnelScopeWithinLimit. 0 disables the guard. */
+  maxActors?: number;
+}
+
+export async function getEventFunnel(
+  db: Db,
+  filters: EventFunnelFilters,
+  options: GetEventFunnelOptions = {}
+): Promise<EventFunnelResponse> {
   const { from, to } = resolveOverviewRange(filters.window, filters.now);
   const limit = resolveLimit(filters.limit);
   const steps = filters.steps
@@ -2164,12 +2226,14 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
     segmentActorIds
   };
 
+  await assertFunnelScopeWithinLimit(db, chainParams, options.maxActors ?? DEFAULT_FUNNEL_MAX_ACTORS);
+
   const countColumns = steps.map((_, index) =>
     index === 0 ? sql`count(*) AS step0_actors` : sql.raw(`count(t${index}) AS step${index}_actors`)
   );
 
   const totalsResult = await sql<Record<string, string>>`
-    WITH ${buildFunnelChainCte(chainParams)}
+    WITH ${buildFunnelChainCte(chainParams, { perBreakdownValue: false })}
     SELECT ${sql.join(countColumns, sql`, `)}
     FROM chain
   `.execute(db);
@@ -2180,7 +2244,7 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
   const sampleColumns = [sql.raw("actor_id"), sql.raw("actor_type"), ...steps.map((_, index) => sql.raw(`t${index}`))];
 
   const sampleResult = await sql<Record<string, unknown>>`
-    WITH ${buildFunnelChainCte(chainParams)}
+    WITH ${buildFunnelChainCte(chainParams, { perBreakdownValue: false })}
     SELECT ${sql.join(sampleColumns, sql`, `)}
     FROM chain
     ORDER BY actor_id ASC
@@ -2208,7 +2272,7 @@ export async function getEventFunnel(db: Db, filters: EventFunnelFilters): Promi
   let breakdown: EventFunnelBreakdownSeries[] | undefined;
   if (breakdownProperty) {
     const breakdownResult = await sql<Record<string, string>>`
-      WITH ${buildFunnelChainCte(chainParams)}
+      WITH ${buildFunnelChainCte(chainParams, { perBreakdownValue: true })}
       SELECT coalesce(breakdown_value, '') AS breakdown_value, ${sql.join(countColumns, sql`, `)}
       FROM chain
       GROUP BY 1
@@ -2312,29 +2376,74 @@ export async function getEventRetention(db: Db, filters: EventRetentionFilters):
       : null;
   const source: "raw" | "rollup" = cutoff !== null && from < cutoff ? "rollup" : "raw";
 
+  // The daily actor rollup (apps/worker/src/event-rollups.ts) never processes the current UTC
+  // day, so `event_actor_daily` always ends at "yesterday". In rollup mode both the eligibility
+  // check and the activity CTE below UNION in a raw-`events` tail for today so that today's
+  // not-yet-rolled activity isn't silently dropped from the response.
+  const todayStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  // PER-451 (V1): in rollup mode, `events` is purged by the same retentionEventsDays horizon that
+  // put us in rollup mode, so in steady state it no longer holds rows old enough to answer this
+  // check for long-range cohorts. Resolve eligibility against event_actor_daily instead -- its PK
+  // already carries event_name -- UNIONed with a raw-`events` tail for today's not-yet-rolled rows.
   const entryEligibility = entryEvent
-    ? sql`
-        and exists (
-          select 1 from events ee
-          where ee.project_id = p.project_id
-            and ee.environment_id = p.environment_id
-            and ee.user_id = p.user_id
-            and ee.name = ${entryEvent}
-        )
-      `
+    ? source === "rollup"
+      ? sql`
+          and (
+            exists (
+              select 1 from event_actor_daily eea
+              where eea.project_id = p.project_id
+                and eea.environment_id = p.environment_id
+                and eea.actor_type = 'user'
+                and eea.actor_id = p.user_id
+                and eea.event_name = ${entryEvent}
+            )
+            or exists (
+              select 1 from events ee
+              where ee.project_id = p.project_id
+                and ee.environment_id = p.environment_id
+                and ee.user_id = p.user_id
+                and ee.name = ${entryEvent}
+                and ee.timestamp >= ${todayStartUtc}
+            )
+          )
+        `
+      : sql`
+          and exists (
+            select 1 from events ee
+            where ee.project_id = p.project_id
+              and ee.environment_id = p.environment_id
+              and ee.user_id = p.user_id
+              and ee.name = ${entryEvent}
+          )
+        `
     : sql``;
 
+  // PER-451 (F1): UNION the rollup with a raw-`events` tail scoped to today, deduped by
+  // (actor_id, day) since a single actor can otherwise surface once from each source.
   const activity =
     source === "rollup"
       ? sql`
-          select r.actor_id, (r.day::timestamp at time zone 'UTC') as timestamp
-          from event_actor_daily r
-          where r.project_id = ${filters.projectId}
-            and r.environment_id = ${filters.environmentId}
-            and r.actor_type = 'user'
-            and (r.day::timestamp at time zone 'UTC') >= ${from}
-            and (r.day::timestamp at time zone 'UTC') < ${to}
-            ${returnEvent ? sql`and r.event_name = ${returnEvent}` : sql``}
+          select distinct actor_id, timestamp
+          from (
+            select r.actor_id, (r.day::timestamp at time zone 'UTC') as timestamp
+            from event_actor_daily r
+            where r.project_id = ${filters.projectId}
+              and r.environment_id = ${filters.environmentId}
+              and r.actor_type = 'user'
+              and (r.day::timestamp at time zone 'UTC') >= ${from}
+              and (r.day::timestamp at time zone 'UTC') < ${to}
+              ${returnEvent ? sql`and r.event_name = ${returnEvent}` : sql``}
+            union all
+            select e.user_id as actor_id, date_trunc('day', e.timestamp at time zone 'UTC') as timestamp
+            from events e
+            where e.project_id = ${filters.projectId}
+              and e.environment_id = ${filters.environmentId}
+              and e.timestamp >= greatest(${from}::timestamptz, ${todayStartUtc}::timestamptz)
+              and e.timestamp < ${to}
+              and e.user_id is not null
+              ${returnEvent ? sql`and e.name = ${returnEvent}` : sql``}
+          ) combined
         `
       : sql`
           select e.user_id as actor_id, e.timestamp

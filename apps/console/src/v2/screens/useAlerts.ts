@@ -49,7 +49,12 @@ export type ChannelRowVM = {
   target: string;
   ok: boolean;
   type: WebhookLikeChannelType | "email";
+  // Full url is only ever populated for generic webhook channels. For slack/discord
+  // the url IS the credential, so the API never returns it — hasUrl/urlPreview
+  // stand in for it, mirroring the secretHeaderName/hasSecret contract below.
   url: string | null;
+  hasUrl: boolean;
+  urlPreview: string | null;
   emailRecipients: string[];
   secretHeaderName: string | null;
   hasSecret: boolean;
@@ -231,18 +236,57 @@ export function buildAlertsVM(input: AlertsInput, nowMs: number): AlertsVM {
     };
   });
 
-  const channelRows: ChannelRowVM[] = channels.map((c) => ({
-    id: c.id,
-    name: c.name,
-    icon: c.type === "email" ? "mail" : c.type,
-    target: c.type === "email" ? c.emailRecipients.join(", ") : c.url,
-    ok: c.enabled,
-    type: c.type,
-    url: c.type === "email" ? null : c.url,
-    emailRecipients: c.type === "email" ? c.emailRecipients : [],
-    secretHeaderName: c.type === "email" ? null : c.secretHeaderName,
-    hasSecret: c.hasSecret,
-  }));
+  const channelRows: ChannelRowVM[] = channels.map((c) => {
+    if (c.type === "email") {
+      return {
+        id: c.id,
+        name: c.name,
+        icon: "mail",
+        target: c.emailRecipients.join(", "),
+        ok: c.enabled,
+        type: c.type,
+        url: null,
+        hasUrl: false,
+        urlPreview: null,
+        emailRecipients: c.emailRecipients,
+        secretHeaderName: null,
+        hasSecret: c.hasSecret,
+      };
+    }
+
+    if (c.type === "slack" || c.type === "discord") {
+      const urlPreview = c.urlPreview ?? null;
+      return {
+        id: c.id,
+        name: c.name,
+        icon: c.type,
+        target: urlPreview ?? "•••• configured",
+        ok: c.enabled,
+        type: c.type,
+        url: null,
+        hasUrl: c.hasUrl,
+        urlPreview,
+        emailRecipients: [],
+        secretHeaderName: c.secretHeaderName,
+        hasSecret: c.hasSecret,
+      };
+    }
+
+    return {
+      id: c.id,
+      name: c.name,
+      icon: c.type,
+      target: c.url,
+      ok: c.enabled,
+      type: c.type,
+      url: c.url,
+      hasUrl: true,
+      urlPreview: null,
+      emailRecipients: [],
+      secretHeaderName: c.secretHeaderName,
+      hasSecret: c.hasSecret,
+    };
+  });
 
   const startOfToday = startOfUtcDay(nowMs);
   const timeline: TimelineDayVM[] = [];

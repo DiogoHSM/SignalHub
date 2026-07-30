@@ -344,6 +344,17 @@ describe("IncidentScreen", () => {
       await userEvent.click(confirmBtn);
       expect(resolve).toHaveBeenCalled();
     });
+
+    it("pushes a toast and does not throw when resolve rejects", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const resolve = vi.fn().mockRejectedValue(new Error("network error"));
+      const ctx = makeMockCtx();
+      mockUseIncident(MOCK_VM, { resolve });
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^resolve$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /confirm resolution/i }));
+      await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not resolve incident"));
+    });
   });
 
   describe("action bar — Silence", () => {
@@ -414,6 +425,17 @@ describe("IncidentScreen", () => {
       await userEvent.click(screen.getByRole("button", { name: /unsilence/i }));
       expect(silence).toHaveBeenCalledWith(null);
     });
+
+    it("pushes a toast and does not throw when silence rejects", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const silence = vi.fn().mockRejectedValue(new Error("network error"));
+      const ctx = makeMockCtx();
+      mockUseIncident(MOCK_VM, { silence });
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^silence$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^30m$/i }));
+      await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not update silence"));
+    });
   });
 
   describe("action bar — Create issue", () => {
@@ -467,6 +489,17 @@ describe("IncidentScreen", () => {
       const reassignBtn = screen.getByRole("button", { name: /reassign/i });
       expect(reassignBtn).toBeDisabled();
     });
+
+    it("pushes a toast and does not throw when reassign rejects", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const reassign = vi.fn().mockRejectedValue(new Error("network error"));
+      const ctx = makeMockCtx();
+      mockUseIncident(MOCK_VM, { reassign });
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^reassign$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /ana@acme\.dev/i }));
+      await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not reassign incident"));
+    });
   });
 
   describe("action bar — priority / occurrence tags", () => {
@@ -489,10 +522,22 @@ describe("IncidentScreen", () => {
       expect(screen.getByText(/no priority/i)).toBeInTheDocument();
     });
 
+    it("names the priority control's accessible name after the current selection", () => {
+      mockUseIncident(MOCK_VM); // priority: "P1"
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByRole("button", { name: "Priority: P1" })).toBeInTheDocument();
+    });
+
+    it("names the priority control 'Priority: none' when no priority is set", () => {
+      mockUseIncident({ ...MOCK_VM, priority: null });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByRole("button", { name: "Priority: none" })).toBeInTheDocument();
+    });
+
     it("opens a priority menu with P1-P4 and 'No priority' options when the priority control is clicked", async () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^priority: p1$/i }));
       expect(screen.getByRole("button", { name: /^P1$/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^P2$/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /^P3$/ })).toBeInTheDocument();
@@ -506,7 +551,7 @@ describe("IncidentScreen", () => {
         const setPriority = vi.fn().mockResolvedValue(undefined);
         mockUseIncident(MOCK_VM, { setPriority });
         render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-        await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+        await userEvent.click(screen.getByRole("button", { name: /^priority: p1$/i }));
         await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${p}$`) }));
         expect(setPriority).toHaveBeenCalledWith(p);
       }
@@ -516,9 +561,20 @@ describe("IncidentScreen", () => {
       const setPriority = vi.fn().mockResolvedValue(undefined);
       mockUseIncident(MOCK_VM, { setPriority });
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      await userEvent.click(screen.getByRole("button", { name: /^priority$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^priority: p1$/i }));
       await userEvent.click(screen.getByRole("button", { name: /no priority/i }));
       expect(setPriority).toHaveBeenCalledWith(null);
+    });
+
+    it("pushes a toast and does not throw when setPriority rejects", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const setPriority = vi.fn().mockRejectedValue(new Error("network error"));
+      const ctx = makeMockCtx();
+      mockUseIncident(MOCK_VM, { setPriority });
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^priority(:|$)/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^P2$/ }));
+      await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not update priority"));
     });
   });
 
@@ -544,6 +600,17 @@ describe("IncidentScreen", () => {
         expect(setStatus).toHaveBeenCalledWith(s);
       }
     );
+
+    it("pushes a toast and does not throw when setStatus rejects", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const setStatus = vi.fn().mockRejectedValue(new Error("network error"));
+      const ctx = makeMockCtx();
+      mockUseIncident(MOCK_VM, { setStatus });
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /^status$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^resolved$/i }));
+      await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not update status"));
+    });
   });
 
   describe("occurrences summary (no bars)", () => {
@@ -801,6 +868,18 @@ describe("IncidentScreen", () => {
       await waitFor(() => {
         expect(input.value).toBe("");
       });
+    });
+
+    it("pushes a toast and does not throw when addNote rejects", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const addNote = vi.fn().mockRejectedValue(new Error("network error"));
+      const ctx = makeMockCtx();
+      mockUseIncident(MOCK_VM, { addNote });
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      const input = screen.getByPlaceholderText(/add a note/i);
+      await userEvent.type(input, "New triage observation");
+      await userEvent.click(screen.getByRole("button", { name: /submit note/i }));
+      await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not add note"));
     });
   });
 

@@ -98,7 +98,10 @@ import { recordFeedbackItem } from "@sigmon/db/repositories/feedback-widget.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
-const db = createDb(config.databaseUrl);
+// PER-449: the worker runs long-lived jobs (rollups, retention, backups, source-map cleanup) that
+// can legitimately exceed the timeout applied to the API's read pool, so it defaults to disabled
+// (DB_WORKER_STATEMENT_TIMEOUT_MS=0) and is opt-in via its own env var.
+const db = createDb(config.databaseUrl, { statementTimeoutMs: config.db.workerStatementTimeoutMs });
 const runsQueue = config.worker.role === "all" || config.worker.role === "queue";
 const runsScheduler = config.worker.role === "all" || config.worker.role === "scheduler";
 const connection = runsQueue

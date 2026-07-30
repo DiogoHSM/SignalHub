@@ -159,6 +159,7 @@ import {
   getEventAggregates,
   getEventClickMap,
   getEventFunnel,
+  FunnelScopeTooLargeError,
   getEventPaths,
   getEventPropertyCatalog,
   getEventRetention,
@@ -186,7 +187,12 @@ import {
 } from "../src/repositories/telemetry-query.js";
 import { getOperations } from "../src/repositories/operations-query.js";
 import { getSessionTimeline } from "../src/repositories/session-timeline.js";
-import { getEntityTenantDetail, listEntityTenants, type EntityCursor } from "../src/repositories/entities-query.js";
+import {
+  getEntityTenantDetail,
+  listEntityTenants,
+  type EntityCursor,
+  type EntityTenantListCursor
+} from "../src/repositories/entities-query.js";
 import {
   deleteExpiredTelemetry,
   getHeartbeat,
@@ -241,7 +247,7 @@ import {
   upsertEventActorDaily,
   withEventRollupLock
 } from "../src/repositories/event-rollups.js";
-import { getUserDetail, listUsersActivity, type UserCursor } from "../src/repositories/users-query.js";
+import { getUserDetail, listUsersActivity, type UserCursor, type UserListCursor } from "../src/repositories/users-query.js";
 import {
   assignIncident,
   addTriageNote,
@@ -280,6 +286,14 @@ describe("repositories", () => {
 
   function decodeUserCursorForTest(cursor: string): UserCursor {
     return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as UserCursor;
+  }
+
+  function decodeUserListCursorForTest(cursor: string): UserListCursor {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as UserListCursor;
+  }
+
+  function decodeEntityTenantListCursorForTest(cursor: string): EntityTenantListCursor {
+    return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as EntityTenantListCursor;
   }
 
   async function seedSourceMapScope(db: Db): Promise<void> {
@@ -8640,6 +8654,165 @@ describe("repositories", () => {
     });
   });
 
+  it("sorts tenants server-side by usage/errors/llm_cost/recent and paginates with a stable keyset cursor (PER-446)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Tenants Sort" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api"
+      };
+
+      // tenant_usage: most events (usage winner) — five events, no errors, no LLM cost.
+      for (let i = 0; i < 5; i++) {
+        await insertEvent(db, {
+          ...base,
+          id: `evt_tsort_usage_${i}`,
+          timestamp: new Date(`2026-05-05T10:0${i}:00.000Z`),
+          name: "page_view",
+          tenantId: "tenant_sort_usage",
+          sessionId: "session_tsort_usage"
+        });
+      }
+
+      // tenant_errors: most errors (errors winner) — but NOT top-impact and NOT top-usage.
+      for (let i = 0; i < 3; i++) {
+        await insertError(db, {
+          ...base,
+          id: `err_tsort_errors_${i}`,
+          timestamp: new Date(`2026-05-05T10:1${i}:00.000Z`),
+          message: "boom",
+          severity: "warning",
+          status: "closed",
+          tenantId: "tenant_sort_errors",
+          sessionId: "session_tsort_errors"
+        });
+      }
+      await insertEvent(db, {
+        ...base,
+        id: "evt_tsort_errors_seed",
+        timestamp: new Date("2026-05-05T10:20:00.000Z"),
+        name: "seed",
+        tenantId: "tenant_sort_errors",
+        sessionId: "session_tsort_errors"
+      });
+
+      // tenant_cost: highest LLM cost (llm_cost winner) — buried under the others by impact/usage/errors.
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_tsort_cost_winner",
+        timestamp: new Date("2026-05-05T10:30:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        costUsd: "50.000000",
+        status: "success",
+        tenantId: "tenant_sort_cost",
+        sessionId: "session_tsort_cost"
+      });
+
+      // tenant_recent: most recent activity (recent winner), otherwise minimal.
+      await insertEvent(db, {
+        ...base,
+        id: "evt_tsort_recent_winner",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        name: "latest",
+        tenantId: "tenant_sort_recent",
+        sessionId: "session_tsort_recent"
+      });
+
+      const commonArgs = { projectId: project.id, environmentId: environment.id, window: "7d" as const, now };
+
+      const byUsage = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "usage" });
+      expect(byUsage.tenants.map((t) => t.tenantId)).toEqual([
+        "tenant_sort_usage",
+        "tenant_sort_errors",
+        "tenant_sort_recent",
+        "tenant_sort_cost"
+      ]);
+      expect(byUsage.cursor).toBeUndefined();
+
+      const byErrors = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "errors" });
+      expect(byErrors.tenants[0].tenantId).toBe("tenant_sort_errors");
+
+      const byCost = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "llm_cost" });
+      expect(byCost.tenants[0].tenantId).toBe("tenant_sort_cost");
+
+      const byRecent = await listEntityTenants(db, { ...commonArgs, limit: 50, sort: "recent" });
+      expect(byRecent.tenants[0].tenantId).toBe("tenant_sort_recent");
+
+      // Keyset cursor: page through sort=usage two at a time — no skip, no duplicate.
+      const firstPage = await listEntityTenants(db, { ...commonArgs, limit: 2, sort: "usage" });
+      expect(firstPage.tenants.map((t) => t.tenantId)).toEqual(["tenant_sort_usage", "tenant_sort_errors"]);
+      expect(firstPage.cursor).toBeDefined();
+
+      const cursor = decodeEntityTenantListCursorForTest(firstPage.cursor as string);
+      expect(cursor).toMatchObject({ sort: "usage", actorId: "tenant_sort_errors" });
+
+      const secondPage = await listEntityTenants(db, { ...commonArgs, limit: 2, sort: "usage", cursor });
+      expect(secondPage.tenants.map((t) => t.tenantId)).toEqual(["tenant_sort_recent", "tenant_sort_cost"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      const paginatedIds = [...firstPage.tenants, ...secondPage.tenants].map((t) => t.tenantId);
+      expect(paginatedIds).toEqual(byUsage.tenants.map((t) => t.tenantId));
+      expect(new Set(paginatedIds).size).toBe(paginatedIds.length);
+
+      // Retrocompatible: omitting `sort`/`cursor` entirely still returns the legacy impact-ranked page.
+      const legacy = await listEntityTenants(db, { ...commonArgs, limit: 50 });
+      expect(legacy.cursor).toBeUndefined();
+      expect(legacy.tenants.map((t) => t.tenantId)).not.toEqual(byUsage.tenants.map((t) => t.tenantId));
+    });
+  });
+
+  it("scopes sorted tenant list pagination to the requesting project/environment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const projectA = await createProject(db, { name: "Tenants Scope A" });
+      const environmentA = await createEnvironment(db, { projectId: projectA.id, name: "production" });
+      const projectB = await createProject(db, { name: "Tenants Scope B" });
+      const environmentB = await createEnvironment(db, { projectId: projectB.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+
+      await insertEvent(db, {
+        id: "evt_tscope_a",
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.a",
+        tenantId: "tenant_scope_a",
+        sessionId: "session_tscope_a"
+      });
+      await insertEvent(db, {
+        id: "evt_tscope_b",
+        projectId: projectB.id,
+        environmentId: environmentB.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.b",
+        tenantId: "tenant_scope_b",
+        sessionId: "session_tscope_b"
+      });
+
+      const resultA = await listEntityTenants(db, {
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        window: "7d",
+        limit: 50,
+        sort: "usage",
+        now
+      });
+
+      expect(resultA.tenants.map((t) => t.tenantId)).toEqual(["tenant_scope_a"]);
+    });
+  });
+
   it("searches entity tenants by tenant id or user id", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -9037,6 +9210,165 @@ describe("repositories", () => {
       });
       expect(result.users[0].impactScore).toBe(39.125);
       expect(result.users[1]).toMatchObject({ userId: null, label: "Anonymous / Unassigned", isAnonymous: true, events: 1 });
+    });
+  });
+
+  it("sorts users server-side by usage/errors/llm_cost/recent and paginates with a stable keyset cursor (PER-446)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Users Sort" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api"
+      };
+
+      // user_usage: most events (usage winner) — five events, no errors, no LLM cost.
+      for (let i = 0; i < 5; i++) {
+        await insertEvent(db, {
+          ...base,
+          id: `evt_sort_usage_${i}`,
+          timestamp: new Date(`2026-05-05T10:0${i}:00.000Z`),
+          name: "page_view",
+          userId: "user_sort_usage",
+          sessionId: "session_sort_usage"
+        });
+      }
+
+      // user_errors: most errors (errors winner) — but NOT the top-impact user, and NOT top usage.
+      for (let i = 0; i < 3; i++) {
+        await insertError(db, {
+          ...base,
+          id: `err_sort_errors_${i}`,
+          timestamp: new Date(`2026-05-05T10:1${i}:00.000Z`),
+          message: "boom",
+          severity: "warning",
+          status: "closed",
+          userId: "user_sort_errors",
+          sessionId: "session_sort_errors"
+        });
+      }
+      await insertEvent(db, {
+        ...base,
+        id: "evt_sort_errors_seed",
+        timestamp: new Date("2026-05-05T10:20:00.000Z"),
+        name: "seed",
+        userId: "user_sort_errors",
+        sessionId: "session_sort_errors"
+      });
+
+      // user_cost: highest LLM cost (llm_cost winner) — buried under the others by impact/usage/errors.
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_sort_cost_winner",
+        timestamp: new Date("2026-05-05T10:30:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        costUsd: "50.000000",
+        status: "success",
+        userId: "user_sort_cost",
+        sessionId: "session_sort_cost"
+      });
+
+      // user_recent: most recent activity (recent winner), otherwise minimal.
+      await insertEvent(db, {
+        ...base,
+        id: "evt_sort_recent_winner",
+        timestamp: new Date("2026-05-05T11:59:00.000Z"),
+        name: "latest",
+        userId: "user_sort_recent",
+        sessionId: "session_sort_recent"
+      });
+
+      const commonArgs = { projectId: project.id, environmentId: environment.id, window: "7d" as const, now };
+
+      const byUsage = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "usage" });
+      expect(byUsage.users.map((u) => u.userId)).toEqual([
+        "user_sort_usage",
+        "user_sort_errors",
+        "user_sort_recent",
+        "user_sort_cost"
+      ]);
+      expect(byUsage.cursor).toBeUndefined();
+
+      const byErrors = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "errors" });
+      expect(byErrors.users[0].userId).toBe("user_sort_errors");
+
+      const byCost = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "llm_cost" });
+      expect(byCost.users[0].userId).toBe("user_sort_cost");
+
+      const byRecent = await listUsersActivity(db, { ...commonArgs, limit: 50, sort: "recent" });
+      expect(byRecent.users[0].userId).toBe("user_sort_recent");
+
+      // Keyset cursor: page through sort=usage two at a time — no skip, no duplicate.
+      const firstPage = await listUsersActivity(db, { ...commonArgs, limit: 2, sort: "usage" });
+      expect(firstPage.users.map((u) => u.userId)).toEqual(["user_sort_usage", "user_sort_errors"]);
+      expect(firstPage.cursor).toBeDefined();
+
+      const cursor = decodeUserListCursorForTest(firstPage.cursor as string);
+      expect(cursor).toMatchObject({ sort: "usage", actorId: "user_sort_errors" });
+
+      const secondPage = await listUsersActivity(db, { ...commonArgs, limit: 2, sort: "usage", cursor });
+      expect(secondPage.users.map((u) => u.userId)).toEqual(["user_sort_recent", "user_sort_cost"]);
+      expect(secondPage.cursor).toBeUndefined();
+
+      const paginatedIds = [...firstPage.users, ...secondPage.users].map((u) => u.userId);
+      expect(paginatedIds).toEqual(byUsage.users.map((u) => u.userId));
+      expect(new Set(paginatedIds).size).toBe(paginatedIds.length);
+
+      // Retrocompatible: omitting `sort`/`cursor` entirely still returns the legacy impact-ranked page.
+      const legacy = await listUsersActivity(db, { ...commonArgs, limit: 50 });
+      expect(legacy.cursor).toBeUndefined();
+      expect(legacy.users.map((u) => u.userId)).not.toEqual(byUsage.users.map((u) => u.userId));
+    });
+  });
+
+  it("scopes sorted user list pagination to the requesting project/environment", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const projectA = await createProject(db, { name: "Users Scope A" });
+      const environmentA = await createEnvironment(db, { projectId: projectA.id, name: "production" });
+      const projectB = await createProject(db, { name: "Users Scope B" });
+      const environmentB = await createEnvironment(db, { projectId: projectB.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const receivedAt = new Date("2026-05-05T12:00:01.000Z");
+
+      await insertEvent(db, {
+        id: "evt_scope_a",
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.a",
+        userId: "user_scope_a",
+        sessionId: "session_scope_a"
+      });
+      await insertEvent(db, {
+        id: "evt_scope_b",
+        projectId: projectB.id,
+        environmentId: environmentB.id,
+        receivedAt,
+        timestamp: new Date("2026-05-05T11:00:00.000Z"),
+        name: "scope.b",
+        userId: "user_scope_b",
+        sessionId: "session_scope_b"
+      });
+
+      const resultA = await listUsersActivity(db, {
+        projectId: projectA.id,
+        environmentId: environmentA.id,
+        window: "7d",
+        limit: 50,
+        sort: "usage",
+        now
+      });
+
+      expect(resultA.users.map((u) => u.userId)).toEqual(["user_scope_a"]);
     });
   });
 
@@ -10285,6 +10617,53 @@ describe("repositories", () => {
     });
   });
 
+  it("dedupes an actor across multiple breakdown values in totals/steps/sampleActors (PER-448)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Breakdown Dedup" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // user_multi enters the funnel twice within the window, tagged with two different
+      // breakdown values (plan changed between the two "signup.started" firings). Without
+      // dedup, s0 groups by (actor_id, breakdown_value) and this single actor produces two
+      // rows in `chain`, inflating entrants/completed and duplicating the actor in the sample.
+      await insertEvent(db, { ...base, id: "evt_dd_multi_1", userId: "user_multi", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+      await insertEvent(db, { ...base, id: "evt_dd_multi_2", userId: "user_multi", name: "signup.started", timestamp: new Date("2026-05-04T12:00:30.000Z"), properties: { plan: "pro" } });
+      await insertEvent(db, { ...base, id: "evt_dd_multi_3", userId: "user_multi", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z"), properties: { plan: "pro" } });
+
+      // user_single enters once, with a single breakdown value, and never completes.
+      await insertEvent(db, { ...base, id: "evt_dd_single_1", userId: "user_single", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z"), properties: { plan: "free" } });
+
+      const funnel = await getEventFunnel(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        now: new Date("2026-05-05T12:00:00.000Z"),
+        steps: ["signup.started", "project.created"],
+        breakdownProperty: "plan"
+      });
+
+      // Correct: 2 distinct actors entered, 1 completed - not 3/2 as a naive count(*)/count(t1)
+      // over the per-breakdown-value chain would report.
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 1, conversionPercent: 50 });
+      expect(funnel.steps).toEqual([
+        expect.objectContaining({ index: 0, name: "signup.started", actors: 2 }),
+        expect.objectContaining({ index: 1, name: "project.created", actors: 1 })
+      ]);
+
+      // sampleActors must not list the same actorId twice.
+      const actorIds = funnel.sampleActors.map((actor) => actor.actorId);
+      expect(actorIds).toEqual(["user_multi", "user_single"]);
+      expect(new Set(actorIds).size).toBe(actorIds.length);
+    });
+  });
+
   it("ignores events from actors with no identifying key", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -10363,6 +10742,85 @@ describe("repositories", () => {
 
       expect(scopedBySegment.totals).toMatchObject({ entrants: 1, completed: 1 });
       expect(scopedBySegment.sampleActors.map((actor) => actor.actorId)).toEqual(["user_a1"]);
+    });
+  });
+
+  it("rejects a funnel request whose scope exceeds the configured actor cap (PER-449 guard)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Guard Over Cap" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      // Three distinct actors match the step name/window - above a cap of 2, the guard must reject
+      // before the (expensive) chain query ever runs.
+      await insertEvent(db, { ...base, id: "evt_guard_over_u1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_over_u2", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_over_u3", userId: "user_3", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      await expect(
+        getEventFunnel(
+          db,
+          {
+            projectId: project.id,
+            environmentId: environment.id,
+            window: "7d",
+            now: new Date("2026-05-05T12:00:00.000Z"),
+            steps: ["signup.started", "project.created"]
+          },
+          { maxActors: 2 }
+        )
+      ).rejects.toMatchObject({ name: "FunnelScopeTooLargeError", code: "funnel_scope_too_large" });
+      await expect(
+        getEventFunnel(
+          db,
+          {
+            projectId: project.id,
+            environmentId: environment.id,
+            window: "7d",
+            now: new Date("2026-05-05T12:00:00.000Z"),
+            steps: ["signup.started", "project.created"]
+          },
+          { maxActors: 2 }
+        )
+      ).rejects.toBeInstanceOf(FunnelScopeTooLargeError);
+    });
+  });
+
+  it("allows a funnel request whose scope is within the configured actor cap (PER-449 guard)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Event Funnels Guard Within Cap" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+
+      await insertEvent(db, { ...base, id: "evt_guard_under_u1", userId: "user_1", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_under_u1_2", userId: "user_1", name: "project.created", timestamp: new Date("2026-05-04T12:01:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_guard_under_u2", userId: "user_2", name: "signup.started", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      const funnel = await getEventFunnel(
+        db,
+        {
+          projectId: project.id,
+          environmentId: environment.id,
+          window: "7d",
+          now: new Date("2026-05-05T12:00:00.000Z"),
+          steps: ["signup.started", "project.created"]
+        },
+        { maxActors: 2 }
+      );
+
+      expect(funnel.totals).toMatchObject({ entrants: 2, completed: 1 });
     });
   });
 
@@ -10812,6 +11270,160 @@ describe("repositories", () => {
     });
   });
 
+  // PER-451 (V1): in rollup mode the entry_event eligibility filter must be resolved against
+  // event_actor_daily, not raw `events` -- `events` is purged by the same retentionEventsDays
+  // horizon that flips the query into rollup mode, so in steady state the raw table never has
+  // rows old enough for a long-range rollup query to see. Regression test for
+  // .claude/docs/AUDIT-2026-07-26/findings/PER-440.md (finding V1).
+  it("resolves entry-event eligibility against the rollup once raw events are purged", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Eligibility Survives Purge" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2025-12-02T00:00:01.000Z")
+      };
+      const now = new Date("2026-06-01T00:00:00.000Z");
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "old_user",
+        traits: {},
+        timestamp: new Date("2025-12-01T00:00:00.000Z")
+      });
+      await insertEvent(db, { ...base, id: "evt_purge_entry", userId: "old_user", name: "signup.started", timestamp: new Date("2025-12-01T00:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_purge_return", userId: "old_user", name: "app.opened", timestamp: new Date("2025-12-02T09:00:00.000Z") });
+
+      // Roll up the entry and return events before purging, exactly as the worker would on its
+      // daily pass.
+      await upsertEventActorDaily(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        from: new Date("2025-12-01T00:00:00.000Z"),
+        to: new Date("2025-12-03T00:00:00.000Z")
+      });
+
+      // Simulate steady-state retention: purge raw `events` older than retentionEventsDays,
+      // exactly like the real background job. old_user's entry/return events are ~180 days old,
+      // well past a 90-day cutoff, so both rows are deleted here.
+      await deleteExpiredTelemetry(db, {
+        eventsDays: 90,
+        errorsDays: 9999,
+        tracesDays: 9999,
+        spansDays: 9999,
+        llmCallsDays: 9999,
+        profilesDays: 9999,
+        breadcrumbsDays: 9999,
+        deadLetterJobsDays: 9999,
+        sourceMapsEnabled: false,
+        sourceMapsDays: 9999,
+        sourceMapsBatchSize: 100,
+        now,
+        batchSize: 100
+      });
+
+      await expect(
+        db.selectFrom("events").select("id").where("project_id", "=", project.id).execute()
+      ).resolves.toEqual([]);
+
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now,
+        entryEvent: "signup.started",
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3,
+        rangeDays: 200,
+        retentionEventsDays: 90
+      });
+
+      expect(retention.source).toBe("rollup");
+      // Pre-fix, entryEligibility queries the now-empty `events` table, so old_user never
+      // qualifies and this cohort disappears entirely (totals.cohorts === 0).
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2025-12-01",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "D1", retainedActors: 1, retentionPercent: 100 },
+            { index: 2, label: "D2", retainedActors: 0, retentionPercent: 0 }
+          ]
+        })
+      ]);
+    });
+  });
+
+  // PER-451 (F1): in rollup mode the `activity` CTE reads only event_actor_daily, which the
+  // worker never populates for the current UTC day (apps/worker/src/event-rollups.ts stops its
+  // cursor strictly before `today`). The most recent bucket of any rollup-mode query is therefore
+  // silently undercounted. Regression test for
+  // .claude/docs/AUDIT-2026-07-26/findings/PER-440.md (finding F1).
+  it("includes today's not-yet-rolled activity in the rollup activity CTE", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Rollup Activity Current Day" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-06-08T00:00:01.000Z")
+      };
+      // Midday, not midnight, so "today" (>= 2026-06-10T00:00:00Z) is a non-empty tail of the
+      // queried range (which ends at `now`, exclusive).
+      const now = new Date("2026-06-10T15:00:00.000Z");
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_today",
+        traits: {},
+        timestamp: new Date("2026-06-08T00:00:00.000Z")
+      });
+
+      // Return-event activity only on the current UTC day. Deliberately never rolled up (the
+      // worker never processes "today"), so event_actor_daily has no row for it at all.
+      await insertEvent(db, { ...base, id: "evt_today_return", userId: "user_today", name: "app.opened", timestamp: new Date("2026-06-10T10:00:00.000Z") });
+
+      // retentionEventsDays=1 with a 5-day range is enough to flip this query into rollup mode
+      // without needing a multi-month setup: `from` (now - 5d) is already before `now - 1d`.
+      const retention = await getEventRetention(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "30d",
+        now,
+        returnEvent: "app.opened",
+        period: "daily",
+        intervals: 3,
+        rangeDays: 5,
+        retentionEventsDays: 1
+      });
+
+      expect(retention.source).toBe("rollup");
+      expect(retention.totals).toEqual({ cohorts: 1, entrants: 1 });
+      expect(retention.cohorts).toEqual([
+        expect.objectContaining({
+          cohortLabel: "2026-06-08",
+          entrants: 1,
+          intervals: [
+            { index: 0, label: "D0", retainedActors: 0, retentionPercent: 0 },
+            { index: 1, label: "D1", retainedActors: 0, retentionPercent: 0 },
+            // D2 = 2026-06-10, today: rolled data alone (empty) would undercount this to 0.
+            { index: 2, label: "D2", retainedActors: 1, retentionPercent: 100 }
+          ]
+        })
+      ]);
+    });
+  });
+
   it("manages analytics segments and uses them as event filters", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -11103,6 +11715,104 @@ describe("repositories", () => {
     });
   });
 
+  it("matches trait eq for number and boolean trait values, not just strings (PER-450)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Typed Trait Segments Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-04T12:00:01.000Z")
+      };
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      await insertEvent(db, { ...base, id: "evt_typed_u1", userId: "user_a", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+      await insertEvent(db, { ...base, id: "evt_typed_u2", userId: "user_b", name: "ping", timestamp: new Date("2026-05-04T12:00:00.000Z") });
+
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_a",
+        traits: { score: 30, is_paid: true },
+        timestamp: now
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_b",
+        traits: { score: 10, is_paid: false },
+        timestamp: now
+      });
+
+      const scoreEqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Score 30",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "score", operator: "eq", value: 30 }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, scoreEqSegment, now)).resolves.toEqual(["user_a"]);
+
+      const paidEqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Paid users",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "is_paid", operator: "eq", value: true }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, paidEqSegment, now)).resolves.toEqual(["user_a"]);
+
+      const notPaidEqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Unpaid users",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "is_paid", operator: "eq", value: false }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, notPaidEqSegment, now)).resolves.toEqual(["user_b"]);
+
+      const scoreNeqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Score not 30",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "score", operator: "neq", value: 30 }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, scoreNeqSegment, now)).resolves.toEqual(["user_b"]);
+
+      const paidNeqSegment = await createAnalyticsSegment(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Not paid=true",
+        actorType: "user",
+        definition: {
+          version: 2,
+          window: "30d",
+          root: { kind: "trait", source: "user", name: "is_paid", operator: "neq", value: true }
+        }
+      });
+      await expect(getAnalyticsSegmentActorIds(db, paidNeqSegment, now)).resolves.toEqual(["user_b"]);
+    });
+  });
+
   it("uses the traits GIN index for trait eq containment lookups at scale", async () => {
     // The compiled trait EXISTS subquery correlates on (project_id, environment_id, user_id),
     // which is the user_profiles primary key: for a single known actor, Postgres always
@@ -11139,6 +11849,52 @@ describe("repositories", () => {
           .where("project_id", "=", project.id)
           .where("environment_id", "=", environment.id)
           .where(sql<boolean>`traits @> jsonb_build_object('plan'::text, 'enterprise'::text)`)
+          .explain();
+        const planText = JSON.stringify(plan);
+        expect(planText).toContain("user_profiles_traits_gin_idx");
+      });
+    });
+  });
+
+  it("uses the traits GIN index for a numeric trait eq containment lookup at scale (PER-450)", async () => {
+    // Same shape as the string GIN test above, but for the numeric containment fragment
+    // (`jsonb_build_object(key::text, value::numeric)`) that compileSegmentDefinition now
+    // produces for a number trait value. Proves the PER-450 fix keeps the containment
+    // right-hand side GIN-indexable instead of falling back to a text cast.
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Trait Gin Numeric Scale Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+
+      // A larger profile count than the string GIN test above: by this point in the suite,
+      // user_profiles already carries rows from earlier tests (including the 500-row string
+      // GIN fixture), and the planner's choice between the traits GIN index and the
+      // (project_id, environment_id, first_seen_at) btree is cost-based and sensitive to
+      // accumulated table statistics. 2,000 profiles at a 1-in-50 hit ratio was verified
+      // (repeatedly, against the full suite's accumulated state) to consistently prefer the
+      // GIN index; smaller counts were observed to flip to the btree + filter plan instead.
+      const profileCount = 2000;
+      for (let i = 0; i < profileCount; i += 1) {
+        await identifyUserProfile(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          userId: `user_gin_num_${i}`,
+          traits: { score: i % 50 === 0 ? 30 : 10 },
+          timestamp: now
+        });
+      }
+
+      await db.connection().execute(async (conn) => {
+        await sql`ANALYZE user_profiles`.execute(conn);
+        await sql`SET enable_seqscan = off`.execute(conn);
+        const plan = await conn
+          .selectFrom("user_profiles")
+          .select("user_id")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .where(sql<boolean>`traits @> jsonb_build_object('score'::text, 30::numeric)`)
           .explain();
         const planText = JSON.stringify(plan);
         expect(planText).toContain("user_profiles_traits_gin_idx");

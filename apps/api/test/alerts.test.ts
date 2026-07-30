@@ -545,6 +545,135 @@ describe("admin alert routes", () => {
     ]);
   });
 
+  it("masks Slack and Discord webhook URLs in list responses, but never the raw url", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        listNotificationChannels: async () => [
+          notificationChannel({
+            id: "chn_slack",
+            type: "slack",
+            url: "https://hooks.slack.com/services/T0/B1/verysecrettoken",
+            secretHeaderName: null,
+            secretHeaderValue: null,
+            hasSecret: false
+          }),
+          notificationChannel({
+            id: "chn_discord",
+            type: "discord",
+            url: "https://discord.com/api/webhooks/123/verysecrettoken",
+            secretHeaderName: null,
+            secretHeaderValue: null,
+            hasSecret: false
+          })
+        ]
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/admin/notification-channels" });
+    expect(response.statusCode).toBe(200);
+
+    const [slack, discord] = response.json().channels;
+
+    expect(slack).toMatchObject({ id: "chn_slack", type: "slack", url: null, hasUrl: true });
+    expect(slack.urlPreview).toBe("https://hooks.slack.com/service…");
+    expect(response.body).not.toContain("verysecrettoken");
+
+    expect(discord).toMatchObject({ id: "chn_discord", type: "discord", url: null, hasUrl: true });
+    expect(discord.urlPreview).toBe("https://discord.com/api/web…");
+    expect(response.body).not.toContain("verysecrettoken");
+  });
+
+  it("keeps the full url for generic webhook channels in list responses (out of scope for masking)", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        listNotificationChannels: async () => [notificationChannel({ id: "chn_webhook", type: "webhook" })]
+      }
+    });
+
+    const response = await app.inject({ method: "GET", url: "/admin/notification-channels" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().channels[0]).toMatchObject({
+      id: "chn_webhook",
+      type: "webhook",
+      url: "https://hooks.example.com/sigmon"
+    });
+    expect(response.json().channels[0].urlPreview).toBeUndefined();
+    expect(response.json().channels[0].hasUrl).toBeUndefined();
+  });
+
+  it("preserves the existing Slack webhook url when updating a channel without a url field", async () => {
+    const updates: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        updateNotificationChannel: async (id, input) => {
+          updates.push({ id, input });
+          return notificationChannel({
+            id,
+            type: "slack",
+            name: "Slack renamed",
+            url: "https://hooks.slack.com/services/T0/B1/existingtoken",
+            secretHeaderName: null,
+            secretHeaderValue: null,
+            hasSecret: false
+          });
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_slack",
+      payload: { name: "Slack renamed" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(updates).toEqual([{ id: "chn_slack", input: { name: "Slack renamed" } }]);
+    expect(response.json().channel).toMatchObject({ type: "slack", hasUrl: true });
+    expect(response.json().channel.url).toBeNull();
+    expect(response.body).not.toContain("existingtoken");
+  });
+
+  it("replaces the Slack webhook url when updating a channel with a new url", async () => {
+    const updates: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        updateNotificationChannel: async (id, input) => {
+          updates.push({ id, input });
+          return notificationChannel({
+            id,
+            type: "slack",
+            url: "https://hooks.slack.com/services/T9/B9/newtoken",
+            secretHeaderName: null,
+            secretHeaderValue: null,
+            hasSecret: false
+          });
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_slack",
+      payload: { url: "https://hooks.slack.com/services/T9/B9/newtoken" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(updates).toEqual([
+      { id: "chn_slack", input: { url: "https://hooks.slack.com/services/T9/B9/newtoken" } }
+    ]);
+    expect(response.json().channel).toMatchObject({ type: "slack", hasUrl: true });
+    expect(response.json().channel.urlPreview).toBe("https://hooks.slack.com/service…");
+    expect(response.body).not.toContain("newtoken");
+  });
+
   it("rejects unsafe production webhook URLs for Slack and Discord channels", async () => {
     app = await buildApp({
       readiness,

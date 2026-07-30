@@ -580,7 +580,12 @@ const analyticsSegmentActorTypeSchema = z.enum(["user", "tenant"]);
 // operator string so an unknown operator surfaces the compiler's named
 // "segment_invalid_operator" error instead of a generic validation failure.
 const segmentOperatorSchema = z.string().trim().min(1).max(32);
-const segmentLeafValueSchema = z.union([z.string().max(1024), z.number(), z.array(z.string().max(1024)).max(64)]);
+const segmentLeafValueSchema = z.union([
+  z.string().max(1024),
+  z.number(),
+  z.boolean(),
+  z.array(z.string().max(1024)).max(64)
+]);
 
 const segmentPropertyConditionSchema = z.object({
   name: z.string().trim().min(1).max(128),
@@ -1368,11 +1373,38 @@ function redactSourceMapUploadToken(
   };
 }
 
-function redactNotificationChannel(
-  channel: NotificationChannelRecord
-): Omit<NotificationChannelRecord, "secretHeaderValue"> {
-  const { secretHeaderValue: _secretHeaderValue, ...safeChannel } = channel;
-  return safeChannel;
+function isUrlSecretNotificationChannelType(type: NotificationChannelRecord["type"]): boolean {
+  return type === "slack" || type === "discord";
+}
+
+function maskNotificationChannelUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname.slice(0, 8)}…`;
+  } catch {
+    return "••••";
+  }
+}
+
+type RedactedNotificationChannel = Omit<NotificationChannelRecord, "secretHeaderValue" | "url"> & {
+  url: string | null;
+  hasUrl?: boolean;
+  urlPreview?: string;
+};
+
+function redactNotificationChannel(channel: NotificationChannelRecord): RedactedNotificationChannel {
+  const { secretHeaderValue: _secretHeaderValue, url, ...safeChannel } = channel;
+
+  if (isUrlSecretNotificationChannelType(channel.type) && url !== null) {
+    return {
+      ...safeChannel,
+      url: null,
+      hasUrl: true,
+      urlPreview: maskNotificationChannelUrl(url)
+    };
+  }
+
+  return { ...safeChannel, url };
 }
 
 function redactMonitor(monitor: MonitorRecord): Omit<MonitorRecord, "secretHash"> {

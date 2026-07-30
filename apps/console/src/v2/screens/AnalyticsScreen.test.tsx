@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Environment, Project } from "../../api/types";
@@ -186,6 +186,29 @@ describe("AnalyticsScreen", () => {
     await userEvent.type(screen.getByPlaceholderText("Event name"), "project.created");
     await userEvent.click(screen.getByText("Create segment"));
     expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ name: "Activated", eventName: "project.created" }));
+  });
+
+  it("pushes a toast and does not throw when archiving a segment rejects", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockPanels();
+    vi.spyOn(useSegmentsModule, "useSegments").mockReturnValue({
+      data: { rows: [{ id: "seg1", name: "Activated users", actorType: "user", summary: "", definition: {}, previewActors: null }] },
+      status: "ok",
+      busy: false,
+      reload: vi.fn(),
+      save: vi.fn().mockResolvedValue(true),
+      archive: vi.fn().mockRejectedValue(new Error("network error")),
+    });
+    mockEvents();
+    const ctx = makeCtx();
+    render(<AnalyticsScreen ctx={ctx} />);
+
+    await userEvent.click(screen.getByText("Segments"));
+    const row = screen.getByText("Activated users").closest(".sh-row") as HTMLElement;
+    const archiveBtn = within(row).getAllByRole("button").at(-1)!;
+    await userEvent.click(archiveBtn); // arm
+    await userEvent.click(within(row).getByRole("button", { name: /confirm/i })); // confirm
+    await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not archive segment"));
   });
 
   it("Properties tab renders the full property list (no slice to 8) with type-conflict and similar-name highlights", async () => {

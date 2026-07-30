@@ -171,6 +171,28 @@ describe("SystemScreen", () => {
       expect(within(section).getByText("2h ago")).toBeTruthy();
     });
 
+    it("gives the row an accessible name identifying the job, queue, and age", () => {
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } } });
+      render(<SystemScreen ctx={makeCtx()} />);
+      expect(
+        screen.getByRole("button", { name: "Expand dead-letter job event in telemetry (2h ago)" })
+      ).toBeInTheDocument();
+    });
+
+    it("toggles the row via keyboard (Enter), not just click — matches the accessible role=button pattern", async () => {
+      const loadDeadLetterJobDetail = vi.fn().mockResolvedValue({ payload: { a: 1 }, actions: [] });
+      mockHook({ status: "ok", data: { ...vm, dlq: { status: "ok", jobs: [dlqJob] } }, loadDeadLetterJobDetail });
+      render(<SystemScreen ctx={makeCtx()} />);
+
+      const row = screen.getByRole("button", { name: "Expand dead-letter job event in telemetry (2h ago)" });
+      row.focus();
+      await userEvent.keyboard("{Enter}");
+
+      expect(loadDeadLetterJobDetail).toHaveBeenCalledWith("dlj_1");
+      expect(await screen.findByText(/"a": 1/)).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Collapse dead-letter job event in telemetry (2h ago)" })).toBeInTheDocument();
+    });
+
     it("expands a row and loads payload + action history on demand", async () => {
       const loadDeadLetterJobDetail = vi.fn().mockResolvedValue({
         payload: { hello: "world" },

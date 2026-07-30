@@ -3,11 +3,19 @@ import type { Db } from "../client.js";
 
 export type EntityWindow = "24h" | "7d" | "30d";
 export type EntitySignalType = "event" | "error" | "trace" | "llm";
+export type EntitySort = "impact" | "usage" | "errors" | "llm_cost" | "recent";
 
 export type EntityCursor = {
   timestamp: string;
   type: EntitySignalType;
   id: string;
+};
+
+/** Keyset cursor for the tenant list: last row's sort metric + a stable actor_id (tenant_id) tie-breaker. */
+export type EntityTenantListCursor = {
+  sort: EntitySort;
+  value: number;
+  actorId: string;
 };
 
 export type EntityRange = {
@@ -21,6 +29,9 @@ export type EntityTenantFilters = {
   window: EntityWindow;
   search?: string;
   limit?: number;
+  /** Undefined preserves the legacy default ordering (impact, tie-broken by lastSeenAt/events/label). */
+  sort?: EntitySort;
+  cursor?: EntityTenantListCursor;
   now?: Date;
 };
 
@@ -64,6 +75,7 @@ export type TenantListResponse = {
   scope: { projectId: string; environmentId: string };
   range: EntityRange;
   tenants: TenantSummary[];
+  cursor?: string;
 };
 
 export type TenantTopUser = {
@@ -222,6 +234,52 @@ function searchPattern(search: string | undefined): string | undefined {
 
 function encodeEntityCursor(cursor: EntityCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function encodeEntityTenantListCursor(cursor: EntityTenantListCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function tenantSortMetric(tenant: TenantSummary, sort: EntitySort): number {
+  switch (sort) {
+    case "usage":
+      return tenant.events;
+    case "errors":
+      return tenant.errors;
+    case "llm_cost":
+      return Number(tenant.llmCostUsd);
+    case "recent":
+      return tenant.lastSeenAt ? new Date(tenant.lastSeenAt).getTime() : 0;
+    case "impact":
+    default:
+      return tenant.impactScore;
+  }
+}
+
+function tenantActorId(tenant: TenantSummary): string {
+  return tenant.tenantId ?? "";
+}
+
+/**
+ * Orders tenants for a given sort metric, descending, tie-broken by actor_id (tenantId) so the
+ * order is a strict total order — required for the keyset cursor below to never skip or repeat rows.
+ */
+function sortTenantsByMetric(tenants: TenantSummary[], sort: EntitySort): TenantSummary[] {
+  return [...tenants].sort((left, right) => {
+    const byMetric = tenantSortMetric(right, sort) - tenantSortMetric(left, sort);
+    if (byMetric !== 0) return byMetric;
+    return tenantActorId(left).localeCompare(tenantActorId(right));
+  });
+}
+
+/** Finds the first index strictly after the cursor's (value, actorId) position in a metric-sorted array. */
+function findEntityTenantCursorStart(sorted: TenantSummary[], sort: EntitySort, cursor: EntityTenantListCursor): number {
+  const idx = sorted.findIndex((tenant) => {
+    const value = tenantSortMetric(tenant, sort);
+    if (value !== cursor.value) return value < cursor.value;
+    return tenantActorId(tenant) > cursor.actorId;
+  });
+  return idx === -1 ? sorted.length : idx;
 }
 
 export async function listEntityTenants(db: Db, filters: EntityTenantFilters): Promise<TenantListResponse> {
@@ -438,22 +496,45 @@ export async function listEntityTenants(db: Db, filters: EntityTenantFilters): P
     };
   });
 
-  tenants.sort((left, right) => {
-    if (right.impactScore !== left.impactScore) return right.impactScore - left.impactScore;
-    if ((right.lastSeenAt ?? "") !== (left.lastSeenAt ?? "")) {
-      return (right.lastSeenAt ?? "").localeCompare(left.lastSeenAt ?? "");
-    }
-    if (right.events !== left.events) return right.events - left.events;
-    return left.label.localeCompare(right.label);
-  });
+  // Retrocompatible: no `sort`/`cursor` at all preserves the exact legacy ordering and slice.
+  if (filters.sort === undefined && filters.cursor === undefined) {
+    tenants.sort((left, right) => {
+      if (right.impactScore !== left.impactScore) return right.impactScore - left.impactScore;
+      if ((right.lastSeenAt ?? "") !== (left.lastSeenAt ?? "")) {
+        return (right.lastSeenAt ?? "").localeCompare(left.lastSeenAt ?? "");
+      }
+      if (right.events !== left.events) return right.events - left.events;
+      return left.label.localeCompare(right.label);
+    });
 
-  return {
+    return {
+      window: filters.window,
+      generatedAt: (filters.now ?? new Date()).toISOString(),
+      scope: { projectId: filters.projectId, environmentId: filters.environmentId },
+      range,
+      tenants: tenants.slice(0, limit)
+    };
+  }
+
+  const sort = filters.sort ?? "impact";
+  const sorted = sortTenantsByMetric(tenants, sort);
+  const startIndex = filters.cursor ? findEntityTenantCursorStart(sorted, sort, filters.cursor) : 0;
+  const page = sorted.slice(startIndex, startIndex + limit);
+
+  const response: TenantListResponse = {
     window: filters.window,
     generatedAt: (filters.now ?? new Date()).toISOString(),
     scope: { projectId: filters.projectId, environmentId: filters.environmentId },
     range,
-    tenants: tenants.slice(0, limit)
+    tenants: page
   };
+
+  if (startIndex + limit < sorted.length && page.length > 0) {
+    const last = page[page.length - 1];
+    response.cursor = encodeEntityTenantListCursor({ sort, value: tenantSortMetric(last, sort), actorId: tenantActorId(last) });
+  }
+
+  return response;
 }
 
 export async function getEntityTenantDetail(

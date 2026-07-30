@@ -27,6 +27,8 @@ type NavigateFn = (section: NavSection) => void;
 type KpiItem = {
   label: string;
   value: string | number;
+  /** Optional tooltip — used to surface an un-clamped raw value alongside a clamped display value. */
+  title?: string;
   delta?: string;
   deltaDir?: "up" | "down";
   spark?: number[];
@@ -56,6 +58,7 @@ function KpiGroup({ title, icon, items }: {
             <div className="sh-kpi__label">{it.label}</div>
             <div
               className="sh-kpi__value"
+              title={it.title}
               style={{
                 fontSize: it.small ? 14 : 22,
                 fontFamily: it.small ? "var(--font-mono)" : "var(--font-sans)",
@@ -207,7 +210,14 @@ function buildHealthItems(kpis: KpisVM, openIncidents: number): KpiItem[] {
     },
     {
       label: "Error rate",
-      value: kpis.errorRate != null ? `${kpis.errorRate.toFixed(1)}%` : "—",
+      // Metric definition: errors / traces * 100 (see useOverview.ts). This is
+      // a ratio of two independently-counted signals, not a bounded fraction —
+      // a route can log several errors per completed trace (retries, nested
+      // failures), so the raw value can exceed 100%. Clamp the *display* at
+      // 100% so the KPI reads as a rate instead of an alarming outlier, while
+      // keeping the exact raw value available on hover for triage.
+      value: kpis.errorRate != null ? `${Math.min(kpis.errorRate, 100).toFixed(1)}%` : "—",
+      title: kpis.errorRate != null && kpis.errorRate > 100 ? `Raw: ${kpis.errorRate.toFixed(1)}% (errors can exceed traces)` : undefined,
     },
   ];
 }

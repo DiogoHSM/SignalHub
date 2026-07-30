@@ -2101,12 +2101,16 @@ export type TenantSummary = {
   activeSessions: number;
 };
 
+export type ActivitySort = "impact" | "usage" | "errors" | "llm_cost" | "recent";
+
 export type TenantListQuery = {
   projectId: string;
   environmentId: string;
   window: EntityWindow;
   search?: string;
   limit?: number;
+  sort?: ActivitySort;
+  cursor?: string;
 };
 
 export type TenantDetailQuery = {
@@ -2185,6 +2189,7 @@ export type TenantListResponse = {
   scope: { projectId: string; environmentId: string };
   range: { from: string; to: string };
   tenants: TenantSummary[];
+  cursor?: string;
 };
 
 export type TenantDetailResponse = {
@@ -2232,6 +2237,8 @@ export type UserListQuery = {
   search?: string;
   tenantId?: string;
   limit?: number;
+  sort?: ActivitySort;
+  cursor?: string;
 };
 
 export type UserDetailQuery = {
@@ -2312,6 +2319,7 @@ export type UserListResponse = {
   scope: { projectId: string; environmentId: string };
   range: { from: string; to: string };
   users: UserSummary[];
+  cursor?: string;
 };
 
 export type UserDetailResponse = {
@@ -2515,8 +2523,41 @@ export type NotificationChannelResponse =
   | {
       id: string;
       name: string;
-      type: WebhookLikeChannelType;
+      type: "webhook";
       url: string;
+      emailRecipients: [];
+      secretHeaderName: string | null;
+      hasSecret: boolean;
+      enabled: boolean;
+      createdAt: string;
+      updatedAt: string;
+      archivedAt: string | null;
+    }
+  | {
+      id: string;
+      name: string;
+      type: "slack";
+      // The webhook URL is the credential for Slack/Discord: the API returns it
+      // write-only (never the full url), with hasUrl + urlPreview standing in
+      // for it, mirroring the secretHeaderValue/hasSecret contract below.
+      url: null;
+      hasUrl: boolean;
+      urlPreview?: string;
+      emailRecipients: [];
+      secretHeaderName: string | null;
+      hasSecret: boolean;
+      enabled: boolean;
+      createdAt: string;
+      updatedAt: string;
+      archivedAt: string | null;
+    }
+  | {
+      id: string;
+      name: string;
+      type: "discord";
+      url: null;
+      hasUrl: boolean;
+      urlPreview?: string;
       emailRecipients: [];
       secretHeaderName: string | null;
       hasSecret: boolean;
@@ -2555,7 +2596,18 @@ export type CreateNotificationChannelInput =
       enabled?: boolean;
     };
 
-export type UpdateNotificationChannelInput = Partial<CreateNotificationChannelInput>;
+// Mirrors the API's flat (non-discriminated) update schema: every field is
+// independently optional, so omitting url/secretHeaderValue on an update
+// preserves the existing value instead of requiring it to be retyped.
+export type UpdateNotificationChannelInput = {
+  name?: string;
+  type?: WebhookLikeChannelType | "email";
+  url?: string | null;
+  emailRecipients?: string[];
+  secretHeaderName?: string | null;
+  secretHeaderValue?: string | null;
+  enabled?: boolean;
+};
 
 export type AlertRuleType =
   | "critical_errors"

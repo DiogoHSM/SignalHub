@@ -341,8 +341,16 @@ const googleUserInfoSchema = z.object({
 const logger = createStructuredLogger("api");
 const config = loadConfig();
 const sessionCookieName = getSessionCookieName(config.nodeEnv);
-const db = createDb(config.databaseUrl);
-await migrate(db);
+
+// PER-449: migrations run on a short-lived, timeout-free pool. A one-time schema change (e.g. a
+// CREATE INDEX on a large `events` table) can legitimately take longer than the statement_timeout
+// applied below to the request-serving pool - sharing one pool between the two would risk killing
+// a legitimate migration mid-run.
+const migrationDb = createDb(config.databaseUrl);
+await migrate(migrationDb);
+await migrationDb.destroy();
+
+const db = createDb(config.databaseUrl, { statementTimeoutMs: config.db.statementTimeoutMs });
 
 const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null
@@ -821,7 +829,7 @@ const app = await buildApp({
     getOperations: (filters) => getOperations(db, filters),
     getEventPropertyCatalog: (filters) => getEventPropertyCatalog(db, filters),
     getEventClickMap: (filters) => getEventClickMap(db, filters),
-    getEventFunnel: (filters) => getEventFunnel(db, filters),
+    getEventFunnel: (filters) => getEventFunnel(db, filters, { maxActors: config.funnel.maxActors }),
     getExperimentResults: (filters) => getExperimentResults(db, filters),
     getSurveyResults: (filters) => getSurveyResults(db, filters),
     getMessageCampaignResults: (filters) => getMessageCampaignResults(db, filters),

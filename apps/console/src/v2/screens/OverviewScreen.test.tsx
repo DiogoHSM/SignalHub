@@ -216,6 +216,26 @@ describe("OverviewScreen", () => {
       expect(screen.getAllByText("gpt-4o").length).toBeGreaterThanOrEqual(1);
     });
 
+    it("clamps an error rate above 100% for display (errors can outnumber traces) and keeps the raw value in a tooltip", () => {
+      // Regression: errors/traces*100 is not a bounded fraction — a route can
+      // log several errors per completed trace — so raw values like 466.7%
+      // must not be shown as-is on the Health KPI card.
+      mockUseOverview({ ...ALL_CLEAR_VM, kpis: { ...ALL_CLEAR_VM.kpis, errorRate: 466.7 } });
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByText("100.0%")).toBeInTheDocument();
+      expect(screen.queryByText("466.7%")).not.toBeInTheDocument();
+      expect(screen.getByText("100.0%")).toHaveAttribute("title", expect.stringContaining("466.7%"));
+    });
+
+    it("does not clamp or annotate an error rate at or below 100%", () => {
+      mockUseOverview(ALL_CLEAR_VM); // errorRate: 20
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      const value = screen.getByText("20.0%");
+      expect(value).not.toHaveAttribute("title");
+    });
+
     it("Open incidents tile shows banner.incidents, not failedTraces", () => {
       const vm: OverviewVM = {
         ...ALL_CLEAR_VM,

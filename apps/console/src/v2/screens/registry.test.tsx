@@ -263,6 +263,8 @@ describe("screen registry", () => {
       data: null,
       status: "loading",
       reload: vi.fn(),
+      loadMore: vi.fn(),
+      loadingMore: false,
     });
     const ctx = makeCtx();
     const node = renderSection("users", ctx);

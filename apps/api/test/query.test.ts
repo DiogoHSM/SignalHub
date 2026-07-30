@@ -14,6 +14,7 @@ import {
 } from "../src/source-maps/parser.js";
 import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
+import { FunnelScopeTooLargeError } from "@sigmon/db/repositories/telemetry-query.js";
 
 vi.mock("@sigmon/db/repositories/source-maps.js", () => ({
   createSourceMapArtifact: vi.fn(),
@@ -1840,6 +1841,46 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("maps the PER-449 funnel scope guard to a named 400, not a generic 503", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => {
+          throw new FunnelScopeTooLargeError();
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&steps=signup.started,project.created"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "funnel_scope_too_large" });
+  });
+
+  it("still maps unrelated funnel query failures to 503", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        getEventFunnel: async () => {
+          throw new Error("boom");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events/funnel?project_id=prj_1&environment_id=env_1&window=30d&steps=signup.started,project.created"
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "query_unavailable" });
+  });
+
   it("forwards new conversion funnel filters only when the caller sends them", async () => {
     const receivedFilters: unknown[] = [];
 
@@ -2571,6 +2612,106 @@ describe("query routes", () => {
     expect(response.json()).toEqual({ error: "invalid_query" });
   });
 
+  it("forwards entity tenant list sort and decoded cursor", async () => {
+    const receivedFilters: unknown[] = [];
+    const cursor = Buffer.from(JSON.stringify({ sort: "llm_cost", value: 12.5, actorId: "tenant_1" })).toString("base64url");
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            window: "7d",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+            tenants: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/query/entities/tenants?project_id=prj_1&environment_id=env_1&sort=llm_cost&cursor=${cursor}`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "7d",
+        limit: 50,
+        sort: "llm_cost",
+        cursor: { sort: "llm_cost", value: 12.5, actorId: "tenant_1" }
+      }
+    ]);
+  });
+
+  it("rejects an invalid entity tenant list sort", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants?project_id=prj_1&environment_id=env_1&sort=bogus"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects an entity tenant list cursor minted for a different sort", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const cursor = Buffer.from(JSON.stringify({ sort: "usage", value: 10, actorId: "tenant_1" })).toString("base64url");
+    const response = await app.inject({
+      method: "GET",
+      url: `/query/entities/tenants?project_id=prj_1&environment_id=env_1&sort=errors&cursor=${cursor}`
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects a malformed entity tenant list cursor", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEntityTenants: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/entities/tenants?project_id=prj_1&environment_id=env_1&cursor=not-json"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
   it("forwards entity tenant detail filters and decoded cursor", async () => {
     const receivedFilters: unknown[] = [];
     const cursor = Buffer.from(JSON.stringify({ timestamp: "2026-05-05T11:00:00.000Z", type: "error", id: "err_1" })).toString(
@@ -2799,6 +2940,106 @@ describe("query routes", () => {
     const response = await app.inject({
       method: "GET",
       url: "/query/users?project_id=prj_1&environment_id=env_1&window=custom"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("forwards user list sort and decoded cursor", async () => {
+    const receivedFilters: unknown[] = [];
+    const cursor = Buffer.from(JSON.stringify({ sort: "errors", value: 7, actorId: "user_1" })).toString("base64url");
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listUsersActivity: async (filters) => {
+          receivedFilters.push(filters);
+          return {
+            window: "7d",
+            generatedAt: "2026-05-05T12:00:00.000Z",
+            scope: { projectId: "prj_1", environmentId: "env_1" },
+            range: { from: "2026-04-28T12:00:00.000Z", to: "2026-05-05T12:00:00.000Z" },
+            users: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/query/users?project_id=prj_1&environment_id=env_1&sort=errors&cursor=${cursor}`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        window: "7d",
+        limit: 50,
+        sort: "errors",
+        cursor: { sort: "errors", value: 7, actorId: "user_1" }
+      }
+    ]);
+  });
+
+  it("rejects an invalid user list sort", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listUsersActivity: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/users?project_id=prj_1&environment_id=env_1&sort=bogus"
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects a user list cursor minted for a different sort", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listUsersActivity: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const cursor = Buffer.from(JSON.stringify({ sort: "impact", value: 10, actorId: "user_1" })).toString("base64url");
+    const response = await app.inject({
+      method: "GET",
+      url: `/query/users?project_id=prj_1&environment_id=env_1&sort=recent&cursor=${cursor}`
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  it("rejects a malformed user list cursor", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listUsersActivity: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/users?project_id=prj_1&environment_id=env_1&cursor=not-json"
     });
 
     expect(response.statusCode).toBe(400);
