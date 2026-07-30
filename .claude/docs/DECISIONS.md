@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-26: Move hosting to Coolify with manual-only CI and manual deploys
+
+Decision: Production hosting moved from EasyPanel to Coolify (project `sigmon`, environment `production`), with `api`, `worker`, and `scheduler` as separate Coolify applications built from the repository Dockerfile and Postgres/Redis as Coolify-managed database resources. GitHub Actions is manual-only (`workflow_dispatch`); the release gates run locally before every push, and production deploys are triggered manually through Coolify deploy webhooks (or the panel) after merging to `main`. Auto-deploy from CI is not to be recreated. This supersedes the 2026-05-24 decision "Deploy only application services from GitHub Actions".
+
+Rationale: The hosting platform changed and the project adopted a local-first CI policy, so CI-triggered deploy hooks no longer match how releases actually ship. Manual webhook deploys keep the operator in control of when production rolls forward and remove the coupling between GitHub Actions availability and deployability. The stateful-services rule from the superseded decision is preserved: Postgres and Redis are never redeployed from repository builds.
+
 ## 2026-07-26: Statement timeout scoped to the API's request pool, not migrations or the worker
 
 Decision: PER-449 adds a `statement_timeout` to the pg `Pool` created by `createDb` (`packages/db/src/client.ts`), applied per connection at startup. `apps/api/src/main.ts` now creates two pools: a short-lived, timeout-free `migrationDb` used only for `migrate()` and destroyed immediately after, and the long-lived `db` used for everything else, with `statement_timeout` set from `DB_STATEMENT_TIMEOUT_MS` (default 15000ms, 0 disables). `apps/worker/src/main.ts` uses its own env var, `DB_WORKER_STATEMENT_TIMEOUT_MS`, defaulting to 0 (disabled).
@@ -60,7 +66,9 @@ Rationale: Public npm gives programmers and code agents the lowest-friction inst
 
 Publishing uses npm Trusted Publishing through GitHub Actions OIDC instead of a long-lived `NPM_TOKEN`. This keeps release automation tied to repository workflow identity and avoids storing a broad npm publish secret in GitHub.
 
-## 2026-05-24: Deploy only application services from GitHub Actions
+## 2026-05-24: Deploy only application services from GitHub Actions (superseded 2026-07-26)
+
+Superseded by "Move hosting to Coolify with manual-only CI and manual deploys" (2026-07-26). Kept for historical context.
 
 Decision: GitHub Actions may trigger EasyPanel deploy hooks for the repository-built `api`, `worker`, and optional split `scheduler` services after the `main` CI gates pass. Postgres and Redis are excluded from repository-triggered deploy hooks.
 

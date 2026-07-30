@@ -481,7 +481,7 @@ describe("ExperimentsPanel", () => {
     render(<ExperimentsPanel client={api} environmentId="env_1" projectId="prj_1" />);
 
     const campaignsRegion = await screen.findByRole("region", { name: "Message campaigns" });
-    expect(within(campaignsRegion).getByLabelText("Campaign")).toHaveValue("cmp_1");
+    expect(await within(campaignsRegion).findByLabelText("Campaign")).toHaveValue("cmp_1");
     await waitFor(() => expect(within(campaignsRegion).getAllByText("100.0%")[0]).toBeInTheDocument());
     expect(within(campaignsRegion).getByRole("row", { name: /converted/ })).toHaveTextContent("tenant_1");
 
