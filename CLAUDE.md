@@ -28,7 +28,7 @@ SignalMonitor is a self-hosted telemetry core for product analytics, errors, LLM
 - Keep source-map retention worker-owned, env-configured, and local-storage-only until object storage is explicitly designed.
 - Keep source-map upload tokens separate from browser ingestion API keys. They are CI-only secrets created from the Artifacts console and used by `pnpm source-maps:upload`.
 - Use `pnpm smoke:compose` as the local-first release smoke gate for the Docker Compose install path.
-- Keep GitHub Actions CI manual-only (`workflow_dispatch`) with tests, build, Docker Compose config validation, and the Compose smoke gate; run the same gates locally before every push. Production deploys are manual through Coolify — do not reintroduce CI-triggered deploys.
+- Keep GitHub Actions CI automatic on pull requests and pushes to `main` (plus `workflow_dispatch`) with tests, build, Docker Compose config validation, and the Compose smoke gate; still run the same gates locally before every push. Production deploys are manual through Coolify — do not add a deploy job to any workflow.
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
 - Feedback widget ingestion is browser-safe text/context only for now; do not add screenshot capture until masking and explicit consent controls are designed.
 

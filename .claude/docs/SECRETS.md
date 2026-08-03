@@ -22,6 +22,8 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `BROWSER_CORS_ORIGINS` | No | `https://app.example.com` | Optional non-secret global browser origin allowlist for public ingestion endpoints. Prefer project-scoped origins in Project Settings for normal setup. |
 | `SIGMON_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
 | Coolify deploy webhook URLs | Operator only | `https://coolify.example.com/api/v1/deploy?uuid=...` | Manual deploy triggers for the `api`, `worker`, and `scheduler` Coolify applications. Keep only in the uncommitted root `SECRETS.md`; not configured in GitHub Actions. |
+| Coolify API token | Operator only | `3|example-token` | Bearer token for the deploy webhooks above, scoped to `deploy` only. Kept in the uncommitted root `SECRETS.md` and deliberately not a GitHub Actions secret, because deploys are manual. |
+| `SOURCE_COMMIT` | Injected | `e8460fbfef11972f7605a2221fee2d19c452ca9d` | Non-secret. Set automatically by Coolify to the built commit SHA; reported as `version` by `GET /health` so a deploy can be verified by effect. Unset locally and under Compose, where `version` is `null`. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | `/var/lib/sigmon/source-maps` | Non-secret operational config. Local directory for uploaded source-map artifacts. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | `50` | Non-secret operational config. Maximum source-map upload size in MiB. |
 | `SOURCE_MAPS_RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables worker cleanup of old local source-map artifacts when telemetry retention is enabled. |

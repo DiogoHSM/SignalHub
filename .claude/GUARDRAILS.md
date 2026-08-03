@@ -2,7 +2,7 @@
 
 > **Sempre carregado.** Este arquivo é o único contrato de *lazy loading* do projeto: diz a Claude quais docs ler antes de tocar em cada área. Docs não listados aqui só são lidos quando Claude os abrir explicitamente.
 
-**Última revisão**: 2026-07-26
+**Última revisão**: 2026-08-02
 
 ---
 
@@ -14,7 +14,7 @@ Use esta tabela como checklist. Antes de modificar um arquivo que se encaixe num
 
 | Ao tocar em… | Leia antes | Por quê |
 |---|---|---|
-| Deploy/CI (`.github/workflows/**`, `Dockerfile*`, `docker-compose*.yml`, `deploy/**`) | `DEPLOYMENT.md`, `INFRASTRUCTURE.md` | Compose é o caminho de instalação suportado; smoke gate `pnpm smoke:compose` |
+| Deploy/CI (`.github/workflows/**`, `Dockerfile*`, `docker-compose*.yml`, `deploy/**`) | `DEPLOYMENT.md`, `INFRASTRUCTURE.md` | Compose é o caminho de instalação suportado; smoke gate `pnpm smoke:compose`. CI é automático em PR/push desde 2026-08-02, mas **deploy job em workflow é proibido** (ADR) — `scripts/ci-workflow.test.ts` falha se aparecer |
 | Migrations, schema, índices, seeds (`**/migrations/**`, `*.sql`) | `DECISIONS.md`, `CONSTRAINTS.md`, `ARCHITECTURE.md` | Postgres é source of truth; mudanças de dados são irreversíveis |
 | Novas dependências (`package.json` de qualquer workspace) | `STACK.md`, `DECISIONS.md` | workspace pnpm; alinhar com decisões de stack; commitar lockfile junto |
 | Variáveis de ambiente, secrets, `.env*` | `SECRETS.md`, `DEPLOYMENT.md` | `SECRETS.md` do docs é sanitizado e versionado; nunca commitar valores reais |

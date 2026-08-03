@@ -81,13 +81,26 @@ For release-readiness checks, run `pnpm smoke:compose` from a clean checkout aft
 
 ## CI Gate
 
-GitHub Actions is manual-only by policy (2026-07): the CI workflow runs only through `workflow_dispatch`, and the release-readiness baseline runs locally before every push: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
+The CI workflow runs automatically on pull requests to `main` and pushes to `main`, and can still be started with `workflow_dispatch`. Concurrent runs for the same ref are cancelled so only the newest push is gated. This repository is public, so standard-runner minutes are free — see the 2026-08-02 decision for why the earlier manual-only policy was dropped.
+
+Automatic CI does not replace the local gate. Run the release-readiness baseline before every push: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
 
 The workflow uses GitHub-maintained actions that run on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). This is separate from the application runtime, which remains Node.js 22.
 
 The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. It does not publish images or create releases.
 
-Production deploys are not part of CI. The hosted instance runs on Coolify with separate `api`, `worker`, and `scheduler` applications built from the repository Dockerfile, plus Coolify-managed Postgres and Redis database resources. After merging to `main`, the operator triggers each application's Coolify deploy webhook manually (or uses the panel's Deploy action). Deploy webhook URLs are operator secrets kept in the uncommitted root `SECRETS.md`.
+Production deploys are not part of CI, and no deploy job may be added to a workflow. The hosted instance runs on Coolify with separate `api`, `worker`, and `scheduler` applications built from the repository Dockerfile, plus Coolify-managed Postgres and Redis database resources. After merging to `main`, the operator triggers each application's Coolify deploy webhook manually (or uses the panel's Deploy action). Deploy webhook URLs and the API token are operator secrets kept in the uncommitted root `SECRETS.md`.
+
+## Verifying a deploy
+
+A `200` from `/health` does not prove a deploy happened — an untouched container answers exactly the same. Coolify injects `SOURCE_COMMIT` (the full commit SHA) into every container it builds, and `GET /health` reports it:
+
+```sh
+curl -s https://my.sigmon.app/health
+# {"ok":true,"version":"e8460fbfef11972f7605a2221fee2d19c452ca9d"}
+```
+
+After triggering the three deploy webhooks, poll this until `version` matches the commit you deployed. `version` is `null` when the container was started without `SOURCE_COMMIT`, which is the expected value for local and Compose runs.
 
 Postgres and Redis are never redeployed from repository builds. They are stateful Coolify database resources managed directly in the panel.
 

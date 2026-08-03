@@ -32,12 +32,26 @@ function jobBlock(content: string, jobName: string): string {
 }
 
 describe("GitHub Actions CI workflow", () => {
-  it("runs only on manual dispatch per the local-first CI policy", () => {
+  it("runs automatically on pull requests and pushes to main, and still on demand", () => {
     const content = workflow();
 
-    expectIncludesAll(content, ["name: CI", "workflow_dispatch:"]);
-    expect(content).not.toContain("pull_request:");
-    expect(content).not.toContain("push:");
+    expectIncludesAll(content, [
+      "name: CI",
+      "pull_request:",
+      "push:",
+      "branches: [main]",
+      "workflow_dispatch:"
+    ]);
+  });
+
+  it("cancels a superseded in-flight run for the same ref", () => {
+    const content = workflow();
+
+    expectIncludesAll(content, [
+      "concurrency:",
+      "group: ci-${{ github.ref }}",
+      "cancel-in-progress: true"
+    ]);
   });
 
   it("uses read-only repository contents permissions", () => {
@@ -109,11 +123,15 @@ describe("GitHub Actions CI workflow", () => {
     );
   });
 
-  it("has no hosted deploy job — deploys are handled outside GitHub Actions", () => {
+  // This guard carries more weight now that CI fires on every push to main: a deploy
+  // job added here would silently become auto-deploy, which ADR 2026-07-26 forbids.
+  it("has no hosted deploy job — deploys stay manual through Coolify", () => {
     const content = workflow();
 
     expect(content).not.toContain("deploy-easypanel:");
     expect(content).not.toContain("EASYPANEL");
+    expect(content).not.toContain("COOLIFY");
+    expect(content).not.toContain("api/v1/deploy");
   });
 
   it("publishes the SDK package to public npm only on manual dispatch with Trusted Publishing", () => {
