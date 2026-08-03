@@ -885,6 +885,203 @@ export const openApiDocument = {
           url: { type: "string", format: "uri" }
         }
       },
+      ErrorGroupRecord: {
+        type: "object",
+        required: [
+          "id",
+          "projectId",
+          "environmentId",
+          "groupingFingerprint",
+          "message",
+          "type",
+          "topStackFrame",
+          "severity",
+          "status",
+          "priority",
+          "firstSeenAt",
+          "lastSeenAt",
+          "lastRegressedAt",
+          "occurrenceCount",
+          "affectedUsersCount",
+          "affectedTenantsCount",
+          "latestErrorId",
+          "latestRelease",
+          "resolvedAt",
+          "ignoredAt",
+          "assignedToUserId",
+          "assignedTo",
+          "silencedUntil",
+          "incidentNumber",
+          "createdAt",
+          "updatedAt"
+        ],
+        properties: {
+          id: { type: "string" },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          groupingFingerprint: { type: "string" },
+          message: { type: "string" },
+          type: { type: ["string", "null"] },
+          topStackFrame: { type: ["string", "null"] },
+          severity: { type: "string" },
+          status: { type: "string", enum: ["open", "investigating", "resolved", "ignored"] },
+          priority: { type: ["string", "null"], enum: ["urgent", "high", "normal", "low", null] },
+          firstSeenAt: { type: "string", format: "date-time" },
+          lastSeenAt: { type: "string", format: "date-time" },
+          lastRegressedAt: { type: ["string", "null"], format: "date-time" },
+          occurrenceCount: { type: "integer", minimum: 0 },
+          affectedUsersCount: { type: "integer", minimum: 0 },
+          affectedTenantsCount: { type: "integer", minimum: 0 },
+          latestErrorId: { type: ["string", "null"] },
+          latestRelease: { type: ["string", "null"] },
+          resolvedAt: { type: ["string", "null"], format: "date-time" },
+          ignoredAt: { type: ["string", "null"], format: "date-time" },
+          assignedToUserId: { type: ["string", "null"] },
+          assignedTo: {
+            type: ["object", "null"],
+            properties: { id: { type: "string" }, email: { type: "string" } }
+          },
+          silencedUntil: { type: ["string", "null"], format: "date-time" },
+          incidentNumber: { type: ["string", "null"] },
+          trend: { type: "array", items: { type: "number" }, description: "Optional recent-occurrence sparkline series." },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      ErrorGroupTriagePatch: {
+        type: "object",
+        minProperties: 1,
+        description: "At least one of status, priority, or assignedToUserId must be present.",
+        properties: {
+          status: { type: "string", enum: ["open", "investigating", "resolved", "ignored"] },
+          priority: { type: ["string", "null"], enum: ["urgent", "high", "normal", "low", null] },
+          assignedToUserId: { type: ["string", "null"], description: "User id to assign, or null to unassign." }
+        }
+      },
+      TriageNoteInput: {
+        type: "object",
+        required: ["body"],
+        properties: {
+          body: { type: "string", minLength: 1, maxLength: 5000 }
+        }
+      },
+      SilenceIncidentInput: {
+        type: "object",
+        required: ["minutes"],
+        properties: {
+          minutes: {
+            type: ["integer", "null"],
+            minimum: 0,
+            description: "Minutes from now to silence the incident. `0` or `null` clears an existing silence."
+          }
+        }
+      },
+      TriageNoteRecord: {
+        type: "object",
+        required: ["id", "errorGroupId", "authorUserId", "authorEmail", "body", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          errorGroupId: { type: "string" },
+          authorUserId: { type: ["string", "null"] },
+          authorEmail: { type: "string" },
+          body: { type: "string", maxLength: 5000 },
+          createdAt: { type: "string", format: "date-time" }
+        }
+      },
+      EntityTenantSummary: {
+        type: "object",
+        required: [
+          "tenantId",
+          "label",
+          "traits",
+          "keyTraits",
+          "isUnassigned",
+          "impactScore",
+          "firstSeenAt",
+          "lastSeenAt",
+          "profileUpdatedAt",
+          "events",
+          "errors",
+          "openErrors",
+          "severeErrors",
+          "traces",
+          "failedTraces",
+          "llmCalls",
+          "failedLlmCalls",
+          "llmCostUsd",
+          "activeUsers",
+          "activeSessions"
+        ],
+        properties: {
+          tenantId: { type: ["string", "null"] },
+          label: { type: "string" },
+          traits: { type: "object", additionalProperties: true },
+          keyTraits: { type: "object", additionalProperties: { type: "string" } },
+          isUnassigned: { type: "boolean" },
+          impactScore: { type: "number" },
+          firstSeenAt: { type: ["string", "null"], format: "date-time" },
+          lastSeenAt: { type: ["string", "null"], format: "date-time" },
+          profileUpdatedAt: { type: ["string", "null"], format: "date-time" },
+          events: { type: "integer", minimum: 0 },
+          errors: { type: "integer", minimum: 0 },
+          openErrors: { type: "integer", minimum: 0 },
+          severeErrors: { type: "integer", minimum: 0 },
+          traces: { type: "integer", minimum: 0 },
+          failedTraces: { type: "integer", minimum: 0 },
+          llmCalls: { type: "integer", minimum: 0 },
+          failedLlmCalls: { type: "integer", minimum: 0 },
+          llmCostUsd: { type: "string" },
+          activeUsers: { type: "integer", minimum: 0 },
+          activeSessions: { type: "integer", minimum: 0 }
+        }
+      },
+      EntityUserSummary: {
+        type: "object",
+        required: [
+          "userId",
+          "label",
+          "traits",
+          "keyTraits",
+          "isAnonymous",
+          "impactScore",
+          "firstSeenAt",
+          "lastSeenAt",
+          "profileUpdatedAt",
+          "events",
+          "errors",
+          "openErrors",
+          "severeErrors",
+          "traces",
+          "failedTraces",
+          "llmCalls",
+          "failedLlmCalls",
+          "llmCostUsd",
+          "activeTenants",
+          "activeSessions"
+        ],
+        properties: {
+          userId: { type: ["string", "null"] },
+          label: { type: "string" },
+          traits: { type: "object", additionalProperties: true },
+          keyTraits: { type: "object", additionalProperties: { type: "string" } },
+          isAnonymous: { type: "boolean" },
+          impactScore: { type: "number" },
+          firstSeenAt: { type: ["string", "null"], format: "date-time" },
+          lastSeenAt: { type: ["string", "null"], format: "date-time" },
+          profileUpdatedAt: { type: ["string", "null"], format: "date-time" },
+          events: { type: "integer", minimum: 0 },
+          errors: { type: "integer", minimum: 0 },
+          openErrors: { type: "integer", minimum: 0 },
+          severeErrors: { type: "integer", minimum: 0 },
+          traces: { type: "integer", minimum: 0 },
+          failedTraces: { type: "integer", minimum: 0 },
+          llmCalls: { type: "integer", minimum: 0 },
+          failedLlmCalls: { type: "integer", minimum: 0 },
+          llmCostUsd: { type: "string" },
+          activeTenants: { type: "integer", minimum: 0 },
+          activeSessions: { type: "integer", minimum: 0 }
+        }
+      },
       ReleaseMetadata: {
         type: "object",
         required: ["id", "projectId", "environmentId", "release"],
@@ -3209,6 +3406,116 @@ export const openApiDocument = {
         }
       }
     },
+    "/query/error-groups": {
+      get: {
+        ...sessionRoute(
+          "List error groups",
+          "List error groups for a project environment with cursor pagination, most recently seen first. Query with project_id, environment_id, and optional status, severity, fingerprint, tenant_id, user_id, release, from, to, limit=1..500 (default 50), and cursor from a previous page's response."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "status", in: "query", required: false, schema: { type: "string", enum: ["open", "investigating", "resolved", "ignored"] } },
+          { name: "severity", in: "query", required: false, schema: { type: "string" } },
+          { name: "fingerprint", in: "query", required: false, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "release", in: "query", required: false, schema: { type: "string" } },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 500, default: 50 } },
+          { name: "cursor", in: "query", required: false, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Paginated error groups",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: { type: "array", items: { $ref: "#/components/schemas/ErrorGroupRecord" } },
+                    cursor: { type: ["string", "null"] }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Error group query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/error-groups/{id}": {
+      get: {
+        ...sessionRoute(
+          "Query error-group detail",
+          "Read one error group scoped to a project environment. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Error group detail",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: { data: { $ref: "#/components/schemas/ErrorGroupRecord" } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Error group not found" },
+          "501": { description: "Error group query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      patch: {
+        ...sessionRoute(
+          "Update error-group triage state",
+          "Update one error group's status, priority, and/or assignee. At least one of `status`, `priority`, or `assignedToUserId` must be present in the body; `status`/`priority` are applied first, then assignment. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: jsonBody("ErrorGroupTriagePatch", { status: "investigating", priority: "high" }),
+        responses: {
+          "200": {
+            description: "Updated error group",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: { data: { $ref: "#/components/schemas/ErrorGroupRecord" } }
+                }
+              }
+            }
+          },
+          "400": {
+            description:
+              "Invalid request body/query, or (when assigning) `user_not_found`/`user_archived` in the `error` field of the response body.",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Error group not found" },
+          "501": { description: "Triage mutation is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/query/error-groups/{id}/errors": {
       get: {
         ...sessionRoute(
@@ -3290,6 +3597,150 @@ export const openApiDocument = {
         }
       }
     },
+    "/query/aggregates/errors": {
+      get: {
+        ...sessionRoute(
+          "Query error aggregates",
+          "Read the stable public error aggregate contract for a project environment: total error count and open (unresolved) count. Optional actor, session, trace, and date filters narrow the aggregate without changing its response fields."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "session_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "trace_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } }
+        ],
+        responses: {
+          "200": {
+            description: "Error count and open count",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["total", "open"],
+                      properties: {
+                        total: { type: "integer", minimum: 0 },
+                        open: { type: "integer", minimum: 0 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Error aggregate query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/aggregates/events": {
+      get: {
+        ...sessionRoute(
+          "Query event aggregates",
+          "Read the stable public event aggregate contract for a project environment: total event count and a per-event-name breakdown. Optional event_name, event_id, segment_id, actor, session, trace, and date filters narrow the aggregate without changing its response fields."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "session_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "trace_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "event_name", in: "query", required: false, schema: { type: "string" } },
+          { name: "event_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "segment_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } }
+        ],
+        responses: {
+          "200": {
+            description: "Event count and per-name breakdown",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["total", "byName"],
+                      properties: {
+                        total: { type: "integer", minimum: 0 },
+                        byName: { type: "object", additionalProperties: { type: "integer", minimum: 0 } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Event aggregate query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/aggregates/llm": {
+      get: {
+        ...sessionRoute(
+          "Query LLM aggregates",
+          "Read the stable public LLM aggregate contract for a project environment: total call count, total input/output tokens, and total cost. Optional provider, model, prompt_name, status, actor, session, trace, and date filters narrow the aggregate without changing its response fields."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "session_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "trace_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "provider", in: "query", required: false, schema: { type: "string" } },
+          { name: "model", in: "query", required: false, schema: { type: "string" } },
+          { name: "prompt_name", in: "query", required: false, schema: { type: "string" } },
+          { name: "status", in: "query", required: false, schema: { type: "string" } },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } }
+        ],
+        responses: {
+          "200": {
+            description: "LLM call count, token totals, and cost total",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["totalCalls", "totalInputTokens", "totalOutputTokens", "totalCostUsd"],
+                      properties: {
+                        totalCalls: { type: "integer", minimum: 0 },
+                        totalInputTokens: { type: "integer", minimum: 0 },
+                        totalOutputTokens: { type: "integer", minimum: 0 },
+                        totalCostUsd: { type: "string", description: "Decimal string, e.g. \"1.2345\"." }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "LLM aggregate query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/query/events": {
       get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")
     },
@@ -3316,6 +3767,75 @@ export const openApiDocument = {
         "Query event property catalog",
         "Read observed custom event properties for a project environment, including frequency, event coverage, inferred JSON types, safe sample values, type conflicts, and similar property-name groups. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
+    },
+    "/query/operations": {
+      get: {
+        ...sessionRoute(
+          "Query operations rollup",
+          "Read a single-window operations rollup for one project environment: monitor status counts, alert rule/event summaries, telemetry health, incident counts, recent monitors/alerts/incidents, detected anomalies, and a heuristic operational-risk prediction. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "24h" } }
+        ],
+        responses: {
+          "200": {
+            description: "Operations rollup",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["window", "generatedAt", "scope", "range", "status", "summary", "recent"],
+                      properties: {
+                        window: { type: "string", enum: ["24h", "7d", "30d"] },
+                        generatedAt: { type: "string", format: "date-time" },
+                        scope: {
+                          type: "object",
+                          properties: { projectId: { type: "string" }, environmentId: { type: "string" } }
+                        },
+                        range: {
+                          type: "object",
+                          properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } }
+                        },
+                        status: { type: "string", enum: ["healthy", "degraded", "unhealthy", "not_configured"] },
+                        summary: {
+                          type: "object",
+                          description: "Monitor, alert, telemetry, and incident count rollups.",
+                          additionalProperties: true
+                        },
+                        recent: {
+                          type: "object",
+                          description: "Recent monitors, alerts, and incidents (bounded lists).",
+                          additionalProperties: true
+                        },
+                        anomalies: {
+                          type: "array",
+                          items: { type: "object", additionalProperties: true },
+                          description: "Detected volume/rate/latency/cost anomalies for the window."
+                        },
+                        predictions: {
+                          type: "array",
+                          items: { type: "object", additionalProperties: true },
+                          description: "Heuristic-weighted operational-risk predictions."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Operations query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/admin/analytics-dashboards": {
       get: {
@@ -3672,6 +4192,256 @@ export const openApiDocument = {
         "Aggregate opt-in browser click samples by route, safe selector, and grid bucket. Query with project_id, environment_id, route, window=24h|7d|30d, optional selector, tenant_id, user_id, session_id, grid_size=10..100, and limit."
       )
     },
+    "/query/events/paths": {
+      get: {
+        ...sessionRoute(
+          "Query event paths",
+          "Discover the most common event sequences leading to or from an anchor event for a project environment. At least one of start_event or end_event is required. Query with project_id, environment_id, and one or both of start_event/end_event, plus optional window=24h|7d|30d (default 7d), actor=auto|user|tenant|session|trace (default auto), max_depth=2..8 (default 5), from/to (from must be before to when both given), tenant_id, user_id, session_id, trace_id, segment_id, and limit."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          {
+            name: "start_event",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "At least one of start_event/end_event is required."
+          },
+          {
+            name: "end_event",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "At least one of start_event/end_event is required."
+          },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "7d" } },
+          {
+            name: "actor",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["auto", "user", "tenant", "session", "trace"], default: "auto" }
+          },
+          { name: "max_depth", in: "query", required: false, schema: { type: "integer", minimum: 2, maximum: 8, default: 5 } },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "session_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "trace_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "segment_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 500 } }
+        ],
+        responses: {
+          "200": {
+            description: "Most common event path sequences",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["window", "generatedAt", "scope", "range", "filters", "totals", "paths"],
+                      properties: {
+                        window: { type: "string", enum: ["24h", "7d", "30d"] },
+                        generatedAt: { type: "string", format: "date-time" },
+                        scope: {
+                          type: "object",
+                          properties: { projectId: { type: "string" }, environmentId: { type: "string" } }
+                        },
+                        range: {
+                          type: "object",
+                          properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } }
+                        },
+                        filters: {
+                          type: "object",
+                          properties: {
+                            startEvent: { type: ["string", "null"] },
+                            endEvent: { type: ["string", "null"] },
+                            tenantId: { type: ["string", "null"] },
+                            userId: { type: ["string", "null"] },
+                            sessionId: { type: ["string", "null"] },
+                            traceId: { type: ["string", "null"] },
+                            segmentId: { type: ["string", "null"] },
+                            actorType: { type: "string", enum: ["auto", "user", "tenant", "session", "trace"] },
+                            pathLength: { type: "integer" }
+                          }
+                        },
+                        totals: {
+                          type: "object",
+                          properties: {
+                            actors: { type: "integer", minimum: 0 },
+                            paths: { type: "integer", minimum: 0 },
+                            events: { type: "integer", minimum: 0 }
+                          }
+                        },
+                        paths: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["path", "actors", "occurrences", "firstSeenAt", "lastSeenAt", "sampleEvents"],
+                            properties: {
+                              path: { type: "array", items: { type: "string" } },
+                              actors: { type: "integer", minimum: 0 },
+                              occurrences: { type: "integer", minimum: 0 },
+                              firstSeenAt: { type: "string", format: "date-time" },
+                              lastSeenAt: { type: "string", format: "date-time" },
+                              sampleEvents: {
+                                type: "array",
+                                items: {
+                                  type: "object",
+                                  required: ["id", "name", "timestamp", "actorId", "actorType"],
+                                  properties: {
+                                    id: { type: "string" },
+                                    name: { type: "string" },
+                                    timestamp: { type: "string", format: "date-time" },
+                                    actorId: { type: "string" },
+                                    actorType: { type: "string", enum: ["user", "tenant", "session", "trace"] }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Event path query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/sessions/{sessionId}/timeline": {
+      get: {
+        ...sessionRoute(
+          "Query session timeline",
+          "Read one session's mixed, time-ordered timeline across breadcrumbs, events, errors, traces, and LLM calls for a project environment. Either from/to or center (with before/after) can be used to bound the range; center takes precedence when present. Query with project_id, environment_id, and optional tenant_id, user_id, from, to, center, before, after, types, and limit."
+        ),
+        parameters: [
+          { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          {
+            name: "center",
+            in: "query",
+            required: false,
+            schema: { type: "string", format: "date-time" },
+            description: "When present, replaces from/to with a window of `before` seconds earlier to `after` seconds later."
+          },
+          {
+            name: "before",
+            in: "query",
+            required: false,
+            schema: { type: "number", minimum: 0, default: 600 },
+            description: "Seconds before `center` to include. Only applied when `center` is set."
+          },
+          {
+            name: "after",
+            in: "query",
+            required: false,
+            schema: { type: "number", minimum: 0, default: 120 },
+            description: "Seconds after `center` to include. Only applied when `center` is set."
+          },
+          {
+            name: "types",
+            in: "query",
+            required: false,
+            schema: {
+              type: "array",
+              items: { type: "string", enum: ["breadcrumb", "event", "error", "trace", "llm"] }
+            },
+            style: "form",
+            explode: true,
+            description: "Repeatable or comma-separated. Defaults to all five types."
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", minimum: 1, maximum: 500, default: 100 },
+            description: "Accepted up to 500 by the route; the timeline repository clamps to 1..200 (default 100)."
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Session timeline",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["sessionId", "scope", "range", "items", "page"],
+                      properties: {
+                        sessionId: { type: "string" },
+                        scope: {
+                          type: "object",
+                          properties: { projectId: { type: "string" }, environmentId: { type: "string" } }
+                        },
+                        range: {
+                          type: "object",
+                          properties: {
+                            from: { type: ["string", "null"], format: "date-time" },
+                            to: { type: ["string", "null"], format: "date-time" }
+                          }
+                        },
+                        items: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["id", "type", "timestamp", "receivedAt", "tenantId", "userId", "sessionId", "traceId", "source", "release", "title", "level"],
+                            properties: {
+                              id: { type: "string" },
+                              type: { type: "string", enum: ["breadcrumb", "event", "error", "trace", "llm"] },
+                              timestamp: { type: "string", format: "date-time" },
+                              receivedAt: { type: "string", format: "date-time" },
+                              tenantId: { type: ["string", "null"] },
+                              userId: { type: ["string", "null"] },
+                              sessionId: { type: "string" },
+                              traceId: { type: ["string", "null"] },
+                              source: { type: ["string", "null"] },
+                              release: { type: ["string", "null"] },
+                              title: { type: "string" },
+                              level: { type: ["string", "null"] },
+                              data: { description: "Type-specific payload excerpt." }
+                            }
+                          }
+                        },
+                        page: {
+                          type: "object",
+                          properties: {
+                            nextCursor: { type: ["string", "null"] },
+                            previousCursor: { type: ["string", "null"] }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Session timeline query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/query/replays": {
       get: sessionRoute(
         "Query session replay samples",
@@ -3684,8 +4454,644 @@ export const openApiDocument = {
         "Read one privacy-safe replay timeline and its linked product event markers. Query with project_id and environment_id; replayId is the path parameter from event or error detail."
       )
     },
+    "/query/entities/tenants": {
+      get: {
+        ...sessionRoute(
+          "List tenant activity",
+          "List tenants observed in a project environment, ranked and keyset-paginated by an activity sort. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional search (matches tenant id/traits), optional limit=1..100 (default 50), optional sort, and optional cursor from a previous page's response. The cursor is an opaque base64url-encoded JSON object minted for a specific `sort`; reusing it with a different `sort` value is rejected."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "7d" } },
+          { name: "search", in: "query", required: false, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
+          {
+            name: "sort",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["impact", "usage", "errors", "llm_cost", "recent"], default: "impact" },
+            description: "Ranking used for both ordering and keyset pagination."
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque base64url-encoded JSON keyset cursor `{sort, value, actorId}` returned by a previous page. Must match the request's `sort`."
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Ranked, paginated tenant activity",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["window", "generatedAt", "scope", "range", "tenants"],
+                      properties: {
+                        window: { type: "string", enum: ["24h", "7d", "30d"] },
+                        generatedAt: { type: "string", format: "date-time" },
+                        scope: {
+                          type: "object",
+                          properties: { projectId: { type: "string" }, environmentId: { type: "string" } }
+                        },
+                        range: {
+                          type: "object",
+                          properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } }
+                        },
+                        tenants: { type: "array", items: { $ref: "#/components/schemas/EntityTenantSummary" } },
+                        cursor: { type: "string", description: "Present when another page is available." }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Tenant activity query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/entities/tenants/{tenantKey}": {
+      get: {
+        ...sessionRoute(
+          "Query tenant activity detail",
+          "Read one tenant's activity summary, top users, and time-ordered signal timeline for a project environment. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional user_id, optional signal_type, optional limit=1..100 (default 50), and optional cursor from a previous page's response. `tenantKey` cannot be the reserved value `_unassigned`."
+        ),
+        parameters: [
+          { name: "tenantKey", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "7d" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "signal_type", in: "query", required: false, schema: { type: "string", enum: ["event", "error", "trace", "llm"] } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque base64url-encoded JSON timeline cursor `{timestamp, type, id}` returned by a previous page."
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Tenant activity detail",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["window", "generatedAt", "scope", "range", "tenant", "topUsers", "timeline"],
+                      properties: {
+                        window: { type: "string", enum: ["24h", "7d", "30d"] },
+                        generatedAt: { type: "string", format: "date-time" },
+                        scope: {
+                          type: "object",
+                          properties: { projectId: { type: "string" }, environmentId: { type: "string" } }
+                        },
+                        range: {
+                          type: "object",
+                          properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } }
+                        },
+                        tenant: { $ref: "#/components/schemas/EntityTenantSummary" },
+                        topUsers: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["userId", "events", "errors", "traces", "llmCalls", "llmCostUsd", "lastSeenAt"],
+                            properties: {
+                              userId: { type: "string" },
+                              events: { type: "integer", minimum: 0 },
+                              errors: { type: "integer", minimum: 0 },
+                              traces: { type: "integer", minimum: 0 },
+                              llmCalls: { type: "integer", minimum: 0 },
+                              llmCostUsd: { type: "string" },
+                              lastSeenAt: { type: "string", format: "date-time" }
+                            }
+                          }
+                        },
+                        timeline: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["type", "id", "timestamp", "label"],
+                            properties: {
+                              type: { type: "string", enum: ["event", "error", "trace", "llm"] },
+                              id: { type: "string" },
+                              timestamp: { type: "string", format: "date-time" },
+                              label: { type: "string" },
+                              userId: { type: ["string", "null"] },
+                              sessionId: { type: ["string", "null"] },
+                              traceId: { type: ["string", "null"] }
+                            },
+                            additionalProperties: true,
+                            description: "Additional fields vary by `type`: events carry eventName; errors carry severity/status/message; traces carry status/durationMs/name; LLM calls carry provider/model/promptName/status/costUsd."
+                          }
+                        },
+                        cursor: { type: "string", description: "Present when another timeline page is available." }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Tenant activity query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/users": {
+      get: {
+        ...sessionRoute(
+          "List user activity",
+          "List users observed in a project environment, ranked and keyset-paginated by an activity sort. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional search (matches user id/traits), optional tenant_id, optional limit=1..100 (default 50), optional sort, and optional cursor from a previous page's response. The cursor is an opaque base64url-encoded JSON object minted for a specific `sort`; reusing it with a different `sort` value is rejected."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "7d" } },
+          { name: "search", in: "query", required: false, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
+          {
+            name: "sort",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: ["impact", "usage", "errors", "llm_cost", "recent"], default: "impact" },
+            description: "Ranking used for both ordering and keyset pagination."
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque base64url-encoded JSON keyset cursor `{sort, value, actorId}` returned by a previous page. Must match the request's `sort`."
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Ranked, paginated user activity",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["window", "generatedAt", "scope", "range", "users"],
+                      properties: {
+                        window: { type: "string", enum: ["24h", "7d", "30d"] },
+                        generatedAt: { type: "string", format: "date-time" },
+                        scope: {
+                          type: "object",
+                          properties: { projectId: { type: "string" }, environmentId: { type: "string" } }
+                        },
+                        range: {
+                          type: "object",
+                          properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } }
+                        },
+                        users: { type: "array", items: { $ref: "#/components/schemas/EntityUserSummary" } },
+                        cursor: { type: "string", description: "Present when another page is available." }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "User activity query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/users/{userKey}": {
+      get: {
+        ...sessionRoute(
+          "Query user activity detail",
+          "Read one user's activity summary, recent sessions, and time-ordered signal timeline for a project environment. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional tenant_id, optional signal_type, optional limit=1..100 (default 50), and optional cursor from a previous page's response. `userKey` cannot be the reserved value `_anonymous`."
+        ),
+        parameters: [
+          { name: "userKey", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "7d" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "signal_type", in: "query", required: false, schema: { type: "string", enum: ["event", "error", "trace", "llm"] } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "Opaque base64url-encoded JSON timeline cursor `{timestamp, type, id}` returned by a previous page."
+          }
+        ],
+        responses: {
+          "200": {
+            description: "User activity detail",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["window", "generatedAt", "scope", "range", "user", "recentSessions", "timeline"],
+                      properties: {
+                        window: { type: "string", enum: ["24h", "7d", "30d"] },
+                        generatedAt: { type: "string", format: "date-time" },
+                        scope: {
+                          type: "object",
+                          properties: { projectId: { type: "string" }, environmentId: { type: "string" } }
+                        },
+                        range: {
+                          type: "object",
+                          properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } }
+                        },
+                        user: { $ref: "#/components/schemas/EntityUserSummary" },
+                        recentSessions: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["sessionId", "tenantId", "events", "errors", "traces", "llmCalls", "llmCostUsd", "firstSeenAt", "lastSeenAt"],
+                            properties: {
+                              sessionId: { type: "string" },
+                              tenantId: { type: ["string", "null"] },
+                              events: { type: "integer", minimum: 0 },
+                              errors: { type: "integer", minimum: 0 },
+                              traces: { type: "integer", minimum: 0 },
+                              llmCalls: { type: "integer", minimum: 0 },
+                              llmCostUsd: { type: "string" },
+                              firstSeenAt: { type: "string", format: "date-time" },
+                              lastSeenAt: { type: "string", format: "date-time" }
+                            }
+                          }
+                        },
+                        timeline: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["type", "id", "timestamp", "label"],
+                            properties: {
+                              type: { type: "string", enum: ["event", "error", "trace", "llm"] },
+                              id: { type: "string" },
+                              timestamp: { type: "string", format: "date-time" },
+                              label: { type: "string" },
+                              tenantId: { type: ["string", "null"] },
+                              sessionId: { type: ["string", "null"] },
+                              traceId: { type: ["string", "null"] }
+                            },
+                            additionalProperties: true,
+                            description: "Additional fields vary by `type`: events carry eventName; errors carry severity/status/message; traces carry status/durationMs/name; LLM calls carry provider/model/promptName/status/costUsd."
+                          }
+                        },
+                        cursor: { type: "string", description: "Present when another timeline page is available." }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "User activity query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/query/errors": {
       get: sessionRoute("Query errors", "Read project/environment scoped raw error telemetry.")
+    },
+    "/query/errors/{id}/source-map-resolution": {
+      get: {
+        ...sessionRoute(
+          "Query error source-map resolution",
+          "Resolve one error's stack frames against uploaded source maps for its release, using strict project/environment/release/minified-file matching. Query with project_id and environment_id. The console does not display original source content; this response returns resolved file/line/column locations only."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Source-map resolution result",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["errorId", "release", "status", "frames", "unresolvedFrameCount"],
+                      properties: {
+                        errorId: { type: "string" },
+                        release: { type: ["string", "null"] },
+                        status: { type: "string", enum: ["resolved", "partially_resolved", "unresolved", "unavailable"] },
+                        frames: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: [
+                              "frameIndex",
+                              "minifiedFile",
+                              "minifiedLine",
+                              "minifiedColumn",
+                              "originalSource",
+                              "originalLine",
+                              "originalColumn",
+                              "originalName",
+                              "sourceMapArtifactId"
+                            ],
+                            properties: {
+                              frameIndex: { type: "integer", minimum: 0 },
+                              minifiedFile: { type: "string" },
+                              minifiedLine: { type: "integer" },
+                              minifiedColumn: { type: "integer" },
+                              originalSource: { type: "string", description: "Original source file path, not file content." },
+                              originalLine: { type: "integer" },
+                              originalColumn: { type: "integer" },
+                              originalName: { type: ["string", "null"] },
+                              sourceMapArtifactId: { type: "string" }
+                            }
+                          }
+                        },
+                        unresolvedFrameCount: { type: "integer", minimum: 0 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Error not found" },
+          "501": { description: "Source-map resolution query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/incidents/error-groups/{id}": {
+      get: {
+        ...sessionRoute(
+          "Query error-group incident detail",
+          "Read the full incident workspace for one error group: the group record, primary occurrence, priority, source-map resolution status, strongly-related and nearby telemetry context, a linked privacy-safe replay when available, related actor/release ids, assignment, silence state, triage notes, deploy/code context, and linked external issues. Query with project_id, environment_id, and optional error_id to pin the primary occurrence to a specific error instead of the group's latest."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "error_id", in: "query", required: false, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Incident workspace detail",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: [
+                        "group",
+                        "primaryOccurrence",
+                        "priority",
+                        "suggestedPriority",
+                        "sourceMapResolution",
+                        "stronglyRelated",
+                        "nearbyContext",
+                        "replay",
+                        "related",
+                        "incidentNumber",
+                        "assignedTo",
+                        "silencedUntil",
+                        "notes",
+                        "codeContext",
+                        "externalIssues"
+                      ],
+                      properties: {
+                        group: { $ref: "#/components/schemas/ErrorGroupRecord" },
+                        primaryOccurrence: {
+                          type: "object",
+                          additionalProperties: true,
+                          description: "Raw error occurrence backing this incident (the group's latest error, or `error_id` when given)."
+                        },
+                        priority: { type: ["string", "null"], enum: ["urgent", "high", "normal", "low", null] },
+                        suggestedPriority: { type: "string", enum: ["urgent", "high", "normal", "low"] },
+                        sourceMapResolution: {
+                          type: "object",
+                          required: ["status"],
+                          properties: {
+                            status: { type: "string", enum: ["cached", "none"] },
+                            frameCount: { type: "integer", minimum: 0 }
+                          }
+                        },
+                        stronglyRelated: {
+                          type: "object",
+                          required: ["items", "truncated"],
+                          properties: {
+                            items: { type: "array", items: { type: "object", additionalProperties: true } },
+                            truncated: { type: "boolean" }
+                          },
+                          description: "Breadcrumbs, events, errors, traces, and LLM calls tightly correlated to the primary occurrence (same session/trace)."
+                        },
+                        nearbyContext: {
+                          type: "object",
+                          required: ["items", "truncated"],
+                          properties: {
+                            items: { type: "array", items: { type: "object", additionalProperties: true } },
+                            truncated: { type: "boolean" }
+                          },
+                          description: "Telemetry near the primary occurrence in time but without a direct session/trace link."
+                        },
+                        replay: {
+                          type: ["object", "null"],
+                          additionalProperties: true,
+                          description: "Linked privacy-safe session replay for the primary occurrence, when one exists."
+                        },
+                        related: {
+                          type: "object",
+                          properties: {
+                            traceId: { type: ["string", "null"] },
+                            sessionId: { type: ["string", "null"] },
+                            userId: { type: ["string", "null"] },
+                            tenantId: { type: ["string", "null"] },
+                            release: { type: ["string", "null"] }
+                          }
+                        },
+                        incidentNumber: { type: ["string", "null"] },
+                        assignedTo: {
+                          type: ["object", "null"],
+                          properties: { id: { type: "string" }, email: { type: "string" } }
+                        },
+                        silencedUntil: { type: ["string", "null"], format: "date-time" },
+                        notes: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["id", "authorEmail", "body", "createdAt"],
+                            properties: {
+                              id: { type: "string" },
+                              authorEmail: { type: "string" },
+                              body: { type: "string" },
+                              createdAt: { type: "string", format: "date-time" }
+                            }
+                          }
+                        },
+                        codeContext: {
+                          type: "object",
+                          additionalProperties: true,
+                          description: "Deploy/repository code context: status, linked repository, release commit metadata, and suspected files."
+                        },
+                        externalIssues: {
+                          type: "array",
+                          items: { $ref: "#/components/schemas/IncidentExternalLink" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Incident not found" },
+          "501": { description: "Incident query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/incidents/error-groups/{id}/notes": {
+      post: {
+        ...sessionRoute(
+          "Add an incident triage note",
+          "Append an author-attributed triage note to one error-group incident. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: jsonBody("TriageNoteInput", { body: "Rolled back release web@1.4.2, monitoring error rate." }),
+        responses: {
+          "200": {
+            description: "Triage note created",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: { data: { $ref: "#/components/schemas/TriageNoteRecord" } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Error group not found" },
+          "501": { description: "Triage note mutation is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/incidents/error-groups/{id}/silence": {
+      post: {
+        ...sessionRoute(
+          "Silence an incident",
+          "Silence or unsilence one error-group incident. Send `minutes` as a positive integer to silence for that many minutes from now, or `0`/`null` to clear an existing silence. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: jsonBody("SilenceIncidentInput", { minutes: 60 }),
+        responses: {
+          "200": {
+            description: "Updated error group with new silence state",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: { data: { $ref: "#/components/schemas/ErrorGroupRecord" } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Error group not found" },
+          "501": { description: "Silence mutation is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/incidents/mttr": {
+      get: {
+        ...sessionRoute(
+          "Query incident MTTR",
+          "Read mean-time-to-resolution for error groups resolved within the window, plus the count of groups that resolution was computed from. Query with project_id, environment_id, and optional window=7d|30d (default 7d). Note this route's window enum is narrower than other query routes: only 7d and 30d are accepted, not 24h."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d"], default: "7d" } }
+        ],
+        responses: {
+          "200": {
+            description: "MTTR rollup",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["mttrMs", "resolvedCount", "windowDays"],
+                      properties: {
+                        mttrMs: { type: ["number", "null"] },
+                        resolvedCount: { type: "integer", minimum: 0 },
+                        windowDays: { type: "integer", enum: [7, 30] }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "MTTR query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/query/incidents/error-groups/{id}/external-issues": {
       post: {
@@ -3769,11 +5175,302 @@ export const openApiDocument = {
     "/query/llm-calls": {
       get: sessionRoute("Query LLM calls", "Read project/environment scoped LLM call telemetry.")
     },
+    "/query/llm/summary": {
+      get: {
+        ...sessionRoute(
+          "Query LLM summary",
+          "Read a single-window LLM rollup for a project environment: call count, failed-call count, total cost, average token count, average latency, and p95 latency. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "24h" } }
+        ],
+        responses: {
+          "200": {
+            description: "LLM summary rollup",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["calls", "failedCalls", "costUsd", "avgTokens", "avgLatencyMs", "p95LatencyMs"],
+                      properties: {
+                        calls: { type: "integer", minimum: 0 },
+                        failedCalls: { type: "integer", minimum: 0 },
+                        costUsd: { type: "string", description: "Decimal string, e.g. \"1.2345\"." },
+                        avgTokens: { type: ["number", "null"] },
+                        avgLatencyMs: { type: ["number", "null"] },
+                        p95LatencyMs: { type: ["number", "null"] }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "LLM summary query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/llm/by-tenant": {
+      get: {
+        ...sessionRoute(
+          "Query LLM usage by tenant",
+          "Read per-tenant LLM rollups for a project environment: call count, failed-call count, cost, average token count, average latency, and p95 latency per tenant. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "24h" } }
+        ],
+        responses: {
+          "200": {
+            description: "Per-tenant LLM rollups",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["tenantId", "calls", "failedCalls", "costUsd", "avgTokens", "avgLatencyMs", "p95LatencyMs"],
+                        properties: {
+                          tenantId: { type: "string" },
+                          calls: { type: "integer", minimum: 0 },
+                          failedCalls: { type: "integer", minimum: 0 },
+                          costUsd: { type: "string" },
+                          avgTokens: { type: ["number", "null"] },
+                          avgLatencyMs: { type: ["number", "null"] },
+                          p95LatencyMs: { type: ["number", "null"] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "LLM by-tenant query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/llm/by-prompt": {
+      get: {
+        ...sessionRoute(
+          "Query LLM usage by prompt",
+          "Read per-prompt LLM rollups for a project environment: model, call count, failed-call count, cost, average token count, average latency, and p95 latency per prompt_name/model pair. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "24h" } }
+        ],
+        responses: {
+          "200": {
+            description: "Per-prompt LLM rollups",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["promptName", "model", "calls", "failedCalls", "costUsd", "avgTokens", "avgLatencyMs", "p95LatencyMs"],
+                        properties: {
+                          promptName: { type: "string" },
+                          model: { type: "string" },
+                          calls: { type: "integer", minimum: 0 },
+                          failedCalls: { type: "integer", minimum: 0 },
+                          costUsd: { type: "string" },
+                          avgTokens: { type: ["number", "null"] },
+                          avgLatencyMs: { type: ["number", "null"] },
+                          p95LatencyMs: { type: ["number", "null"] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "LLM by-prompt query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/query/llm/cost-by-model": {
+      get: {
+        ...sessionRoute(
+          "Query LLM cost by model",
+          "Read a time-bucketed LLM cost series broken down by model for a project environment. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "window", in: "query", required: false, schema: { type: "string", enum: ["24h", "7d", "30d"], default: "24h" } }
+        ],
+        responses: {
+          "200": {
+            description: "Bucketed cost-by-model series",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["buckets", "series"],
+                      properties: {
+                        buckets: { type: "array", items: { type: "string", format: "date-time" } },
+                        series: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            required: ["model", "costs"],
+                            properties: {
+                              model: { type: "string" },
+                              costs: {
+                                type: "array",
+                                items: { type: "string" },
+                                description: "Decimal-string costs aligned index-for-index with `buckets`."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "LLM cost-by-model query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/query/traces": {
       get: sessionRoute(
         "Query traces",
         "Read project/environment scoped trace telemetry. Supports trace drilldown filters such as trace_id, trace_name, status, tenant_id, user_id, session_id, from, to, limit, and cursor."
       )
+    },
+    "/query/traces/{id}/spans": {
+      get: {
+        ...sessionRoute(
+          "List trace spans",
+          "List spans for one trace using cursor pagination. `trace_id`, if given as a query parameter, must match the `id` path parameter or the request is rejected. Query with project_id, environment_id, and optional tenant_id, user_id, session_id, trace_id, from, to, limit=1..500 (default 50), and cursor from a previous page's response."
+        ),
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "tenant_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "user_id", in: "query", required: false, schema: { type: "string" } },
+          { name: "session_id", in: "query", required: false, schema: { type: "string" } },
+          {
+            name: "trace_id",
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description: "If given, must equal the `id` path parameter."
+          },
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "to", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 500, default: 50 } },
+          { name: "cursor", in: "query", required: false, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Paginated trace spans",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: [
+                          "id",
+                          "projectId",
+                          "environmentId",
+                          "tenantId",
+                          "userId",
+                          "sessionId",
+                          "traceId",
+                          "timestamp",
+                          "receivedAt",
+                          "source",
+                          "release",
+                          "parentSpanId",
+                          "name",
+                          "status",
+                          "startedAt",
+                          "endedAt",
+                          "durationMs"
+                        ],
+                        properties: {
+                          id: { type: "string" },
+                          projectId: { type: "string" },
+                          environmentId: { type: "string" },
+                          tenantId: { type: ["string", "null"] },
+                          userId: { type: ["string", "null"] },
+                          sessionId: { type: ["string", "null"] },
+                          traceId: { type: "string" },
+                          timestamp: { type: "string", format: "date-time" },
+                          receivedAt: { type: "string", format: "date-time" },
+                          source: { type: ["string", "null"] },
+                          release: { type: ["string", "null"] },
+                          metadata: {},
+                          parentSpanId: { type: ["string", "null"] },
+                          name: { type: "string" },
+                          status: { type: "string" },
+                          startedAt: { type: "string", format: "date-time" },
+                          endedAt: { type: ["string", "null"], format: "date-time" },
+                          durationMs: { type: ["number", "null"] },
+                          input: {},
+                          output: {},
+                          error: {},
+                          costUsd: { type: ["string", "null"] }
+                        }
+                      }
+                    },
+                    cursor: { type: ["string", "null"] }
+                  }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Trace span query is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/query/apm/endpoints": {
       get: sessionRoute(

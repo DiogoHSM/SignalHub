@@ -74,6 +74,27 @@ describe("API docs", () => {
         "/query/events/click-map",
         "/query/message-campaigns/{id}/results",
         "/query/replays",
+        "/query/aggregates/errors",
+        "/query/aggregates/events",
+        "/query/aggregates/llm",
+        "/query/entities/tenants",
+        "/query/entities/tenants/{tenantKey}",
+        "/query/error-groups",
+        "/query/errors/{id}/source-map-resolution",
+        "/query/events/paths",
+        "/query/incidents/error-groups/{id}",
+        "/query/incidents/error-groups/{id}/notes",
+        "/query/incidents/error-groups/{id}/silence",
+        "/query/incidents/mttr",
+        "/query/llm/by-prompt",
+        "/query/llm/by-tenant",
+        "/query/llm/cost-by-model",
+        "/query/llm/summary",
+        "/query/operations",
+        "/query/sessions/{sessionId}/timeline",
+        "/query/traces/{id}/spans",
+        "/query/users",
+        "/query/users/{userKey}",
         "/system/health"
       ])
     );
@@ -139,6 +160,77 @@ describe("API docs", () => {
       properties: { cursor: { type: ["string", "null"] } }
     });
     expect(spec.paths["/query/aggregates/traces"].get.description).toContain("trace duration");
+    expect(spec.paths["/query/users"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "project_id",
+      "environment_id",
+      "window",
+      "search",
+      "tenant_id",
+      "limit",
+      "sort",
+      "cursor"
+    ]);
+    expect(spec.paths["/query/users"].get.parameters.find((parameter: { name: string }) => parameter.name === "sort").schema.enum).toEqual([
+      "impact",
+      "usage",
+      "errors",
+      "llm_cost",
+      "recent"
+    ]);
+    expect(
+      spec.paths["/query/users"].get.parameters.filter((parameter: { required?: boolean }) => parameter.required)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "project_id", in: "query" }),
+        expect.objectContaining({ name: "environment_id", in: "query" })
+      ])
+    );
+    expect(spec.paths["/query/entities/tenants"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "project_id",
+      "environment_id",
+      "window",
+      "search",
+      "limit",
+      "sort",
+      "cursor"
+    ]);
+    expect(
+      spec.paths["/query/entities/tenants"].get.parameters.find((parameter: { name: string }) => parameter.name === "sort").schema.enum
+    ).toEqual(["impact", "usage", "errors", "llm_cost", "recent"]);
+    expect(spec.paths["/query/error-groups/{id}"].patch.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/query/error-groups/{id}"].patch.requestBody.content["application/json"].schema).toEqual({
+      $ref: "#/components/schemas/ErrorGroupTriagePatch"
+    });
+    expect(spec.components.schemas.ErrorGroupTriagePatch.properties).toMatchObject({
+      status: { enum: ["open", "investigating", "resolved", "ignored"] },
+      priority: { enum: ["urgent", "high", "normal", "low", null] },
+      assignedToUserId: expect.any(Object)
+    });
+    expect(spec.paths["/query/incidents/error-groups/{id}/notes"].post.requestBody.content["application/json"].schema).toEqual({
+      $ref: "#/components/schemas/TriageNoteInput"
+    });
+    expect(spec.components.schemas.TriageNoteInput.required).toEqual(["body"]);
+    expect(spec.paths["/query/incidents/error-groups/{id}/silence"].post.requestBody.content["application/json"].schema).toEqual({
+      $ref: "#/components/schemas/SilenceIncidentInput"
+    });
+    expect(spec.components.schemas.SilenceIncidentInput.required).toEqual(["minutes"]);
+    expect(spec.paths["/query/incidents/mttr"].get.parameters.find((parameter: { name: string }) => parameter.name === "window").schema.enum).toEqual([
+      "7d",
+      "30d"
+    ]);
+    expect(spec.paths["/query/traces/{id}/spans"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
+      "id",
+      "project_id",
+      "environment_id",
+      "tenant_id",
+      "user_id",
+      "session_id",
+      "trace_id",
+      "from",
+      "to",
+      "limit",
+      "cursor"
+    ]);
     expect(spec.components.schemas.EventPayload.description).toContain("tenant");
     expect(spec.components.schemas.ErrorPayload.properties.severity.enum).toEqual([
       "debug",
