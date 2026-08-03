@@ -1630,6 +1630,95 @@ export const openApiDocument = {
           skipped: { type: "boolean" },
           generatedAt: { type: "string", format: "date-time" }
         }
+      },
+      SystemHealthSample: {
+        type: "object",
+        required: ["capturedAt", "postgresLatencyMs", "redisLatencyMs", "queueWaiting", "queueActive", "queueFailed"],
+        properties: {
+          capturedAt: { type: "string", format: "date-time" },
+          postgresLatencyMs: { type: ["number", "null"] },
+          redisLatencyMs: { type: ["number", "null"] },
+          queueWaiting: { type: "integer", minimum: 0 },
+          queueActive: { type: "integer", minimum: 0 },
+          queueFailed: { type: "integer", minimum: 0 }
+        }
+      },
+      AlertEventRecord: {
+        type: "object",
+        required: [
+          "id",
+          "projectId",
+          "environmentId",
+          "status",
+          "severity",
+          "triggeredAt",
+          "windowStart",
+          "windowEnd",
+          "observedValue",
+          "threshold",
+          "message",
+          "metadata",
+          "createdAt"
+        ],
+        properties: {
+          id: { type: "string" },
+          ruleId: { type: ["string", "null"] },
+          monitorId: { type: ["string", "null"] },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          status: { type: "string", enum: ["triggered", "acknowledged", "snoozed", "resolved"] },
+          severity: { type: "string", enum: ["info", "warning", "critical"] },
+          triggeredAt: { type: "string", format: "date-time" },
+          windowStart: { type: "string", format: "date-time" },
+          windowEnd: { type: "string", format: "date-time" },
+          observedValue: { type: "string" },
+          threshold: { type: "string" },
+          message: { type: "string" },
+          metadata: { type: ["object", "null"], additionalProperties: true },
+          acknowledgedAt: { type: ["string", "null"], format: "date-time" },
+          acknowledgedByUserId: { type: ["string", "null"] },
+          acknowledgedByEmail: { type: ["string", "null"] },
+          resolvedAt: { type: ["string", "null"], format: "date-time" },
+          resolvedByUserId: { type: ["string", "null"] },
+          resolvedByEmail: { type: ["string", "null"] },
+          snoozedUntil: { type: ["string", "null"], format: "date-time" },
+          triageNote: { type: ["string", "null"] },
+          escalationDueAt: { type: ["string", "null"], format: "date-time" },
+          escalatedAt: { type: ["string", "null"], format: "date-time" },
+          createdAt: { type: "string", format: "date-time" },
+          latestDeliveryStatus: { type: ["string", "null"], enum: ["success", "failed", null] }
+        }
+      },
+      AlertEventTriagePatch: {
+        type: "object",
+        required: ["status"],
+        description: "`snoozedUntil` is required and must be a valid date when `status` is `snoozed`.",
+        properties: {
+          status: { type: "string", enum: ["triggered", "acknowledged", "snoozed", "resolved"] },
+          snoozedUntil: { type: ["string", "null"], format: "date-time" },
+          note: { type: ["string", "null"], maxLength: 2000 }
+        }
+      },
+      AlertSuggestion: {
+        type: "object",
+        description: "Heuristic alert rule suggestion derived from recent error, latency, LLM cost, or dead-letter activity. Suggestions are omitted when an active rule of the same type (and route pattern, where applicable) already exists.",
+        required: ["key", "type", "severity", "title", "sub", "windowMinutes", "threshold", "rationale", "cooldownMinutes"],
+        properties: {
+          key: { type: "string" },
+          type: {
+            type: "string",
+            enum: ["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost", "dead_letter_count"]
+          },
+          severity: { type: "string", enum: ["info", "warning", "critical"] },
+          title: { type: "string" },
+          sub: { type: "string" },
+          windowMinutes: { type: "integer", minimum: 1 },
+          threshold: { type: "string" },
+          routePattern: { type: ["string", "null"] },
+          minimumSampleSize: { type: "integer", minimum: 0 },
+          rationale: { type: "string" },
+          cooldownMinutes: { type: "integer", minimum: 0 }
+        }
       }
     },
     responses: {
@@ -3035,6 +3124,54 @@ export const openApiDocument = {
     },
     "/auth/me": {
       get: sessionRoute("Read current session user", "Returns the logged-in user for the active session cookie.")
+    },
+    "/auth/logout": {
+      post: {
+        tags: ["Auth"],
+        summary: "End the human session",
+        description: "Clears the session cookie for the current operator. Always returns success, including when no session was active.",
+        responses: {
+          "200": { description: "Session cookie cleared" }
+        }
+      }
+    },
+    "/auth/google": {
+      get: {
+        tags: ["Auth"],
+        summary: "Start Google OAuth sign-in",
+        description:
+          "Redirects the browser to the Google OAuth consent screen and sets a short-lived, path-scoped OAuth state cookie used to validate `/auth/google/callback`. Disabled unless Google OAuth is configured. This is a browser redirect, not a JSON endpoint.",
+        responses: {
+          "302": {
+            description: "Redirect to the Google OAuth authorization URL",
+            headers: {
+              Location: { schema: { type: "string", format: "uri" }, description: "Google OAuth authorization URL." }
+            }
+          },
+          "404": { description: "Google OAuth is disabled" },
+          "501": { description: "Google OAuth is not configured" }
+        }
+      }
+    },
+    "/auth/google/callback": {
+      get: {
+        tags: ["Auth"],
+        summary: "Complete Google OAuth sign-in",
+        description:
+          "Validates the OAuth `state` cookie set by `/auth/google` against the `code`/`state` query parameters, exchanges the code, and creates a human session on success. Disabled unless Google OAuth is configured.",
+        parameters: [
+          { name: "code", in: "query", required: true, schema: { type: "string" } },
+          { name: "state", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": { description: "Session cookie set and user returned" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "403": { description: "Authenticated Google account is not an allowed operator" },
+          "404": { description: "Google OAuth is disabled" },
+          "501": { description: "Google OAuth is not configured" },
+          "503": { description: "Google OAuth token exchange or sign-in failed" }
+        }
+      }
     },
     "/admin/projects": {
       get: sessionRoute("List projects", "Admin route for listing projects visible to the current operator."),
@@ -5496,8 +5633,140 @@ export const openApiDocument = {
         "Read runtime CPU and memory profile rollups for a project environment, including profile counts, CPU/memory totals, recent profiles, and hot functions. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
+    "/alerts/events": {
+      get: {
+        ...sessionRoute(
+          "List alert events",
+          "List triggered alert events for a project environment, most recent first. Query with project_id, environment_id, and optional limit."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } }
+        ],
+        responses: {
+          "200": {
+            description: "Alert events",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: { data: { type: "array", items: { $ref: "#/components/schemas/AlertEventRecord" } } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Alert repository is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/alerts/events/{id}": {
+      get: {
+        ...sessionRoute("Read an alert event", "Read one alert event by id."),
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "Alert event",
+            content: {
+              "application/json": {
+                schema: { type: "object", required: ["data"], properties: { data: { $ref: "#/components/schemas/AlertEventRecord" } } }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Alert event not found" },
+          "501": { description: "Alert repository is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/alerts/events/{id}/triage": {
+      patch: {
+        ...sessionRoute(
+          "Triage an alert event",
+          "Update an alert event's status (acknowledge, snooze, or resolve) and optionally attach a triage note. `snoozedUntil` is required when `status` is `snoozed`."
+        ),
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: jsonBody("AlertEventTriagePatch", { status: "acknowledged" }),
+        responses: {
+          "200": {
+            description: "Updated alert event",
+            content: {
+              "application/json": {
+                schema: { type: "object", required: ["data"], properties: { data: { $ref: "#/components/schemas/AlertEventRecord" } } }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "404": { description: "Alert event not found" },
+          "501": { description: "Alert repository is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/alerts/suggestions": {
+      get: {
+        ...sessionRoute(
+          "List alert rule suggestions",
+          "Return heuristic alert rule suggestions for a project environment based on recent critical errors, error counts, error rate, trace p95 latency, LLM cost, and dead-letter activity. Suggestions with an already-active matching rule are omitted. Query with project_id and environment_id."
+        ),
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Alert rule suggestions",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["suggestions"],
+                  properties: { suggestions: { type: "array", items: { $ref: "#/components/schemas/AlertSuggestion" } } }
+                }
+              }
+            }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "Alert repository is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/system/health": {
       get: sessionRoute("Read system health", "Read API, worker, Postgres, Redis, queue, freshness, retention, and backup status.")
+    },
+    "/system/health/history": {
+      get: {
+        ...sessionRoute(
+          "Read system health history",
+          "Read recent system health samples (Postgres/Redis latency and telemetry queue depth) captured on an interval, most recent first. Query with optional limit (1-480, default 60)."
+        ),
+        parameters: [{ name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 480, default: 60 } }],
+        responses: {
+          "200": {
+            description: "System health samples",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: { data: { type: "array", items: { $ref: "#/components/schemas/SystemHealthSample" } } }
+                }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "501": { description: "System health history is not available" },
+          "503": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/system/actions/doctor": {
       post: systemActionOperation(

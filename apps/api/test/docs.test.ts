@@ -95,7 +95,15 @@ describe("API docs", () => {
         "/query/traces/{id}/spans",
         "/query/users",
         "/query/users/{userKey}",
-        "/system/health"
+        "/system/health",
+        "/alerts/events",
+        "/alerts/events/{id}",
+        "/alerts/suggestions",
+        "/alerts/events/{id}/triage",
+        "/auth/google",
+        "/auth/google/callback",
+        "/auth/logout",
+        "/system/health/history"
       ])
     );
     expect(spec.components.securitySchemes).toMatchObject({
