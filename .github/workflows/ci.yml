@@ -1,9 +1,22 @@
 name: CI
 
-# CI/CD runs locally by policy (2026-07). GitHub Actions stays manual-only;
-# the local gate replicates this pipeline before every push.
+# Automatic since 2026-08-02. This repository is public, so standard-runner minutes
+# are free and unlimited — the manual-only policy it replaces was inherited from a
+# private repo where minutes were billed, and bought nothing here.
+#
+# Deploys are NOT part of this workflow and stay manual through Coolify (ADR
+# 2026-07-26). Do not add a deploy job without superseding that decision.
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
+
+# A new push supersedes the run still in flight for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

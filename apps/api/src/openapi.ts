@@ -1459,10 +1459,16 @@ export const openApiDocument = {
       get: {
         tags: ["Health"],
         summary: "Check API liveness",
+        description:
+          "Returns the commit currently running as `version`, or `null` when the deployment did not stamp one. Compare it against the commit you expect to confirm a deploy actually replaced the running container.",
         responses: {
           "200": {
             description: "API is alive",
-            content: { "application/json": { example: { ok: true } } }
+            content: {
+              "application/json": {
+                example: { ok: true, version: "e8460fbfef11972f7605a2221fee2d19c452ca9d" }
+              }
+            }
           }
         }
       }

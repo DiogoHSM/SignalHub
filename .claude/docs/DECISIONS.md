@@ -1,6 +1,14 @@
 # Decisions
 
+## 2026-08-02: CI runs automatically; deploys stay manual
+
+Decision: `.github/workflows/ci.yml` runs on every pull request to `main` and every push to `main`, in addition to `workflow_dispatch`. The deploy half of the 2026-07-26 decision is unchanged and still binding: production rolls forward only through a manual Coolify webhook or the panel, and no deploy job may be added to a workflow. `scripts/ci-workflow.test.ts` enforces both halves — the automatic triggers and the absence of any deploy step. This amends the CI half of "Move hosting to Coolify with manual-only CI and manual deploys" (2026-07-26).
+
+Rationale: the manual-only CI policy was adopted alongside the local-first pipeline of a sibling private repository, where GitHub Actions minutes are billed and the CI/CD workflows cost roughly 296 minutes a month. This repository is public, so standard-runner minutes are free and unlimited — the policy carried the cost reasoning across without the cost. What it did carry was a real downside: the release gates only ran when someone remembered to run them, and nothing verified a merge to `main` before it became the deployable commit. Automating CI removes that gap at no cost. Deploys are a separate question and stay manual because the operator wants to choose when production rolls forward, which is the part of the 2026-07-26 decision that was actually about control rather than cost.
+
 ## 2026-07-26: Move hosting to Coolify with manual-only CI and manual deploys
+
+**Amended 2026-08-02** by "CI runs automatically; deploys stay manual": the manual-only CI rule below no longer applies. The manual-deploy rule does.
 
 Decision: Production hosting moved from EasyPanel to Coolify (project `sigmon`, environment `production`), with `api`, `worker`, and `scheduler` as separate Coolify applications built from the repository Dockerfile and Postgres/Redis as Coolify-managed database resources. GitHub Actions is manual-only (`workflow_dispatch`); the release gates run locally before every push, and production deploys are triggered manually through Coolify deploy webhooks (or the panel) after merging to `main`. Auto-deploy from CI is not to be recreated. This supersedes the 2026-05-24 decision "Deploy only application services from GitHub Actions".
 

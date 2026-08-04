@@ -19,7 +19,52 @@ describe("health routes", () => {
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true });
+    expect(response.json()).toEqual({ ok: true, version: null });
+  });
+
+  it("reports the deployed commit from SOURCE_COMMIT", async () => {
+    const previous = process.env.SOURCE_COMMIT;
+    process.env.SOURCE_COMMIT = "e8460fbfef11972f7605a2221fee2d19c452ca9d";
+
+    try {
+      app = await buildApp({
+        readiness: async () => ({ postgres: true, redis: true })
+      });
+
+      const response = await app.inject({ method: "GET", url: "/health" });
+
+      expect(response.json()).toEqual({
+        ok: true,
+        version: "e8460fbfef11972f7605a2221fee2d19c452ca9d"
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.SOURCE_COMMIT;
+      } else {
+        process.env.SOURCE_COMMIT = previous;
+      }
+    }
+  });
+
+  it("reports a null version when SOURCE_COMMIT is blank", async () => {
+    const previous = process.env.SOURCE_COMMIT;
+    process.env.SOURCE_COMMIT = "   ";
+
+    try {
+      app = await buildApp({
+        readiness: async () => ({ postgres: true, redis: true })
+      });
+
+      const response = await app.inject({ method: "GET", url: "/health" });
+
+      expect(response.json()).toEqual({ ok: true, version: null });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.SOURCE_COMMIT;
+      } else {
+        process.env.SOURCE_COMMIT = previous;
+      }
+    }
   });
 
   it("returns unavailable readiness when a dependency is not ready", async () => {

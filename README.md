@@ -330,13 +330,20 @@ Use `--project-name` or `SIGMON_SMOKE_PROJECT_NAME` when running multiple smoke 
 
 ## Continuous Integration
 
-The GitHub Actions CI workflow is manual-only by policy (2026-07): it runs only through `workflow_dispatch`, and the same gate runs locally before every push. The workflow installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness.
+The GitHub Actions CI workflow runs on pull requests to `main`, on pushes to `main`, and on `workflow_dispatch`. Runs superseded by a newer push to the same ref are cancelled. The workflow installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness. The same gate is still expected to run locally before every push.
 
 The workflow uses GitHub-maintained actions on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). SignalMonitor's application runtime remains Node.js 22.
 
 The smoke job runs `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 
 Production deploys are not part of CI. The hosted instance runs on Coolify and is deployed manually after merging to `main`, by triggering each application's Coolify deploy webhook (or the panel's Deploy action). Postgres and Redis are stateful Coolify-managed database resources and are never redeployed from repository builds.
+
+To confirm a deploy actually replaced the running container, check the commit reported by `GET /health` — a `200` on its own does not distinguish a fresh container from an old one that stayed up:
+
+```sh
+curl -s https://my.sigmon.app/health
+# {"ok":true,"version":"<commit sha>"}
+```
 
 ## Upgrade Flow
 
