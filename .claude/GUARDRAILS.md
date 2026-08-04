@@ -22,6 +22,7 @@ Use esta tabela como checklist. Antes de modificar um arquivo que se encaixe num
 | Console (`apps/console/**`), design system, tokens visuais | `UI-UX.md` | Overview/investigação são read-only por padrão; seguir convenções visuais |
 | Mutação nova no console v2 (`apps/console/src/v2/**`) | `apps/console/src/v2/lib/run-mutation.ts` | toda mutação v2 deve reportar falha via `runMutation()` (toast); nunca `void fn()` sem tratamento — ver PER-454 |
 | Ingestão, filas, worker (`apps/api`, `apps/worker`, BullMQ/Redis) | `ARCHITECTURE.md`, `CONSTRAINTS.md` | handoff API→queue→worker; não quebrar contratos de ingestão |
+| **Rota nova em `apps/api/src/routes/**`** | `apps/api/src/openapi.ts` | toda rota registrada precisa de entrada no spec — `apps/api/test/openapi-coverage.test.ts` falha nomeando a rota. Derive params/respostas do handler, nunca do nome da rota: spec que mente é pior que rota não documentada. As 36 de `/admin/*` estão num baseline temporário (`PENDING_ADMIN_ROUTES`, PER-460) que encolhe, não é isenção |
 | Source maps (upload, storage, retenção, resolução) | `ARCHITECTURE.md`, `CONSTRAINTS.md`, `DECISIONS.md` | local-first, matching estrito, retenção worker-owned; console não exibe source original |
 | Decisão arquitetural relevante | `DECISIONS.md` (ler + adicionar ADR) | rastreabilidade |
 | Escopo/objetivos do projeto | `PROJECT-SUMMARY.md` | fase atual: Phase 6G hardening |
