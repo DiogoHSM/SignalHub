@@ -125,8 +125,25 @@ describe("GitHub Actions CI workflow", () => {
 
   // This guard carries more weight now that CI fires on every push to main: a deploy
   // job added here would silently become auto-deploy, which ADR 2026-07-26 forbids.
+  //
+  // The job list is asserted exhaustively rather than by blocklist. A blocklist only
+  // catches the copy-paste vectors (restoring the old EasyPanel job, lifting the
+  // sibling project's Coolify one) and walks straight past a job written from
+  // scratch — `deploy:` with a neutrally named secret is the obvious thing someone
+  // would write. The named-string checks below stay as a message-quality layer:
+  // they fail with a recognizable term instead of a bare list diff.
   it("has no hosted deploy job — deploys stay manual through Coolify", () => {
     const content = workflow();
+
+    // Slice from `jobs:` first — the same pattern also matches trigger keys like
+    // `pull_request:` and `workflow_dispatch:` under `on:`.
+    const jobsSection = content.slice(content.indexOf("\njobs:\n"));
+    const jobNames = jobsSection
+      .split("\n")
+      .filter((line) => /^ {2}[\w-]+:$/.test(line))
+      .map((line) => line.trim().slice(0, -1));
+
+    expect(jobNames).toEqual(["test", "build", "compose-config", "smoke-compose"]);
 
     expect(content).not.toContain("deploy-easypanel:");
     expect(content).not.toContain("EASYPANEL");
