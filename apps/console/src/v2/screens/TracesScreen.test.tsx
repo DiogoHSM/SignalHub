@@ -134,7 +134,7 @@ function mockList(data: TraceListItemVM[] | null, status: "loading" | "ok" | "er
   vi.spyOn(useTracesModule, "useTraces").mockReturnValue(result);
 }
 function mockSpans(data: TraceDetailVM | null, status: "loading" | "ok" | "error" = "ok") {
-  vi.spyOn(useTraceSpansModule, "useTraceSpans").mockReturnValue({ data, status, reload: vi.fn() });
+  return vi.spyOn(useTraceSpansModule, "useTraceSpans").mockReturnValue({ data, status, reload: vi.fn() });
 }
 
 async function openDashboardTrace() {
@@ -247,6 +247,16 @@ describe("TracesScreen — detail", () => {
     // waterfall section
     expect(screen.getByText("Waterfall")).toBeInTheDocument();
     expect(screen.getByText("Expand all")).toBeInTheDocument();
+  });
+
+  it("queries spans by the W3C trace id, not the traces row id", async () => {
+    mockList(traces);
+    const spy = mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+    // spans.trace_id stores the W3C id the caller sent, so querying by the
+    // traces row id ("t1") returns an empty waterfall for every trace.
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ traceId: "trace_a" }));
   });
 
   it("selecting a span shows its detail; error span shows error block; cost shown for llm", async () => {
