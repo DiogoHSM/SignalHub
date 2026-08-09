@@ -2,7 +2,7 @@
 
 > **Sempre carregado.** Este arquivo é o único contrato de *lazy loading* do projeto: diz a Claude quais docs ler antes de tocar em cada área. Docs não listados aqui só são lidos quando Claude os abrir explicitamente.
 
-**Última revisão**: 2026-07-26
+**Última revisão**: 2026-08-02
 
 ---
 
@@ -14,7 +14,7 @@ Use esta tabela como checklist. Antes de modificar um arquivo que se encaixe num
 
 | Ao tocar em… | Leia antes | Por quê |
 |---|---|---|
-| Deploy/CI (`.github/workflows/**`, `Dockerfile*`, `docker-compose*.yml`, `deploy/**`) | `DEPLOYMENT.md`, `INFRASTRUCTURE.md` | Compose é o caminho de instalação suportado; smoke gate `pnpm smoke:compose` |
+| Deploy/CI (`.github/workflows/**`, `Dockerfile*`, `docker-compose*.yml`, `deploy/**`) | `DEPLOYMENT.md`, `INFRASTRUCTURE.md` | Compose é o caminho de instalação suportado; smoke gate `pnpm smoke:compose`. CI é automático em PR/push desde 2026-08-02, mas **deploy job em workflow é proibido** (ADR) — `scripts/ci-workflow.test.ts` falha se aparecer |
 | Migrations, schema, índices, seeds (`**/migrations/**`, `*.sql`) | `DECISIONS.md`, `CONSTRAINTS.md`, `ARCHITECTURE.md` | Postgres é source of truth; mudanças de dados são irreversíveis |
 | Novas dependências (`package.json` de qualquer workspace) | `STACK.md`, `DECISIONS.md` | workspace pnpm; alinhar com decisões de stack; commitar lockfile junto |
 | Variáveis de ambiente, secrets, `.env*` | `SECRETS.md`, `DEPLOYMENT.md` | `SECRETS.md` do docs é sanitizado e versionado; nunca commitar valores reais |
@@ -22,6 +22,7 @@ Use esta tabela como checklist. Antes de modificar um arquivo que se encaixe num
 | Console (`apps/console/**`), design system, tokens visuais | `UI-UX.md` | Overview/investigação são read-only por padrão; seguir convenções visuais |
 | Mutação nova no console v2 (`apps/console/src/v2/**`) | `apps/console/src/v2/lib/run-mutation.ts` | toda mutação v2 deve reportar falha via `runMutation()` (toast); nunca `void fn()` sem tratamento — ver PER-454 |
 | Ingestão, filas, worker (`apps/api`, `apps/worker`, BullMQ/Redis) | `ARCHITECTURE.md`, `CONSTRAINTS.md` | handoff API→queue→worker; não quebrar contratos de ingestão |
+| **Rota nova em `apps/api/src/routes/**`** | `apps/api/src/openapi.ts` | toda rota registrada precisa de entrada no spec — `apps/api/test/openapi-coverage.test.ts` falha nomeando a rota. Derive params/respostas do handler, nunca do nome da rota: spec que mente é pior que rota não documentada. As 36 de `/admin/*` estão num baseline temporário (`PENDING_ADMIN_ROUTES`, PER-460) que encolhe, não é isenção |
 | Source maps (upload, storage, retenção, resolução) | `ARCHITECTURE.md`, `CONSTRAINTS.md`, `DECISIONS.md` | local-first, matching estrito, retenção worker-owned; console não exibe source original |
 | Decisão arquitetural relevante | `DECISIONS.md` (ler + adicionar ADR) | rastreabilidade |
 | Escopo/objetivos do projeto | `PROJECT-SUMMARY.md` | fase atual: Phase 6G hardening |
