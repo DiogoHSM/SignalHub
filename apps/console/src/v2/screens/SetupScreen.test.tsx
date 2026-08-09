@@ -87,7 +87,23 @@ describe("SetupScreen", () => {
     await screen.findByText(/@sigmon\/sdk\/browser/);
     expect(screen.getByText(/@sigmon\/sdk\/browser/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Python" }));
-    expect(screen.getByText(/pip install sigmon-sdk/)).toBeInTheDocument();
+    expect(screen.getByText(/No Python SDK yet/)).toBeInTheDocument();
+  });
+
+  it("gives the Node snippet the endpoint the SDK requires", async () => {
+    render(<SetupScreen ctx={makeCtx({ apiEndpoint: "https://sigmon.example.com" })} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Node" }));
+    // createSignalMonitorClient throws "endpoint is required" without it, so a
+    // snippet missing it cannot be copy-pasted.
+    const code = screen.getByText(/@sigmon\/sdk\/node/).closest(".sh-code");
+    expect(code?.textContent).toContain("endpoint");
+    expect(code?.textContent).toContain("https://sigmon.example.com");
+  });
+
+  it("does not advertise a Python package that is not published", async () => {
+    render(<SetupScreen ctx={makeCtx()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Python" }));
+    expect(screen.queryByText(/pip install sigmon-sdk/)).not.toBeInTheDocument();
   });
 
   it("generates an API key and reveals the one-time secret", async () => {
