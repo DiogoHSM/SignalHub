@@ -13,7 +13,7 @@ import type {
   SourceMapUploadAttribution,
   SourceMapUploadInput
 } from "../routes/admin.js";
-import { extractSourceMapsFromZip, inferMinifiedFileFromMap, parseSourceMapJson } from "./parser.js";
+import { extractSourceMapsFromZip, inferMinifiedFileFromMap, normalizeMinifiedFile, parseSourceMapJson } from "./parser.js";
 
 export type StoredArtifact = {
   storagePath: string;
@@ -134,7 +134,10 @@ export async function uploadSingleSourceMap(input: {
   input: SourceMapUploadInput;
 }): Promise<SourceMapArtifactRecord[]> {
   const map = parseSourceMapJson(input.input.content.toString("utf8"));
-  const minifiedFile = input.input.minifiedFile || inferMinifiedFileFromMap(map);
+  // Stack frames are normalized to a basename before lookup, so a caller-supplied
+  // path like "assets/app.min.js" has to be normalized too or it never matches.
+  const providedMinifiedFile = input.input.minifiedFile ? normalizeMinifiedFile(input.input.minifiedFile) : undefined;
+  const minifiedFile = providedMinifiedFile || inferMinifiedFileFromMap(map);
   if (!minifiedFile) {
     throw new Error("source_map_file_missing");
   }
