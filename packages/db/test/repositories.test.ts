@@ -5707,6 +5707,14 @@ describe("repositories", () => {
         payload: { id: "dead-letter-other-env" },
         errorMessage: "other environment failed"
       });
+      // insertDeadLetterJob stamps created_at with now(), but every rule below
+      // is evaluated against a fixed historical window. Backdate the rows into
+      // that window so dead_letter_count sees them the way the other signals
+      // are seen.
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-05-06T11:55:00.000Z") })
+        .execute();
 
       const criticalResult = await evaluateAlertRule(db, {
         projectId: project.id,
