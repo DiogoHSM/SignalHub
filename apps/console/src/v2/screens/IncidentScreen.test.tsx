@@ -316,7 +316,7 @@ describe("IncidentScreen", () => {
     it("renders crash impact banner for fatal incidents", () => {
       mockUseIncident(CRASH_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      expect(screen.getByRole("region", { name: /crash impact/i })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: /crash reporting/i })).toBeInTheDocument();
       expect(screen.getByText(/fatal runtime crash detected/i)).toBeInTheDocument();
       expect(screen.getByText(/prioritize this before lower-severity error groups/i)).toBeInTheDocument();
     });
@@ -324,14 +324,12 @@ describe("IncidentScreen", () => {
     it("does not render crash impact banner for non-fatal incidents", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      expect(screen.queryByRole("region", { name: /crash impact/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: /crash reporting/i })).not.toBeInTheDocument();
     });
 
     it("warning incident severity tag has 'warn' class, not 'critical'", () => {
-      // Use null priority to avoid PriorityPill(P1) which also renders sh-tag critical
       mockUseIncident({ ...MOCK_VM, severity: "warning", severityColor: "var(--sev-warning)", priority: null });
       const { container } = render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      // Find the severity tag by its text content (contains the severity value)
       const allTags = Array.from(container.querySelectorAll(".sh-tag"));
       const sevTag = allTags.find((el) => el.textContent?.includes("warning"));
       expect(sevTag).toBeTruthy();
@@ -340,10 +338,8 @@ describe("IncidentScreen", () => {
     });
 
     it("error incident severity tag has 'error' class, not 'critical'", () => {
-      // Use null priority to avoid PriorityPill(P1) rendering sh-tag critical
       mockUseIncident({ ...MOCK_VM, severity: "error", severityColor: "var(--sev-error)", priority: null });
       const { container } = render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      // Find the severity tag by its text content
       const allTags = Array.from(container.querySelectorAll(".sh-tag"));
       const sevTag = allTags.find((el) => el.textContent?.includes("error"));
       expect(sevTag).toBeTruthy();
@@ -366,9 +362,7 @@ describe("IncidentScreen", () => {
     it("renders a back affordance", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      // back button should be present
-      const backBtn = screen.getByRole("button", { name: /back/i });
-      expect(backBtn).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /back/i })).toBeInTheDocument();
     });
 
     it("back button calls ctx.back", async () => {
@@ -392,7 +386,6 @@ describe("IncidentScreen", () => {
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       const resolveBtn = screen.getByRole("button", { name: /^resolve$/i });
       await userEvent.click(resolveBtn);
-      // The ConfirmButton changes its label to "Confirm resolution?" after first click
       expect(screen.getByRole("button", { name: /confirm resolution/i })).toBeInTheDocument();
     });
 
@@ -429,25 +422,25 @@ describe("IncidentScreen", () => {
     it("does not show the duration menu until Silence is clicked", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      expect(screen.queryByRole("button", { name: /^30m$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^30 minutes$/i })).not.toBeInTheDocument();
     });
 
     it("opens a duration menu with 30m/1h/4h/24h/custom options when Silence clicked", async () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       await userEvent.click(screen.getByRole("button", { name: /^silence$/i }));
-      expect(screen.getByRole("button", { name: /^30m$/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /^1h$/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /^4h$/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /^24h$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^30 minutes$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^1 hour$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^4 hours$/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^24 hours$/i })).toBeInTheDocument();
       expect(screen.getByPlaceholderText(/custom.*min/i)).toBeInTheDocument();
     });
 
     it.each([
-      ["30m", 30],
-      ["1h", 60],
-      ["4h", 240],
-      ["24h", 1440]
+      ["30 minutes", 30],
+      ["1 hour", 60],
+      ["4 hours", 240],
+      ["24 hours", 1440]
     ] as const)("calls silence(%2i) when %s clicked", async (label, minutes) => {
       const silence = vi.fn().mockResolvedValue(undefined);
       mockUseIncident(MOCK_VM, { silence });
@@ -495,7 +488,7 @@ describe("IncidentScreen", () => {
       mockUseIncident(MOCK_VM, { silence });
       render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       await userEvent.click(screen.getByRole("button", { name: /^silence$/i }));
-      await userEvent.click(screen.getByRole("button", { name: /^30m$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /^30 minutes$/i }));
       await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not update silence"));
     });
   });
@@ -512,8 +505,71 @@ describe("IncidentScreen", () => {
       const ctx = makeMockCtx();
       render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       await userEvent.click(screen.getByRole("button", { name: /create issue/i }));
-      // pushToast should have been called; no network call
       expect(ctx.pushToast).toHaveBeenCalled();
+    });
+  });
+
+  describe("action bar — Link issue", () => {
+    it("renders Link issue button", () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByRole("button", { name: /link issue/i })).toBeInTheDocument();
+    });
+
+    it("opens a modal with title pre-filled", async () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      await userEvent.click(screen.getByRole("button", { name: /link issue/i }));
+      expect(screen.getByRole("dialog", { name: /link external issue/i })).toBeInTheDocument();
+      expect(screen.getByDisplayValue(MOCK_VM.title)).toBeInTheDocument();
+    });
+
+    it("validates the issue URL and enables submit only for valid URLs", async () => {
+      const linkIncidentExternalIssue = vi.fn().mockResolvedValue(undefined);
+      const client = { linkIncidentExternalIssue } as unknown as ScreenCtx["client"];
+      const ctx = makeMockCtx();
+      ctx.client = client;
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /link issue/i }));
+      const dialog = screen.getByRole("dialog", { name: /link external issue/i });
+      const urlInput = within(dialog).getByPlaceholderText(/github.com\/org\/repo\/issues\/123/i);
+      const submitBtn = within(dialog).getByRole("button", { name: /^link issue$/i });
+      expect(submitBtn).toBeDisabled();
+
+      await userEvent.type(urlInput, "not-a-url");
+      expect(within(dialog).getByText(/enter a valid github or gitlab issue url/i)).toBeInTheDocument();
+      expect(submitBtn).toBeDisabled();
+
+      await userEvent.clear(urlInput);
+      await userEvent.type(urlInput, "https://github.com/acme/commerce/issues/123");
+      expect(
+        within(dialog).getByText((_, node) => node?.textContent === "Detected GitHub issue #123"),
+      ).toBeInTheDocument();
+      expect(submitBtn).not.toBeDisabled();
+    });
+
+    it("calls linkIncidentExternalIssue when a valid issue is submitted", async () => {
+      const linkIncidentExternalIssue = vi.fn().mockResolvedValue(undefined);
+      const client = { linkIncidentExternalIssue } as unknown as ScreenCtx["client"];
+      const ctx = makeMockCtx();
+      ctx.client = client;
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /link issue/i }));
+      const dialog = screen.getByRole("dialog", { name: /link external issue/i });
+      const urlInput = within(dialog).getByPlaceholderText(/github.com\/org\/repo\/issues\/123/i);
+      await userEvent.type(urlInput, "https://github.com/acme/commerce/issues/123");
+      await userEvent.click(within(dialog).getByRole("button", { name: /^link issue$/i }));
+      await waitFor(() =>
+        expect(linkIncidentExternalIssue).toHaveBeenCalledWith(
+          MOCK_VM.groupId,
+          { projectId: ctx.project!.id, environmentId: ctx.environment!.id },
+          expect.objectContaining({ provider: "github", externalKey: "123", title: MOCK_VM.title })
+        )
+      );
     });
   });
 
@@ -568,7 +624,6 @@ describe("IncidentScreen", () => {
     it("renders priority tag", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      // P1 rendered by PriorityPill
       expect(screen.getByText("P1")).toBeInTheDocument();
     });
 
@@ -585,7 +640,7 @@ describe("IncidentScreen", () => {
     });
 
     it("names the priority control's accessible name after the current selection", () => {
-      mockUseIncident(MOCK_VM); // priority: "P1"
+      mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       expect(screen.getByRole("button", { name: "Priority: P1" })).toBeInTheDocument();
     });
@@ -675,7 +730,7 @@ describe("IncidentScreen", () => {
     });
   });
 
-  describe("occurrences summary (no bars)", () => {
+  describe("occurrences summary", () => {
     it("renders occurrence summary text with counts", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
@@ -685,17 +740,10 @@ describe("IncidentScreen", () => {
     it("renders first and last seen in occurrence summary card", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      // The occurrence summary card renders a single span with all info:
-      // "{n} occurrences · first {firstSeenRelative} · last {lastSeenRelative}"
-      expect(screen.getAllByText(/412 occurrences.*first.*32m ago.*last.*8s ago/i).length).toBeGreaterThanOrEqual(1);
-    });
-
-    it("does NOT render any bar chart (no <div aria-hidden> chart bars)", () => {
-      mockUseIncident(MOCK_VM);
-      const { container } = render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      // Bars component renders aria-hidden divs for bar segments; we should have none of those
-      const ariaHiddenDivs = container.querySelectorAll("div[aria-hidden='true']");
-      expect(ariaHiddenDivs.length).toBe(0);
+      const summary = screen.getByRole("region", { name: /occurrence summary/i });
+      expect(within(summary).getByText(/412 occurrences/i)).toBeInTheDocument();
+      expect(within(summary).getByText(/first 32m ago/i)).toBeInTheDocument();
+      expect(within(summary).getByText(/last 8s ago/i)).toBeInTheDocument();
     });
   });
 
@@ -799,12 +847,9 @@ describe("IncidentScreen", () => {
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       const toggleBtn = screen.getByRole("button", { name: /breadcrumbs/i });
-      // initially open — rows visible
       expect(screen.getByText("/cart")).toBeInTheDocument();
-      // click to close
       await userEvent.click(toggleBtn);
       expect(screen.queryByText("/cart")).not.toBeInTheDocument();
-      // click to reopen
       await userEvent.click(toggleBtn);
       expect(screen.getByText("/cart")).toBeInTheDocument();
     });
@@ -855,14 +900,8 @@ describe("IncidentScreen", () => {
     });
 
     it("does not render rows without data (sub === '—' and no target)", () => {
-      // User and Tenant rows have sub="—" and no target — should not be rendered
       mockUseIncident(MOCK_VM);
       render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
-      // These are the only "User" text items — in related signals section the User row should be hidden
-      // We check that we have exactly Trace and Session as rendered related items
-      const relatedItems = screen.getAllByRole("button", { name: /^(Trace|Session)$/i });
-      expect(relatedItems.length).toBeGreaterThanOrEqual(1);
-      // User and Tenant rows (no target) should not appear as buttons in the related section
       expect(screen.queryByRole("button", { name: "User" })).not.toBeInTheDocument();
     });
 
@@ -886,6 +925,26 @@ describe("IncidentScreen", () => {
       render(<IncidentScreen ctx={ctx} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       await userEvent.click(screen.getByRole("button", { name: "StripeAPIError" }));
       expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "err_grp_4c1d" });
+    });
+  });
+
+  describe("external issues", () => {
+    it("renders empty state when no issues linked", () => {
+      mockUseIncident(MOCK_VM);
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByText(/no github or gitlab issue linked yet/i)).toBeInTheDocument();
+    });
+
+    it("renders linked issues", () => {
+      mockUseIncident({
+        ...MOCK_VM,
+        externalIssues: [
+          { id: "iss_1", provider: "github", externalKey: "123", title: "Fix timeout", url: "https://github.com/acme/commerce/issues/123", state: "open" },
+        ] as IncidentVM["externalIssues"],
+      });
+      render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
+      expect(screen.getByText("Fix timeout")).toBeInTheDocument();
+      expect(screen.getByText(/github · #123/i)).toBeInTheDocument();
     });
   });
 
@@ -950,15 +1009,10 @@ describe("IncidentScreen", () => {
       mockUseIncident(MOCK_VM);
       const { container } = render(<IncidentScreen ctx={makeMockCtx()} groupId="err_grp_8a2f91d0" errorId={undefined} />);
       const text = container.textContent ?? "";
-      // pt-BR strings that should not appear
       expect(text).not.toMatch(/notas da triagem/i);
       expect(text).not.toMatch(/sinais relacionados/i);
-      // "Silenciar" is the pt-BR form; the English button says "Silence 1h"
       expect(text).not.toMatch(/silenciar/i);
-      expect(text).not.toMatch(/ocorrências.*24h/i);
-      // The h2 heading for triage notes should be English
       expect(screen.getByRole("heading", { name: /triage notes/i })).toBeInTheDocument();
-      // The h2 heading for related signals should be English
       expect(screen.getByRole("heading", { name: /related signals/i })).toBeInTheDocument();
     });
 

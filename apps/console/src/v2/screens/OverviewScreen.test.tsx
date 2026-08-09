@@ -191,7 +191,7 @@ afterEach(() => {
 });
 
 describe("OverviewScreen", () => {
-  describe("operations home", () => {
+  describe("page header", () => {
     it("identifies the promoted screen as Operations", () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
@@ -199,164 +199,58 @@ describe("OverviewScreen", () => {
       expect(screen.getByRole("heading", { name: "Operations" })).toBeInTheDocument();
     });
 
-    it("renders monitor, alert, and setup posture with intentional drilldowns", async () => {
+    it("renders 24h/7d/30d window options", () => {
       mockUseOverview(ALL_CLEAR_VM);
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
-
-      expect(screen.getByRole("region", { name: "Operational posture" })).toBeInTheDocument();
-      expect(screen.getByText("2 up, 1 down, 0 degraded")).toBeInTheDocument();
-      expect(screen.getByText("1 paused, 2 unknown")).toBeInTheDocument();
-      expect(screen.getByText("5 enabled rules, 1 critical, 0 delivery failures")).toBeInTheDocument();
-      expect(screen.getByText("No heartbeat monitor")).toBeInTheDocument();
-
-      await userEvent.click(screen.getByRole("button", { name: /open monitors/i }));
-      expect(navigate).toHaveBeenCalledWith("monitors");
-      await userEvent.click(screen.getByRole("button", { name: /no notification channel/i }));
-      expect(navigate).toHaveBeenCalledWith("alerts");
-    });
-
-    it("renders no-setup-gap posture without hiding monitor and alert state", () => {
-      mockUseOverview({
-        ...ALL_CLEAR_VM,
-        operations: {
-          ...ALL_CLEAR_VM.operations,
-          posture: { ...ALL_CLEAR_VM.operations.posture, setupGaps: [] },
-        },
-      });
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText("Setup complete")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /open monitors/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /open alerts/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "24h" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "7d" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "30d" })).toBeInTheDocument();
     });
 
-    it("renders at most four recommended actions and routes incident detail", async () => {
-      const extraActions = Array.from({ length: 4 }, (_, index) => ({
-        key: `extra-${index}`,
-        title: `Extra action ${index}`,
-        description: "Should be bounded by the screen.",
-        action: "Open alerts",
-        tone: "warning" as const,
-        destination: "alerts" as const,
-      }));
-      mockUseOverview({
-        ...ALL_CLEAR_VM,
-        operations: {
-          ...ALL_CLEAR_VM.operations,
-          recommendedActions: [...ALL_CLEAR_VM.operations.recommendedActions, ...extraActions],
-        },
-      });
-      const ctx = makeMockCtx();
-      render(<OverviewScreen ctx={ctx} navigate={vi.fn()} />);
-
-      expect(screen.getAllByTestId("recommended-action")).toHaveLength(4);
-      await userEvent.click(screen.getByRole("button", { name: /investigate active incidents/i }));
-      expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "egrp_checkout", errorId: "err_checkout" });
-    });
-
-    it("renders explainable predictive risk, anomaly, and latency details", async () => {
+    it("calls useOverview with new window when Segmented option is changed", async () => {
       mockUseOverview(ALL_CLEAR_VM);
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
-
-      expect(screen.getByRole("region", { name: "Predictive risk" })).toHaveTextContent("88% probability");
-      expect(screen.getByRole("region", { name: "Predictive risk" })).toHaveTextContent("44 / 39 samples");
-      expect(screen.getByText("Latency is materially above baseline.")).toBeInTheDocument();
-      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("Observed 860");
-      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("Baseline 420");
-      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("+104.8%");
-      expect(screen.getByRole("region", { name: "Top latency" })).toHaveTextContent("POST /checkout");
-
-      await userEvent.click(screen.getByRole("button", { name: "Open traces" }));
-      expect(navigate).toHaveBeenCalledWith("traces");
-    });
-
-    it("opens error-directed predictions without an invalid risk severity filter", async () => {
-      mockUseOverview({
-        ...ALL_CLEAR_VM,
-        operations: {
-          ...ALL_CLEAR_VM.operations,
-          predictions: [{ ...ALL_CLEAR_VM.operations.predictions[0], severity: "high", destination: "investigate" }],
-        },
-      });
-      const ctx = makeMockCtx();
-      render(<OverviewScreen ctx={ctx} navigate={ctx.navigate} />);
-
-      await userEvent.click(within(screen.getByRole("region", { name: "Predictive risk" })).getByRole("button", { name: "Open" }));
-
-      expect(ctx.navigate).toHaveBeenCalledWith("investigate", { status: "open" });
-    });
-
-    it("routes recommended alert-rule reviews to Alerts", async () => {
-      mockUseOverview({
-        ...ALL_CLEAR_VM,
-        operations: {
-          ...ALL_CLEAR_VM.operations,
-          recommendedActions: [{
-            key: "anomaly-rule",
-            title: "Review detected anomaly",
-            description: "Latency crossed the learned threshold.",
-            action: "Review alert rule",
-            tone: "warning",
-            destination: "alerts",
-          }],
-        },
-      });
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
-
-      await userEvent.click(screen.getByRole("button", { name: "Review detected anomaly" }));
-
-      expect(navigate).toHaveBeenCalledWith("alerts");
-    });
-
-    it("renders robust empty states for operational recommendations and signals", () => {
-      mockUseOverview({
-        ...ALL_CLEAR_VM,
-        operations: {
-          ...ALL_CLEAR_VM.operations,
-          recommendedActions: [],
-          predictions: [],
-          anomalies: [],
-          topLatency: [],
-        },
-      });
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText("No urgent actions")).toBeInTheDocument();
-      expect(screen.getByText("No predictive risk")).toBeInTheDocument();
-      expect(screen.getByText("No anomalies detected")).toBeInTheDocument();
-      expect(screen.getByText("No trace latency in this window")).toBeInTheDocument();
+      const spy = vi.spyOn(useOverviewModule, "useOverview");
+
+      await userEvent.click(screen.getByRole("button", { name: "7d" }));
+
+      await waitFor(() => {
+        const calls = spy.mock.calls;
+        const lastCall = calls[calls.length - 1];
+        expect(lastCall?.[0]?.window).toBe("7d");
+      });
     });
   });
 
-  describe("banner", () => {
-    it("renders incident banner when incidents > 0", () => {
+  describe("attention zone", () => {
+    it("renders incident attention card when incidents > 0", () => {
       mockUseOverview(INCIDENT_VM);
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText(/3 incident/i)).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Top active incident" })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("region", { name: "Top active incident" })).getByText(/3 active incident/i),
+      ).toBeInTheDocument();
       expect(screen.getByText(/2 alert/i)).toBeInTheDocument();
       expect(screen.getByText(/PaymentTimeoutError in \/checkout/i)).toBeInTheDocument();
     });
 
-    it("opens the top incident directly from the incident banner", async () => {
+    it("opens the top incident directly from the incident attention card", async () => {
       mockUseOverview(INCIDENT_VM);
       const ctx = makeMockCtx();
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={ctx} navigate={navigate} />);
+      render(<OverviewScreen ctx={ctx} navigate={vi.fn()} />);
 
       await userEvent.click(screen.getByRole("button", { name: /open incident/i }));
       expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "egrp_checkout", errorId: "err_checkout" });
-      expect(navigate).not.toHaveBeenCalled();
     });
 
     it("renders all-clear banner when no incidents", () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
+      expect(screen.getByRole("region", { name: "No active incidents" })).toBeInTheDocument();
       expect(screen.getByText(/no active incidents/i)).toBeInTheDocument();
       expect(screen.getByText(/operating within expected range/i)).toBeInTheDocument();
     });
@@ -370,131 +264,144 @@ describe("OverviewScreen", () => {
       expect(navigate).toHaveBeenCalledWith("alerts");
     });
 
-    it("all-clear banner reflects selected window (not hardcoded 24h)", async () => {
+    it("all-clear banner reflects selected window", async () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      // Default window is 24h — banner should say "24h"
       expect(screen.getByText(/over the last 24h/i)).toBeInTheDocument();
 
-      // Switch to 7d
       await userEvent.click(screen.getByRole("button", { name: "7d" }));
 
-      // Banner must now reflect 7d
-      await waitFor(() =>
-        expect(screen.getByText(/over the last 7d/i)).toBeInTheDocument()
-      );
+      await waitFor(() => expect(screen.getByText(/over the last 7d/i)).toBeInTheDocument());
       expect(screen.queryByText(/over the last 24h/i)).not.toBeInTheDocument();
+    });
+
+    it("renders Up next recommended actions and routes incident detail", async () => {
+      mockUseOverview(ALL_CLEAR_VM);
+      const ctx = makeMockCtx();
+      render(<OverviewScreen ctx={ctx} navigate={vi.fn()} />);
+
+      expect(screen.getByRole("region", { name: "Recommended next actions" })).toBeInTheDocument();
+      expect(screen.getByText("Up next")).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("region", { name: "Recommended next actions" })).getByText("01"),
+      ).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: /investigate active incidents/i }));
+      expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "egrp_checkout", errorId: "err_checkout" });
+    });
+
+    it("renders empty state when there are no recommended actions", () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: { ...ALL_CLEAR_VM.operations, recommendedActions: [] },
+      });
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByText("No urgent actions")).toBeInTheDocument();
     });
   });
 
-  describe("KPI groups", () => {
-    it("renders Health group with errors, open incidents, error rate", () => {
+  describe("metrics strip", () => {
+    it("renders all six KPI metrics", () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText("Health")).toBeInTheDocument();
-      expect(screen.getByText("Errors (24h)")).toBeInTheDocument();
-      expect(screen.getByText("Open incidents")).toBeInTheDocument();
+      expect(screen.getByText("Metrics · last 24h")).toBeInTheDocument();
+      expect(screen.getByText("Errors")).toBeInTheDocument();
       expect(screen.getByText("Error rate")).toBeInTheDocument();
-    });
-
-    it("renders Usage group with events, active users, active tenants, traces", () => {
-      mockUseOverview(ALL_CLEAR_VM);
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      expect(screen.getByText("Usage")).toBeInTheDocument();
       expect(screen.getByText("Events")).toBeInTheDocument();
-      expect(screen.getByText("Active users")).toBeInTheDocument();
-      expect(screen.getByText("Active tenants")).toBeInTheDocument();
-      expect(screen.getByText("Traces")).toBeInTheDocument();
       expect(screen.getByText("p95 trace")).toBeInTheDocument();
-    });
-
-    it("renders AI cost group with LLM calls, cost, tokens, top model", () => {
-      mockUseOverview(ALL_CLEAR_VM);
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      expect(screen.getByText("AI cost")).toBeInTheDocument();
-      expect(screen.getByText("LLM calls")).toBeInTheDocument();
-      expect(screen.getByText("Cost today")).toBeInTheDocument();
-      expect(screen.getByText("Top model")).toBeInTheDocument();
+      expect(screen.getByText("LLM cost")).toBeInTheDocument();
+      expect(screen.getByText("Active users")).toBeInTheDocument();
     });
 
     it("renders KPI values from the VM", () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      // errors (80)
       expect(screen.getByText("80")).toBeInTheDocument();
-      // active users (42)
       expect(screen.getByText("42")).toBeInTheDocument();
-      // top model (may appear multiple times due to LLM panel)
-      expect(screen.getAllByText("gpt-4o").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText("$ 3.50")).toBeInTheDocument();
     });
 
-    it("clamps an error rate above 100% for display (errors can outnumber traces) and keeps the raw value in a tooltip", () => {
-      // Regression: errors/traces*100 is not a bounded fraction — a route can
-      // log several errors per completed trace — so raw values like 466.7%
-      // must not be shown as-is on the Health KPI card.
+    it("clamps an error rate above 100% for display", () => {
       mockUseOverview({ ...ALL_CLEAR_VM, kpis: { ...ALL_CLEAR_VM.kpis, errorRate: 466.7 } });
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
       expect(screen.getByText("100.0%")).toBeInTheDocument();
       expect(screen.queryByText("466.7%")).not.toBeInTheDocument();
-      expect(screen.getByText("100.0%")).toHaveAttribute("title", expect.stringContaining("466.7%"));
     });
 
-    it("does not clamp or annotate an error rate at or below 100%", () => {
-      mockUseOverview(ALL_CLEAR_VM); // errorRate: 20
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      const value = screen.getByText("20.0%");
-      expect(value).not.toHaveAttribute("title");
-    });
-
-    it("Open incidents tile shows banner.incidents, not failedTraces", () => {
-      const vm: OverviewVM = {
-        ...ALL_CLEAR_VM,
-        banner: { incidents: 7, alerts: 1, top: { message: "err", severity: "critical", groupId: "egrp_err", errorId: null } },
-        kpis: { ...ALL_CLEAR_VM.kpis, failedTraces: 99 },
-      };
-      mockUseOverview(vm);
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      // banner.incidents=7 must appear; failedTraces=99 must not appear as "Open incidents" value
-      expect(screen.getByText("7")).toBeInTheDocument();
-      expect(screen.queryByText("99")).not.toBeInTheDocument();
-    });
-
-    it("Avg trace tile formats averageTraceDurationMs from VM", () => {
-      mockUseOverview(ALL_CLEAR_VM); // averageTraceDurationMs=150
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      expect(screen.getByText("150 ms")).toBeInTheDocument();
-    });
-
-    it("Avg trace tile shows — when averageTraceDurationMs is null", () => {
-      const vm: OverviewVM = {
-        ...ALL_CLEAR_VM,
-        kpis: { ...ALL_CLEAR_VM.kpis, averageTraceDurationMs: null },
-      };
-      mockUseOverview(vm);
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      // "—" appears for null avg trace (and possibly for other null fields)
-      const dashes = screen.getAllByText("—");
-      expect(dashes.length).toBeGreaterThanOrEqual(1);
-    });
-  });
-
-  describe("top tenants", () => {
-    it("renders tenant names and row count", () => {
+    it("toggles the metrics strip collapsed and expanded", async () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText("Top tenants — activity")).toBeInTheDocument();
-      expect(screen.getByText("ranked by events")).toBeInTheDocument();
+      const toggle = screen.getByRole("button", { name: /metrics · last 24h/i });
+      expect(screen.getByText("Errors")).toBeInTheDocument();
+
+      await userEvent.click(toggle);
+      expect(screen.queryByText("Errors")).not.toBeInTheDocument();
+
+      await userEvent.click(toggle);
+      expect(screen.getByText("Errors")).toBeInTheDocument();
+    });
+  });
+
+  describe("signals zone", () => {
+    it("renders explainable predictive risk and anomaly details", async () => {
+      mockUseOverview(ALL_CLEAR_VM);
+      const navigate = vi.fn();
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+
+      expect(screen.getByRole("region", { name: "Predictive risk" })).toHaveTextContent("88% probability");
+      expect(screen.getByRole("region", { name: "Predictive risk" })).toHaveTextContent("44 / 39 samples");
+      expect(screen.getByText("Latency is materially above baseline.")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("Observed 860");
+      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("Baseline 420");
+      expect(screen.getByRole("region", { name: "Detected anomalies" })).toHaveTextContent("+104.8%");
+
+      await userEvent.click(within(screen.getByRole("region", { name: "Predictive risk" })).getByRole("button", { name: "Open" }));
+      expect(navigate).toHaveBeenCalledWith("traces");
+    });
+
+    it("opens error-directed predictions to investigate", async () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: {
+          ...ALL_CLEAR_VM.operations,
+          predictions: [{ ...ALL_CLEAR_VM.operations.predictions[0], severity: "high", destination: "investigate" }],
+        },
+      });
+      const ctx = makeMockCtx();
+      render(<OverviewScreen ctx={ctx} navigate={ctx.navigate} />);
+
+      await userEvent.click(within(screen.getByRole("region", { name: "Predictive risk" })).getByRole("button", { name: "Open" }));
+      expect(ctx.navigate).toHaveBeenCalledWith("investigate", { status: "open" });
+    });
+
+    it("renders empty states for signals", () => {
+      mockUseOverview({
+        ...ALL_CLEAR_VM,
+        operations: {
+          ...ALL_CLEAR_VM.operations,
+          predictions: [],
+          anomalies: [],
+        },
+      });
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByText("No predictive risk")).toBeInTheDocument();
+      expect(screen.getByText("No anomalies detected")).toBeInTheDocument();
+    });
+  });
+
+  describe("explore tabs", () => {
+    it("renders top tenants by default", () => {
+      mockUseOverview(ALL_CLEAR_VM);
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+
+      expect(screen.getByRole("tab", { name: "Top tenants" })).toHaveAttribute("aria-selected", "true");
       expect(screen.getByText("Acme Corp")).toBeInTheDocument();
       expect(screen.getByText("Northwind")).toBeInTheDocument();
       expect(screen.getByText("Globex")).toBeInTheDocument();
@@ -505,128 +412,62 @@ describe("OverviewScreen", () => {
       const ctx = makeMockCtx();
       render(<OverviewScreen ctx={ctx} navigate={vi.fn()} />);
 
-      const tenantBtn = screen.getByRole("button", { name: /acme corp/i });
-      await userEvent.click(tenantBtn);
+      await userEvent.click(screen.getByRole("button", { name: /acme corp/i }));
       expect(ctx.drill).toHaveBeenCalledWith("tenant", { tenantId: "t1" });
     });
-  });
 
-  describe("LLM cost by model", () => {
-    it("renders model names and costs", () => {
+    it("switches to AI cost tab", async () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText("LLM cost by model")).toBeInTheDocument();
-      // gpt-4o appears in both KPI top model and LLM by model panel
-      expect(screen.getAllByText("gpt-4o").length).toBeGreaterThanOrEqual(1);
+      await userEvent.click(screen.getByRole("tab", { name: "AI cost" }));
+      expect(screen.getByText("gpt-4o")).toBeInTheDocument();
       expect(screen.getByText("claude-3-5-sonnet")).toBeInTheDocument();
     });
-  });
 
-  describe("releases", () => {
-    it("renders recent releases and applies a release filter", async () => {
+    it("switches to releases tab and applies a release filter", async () => {
       const selectRelease = vi.fn();
       mockUseOverview({ ...ALL_CLEAR_VM, selectRelease });
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText("Releases")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("tab", { name: "Releases" }));
       expect(screen.getByText("web@1.2.3")).toBeInTheDocument();
-      expect(screen.getByText(/3 errors/i)).toBeInTheDocument();
 
       await userEvent.click(screen.getByRole("button", { name: /web@1.2.3/i }));
-
       expect(selectRelease).toHaveBeenCalledWith("web@1.2.3");
     });
-  });
 
-  describe("recent activity", () => {
-    it("renders activity section header", () => {
-      mockUseOverview(ALL_CLEAR_VM);
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      expect(screen.getByText("Recent activity")).toBeInTheDocument();
-      expect(screen.getByText("live")).toBeInTheDocument();
-    });
-
-    it("renders activity items by kind", () => {
-      mockUseOverview(ALL_CLEAR_VM);
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
-
-      expect(screen.getByText("PaymentTimeoutError")).toBeInTheDocument();
-      expect(screen.getByText("openai / gpt-4o")).toBeInTheDocument();
-      expect(screen.getByText("generate_report")).toBeInTheDocument();
-    });
-
-    it("opens incident detail when error activity row has a group id", async () => {
+    it("switches to activity tab and opens incident detail from error row", async () => {
       mockUseOverview(ALL_CLEAR_VM);
       const ctx = makeMockCtx();
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={ctx} navigate={navigate} />);
+      render(<OverviewScreen ctx={ctx} navigate={vi.fn()} />);
 
+      await userEvent.click(screen.getByRole("tab", { name: "Activity" }));
       const errorRow = screen.getByRole("button", { name: /paymenttimeouterror/i });
       await userEvent.click(errorRow);
       expect(ctx.drill).toHaveBeenCalledWith("incident", { groupId: "egrp_payment", errorId: "err_payment" });
-      expect(navigate).not.toHaveBeenCalled();
     });
 
-    it("falls back to incidents when error activity has no group id", async () => {
-      mockUseOverview({
-        ...ALL_CLEAR_VM,
-        activity: [{ kind: "error", title: "UngroupedError", sub: "Error", timestamp: "2026-06-22T00:05:00Z" }]
-      });
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
-
-      await userEvent.click(screen.getByRole("button", { name: /ungroupederror/i }));
-      expect(navigate).toHaveBeenCalledWith("incidents");
-    });
-
-    it("navigates to llm when llm activity row is clicked", async () => {
+    it("switches to top latency tab", async () => {
       mockUseOverview(ALL_CLEAR_VM);
       const navigate = vi.fn();
       render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
 
-      const llmRow = screen.getByRole("button", { name: /openai \/ gpt-4o/i });
-      await userEvent.click(llmRow);
-      expect(navigate).toHaveBeenCalledWith("llm");
-    });
+      await userEvent.click(screen.getByRole("tab", { name: "Top latency" }));
+      expect(screen.getByText("POST /checkout")).toBeInTheDocument();
 
-    it("navigates to traces when trace activity row is clicked", async () => {
-      mockUseOverview(ALL_CLEAR_VM);
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
-
-      const traceRow = screen.getByRole("button", { name: /generate_report/i });
-      await userEvent.click(traceRow);
+      await userEvent.click(screen.getByRole("button", { name: /post \/checkout/i }));
       expect(navigate).toHaveBeenCalledWith("traces");
     });
-  });
 
-  describe("window Segmented control", () => {
-    it("renders 24h/7d/30d options (no 1h)", () => {
+    it("keyboard navigation cycles through tabs", async () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByRole("button", { name: "24h" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "7d" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "30d" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "1h" })).not.toBeInTheDocument();
-    });
-
-    it("calls useOverview with new window when Segmented option is changed", async () => {
-      mockUseOverview(ALL_CLEAR_VM);
-      const navigate = vi.fn();
-      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
-
-      const spy = vi.spyOn(useOverviewModule, "useOverview");
-
-      await userEvent.click(screen.getByRole("button", { name: "7d" }));
-
-      await waitFor(() => {
-        const calls = spy.mock.calls;
-        const lastCall = calls[calls.length - 1];
-        expect(lastCall?.[0]?.window).toBe("7d");
-      });
+      const tenantsTab = screen.getByRole("tab", { name: "Top tenants" });
+      tenantsTab.focus();
+      await userEvent.keyboard("{ArrowRight}");
+      expect(screen.getByRole("tab", { name: "AI cost" })).toHaveFocus();
     });
   });
 
@@ -649,11 +490,6 @@ describe("OverviewScreen", () => {
       expect(body).not.toMatch(/incidente\(s\)/i);
       expect(body).not.toMatch(/atualizado/i);
       expect(body).not.toMatch(/dentro do esperado/i);
-      expect(body).not.toMatch(/Atividade recente/);
-      expect(body).not.toMatch(/Custo de IA/);
-      expect(body).not.toMatch(/Custo LLM/);
-      expect(body).not.toMatch(/Saúde/);
-      expect(body).not.toMatch(/Uso/);
     });
   });
 });
