@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api/client";
 import type { Environment, FeedbackItem, FeedbackWidgetSettings, Project } from "../../api/types";
@@ -56,6 +57,24 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
   };
 }
 
+// Mirrors ConsoleShellV2: screens render inside <div className="page" key={seq}>
+// and ctx.reload bumps seq, so every reload remounts the subtree. The one-time
+// secret lives above that boundary, in the shell.
+function renderInShell(client: ApiClient) {
+  function Host() {
+    const [seq, setSeq] = useState(0);
+    const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+    const ctx = makeCtx({
+      client,
+      createdSecret,
+      onSecretCreated: setCreatedSecret,
+      reload: () => setSeq((s) => s + 1),
+    });
+    return <div key={seq}><SetupScreen ctx={ctx} /></div>;
+  }
+  return render(<Host />);
+}
+
 describe("SetupScreen", () => {
   it("renders the page head and onboarding stepper", async () => {
     render(<SetupScreen ctx={makeCtx()} />);
@@ -92,11 +111,22 @@ describe("SetupScreen", () => {
 
   it("generates an API key and reveals the one-time secret", async () => {
     const client = makeClient();
-    render(<SetupScreen ctx={makeCtx({ client })} />);
+    renderInShell(client);
     const generate = await screen.findByRole("button", { name: /Generate API key/ });
     fireEvent.click(generate);
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production" }));
     expect(await screen.findByText(/Copy/)).toBeInTheDocument();
+  });
+
+  it("keeps the one-time secret readable after ctx.reload remounts the screen", async () => {
+    const client = makeClient();
+    renderInShell(client);
+    fireEvent.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledTimes(1));
+
+    // The value itself, not just the block: masked by default, so unmask it.
+    fireEvent.click(await screen.findByTitle("Reveal"));
+    expect(await screen.findByText("sh_live_browser_secret_value")).toBeInTheDocument();
   });
 
   it("does not reveal an API key secret after the environment changes", async () => {
