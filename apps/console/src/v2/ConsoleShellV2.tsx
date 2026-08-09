@@ -524,7 +524,16 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     [client]
   );
 
-  const handleSecretCreated = useCallback(() => undefined, []);
+  // One-time API key secrets live here, not in the screen: the page container
+  // below is keyed on `seq`, and creating a key calls ctx.reload, so a secret
+  // held in screen state was destroyed before the operator could copy it.
+  const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+  const handleSecretCreated = useCallback((secret: string | null) => setCreatedSecret(secret), []);
+
+  // A secret belongs to the scope it was minted in — never carry it across.
+  useEffect(() => {
+    setCreatedSecret(null);
+  }, [activeProject?.id, activeEnvironment?.id]);
 
   const handleSelectEnvironmentObj = useCallback(
     (env: Environment) => {
@@ -609,6 +618,7 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     onArchiveEnvironment: handleArchiveEnvironment,
     onArchiveProject: handleArchiveProject,
     onSecretCreated: handleSecretCreated,
+    createdSecret,
     onSelectEnvironment: handleSelectEnvironmentObj,
     onUpdateProject: handleUpdateProject,
     onUpdateEnvironment: handleUpdateEnvironment,

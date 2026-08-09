@@ -693,7 +693,7 @@ function TraceDetailView({ ctx, trace, onBack }: { ctx: ScreenCtx; trace: TraceL
     client: ctx.client,
     projectId: ctx.project?.id,
     environmentId: ctx.environment?.id,
-    traceId: trace.id,
+    traceId: trace.traceId,
   });
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());

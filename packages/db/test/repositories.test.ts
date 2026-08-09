@@ -5707,6 +5707,14 @@ describe("repositories", () => {
         payload: { id: "dead-letter-other-env" },
         errorMessage: "other environment failed"
       });
+      // insertDeadLetterJob stamps created_at with now(), but every rule below
+      // is evaluated against a fixed historical window. Backdate the rows into
+      // that window so dead_letter_count sees them the way the other signals
+      // are seen.
+      await db
+        .updateTable("dead_letter_jobs")
+        .set({ created_at: new Date("2026-05-06T11:55:00.000Z") })
+        .execute();
 
       const criticalResult = await evaluateAlertRule(db, {
         projectId: project.id,
@@ -13866,8 +13874,10 @@ describe("repositories", () => {
 
       // calls = 3 in-window rows
       expect(summary.calls).toBe(3);
-      // failedCalls = error + pending = 2
-      expect(summary.failedCalls).toBe(2);
+      // failedCalls counts only status = 'error'. A pending call has not failed
+      // — it has not finished — and traces/spans default to pending, so folding
+      // it into the failure count made every un-finalized signal look broken.
+      expect(summary.failedCalls).toBe(1);
       // costUsd = 0.010000 + 0.020000 + 0.005000 = 0.035000
       expect(summary.costUsd).toBe("0.035000");
       // avgTokens = round((150 + 300 + 75) / 3) = round(175) = 175

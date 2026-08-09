@@ -142,7 +142,10 @@ function snippet(tab: SnippetTab, endpoint: string, key: string): ReactNode {
     return (
       <>
         <span className="tok-key">import</span> {"{ createSignalMonitorClient }"} <span className="tok-key">from</span> <span className="tok-str">"@sigmon/sdk/node"</span>;<br /><br />
-        <span className="tok-key">const</span> <span className="tok-fn">signal</span> = <span className="tok-fn">createSignalMonitorClient</span>({"{"} <span className="tok-key">apiKey</span>: process.env.<span className="tok-num">SIGMON_KEY</span> {"}"});<br />
+        <span className="tok-key">const</span> <span className="tok-fn">signal</span> = <span className="tok-fn">createSignalMonitorClient</span>({"{"}<br />
+        {"  "}<span className="tok-key">endpoint</span>: <span className="tok-str">"{endpoint}"</span>,<br />
+        {"  "}<span className="tok-key">apiKey</span>: process.env.<span className="tok-num">SIGMON_KEY</span><br />
+        {"}"});<br />
         <span className="tok-fn">signal</span>.<span className="tok-fn">captureError</span>(err);
       </>
     );
@@ -150,10 +153,13 @@ function snippet(tab: SnippetTab, endpoint: string, key: string): ReactNode {
   if (tab === "Python") {
     return (
       <>
-        <span className="tok-com"># pip install sigmon-sdk</span><br />
-        <span className="tok-key">from</span> sigmon <span className="tok-key">import</span> Client<br />
-        signal = Client(api_key=<span className="tok-str">"{key}"</span>)<br />
-        signal.track(<span className="tok-str">"checkout.started"</span>, plan=<span className="tok-str">"pro"</span>)
+        <span className="tok-com"># No Python SDK yet — post straight to the ingestion API.</span><br />
+        <span className="tok-key">import</span> requests<br /><br />
+        requests.post(<br />
+        {"  "}<span className="tok-str">"{endpoint}/v1/events"</span>,<br />
+        {"  "}headers={"{"}<span className="tok-str">"authorization"</span>: <span className="tok-str">"Bearer {key}"</span>{"}"},<br />
+        {"  "}json={"{"}<span className="tok-str">"name"</span>: <span className="tok-str">"checkout.started"</span>{"}"},<br />
+        )
       </>
     );
   }

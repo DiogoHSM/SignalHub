@@ -1437,11 +1437,11 @@ async function queryOverviewKpis(
       (select count(*) from scoped_errors) as errors,
       (select count(*) from scoped_errors where status = 'open') as open_errors,
       (select count(*) from scoped_traces) as traces,
-      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
+      (select count(*) from scoped_traces where status = 'error') as failed_traces,
       (select coalesce(avg(duration_ms), 0) from scoped_traces) as average_trace_duration_ms,
       (select percentile_cont(0.95) within group (order by duration_ms) from scoped_traces where duration_ms is not null) as p95_trace_duration_ms,
       (select count(*) from scoped_llm_calls) as llm_calls,
-      (select count(*) from scoped_llm_calls where status <> 'success') as failed_llm_calls,
+      (select count(*) from scoped_llm_calls where status = 'error') as failed_llm_calls,
       (select coalesce(sum(input_tokens), 0) from scoped_llm_calls) as llm_input_tokens,
       (select coalesce(sum(output_tokens), 0) from scoped_llm_calls) as llm_output_tokens,
       (select coalesce(sum(cost_usd), 0)::text from scoped_llm_calls) as llm_cost_usd
@@ -3047,10 +3047,10 @@ export async function getApmEndpoints(db: Db, filters: ApmFilters): Promise<ApmE
       select
         name,
         count(*) as requests,
-        count(*) filter (where status <> 'success') as errors,
+        count(*) filter (where status = 'error') as errors,
         case
           when count(*) = 0 then null
-          else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+          else ((count(*) filter (where status = 'error'))::numeric / count(*)::numeric) * 100
         end as error_rate_percent,
         percentile_cont(0.50) within group (order by duration_ms) filter (where duration_ms is not null) as p50_duration_ms,
         percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
@@ -3097,10 +3097,10 @@ export async function getApmEndpoints(db: Db, filters: ApmFilters): Promise<ApmE
     select
       count(distinct name) as endpoints,
       count(*) as requests,
-      count(*) filter (where status <> 'success') as errors,
+      count(*) filter (where status = 'error') as errors,
       case
         when count(*) = 0 then null
-        else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+        else ((count(*) filter (where status = 'error'))::numeric / count(*)::numeric) * 100
       end as error_rate_percent,
       percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
       case
@@ -3544,10 +3544,10 @@ export async function getServiceMap(db: Db, filters: ApmFilters): Promise<Servic
       dependency_type,
       count(*) as spans,
       count(distinct trace_id) as traces,
-      count(*) filter (where status <> 'success') as errors,
+      count(*) filter (where status = 'error') as errors,
       case
         when count(*) = 0 then null
-        else ((count(*) filter (where status <> 'success'))::numeric / count(*)::numeric) * 100
+        else ((count(*) filter (where status = 'error'))::numeric / count(*)::numeric) * 100
       end as error_rate_percent,
       avg(duration_ms) filter (where duration_ms is not null) as average_duration_ms,
       percentile_cont(0.95) within group (order by duration_ms) filter (where duration_ms is not null) as p95_duration_ms,
@@ -3596,7 +3596,7 @@ export async function getServiceMap(db: Db, filters: ApmFilters): Promise<Servic
         and timestamp < ${to}
     ),
     grouped as (
-      select source, target, dependency_type, count(*) as spans, count(*) filter (where status <> 'success') as errors
+      select source, target, dependency_type, count(*) as spans, count(*) filter (where status = 'error') as errors
       from scoped
       group by source, target, dependency_type
     ),
@@ -3714,6 +3714,34 @@ export async function getEventAggregates(db: Db, filters: TelemetryFilters): Pro
     totalQuery = totalQuery.where("timestamp", "<", filters.to);
     byNameQuery = byNameQuery.where("timestamp", "<", filters.to);
   }
+  // The list below these KPIs applies eventId, name and segmentId too. Leaving
+  // them out here made the card disagree with the rows it summarises.
+  if (filters.eventId) {
+    totalQuery = totalQuery.where("id", "=", filters.eventId);
+    byNameQuery = byNameQuery.where("id", "=", filters.eventId);
+  }
+  const traceName = filters.traceName ?? filters.eventName;
+  if (traceName) {
+    totalQuery = totalQuery.where("name", "=", traceName);
+    byNameQuery = byNameQuery.where("name", "=", traceName);
+  }
+  if (filters.segmentId) {
+    const segment = await getAnalyticsSegment(db, {
+      id: filters.segmentId,
+      projectId: filters.projectId,
+      environmentId: filters.environmentId
+    });
+    if (!segment) {
+      return { total: 0, byName: {} };
+    }
+    const segmentFilter = analyticsSegmentActorFilter(
+      segment,
+      { userRef: "events.user_id", tenantRef: "events.tenant_id" },
+      filters.to
+    );
+    totalQuery = totalQuery.where(segmentFilter);
+    byNameQuery = byNameQuery.where(segmentFilter);
+  }
 
   const [totalRow, byNameRows] = await Promise.all([totalQuery.executeTakeFirstOrThrow(), byNameQuery.execute()]);
 
@@ -3789,7 +3817,7 @@ export async function getLlmSummary(db: Db, filters: LlmAggregateFilters): Promi
   }>`
     select
       count(*) as calls,
-      count(*) filter (where status <> 'success') as failed_calls,
+      count(*) filter (where status = 'error') as failed_calls,
       coalesce(sum(cost_usd), 0)::text as cost_usd,
       avg(input_tokens + output_tokens) as avg_tokens,
       avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
@@ -3826,7 +3854,7 @@ export async function getLlmByTenant(db: Db, filters: LlmAggregateFilters): Prom
     select
       tenant_id,
       count(*) as calls,
-      count(*) filter (where status <> 'success') as failed_calls,
+      count(*) filter (where status = 'error') as failed_calls,
       coalesce(sum(cost_usd), 0)::text as cost_usd,
       avg(input_tokens + output_tokens) as avg_tokens,
       avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
@@ -3869,7 +3897,7 @@ export async function getLlmByPrompt(db: Db, filters: LlmAggregateFilters): Prom
       coalesce(prompt_name, 'Unspecified') as prompt_name,
       model,
       count(*) as calls,
-      count(*) filter (where status <> 'success') as failed_calls,
+      count(*) filter (where status = 'error') as failed_calls,
       coalesce(sum(cost_usd), 0)::text as cost_usd,
       avg(input_tokens + output_tokens) as avg_tokens,
       avg(latency_ms) filter (where latency_ms is not null) as avg_latency_ms,
@@ -4045,7 +4073,7 @@ export async function listReleases(db: Db, filters: ReleaseListFilters): Promise
       count(*) filter (where kind = 'event') as events,
       count(*) filter (where kind = 'error') as errors,
       count(*) filter (where kind = 'trace') as traces,
-      count(*) filter (where kind = 'trace' and status <> 'success') as failed_traces,
+      count(*) filter (where kind = 'trace' and status = 'error') as failed_traces,
       count(*) filter (where kind = 'llm') as llm_calls,
       release_metadata.commit_sha,
       release_metadata.commit_url,
@@ -4427,7 +4455,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and timestamp >= ${from}
       and timestamp <= ${to}
       and (${releaseFilter}::text is null or release = ${releaseFilter})
-      and status <> 'success'
+      and status = 'error'
     order by timestamp desc, id asc
     limit 5
   `.execute(db);
@@ -4451,7 +4479,7 @@ export async function getOverview(db: Db, filters: OverviewFilters): Promise<Ove
       and timestamp >= ${from}
       and timestamp <= ${to}
       and (${releaseFilter}::text is null or release = ${releaseFilter})
-      and status <> 'success'
+      and status = 'error'
     order by timestamp desc, id asc
     limit 5
   `.execute(db);

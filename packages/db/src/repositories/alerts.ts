@@ -664,36 +664,21 @@ export async function evaluateAlertRule(
   const minimumSampleSize = input.minimumSampleSize ?? 1;
 
   if (input.type === "critical_errors") {
-    const [row, errorGroupId] = await Promise.all([
-      db
-        .selectFrom("errors")
-        .select(({ fn }) => fn.countAll<string>().as("value"))
-        .where("project_id", "=", input.projectId)
-        .where("environment_id", "=", input.environmentId)
-        .where("timestamp", ">=", input.windowStart)
-        .where("timestamp", "<", input.windowEnd)
-        .where("severity", "in", ["critical", "fatal"])
-        .executeTakeFirstOrThrow(),
+    const [result, errorGroupId] = await Promise.all([
+      countScopedErrors(db, input, { criticalOnly: true }),
       getTopErrorGroupId(db, input, { criticalOnly: true })
     ]);
 
-    return { observedValue: normalizeNumeric(row.value ?? "0"), errorGroupId };
+    return { observedValue: result, errorGroupId };
   }
 
   if (input.type === "error_count") {
-    const [row, errorGroupId] = await Promise.all([
-      db
-        .selectFrom("errors")
-        .select(({ fn }) => fn.countAll<string>().as("value"))
-        .where("project_id", "=", input.projectId)
-        .where("environment_id", "=", input.environmentId)
-        .where("timestamp", ">=", input.windowStart)
-        .where("timestamp", "<", input.windowEnd)
-        .executeTakeFirstOrThrow(),
+    const [result, errorGroupId] = await Promise.all([
+      countScopedErrors(db, input),
       getTopErrorGroupId(db, input)
     ]);
 
-    return { observedValue: normalizeNumeric(row.value ?? "0"), errorGroupId };
+    return { observedValue: result, errorGroupId };
   }
 
   if (input.type === "trace_p95_latency") {
@@ -781,12 +766,55 @@ export async function evaluateAlertRule(
       .select(({ fn }) => fn.countAll<string>().as("value"))
       .where("project_id", "=", input.projectId)
       .where("environment_id", "=", input.environmentId)
+      .where("created_at", ">=", input.windowStart)
+      .where("created_at", "<", input.windowEnd)
       .executeTakeFirstOrThrow();
 
     return { observedValue: normalizeNumeric(row.value ?? "0") };
   }
 
   throw new Error(`unsupported_alert_rule_type:${input.type}`);
+}
+
+// Counts errors in the window, optionally narrowed to one trace name.
+//
+// The route filter is an `exists` subquery rather than a join with traces:
+// a single trace_id can have several trace rows, and a join would multiply
+// one error into as many rows as it matched. getTopErrorGroupId uses the
+// same shape, so the count and the attributed group stay consistent.
+async function countScopedErrors(
+  db: AlertDb,
+  input: {
+    projectId: string;
+    environmentId: string;
+    windowStart: Date;
+    windowEnd: Date;
+    routePattern?: string | null;
+  },
+  options: { criticalOnly?: boolean } = {}
+): Promise<string> {
+  const result = await sql<{ value: string | null }>`
+    select count(*)::text as value
+    from errors
+    where errors.project_id = ${input.projectId}
+      and errors.environment_id = ${input.environmentId}
+      and errors.timestamp >= ${input.windowStart}
+      and errors.timestamp < ${input.windowEnd}
+      and (${options.criticalOnly === true}::boolean = false or errors.severity in ('critical', 'fatal'))
+      and (
+        ${input.routePattern ?? null}::text is null
+        or exists (
+          select 1
+          from traces
+          where traces.project_id = errors.project_id
+            and traces.environment_id = errors.environment_id
+            and traces.trace_id = errors.trace_id
+            and traces.name = ${input.routePattern ?? null}
+        )
+      )
+  `.execute(db);
+
+  return normalizeNumeric(result.rows[0]?.value ?? "0");
 }
 
 async function getTopErrorGroupId(
