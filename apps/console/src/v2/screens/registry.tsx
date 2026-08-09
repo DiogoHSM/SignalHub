@@ -41,7 +41,14 @@ export type ScreenCtx = {
   onCreateEnvironment: (name: string) => Promise<void>;
   onArchiveEnvironment?: (environment: Environment) => Promise<void>;
   onArchiveProject: (projectId: string) => Promise<void>;
-  onSecretCreated: (secret: string) => void;
+  /**
+   * Hand a freshly created one-time secret to the shell. Screens live inside a
+   * remount boundary (`key={seq}`), so a secret held in screen state is lost
+   * the moment anything calls `ctx.reload`. Pass `null` to clear it.
+   */
+  onSecretCreated: (secret: string | null) => void;
+  /** The secret last passed to `onSecretCreated`, held above the remount boundary. */
+  createdSecret?: string | null;
   onSelectEnvironment: (environment: Environment) => void;
   onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
   onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;

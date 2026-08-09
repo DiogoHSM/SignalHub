@@ -166,7 +166,6 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
   const { client, project, environment } = ctx;
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [data, setData] = useState<SetupVM | null>(null);
-  const [latestSecret, setLatestSecret] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(0);
   const genRef = useRef(0);
@@ -176,10 +175,9 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  // Reset any shown secret when the scope changes.
-  useEffect(() => {
-    setLatestSecret(null);
-  }, [project?.id, environment?.id]);
+  // Clearing on scope change is the shell's job — it owns the secret, and this
+  // hook remounts on every reload, so a reset effect here would wipe the secret
+  // it had just stored.
 
   useEffect(() => {
     const gen = ++genRef.current;
@@ -294,7 +292,7 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
         name: `console-${environment.name}`,
       });
       if (scopeRef.current !== operationScope) return;
-      setLatestSecret(apiKey.secret);
+      ctx.onSecretCreated(apiKey.secret);
       ctx.pushToast("API key created — copy it now, it is shown only once");
     }, "Could not create API key"),
     [client, ctx, environment?.id, environment?.name, project?.id, run, scopeKey],
@@ -303,7 +301,7 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
   return {
     data,
     status,
-    latestSecret,
+    latestSecret: ctx.createdSecret ?? null,
     busy,
     reload,
     createProject,
