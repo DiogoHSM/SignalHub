@@ -3557,6 +3557,56 @@ describe("admin routes", () => {
     }
   });
 
+  it("normalizes a caller-supplied minified file path to the basename the resolver looks up", async () => {
+    vi.resetModules();
+
+    const createdArtifactInputs: Array<Record<string, unknown>> = [];
+    const createSourceMapArtifact = vi.fn(async (_db, input: Record<string, unknown>) => {
+      createdArtifactInputs.push(input);
+      return sourceMapArtifact({ storagePath: input.storagePath as string });
+    });
+
+    vi.doMock("@sigmon/db/repositories/source-maps.js", () => ({
+      createSourceMapArtifact,
+      deleteSourceMapArtifact: vi.fn(),
+      getSourceMapArtifact: vi.fn()
+    }));
+
+    const { uploadSingleSourceMap } = await import("../src/source-maps/storage.js");
+    const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
+    const db = {
+      transaction: () => ({
+        execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
+      })
+    };
+
+    try {
+      await uploadSingleSourceMap({
+        db: db as never,
+        localDir,
+        input: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "2026.05.10",
+          // What `pnpm source-maps:upload --minified-file assets/app.min.js`
+          // actually sends. Stack frames arrive normalized to the basename,
+          // so storing the composed path means the lookup never matches.
+          minifiedFile: "assets/app.min.js",
+          uploadedByTokenId: "smtok_1",
+          originalFilename: "app.min.js.map",
+          contentType: "application/json",
+          content: Buffer.from(
+            JSON.stringify({ version: 3, file: "app.min.js", sources: [], names: [], mappings: "" })
+          )
+        }
+      });
+
+      expect(createdArtifactInputs[0]).toMatchObject({ minifiedFile: "app.min.js" });
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
   it("passes token attribution to source map artifact creation", async () => {
     vi.resetModules();
 
