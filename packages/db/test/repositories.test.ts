@@ -5,6 +5,7 @@ import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
+import { compileSegmentDefinition } from "../src/repositories/analytics-segment-compiler.js";
 import {
   deleteDeadLetterJob,
   countDeadLetterJobs,
@@ -11896,92 +11897,147 @@ describe("repositories", () => {
     });
   });
 
-  it("uses the traits GIN index for trait eq containment lookups at scale", async () => {
-    // The compiled trait EXISTS subquery correlates on (project_id, environment_id, user_id),
-    // which is the user_profiles primary key: for a single known actor, Postgres always
-    // resolves that via the primary key index rather than the traits GIN index (a PK point
-    // lookup is cheaper than a GIN bitmap scan for exactly one row). The GIN index earns its
-    // keep on the query shape it was built for: a bulk containment lookup across many profiles
-    // in the same project/environment scope, which is what the same `traits @> jsonb_build_object(...)`
-    // fragment produced by compileSegmentDefinition would use if the planner chooses to
-    // de-correlate a large EXISTS into a semi-join. This test exercises that shape directly.
+  // ---------------------------------------------------------------------------
+  // Trait containment stays GIN-indexable (PER-450, PER-441 F1)
+  //
+  // These used to assert the shape of an EXPLAIN plan. That is cost-based: the
+  // planner's choice between the traits GIN index and the
+  // (project_id, environment_id, first_seen_at) btree depends on the statistics
+  // ANALYZE happened to collect, which depend on how much the suite had already
+  // written to user_profiles. It flipped in CI on a commit whose tree had just
+  // passed the same job (PER-475), so the signal was noise, not coverage.
+  //
+  // The regression actually being guarded is the shape of the expression, not
+  // the decision of the planner: a number forced through ::text becomes a JSON
+  // string, and `@>` never matches it against a stored number. That is provable
+  // without the planner.
+  // ---------------------------------------------------------------------------
+
+  it("indexes user_profiles.traits with an opclass that serves the containment operator", async () => {
     await withDb(async (db) => {
       await migrate(db);
 
-      const project = await createProject(db, { name: "Trait Gin Scale Project" });
-      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
-      const now = new Date("2026-05-05T12:00:00.000Z");
+      const row = await sql<{
+        index_name: string;
+        access_method: string;
+        opclass: string;
+        indexed_column: string;
+        supports_containment: boolean;
+      }>`
+        select
+          i.relname as index_name,
+          am.amname as access_method,
+          opc.opcname as opclass,
+          a.attname as indexed_column,
+          exists (
+            select 1
+            from pg_amop ao
+            join pg_operator op on op.oid = ao.amopopr
+            where ao.amopfamily = opc.opcfamily
+              and op.oprname = '@>'
+              and op.oprleft = 'jsonb'::regtype
+              and op.oprright = 'jsonb'::regtype
+          ) as supports_containment
+        from pg_index x
+        join pg_class i on i.oid = x.indexrelid
+        join pg_class t on t.oid = x.indrelid
+        join pg_am am on am.oid = i.relam
+        join pg_opclass opc on opc.oid = x.indclass[0]
+        join pg_attribute a on a.attrelid = t.oid and a.attnum = x.indkey[0]
+        where t.relname = 'user_profiles'
+          and i.relname = 'user_profiles_traits_gin_idx'
+      `.execute(db);
 
-      const profileCount = 500;
-      for (let i = 0; i < profileCount; i += 1) {
-        await identifyUserProfile(db, {
-          projectId: project.id,
-          environmentId: environment.id,
-          userId: `user_gin_${i}`,
-          traits: { plan: i % 50 === 0 ? "enterprise" : "free" },
-          timestamp: now
-        });
-      }
-
-      await db.connection().execute(async (conn) => {
-        await sql`ANALYZE user_profiles`.execute(conn);
-        await sql`SET enable_seqscan = off`.execute(conn);
-        const plan = await conn
-          .selectFrom("user_profiles")
-          .select("user_id")
-          .where("project_id", "=", project.id)
-          .where("environment_id", "=", environment.id)
-          .where(sql<boolean>`traits @> jsonb_build_object('plan'::text, 'enterprise'::text)`)
-          .explain();
-        const planText = JSON.stringify(plan);
-        expect(planText).toContain("user_profiles_traits_gin_idx");
+      expect(row.rows[0]).toMatchObject({
+        access_method: "gin",
+        opclass: "jsonb_path_ops",
+        indexed_column: "traits",
+        supports_containment: true
       });
     });
   });
 
-  it("uses the traits GIN index for a numeric trait eq containment lookup at scale (PER-450)", async () => {
-    // Same shape as the string GIN test above, but for the numeric containment fragment
-    // (`jsonb_build_object(key::text, value::numeric)`) that compileSegmentDefinition now
-    // produces for a number trait value. Proves the PER-450 fix keeps the containment
-    // right-hand side GIN-indexable instead of falling back to a text cast.
+  it("compiles trait eq to a containment check that preserves the native JSON type", async () => {
     await withDb(async (db) => {
       await migrate(db);
 
-      const project = await createProject(db, { name: "Trait Gin Numeric Scale Project" });
+      const scope = {
+        projectId: "prj_compile",
+        environmentId: "env_compile",
+        actorType: "user" as const,
+        from: new Date("2026-05-01T00:00:00.000Z"),
+        to: new Date("2026-05-05T00:00:00.000Z"),
+        userRef: "events.user_id",
+        tenantRef: "events.tenant_id"
+      };
+
+      function compiledSqlFor(value: string | number | boolean): string {
+        return compileSegmentDefinition(
+          {
+            version: 2,
+            window: "30d",
+            root: { kind: "trait", source: "user", name: "plan", operator: "eq", value }
+          },
+          scope
+        ).compile(db).sql;
+      }
+
+      // `->>` would return text and defeat the GIN opclass entirely; a ::text
+      // cast on a number would build a JSON string the stored number never
+      // matches. Both are the failure modes PER-450 closed.
+      const numeric = compiledSqlFor(30);
+      expect(numeric).toContain("@> jsonb_build_object");
+      expect(numeric).toContain("::numeric");
+      expect(numeric).not.toContain("->> ");
+
+      expect(compiledSqlFor(true)).toContain("::boolean");
+      expect(compiledSqlFor("enterprise")).toContain("::text");
+    });
+  });
+
+  it("matches trait containment against natively typed values, not their text form", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Trait Containment Typing Project" });
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
       const now = new Date("2026-05-05T12:00:00.000Z");
 
-      // A larger profile count than the string GIN test above: by this point in the suite,
-      // user_profiles already carries rows from earlier tests (including the 500-row string
-      // GIN fixture), and the planner's choice between the traits GIN index and the
-      // (project_id, environment_id, first_seen_at) btree is cost-based and sensitive to
-      // accumulated table statistics. 2,000 profiles at a 1-in-50 hit ratio was verified
-      // (repeatedly, against the full suite's accumulated state) to consistently prefer the
-      // GIN index; smaller counts were observed to flip to the btree + filter plan instead.
-      const profileCount = 2000;
-      for (let i = 0; i < profileCount; i += 1) {
-        await identifyUserProfile(db, {
-          projectId: project.id,
-          environmentId: environment.id,
-          userId: `user_gin_num_${i}`,
-          traits: { score: i % 50 === 0 ? 30 : 10 },
-          timestamp: now
-        });
-      }
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_numeric",
+        traits: { score: 30 },
+        timestamp: now
+      });
+      await identifyUserProfile(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        userId: "user_stringified",
+        traits: { score: "30" },
+        timestamp: now
+      });
 
-      await db.connection().execute(async (conn) => {
-        await sql`ANALYZE user_profiles`.execute(conn);
-        await sql`SET enable_seqscan = off`.execute(conn);
-        const plan = await conn
+      async function matches(rhs: ReturnType<typeof sql<boolean>>): Promise<string[]> {
+        const rows = await db
           .selectFrom("user_profiles")
           .select("user_id")
           .where("project_id", "=", project.id)
           .where("environment_id", "=", environment.id)
-          .where(sql<boolean>`traits @> jsonb_build_object('score'::text, 30::numeric)`)
-          .explain();
-        const planText = JSON.stringify(plan);
-        expect(planText).toContain("user_profiles_traits_gin_idx");
-      });
+          .where(rhs)
+          .orderBy("user_id")
+          .execute();
+        return rows.map((r) => r.user_id);
+      }
+
+      // The two rows differ only in JSON type, so each containment check must
+      // pick exactly one of them.
+      await expect(
+        matches(sql<boolean>`traits @> jsonb_build_object('score'::text, ${30}::numeric)`)
+      ).resolves.toEqual(["user_numeric"]);
+      await expect(
+        matches(sql<boolean>`traits @> jsonb_build_object('score'::text, ${"30"}::text)`)
+      ).resolves.toEqual(["user_stringified"]);
     });
   });
 
