@@ -565,6 +565,31 @@ await sigmon.flush();
 
 Next.js wrappers read incoming `traceparent` headers automatically. Add `metadata.service`, `metadata.target_service`, `metadata.peer_service`, or `metadata.peer` to spans when you want the Sigmon service map to show dependency edges.
 
+### Manual Trace Propagation (Express, Hono, workers)
+
+Outside Next.js, propagate `traceparent` yourself with the same three helpers every entrypoint re-exports:
+
+```ts
+import { createTraceContext, parseTraceparent, traceContextHeaders } from "@sigmon/sdk/node";
+
+// Continue an incoming trace, or start a fresh one if there's no valid header
+const incoming = parseTraceparent(request.headers["traceparent"]);
+const context = incoming ?? createTraceContext();
+
+const trace = sigmon.startTrace("POST /api/checkout", {
+  traceId: context.traceId,
+  metadata: { service: "api" }
+});
+
+await fetch("https://worker.example.com/jobs", {
+  method: "POST",
+  headers: traceContextHeaders(context),
+  body: JSON.stringify({ type: "checkout" })
+});
+```
+
+`parseTraceparent` returns `undefined` for a missing or malformed header, so `?? createTraceContext()` always leaves you with a valid W3C trace context. `createTraceContext(traceId?, spanId?)` also accepts an existing trace/span id pair to build a context around, which is what `trace.headers()` uses internally for the Next.js/browser wrappers above.
+
 ## Identify
 
 Use identify calls when stable user or tenant traits become known. Telemetry with matching `userId` or `tenantId` updates `last_seen_at`, but only identify calls update persisted traits.

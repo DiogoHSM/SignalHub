@@ -961,6 +961,32 @@ try {
               <code>service</code>, <code>target_service</code>, <code>peer_service</code>, or
               <code>peer</code> metadata to spans so the Sigmon service map can infer dependencies.
             </div>
+            <h3>Manual propagation (Express, Hono, workers)</h3>
+            <p>
+              Outside Next.js, propagate <code>traceparent</code> yourself with
+              <code>createTraceContext</code>, <code>parseTraceparent</code>, and
+              <code>traceContextHeaders</code> — exported from every entrypoint.
+            </p>
+            <pre><code>import { createTraceContext, parseTraceparent, traceContextHeaders } from "@sigmon/sdk/node";
+
+const incoming = parseTraceparent(request.headers["traceparent"]);
+const context = incoming ?? createTraceContext();
+
+const trace = sigmon.startTrace("POST /api/checkout", {
+  traceId: context.traceId,
+  metadata: { service: "api" }
+});
+
+await fetch("https://worker.example.com/jobs", {
+  method: "POST",
+  headers: traceContextHeaders(context),
+  body: JSON.stringify({ type: "checkout" })
+});</code></pre>
+            <div class="callout">
+              <code>parseTraceparent</code> returns <code>undefined</code> for a missing or malformed
+              header, so <code>?? createTraceContext()</code> always leaves you with a valid W3C trace
+              context to continue or start.
+            </div>
           </section>
 
           <section id="llm">

@@ -1,7 +1,7 @@
 {
   "name": "@sigmon/sdk",
-  "version": "0.1.0",
-  "description": "SignalMonitor JavaScript and TypeScript SDK for events, errors, breadcrumbs, traces, LLM calls, identify, and Next.js instrumentation.",
+  "version": "0.2.0",
+  "description": "SignalMonitor JavaScript and TypeScript SDK for events, errors, breadcrumbs, traces, LLM calls, identify, Web Vitals, session replay, click maps, feedback widgets, Node CPU/memory profiling, and Next.js instrumentation.",
   "type": "module",
   "license": "MIT",
   "homepage": "https://sigmon.app",
@@ -29,7 +29,8 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public",
