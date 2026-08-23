@@ -151,7 +151,9 @@ describe("API docs", () => {
         expect.objectContaining({ name: "environment_id", in: "query" })
       ])
     );
-    expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/query/events"].get.security).toEqual([{ sessionCookie: [] }, { readToken: [] }]);
+    expect(spec.paths["/query/feedback/{id}"].patch.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/query/fleet"].get.security).toEqual([{ sessionCookie: [] }]);
     expect(spec.paths["/query/fleet/projects/{id}/environments"].get.parameters.map((parameter: { name: string }) => parameter.name)).toEqual([
       "id",
       "window"
@@ -313,7 +315,7 @@ describe("API docs", () => {
       "uniqueActors"
     ]);
     expect(spec.paths["/admin/message-campaigns"].post.description).toContain("opt-out");
-    expect(spec.paths["/query/message-campaigns/{id}/results"].get.security).toEqual([{ sessionCookie: [] }]);
+    expect(spec.paths["/query/message-campaigns/{id}/results"].get.security).toEqual([{ sessionCookie: [] }, { readToken: [] }]);
     expect(spec.paths["/v1/identify/user"].post.description).toContain("shallow-merge");
     expect(spec.paths["/v1/identify/tenant"].post.description).toContain("shallow-merge");
     expect(spec.components.schemas.TenantIdentifyPayload.properties.traits.examples[0]).toMatchObject({

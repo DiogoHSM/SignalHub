@@ -3,6 +3,7 @@ import { z } from "zod";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 import type { SourceMapResolutionResponse } from "../source-maps/resolver.js";
 import type { AuthDependencies } from "./auth.js";
+import { parseBearerToken } from "./bearer.js";
 import type { FleetData, FleetProjectEnvsResult } from "@sigmon/db/repositories/fleet-query.js";
 import type { AddTriageNoteResult, AssignIncidentResult, MttrResult, TriageNoteRecord } from "@sigmon/db/repositories/incident-triage.js";
 import type { AnalyticsDashboardRecord, AnalyticsDashboardWidget } from "@sigmon/db/repositories/analytics-dashboards.js";
@@ -393,6 +394,7 @@ type AnalyticsInsightQueryRecord = {
 export type QueryRouteOptions = {
   auth?: AuthDependencies;
   query?: QueryDependencies;
+  verifyReadToken?: (secret: string) => Promise<{ id: string; projectId: string; environmentId: string } | null | undefined>;
 };
 
 const activitySortSchema = z.enum(["impact", "usage", "errors", "llm_cost", "recent"]);
@@ -1684,20 +1686,58 @@ function parseUserDetailFilters(query: unknown): UserDetailFilters | undefined {
   return filters;
 }
 
-async function requireHumanUser(
+export type QueryPrincipal =
+  | { kind: "user"; user: AuthenticatedUser }
+  | { kind: "read-token"; tokenId: string; projectId: string; environmentId: string };
+
+async function requireQueryPrincipal(
   request: FastifyRequest,
   reply: FastifyReply,
-  auth: AuthDependencies | undefined
-): Promise<AuthenticatedUser | undefined> {
-  const user = await auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
-  if (!user) {
-    setCurrentUser(request, null);
-    reply.status(401).send({ error: "unauthenticated" });
-    return undefined;
+  options: QueryRouteOptions
+): Promise<QueryPrincipal | undefined> {
+  const user = await options.auth?.findSessionUser(request as Parameters<AuthDependencies["findSessionUser"]>[0]);
+  if (user) {
+    setCurrentUser(request, user);
+    return { kind: "user", user };
   }
 
-  setCurrentUser(request, user);
-  return user;
+  const secret = parseBearerToken(request);
+  if (secret && options.verifyReadToken) {
+    const token = await options.verifyReadToken(secret);
+    if (token) {
+      setCurrentUser(request, null);
+      return {
+        kind: "read-token",
+        tokenId: token.id,
+        projectId: token.projectId,
+        environmentId: token.environmentId
+      };
+    }
+  }
+
+  setCurrentUser(request, null);
+  reply.status(401).send({ error: "unauthenticated" });
+  return undefined;
+}
+
+function applyPrincipalScope<T extends { projectId: string; environmentId: string }>(
+  filters: T,
+  principal: QueryPrincipal
+): T {
+  if (principal.kind !== "read-token") {
+    return filters;
+  }
+
+  return { ...filters, projectId: principal.projectId, environmentId: principal.environmentId };
+}
+
+function refuseReadToken(reply: FastifyReply, principal: QueryPrincipal): boolean {
+  if (principal.kind !== "read-token") {
+    return false;
+  }
+
+  reply.status(403).send({ error: "read_token_is_read_only" });
+  return true;
 }
 
 function sendListResult(reply: FastifyReply, result: QueryListResult) {
@@ -1727,8 +1767,8 @@ async function handleListRoute(
   run: ListRunner,
   filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean; includeTraceFilters?: boolean }
 ) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -1736,10 +1776,11 @@ async function handleListRoute(
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseFilters(request.query, filterOptions);
+  let filters = parseFilters(request.query, filterOptions);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return sendListResult(reply, await run(filters));
@@ -1752,8 +1793,8 @@ async function handleListRoute(
 }
 
 async function handleTraceSpansRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -1762,7 +1803,7 @@ async function handleTraceSpansRoute(request: FastifyRequest, reply: FastifyRepl
   }
 
   const params = traceParamsSchema.safeParse(request.params);
-  const filters = parseFilters(request.query);
+  let filters = parseFilters(request.query);
   if (!params.success || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
@@ -1770,6 +1811,7 @@ async function handleTraceSpansRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(400).send({ error: "invalid_query" });
   }
   filters.traceId = params.data.id;
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return sendListResult(reply, await options.query.listTraceSpans(params.data.id, filters));
@@ -1789,8 +1831,8 @@ async function handleAggregateRoute(
   run: AggregateRunner,
   filterOptions?: { includeEventName?: boolean; includeErrorFilters?: boolean; includeLlmFilters?: boolean }
 ) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -1798,10 +1840,11 @@ async function handleAggregateRoute(
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseFilters(request.query, filterOptions);
+  let filters = parseFilters(request.query, filterOptions);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await run(filters) });
@@ -1814,8 +1857,8 @@ async function handleAggregateRoute(
 }
 
 async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -1823,10 +1866,11 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseOverviewFilters(request.query);
+  let filters = parseOverviewFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getOverview(filters) });
@@ -1836,8 +1880,8 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
 }
 
 async function handleRecentActivityRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -1845,10 +1889,11 @@ async function handleRecentActivityRoute(request: FastifyRequest, reply: Fastify
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseRecentActivityFilters(request.query);
+  let filters = parseRecentActivityFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getRecentActivity(filters) });
@@ -1858,8 +1903,8 @@ async function handleRecentActivityRoute(request: FastifyRequest, reply: Fastify
 }
 
 async function handleReleaseListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -1867,10 +1912,11 @@ async function handleReleaseListRoute(request: FastifyRequest, reply: FastifyRep
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseReleaseFilters(request.query);
+  let filters = parseReleaseFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.listReleases(filters) });
@@ -1926,8 +1972,8 @@ function dashboardTrendRange(window: OverviewWindow): { from: Date; to: Date; bu
 }
 
 async function handleDashboardReportRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -1936,10 +1982,11 @@ async function handleDashboardReportRoute(request: FastifyRequest, reply: Fastif
   }
 
   const params = dashboardParamsSchema.safeParse(request.params);
-  const filters = parseDashboardReportFilters(request.query);
+  let filters = parseDashboardReportFilters(request.query);
   if (!params.success || !filters) {
     return reply.status(400).send({ error: "invalid_dashboard_report_request" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     const dashboard = await options.query.getAnalyticsDashboard({
@@ -2033,8 +2080,8 @@ async function handleLlmAggregateRoute(
   hasMethod: () => boolean,
   run: (filters: LlmAggregateFilters) => Promise<unknown>
 ) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2042,10 +2089,11 @@ async function handleLlmAggregateRoute(
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseLlmAggregateFilters(request.query);
+  let filters = parseLlmAggregateFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await run(filters) });
@@ -2055,8 +2103,8 @@ async function handleLlmAggregateRoute(
 }
 
 async function handleOperationsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2064,10 +2112,11 @@ async function handleOperationsRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseOperationsFilters(request.query);
+  let filters = parseOperationsFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getOperations(filters) });
@@ -2077,8 +2126,8 @@ async function handleOperationsRoute(request: FastifyRequest, reply: FastifyRepl
 }
 
 async function handleApmEndpointsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2086,10 +2135,11 @@ async function handleApmEndpointsRoute(request: FastifyRequest, reply: FastifyRe
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseApmFilters(request.query);
+  let filters = parseApmFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getApmEndpoints(filters) });
@@ -2099,8 +2149,8 @@ async function handleApmEndpointsRoute(request: FastifyRequest, reply: FastifyRe
 }
 
 async function handleEventPropertyCatalogRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2108,10 +2158,11 @@ async function handleEventPropertyCatalogRoute(request: FastifyRequest, reply: F
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseApmFilters(request.query);
+  let filters = parseApmFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getEventPropertyCatalog(filters) });
@@ -2121,8 +2172,8 @@ async function handleEventPropertyCatalogRoute(request: FastifyRequest, reply: F
 }
 
 async function handleEventClickMapRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2130,10 +2181,11 @@ async function handleEventClickMapRoute(request: FastifyRequest, reply: FastifyR
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseEventClickMapFilters(request.query);
+  let filters = parseEventClickMapFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getEventClickMap(filters) });
@@ -2143,8 +2195,8 @@ async function handleEventClickMapRoute(request: FastifyRequest, reply: FastifyR
 }
 
 async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2152,10 +2204,11 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseEventFunnelFilters(request.query);
+  let filters = parseEventFunnelFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getEventFunnel(filters) });
@@ -2168,8 +2221,8 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
 }
 
 async function handleExperimentResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2177,10 +2230,11 @@ async function handleExperimentResultsRoute(request: FastifyRequest, reply: Fast
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseExperimentResultFilters(request.params, request.query);
+  let filters = parseExperimentResultFilters(request.params, request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     const result = await options.query.getExperimentResults(filters);
@@ -2198,16 +2252,17 @@ function analyticsInsightDefinition(insight: AnalyticsInsightQueryRecord): Analy
 }
 
 async function handleAnalyticsTrendRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) return reply;
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) return reply;
   if (!options.query?.queryEventTrend) {
     return reply.status(501).send({ error: "analytics_insights_repository_unavailable" });
   }
 
-  const parsed = parseAnalyticsTrendRequest(request.query);
+  let parsed = parseAnalyticsTrendRequest(request.query);
   if (!parsed) {
     return reply.status(400).send({ error: "invalid_analytics_trend_request" });
   }
+  parsed = applyPrincipalScope(parsed, principal);
 
   let definition = parsed.definition;
   if (parsed.insightId) {
@@ -2252,8 +2307,8 @@ async function handleAnalyticsTrendRoute(request: FastifyRequest, reply: Fastify
 }
 
 async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2261,10 +2316,11 @@ async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyR
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseSurveyResultFilters(request.params, request.query);
+  let filters = parseSurveyResultFilters(request.params, request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     const result = await options.query.getSurveyResults(filters);
@@ -2278,8 +2334,8 @@ async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyR
 }
 
 async function handleMessageCampaignResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2287,10 +2343,11 @@ async function handleMessageCampaignResultsRoute(request: FastifyRequest, reply:
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseMessageCampaignResultFilters(request.params, request.query);
+  let filters = parseMessageCampaignResultFilters(request.params, request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     const result = await options.query.getMessageCampaignResults(filters);
@@ -2304,8 +2361,8 @@ async function handleMessageCampaignResultsRoute(request: FastifyRequest, reply:
 }
 
 async function handleNpsResultsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2313,10 +2370,11 @@ async function handleNpsResultsRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseNpsResultFilters(request.params, request.query);
+  let filters = parseNpsResultFilters(request.params, request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     const result = await options.query.getNpsResults(filters);
@@ -2334,8 +2392,8 @@ const feedbackStatusBodySchema = z.object({
 });
 
 async function handleFeedbackListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2343,10 +2401,11 @@ async function handleFeedbackListRoute(request: FastifyRequest, reply: FastifyRe
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseFeedbackListFilters(request.query);
+  let filters = parseFeedbackListFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ feedback: await options.query.listFeedbackItems(filters) });
@@ -2356,8 +2415,8 @@ async function handleFeedbackListRoute(request: FastifyRequest, reply: FastifyRe
 }
 
 async function handleFeedbackStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 
@@ -2391,8 +2450,8 @@ async function handleFeedbackStatusRoute(request: FastifyRequest, reply: Fastify
 }
 
 async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2400,10 +2459,11 @@ async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseEventPathFilters(request.query);
+  let filters = parseEventPathFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getEventPaths(filters) });
@@ -2413,8 +2473,8 @@ async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyRepl
 }
 
 async function handleEventRetentionRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2422,10 +2482,11 @@ async function handleEventRetentionRoute(request: FastifyRequest, reply: Fastify
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseEventRetentionFilters(request.query);
+  let filters = parseEventRetentionFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getEventRetention(filters) });
@@ -2435,8 +2496,8 @@ async function handleEventRetentionRoute(request: FastifyRequest, reply: Fastify
 }
 
 async function handleServiceMapRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2444,10 +2505,11 @@ async function handleServiceMapRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseApmFilters(request.query);
+  let filters = parseApmFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getServiceMap(filters) });
@@ -2457,8 +2519,8 @@ async function handleServiceMapRoute(request: FastifyRequest, reply: FastifyRepl
 }
 
 async function handleWebVitalsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2466,10 +2528,11 @@ async function handleWebVitalsRoute(request: FastifyRequest, reply: FastifyReply
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseApmFilters(request.query);
+  let filters = parseApmFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getWebVitals(filters) });
@@ -2479,8 +2542,8 @@ async function handleWebVitalsRoute(request: FastifyRequest, reply: FastifyReply
 }
 
 async function handleRuntimeProfilesRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2488,10 +2551,11 @@ async function handleRuntimeProfilesRoute(request: FastifyRequest, reply: Fastif
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseApmFilters(request.query);
+  let filters = parseApmFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getRuntimeProfiles(filters) });
@@ -2501,8 +2565,8 @@ async function handleRuntimeProfilesRoute(request: FastifyRequest, reply: Fastif
 }
 
 async function handleSessionTimelineRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2515,10 +2579,11 @@ async function handleSessionTimelineRoute(request: FastifyRequest, reply: Fastif
     return reply.status(400).send({ error: "invalid_query" });
   }
 
-  const filters = parseSessionTimelineFilters(request.query, params.data.sessionId);
+  let filters = parseSessionTimelineFilters(request.query, params.data.sessionId);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getSessionTimeline(filters) });
@@ -2528,8 +2593,8 @@ async function handleSessionTimelineRoute(request: FastifyRequest, reply: Fastif
 }
 
 async function handleSessionReplayRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2544,11 +2609,12 @@ async function handleSessionReplayRoute(request: FastifyRequest, reply: FastifyR
   if (!params.success || !projectId || !environmentId) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  const scope = applyPrincipalScope({ projectId, environmentId }, principal);
 
   try {
     const replay = await options.query.getSessionReplayDetail({
-      projectId,
-      environmentId,
+      projectId: scope.projectId,
+      environmentId: scope.environmentId,
       replayId: params.data.replayId
     });
     return replay ? reply.send({ data: replay }) : reply.status(404).send({ error: "replay_not_found" });
@@ -2558,8 +2624,8 @@ async function handleSessionReplayRoute(request: FastifyRequest, reply: FastifyR
 }
 
 async function handleSessionReplayListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2567,10 +2633,11 @@ async function handleSessionReplayListRoute(request: FastifyRequest, reply: Fast
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseFilters(request.query, { includeEventName: true });
+  let filters = parseFilters(request.query, { includeEventName: true });
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send(await options.query.listSessionReplays(filters));
@@ -2580,8 +2647,8 @@ async function handleSessionReplayListRoute(request: FastifyRequest, reply: Fast
 }
 
 async function handleEntityTenantListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2589,10 +2656,11 @@ async function handleEntityTenantListRoute(request: FastifyRequest, reply: Fasti
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseEntityTenantListFilters(request.query);
+  let filters = parseEntityTenantListFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.listEntityTenants(filters) });
@@ -2602,8 +2670,8 @@ async function handleEntityTenantListRoute(request: FastifyRequest, reply: Fasti
 }
 
 async function handleEntityTenantDetailRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2612,10 +2680,11 @@ async function handleEntityTenantDetailRoute(request: FastifyRequest, reply: Fas
   }
 
   const params = entityTenantParamsSchema.safeParse(request.params);
-  const filters = parseEntityTenantDetailFilters(request.query);
+  let filters = parseEntityTenantDetailFilters(request.query);
   if (!params.success || params.data.tenantKey === "_unassigned" || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getEntityTenantDetail(params.data.tenantKey, filters) });
@@ -2625,8 +2694,8 @@ async function handleEntityTenantDetailRoute(request: FastifyRequest, reply: Fas
 }
 
 async function handleUserListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2634,10 +2703,11 @@ async function handleUserListRoute(request: FastifyRequest, reply: FastifyReply,
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseUserListFilters(request.query);
+  let filters = parseUserListFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.listUsersActivity(filters) });
@@ -2647,8 +2717,8 @@ async function handleUserListRoute(request: FastifyRequest, reply: FastifyReply,
 }
 
 async function handleUserDetailRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2657,10 +2727,11 @@ async function handleUserDetailRoute(request: FastifyRequest, reply: FastifyRepl
   }
 
   const params = userParamsSchema.safeParse(request.params);
-  const filters = parseUserDetailFilters(request.query);
+  let filters = parseUserDetailFilters(request.query);
   if (!params.success || params.data.userKey === "_anonymous" || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return reply.send({ data: await options.query.getUserDetail(params.data.userKey, filters) });
@@ -2670,8 +2741,8 @@ async function handleUserDetailRoute(request: FastifyRequest, reply: FastifyRepl
 }
 
 async function handleErrorGroupListRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2679,10 +2750,11 @@ async function handleErrorGroupListRoute(request: FastifyRequest, reply: Fastify
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
 
-  const filters = parseErrorGroupFilters(request.query);
+  let filters = parseErrorGroupFilters(request.query);
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return sendListResult(reply, await options.query.listErrorGroups(filters));
@@ -2695,8 +2767,8 @@ async function handleErrorGroupListRoute(request: FastifyRequest, reply: Fastify
 }
 
 async function handleErrorGroupDetailRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2705,10 +2777,11 @@ async function handleErrorGroupDetailRoute(request: FastifyRequest, reply: Fasti
   }
 
   const params = errorGroupParamsSchema.safeParse(request.params);
-  const scope = parseErrorGroupScope(request.query);
+  let scope = parseErrorGroupScope(request.query);
   if (!params.success || !scope) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  scope = applyPrincipalScope(scope, principal);
 
   try {
     const group = await options.query.getErrorGroup(params.data.id, scope);
@@ -2719,8 +2792,8 @@ async function handleErrorGroupDetailRoute(request: FastifyRequest, reply: Fasti
 }
 
 async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2729,10 +2802,11 @@ async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: Fas
   }
 
   const params = errorGroupParamsSchema.safeParse(request.params);
-  const scope = parseErrorGroupIncidentScope(request.query);
+  let scope = parseErrorGroupIncidentScope(request.query);
   if (!params.success || !scope) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  scope = applyPrincipalScope(scope, principal);
 
   try {
     const incident = await options.query.getErrorGroupIncident(params.data.id, scope);
@@ -2751,8 +2825,8 @@ async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: Fas
 }
 
 async function handleIncidentExternalIssueLinkRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) return reply;
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal || refuseReadToken(reply, principal)) return reply;
   if (!options.query?.linkIncidentExternalIssue) {
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
@@ -2778,8 +2852,8 @@ async function handleIncidentExternalIssueLinkRoute(request: FastifyRequest, rep
 }
 
 async function handleIncidentExternalIssueDraftRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) return reply;
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal || refuseReadToken(reply, principal)) return reply;
   if (!options.query?.buildIncidentIssueDraft) {
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
@@ -2805,8 +2879,8 @@ async function handleIncidentExternalIssueDraftRoute(request: FastifyRequest, re
 }
 
 async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2815,13 +2889,14 @@ async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: 
   }
 
   const params = errorGroupParamsSchema.safeParse(request.params);
-  const filters = parseFilters(request.query, { includeErrorFilters: true });
+  let filters = parseFilters(request.query, { includeErrorFilters: true });
   if (!params.success || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
   if (filters.errorGroupId && filters.errorGroupId !== params.data.id) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  filters = applyPrincipalScope(filters, principal);
 
   try {
     return sendListResult(reply, await options.query.listErrors({ ...filters, errorGroupId: params.data.id }));
@@ -2838,8 +2913,8 @@ async function handleErrorSourceMapResolutionRoute(
   reply: FastifyReply,
   options: QueryRouteOptions
 ) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -2848,10 +2923,11 @@ async function handleErrorSourceMapResolutionRoute(
   }
 
   const params = errorParamsSchema.safeParse(request.params);
-  const scope = parseErrorGroupScope(request.query);
+  let scope = parseErrorGroupScope(request.query);
   if (!params.success || !scope) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  scope = applyPrincipalScope(scope, principal);
 
   try {
     const resolution = await options.query.resolveErrorStack({
@@ -2866,8 +2942,8 @@ async function handleErrorSourceMapResolutionRoute(
 }
 
 async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 
@@ -2943,8 +3019,8 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
 }
 
 async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 
@@ -2959,11 +3035,15 @@ async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(400).send({ error: "invalid_query" });
   }
 
+  if (principal.kind !== "user") {
+    return reply;
+  }
+
   try {
     const result = await options.query.addTriageNote({
       errorGroupId: params.data.id,
-      authorUserId: user.id,
-      authorEmail: user.email,
+      authorUserId: principal.user.id,
+      authorEmail: principal.user.email,
       body: body.data.body,
       projectId: scope.projectId,
       environmentId: scope.environmentId
@@ -2978,8 +3058,8 @@ async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyRepl
 }
 
 async function handleSilenceIncidentRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 
@@ -3018,8 +3098,8 @@ function parseMttrWindow(raw: RawQuery): number | null {
 }
 
 async function handleIncidentMttrRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
   }
 
@@ -3034,9 +3114,10 @@ async function handleIncidentMttrRoute(request: FastifyRequest, reply: FastifyRe
   if (!projectId || !environmentId || windowDays === null) {
     return reply.status(400).send({ error: "invalid_query" });
   }
+  const scope = applyPrincipalScope({ projectId, environmentId }, principal);
 
   try {
-    const result = await options.query.getIncidentMttr({ projectId, environmentId, windowDays });
+    const result = await options.query.getIncidentMttr({ ...scope, windowDays });
     return reply.send({ data: { ...result, windowDays } });
   } catch {
     return reply.status(503).send({ error: "query_unavailable" });
@@ -3086,9 +3167,12 @@ function parseFleetWindow(query: unknown): "24h" | "7d" | "30d" | null {
 const fleetProjectParamsSchema = z.object({ id: z.string().trim().min(1) });
 
 async function handleFleetRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
+  }
+  if (principal.kind === "read-token") {
+    return reply.status(403).send({ error: "read_token_scope_insufficient" });
   }
 
   if (!options.query?.getFleet) {
@@ -3109,9 +3193,12 @@ async function handleFleetRoute(request: FastifyRequest, reply: FastifyReply, op
 }
 
 async function handleFleetProjectEnvironmentsRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
-  const user = await requireHumanUser(request, reply, options.auth);
-  if (!user) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
     return reply;
+  }
+  if (principal.kind === "read-token") {
+    return reply.status(403).send({ error: "read_token_scope_insufficient" });
   }
 
   if (!options.query?.getProjectFleetEnvironments) {

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { SourceMapArtifactResponse, SourceMapBundleUploadInput, SourceMapUploadInput } from "./admin.js";
 import { parseSourceMapUploadRequest, sourceMapUploadErrorStatus } from "./admin.js";
+import { parseBearerToken } from "./bearer.js";
 
 export type SourceMapUploadTokenScope = {
   id: string;
@@ -13,16 +14,6 @@ export type SourceMapUploadRouteDependencies = {
   uploadMap?: (input: SourceMapUploadInput) => Promise<SourceMapArtifactResponse[]>;
   uploadBundle?: (input: SourceMapBundleUploadInput) => Promise<SourceMapArtifactResponse[]>;
 };
-
-function parseBearerToken(request: FastifyRequest): string | undefined {
-  const header = request.headers.authorization;
-  if (typeof header !== "string") {
-    return undefined;
-  }
-
-  const match = /^Bearer ([^\s]+)$/.exec(header);
-  return match?.[1];
-}
 
 async function requireUploadToken(
   request: FastifyRequest,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createApiKey, createSourceMapUploadToken, hashApiKey, verifyApiKey } from "../src/api-keys.js";
+import { createApiKey, createReadToken, createSourceMapUploadToken, hashApiKey, verifyApiKey } from "../src/api-keys.js";
 
 describe("API keys", () => {
   it("creates prefixed API keys and verifies hashed values", async () => {
@@ -29,5 +29,27 @@ describe("API keys", () => {
     expect(token.prefix).toHaveLength(16);
     expect(token.secret).toMatch(/^shsmap_[0-9a-zA-Z]{40}$/);
     expect(token.prefix).toBe(token.secret.slice(0, 16));
+  });
+});
+
+describe("createReadToken", () => {
+  it("mints a prefixed secret whose stored prefix is its first 16 characters", () => {
+    const token = createReadToken();
+
+    expect(token.secret.startsWith("shread_")).toBe(true);
+    expect(token.secret).toHaveLength(47);
+    expect(token.prefix).toBe(token.secret.slice(0, 16));
+  });
+
+  it("mints a distinct secret each call", () => {
+    expect(createReadToken().secret).not.toBe(createReadToken().secret);
+  });
+
+  it("verifies its own secret against the stored hash and rejects a neighbour", async () => {
+    const token = createReadToken();
+    const hash = await hashApiKey(token.secret, "pepper");
+
+    expect(await verifyApiKey(hash, token.secret, "pepper")).toBe(true);
+    expect(await verifyApiKey(hash, createReadToken().secret, "pepper")).toBe(false);
   });
 });

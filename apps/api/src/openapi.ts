@@ -128,6 +128,18 @@ const sessionRoute = (summary: string, description: string) => ({
   }
 });
 
+const queryReadRoute = (summary: string, description: string) => ({
+  tags: ["Session authenticated"],
+  summary,
+  description,
+  security: [{ sessionCookie: [] }, { readToken: [] }],
+  responses: {
+    "200": { description: "Request succeeded" },
+    "401": { $ref: "#/components/responses/Unauthorized" },
+    "403": { $ref: "#/components/responses/Forbidden" }
+  }
+});
+
 const systemActionOperation = (summary: string, description: string) => ({
   tags: ["Session authenticated"],
   summary,
@@ -193,6 +205,12 @@ export const openApiDocument = {
         in: "cookie",
         name: "__Host-sigmon_session",
         description: "Production human session cookie set by `/auth/login`."
+      },
+      readToken: {
+        type: "http",
+        scheme: "bearer",
+        bearerFormat: "SignalMonitor read token",
+        description: "Project/environment scoped, read-only, revocable credential, for example `shread_...`. Accepted as an alternative to the session cookie on `/query/*` read routes only; it cannot access fleet routes or perform any mutation."
       }
     },
     schemas: {
@@ -1526,6 +1544,74 @@ export const openApiDocument = {
           expectedIntervalMinutes: { type: "integer", minimum: 1 },
           graceMinutes: { type: "integer", minimum: 0, default: 0 },
           enabled: { type: "boolean", default: true }
+        }
+      },
+      CreateReadTokenPayload: {
+        type: "object",
+        required: ["projectId", "environmentId", "name"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string", minLength: 1, maxLength: 256 }
+        }
+      },
+      UpdateReadTokenPayload: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 256 }
+        }
+      },
+      ReadToken: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "name", "prefix", "createdAt", "lastUsedAt", "revokedAt"],
+        properties: {
+          id: { type: "string", examples: ["rdtok_example"] },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string" },
+          prefix: { type: "string", description: "First 16 characters of the secret, safe to display for identification." },
+          createdAt: { type: "string", format: "date-time" },
+          lastUsedAt: { type: ["string", "null"], format: "date-time" },
+          revokedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      ReadTokenCreateResponse: {
+        type: "object",
+        required: ["token"],
+        properties: {
+          token: {
+            allOf: [
+              { $ref: "#/components/schemas/ReadToken" },
+              {
+                type: "object",
+                required: ["secret"],
+                properties: {
+                  secret: {
+                    type: "string",
+                    description: "Full read token secret, for example `shread_...`. Returned only on creation — store it now, it cannot be retrieved again."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      ReadTokenResponse: {
+        type: "object",
+        required: ["token"],
+        properties: {
+          token: { $ref: "#/components/schemas/ReadToken" }
+        }
+      },
+      ReadTokenListResponse: {
+        type: "object",
+        required: ["tokens"],
+        properties: {
+          tokens: {
+            type: "array",
+            items: { $ref: "#/components/schemas/ReadToken" }
+          }
         }
       },
       MonitorResponse: {
@@ -3195,6 +3281,93 @@ export const openApiDocument = {
       get: sessionRoute("List source-map upload tokens", "Admin route for CI source-map upload tokens."),
       post: sessionRoute("Create a source-map upload token", "Admin route that returns a CI source-map upload token one time.")
     },
+    "/admin/read-tokens": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List read tokens",
+        description: "Admin route for listing scoped, revocable read-only credentials for one project/environment. Never includes the secret or the stored hash.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Read tokens for the requested scope",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/ReadTokenListResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create a read token",
+        description: "Admin route that generates a scoped, revocable read-only credential and returns the full secret exactly once, in this response. It cannot be retrieved again — only the redacted record (`prefix`, no `secret`, no `hash`) is returned by list, rename, or revoke.",
+        security: [{ sessionCookie: [] }],
+        requestBody: jsonBody("CreateReadTokenPayload", {
+          projectId: "prj_example",
+          environmentId: "env_example",
+          name: "claude-desktop"
+        }),
+        responses: {
+          "201": {
+            description: "Read token created; `token.secret` is shown only in this response",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/ReadTokenCreateResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Project/environment scope is archived or does not exist" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/read-tokens/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Rename a read token",
+        description: "Admin route for renaming a read token within its project/environment scope. Never returns the secret or the stored hash.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: jsonBody("UpdateReadTokenPayload", { name: "claude-desktop" }),
+        responses: {
+          "200": {
+            description: "Read token renamed",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/ReadTokenResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Read token not found in the requested scope" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Revoke a read token",
+        description: "Admin route for revoking a read token within its project/environment scope.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Read token revoked" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
     "/admin/monitors": {
       get: sessionRoute("List monitors", "Admin route for listing HTTP and heartbeat monitors.")
     },
@@ -3485,6 +3658,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token is scoped to project/environment reads and cannot access fleet routes (`read_token_scope_insufficient`)" },
           "501": { description: "Fleet query is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
@@ -3543,6 +3717,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token is scoped to project/environment reads and cannot access fleet routes (`read_token_scope_insufficient`)" },
           "404": { description: "Project not found" },
           "501": { description: "Fleet environment query is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -3551,7 +3726,7 @@ export const openApiDocument = {
     },
     "/query/error-groups": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "List error groups",
           "List error groups for a project environment with cursor pagination, most recently seen first. Query with project_id, environment_id, and optional status, severity, fingerprint, tenant_id, user_id, release, from, to, limit=1..500 (default 50), and cursor from a previous page's response."
         ),
@@ -3594,7 +3769,7 @@ export const openApiDocument = {
     },
     "/query/error-groups/{id}": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query error-group detail",
           "Read one error group scoped to a project environment. Query with project_id and environment_id."
         ),
@@ -3653,6 +3828,7 @@ export const openApiDocument = {
             content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Error group not found" },
           "501": { description: "Triage mutation is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -3661,7 +3837,7 @@ export const openApiDocument = {
     },
     "/query/error-groups/{id}/errors": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "List error-group occurrences",
           "List raw error occurrences for one error group using cursor pagination. Results remain scoped to the requested project and environment."
         ),
@@ -3697,7 +3873,7 @@ export const openApiDocument = {
     },
     "/query/aggregates/traces": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query trace aggregates",
           "Read the stable public trace aggregate contract for a project environment: total traces and average trace duration in milliseconds. Optional actor, session, trace, and date filters narrow the aggregate without changing its response fields."
         ),
@@ -3742,7 +3918,7 @@ export const openApiDocument = {
     },
     "/query/aggregates/errors": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query error aggregates",
           "Read the stable public error aggregate contract for a project environment: total error count and open (unresolved) count. Optional actor, session, trace, and date filters narrow the aggregate without changing its response fields."
         ),
@@ -3787,7 +3963,7 @@ export const openApiDocument = {
     },
     "/query/aggregates/events": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query event aggregates",
           "Read the stable public event aggregate contract for a project environment: total event count and a per-event-name breakdown. Optional event_name, event_id, segment_id, actor, session, trace, and date filters narrow the aggregate without changing its response fields."
         ),
@@ -3835,7 +4011,7 @@ export const openApiDocument = {
     },
     "/query/aggregates/llm": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query LLM aggregates",
           "Read the stable public LLM aggregate contract for a project environment: total call count, total input/output tokens, and total cost. Optional provider, model, prompt_name, status, actor, session, trace, and date filters narrow the aggregate without changing its response fields."
         ),
@@ -3885,35 +4061,35 @@ export const openApiDocument = {
       }
     },
     "/query/events": {
-      get: sessionRoute("Query events", "Read project/environment scoped raw event telemetry.")
+      get: queryReadRoute("Query events", "Read project/environment scoped raw event telemetry.")
     },
     "/query/overview": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query project overview",
         "Read operational overview rollups for one project environment. Query with project_id, environment_id, window=24h|7d|30d, and optional release for exact deploy-version filtering."
       )
     },
     "/query/recent-activity": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query recent activity",
         "Read one mixed, time-ordered activity feed across events, errors, traces, and LLM calls for one project environment. Query with project_id, environment_id, window=24h|7d|30d, optional release, and optional limit."
       )
     },
     "/query/releases": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query releases",
         "List recently observed release values for one project environment, derived from events, errors, traces, and LLM calls. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
     "/query/events/properties": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query event property catalog",
         "Read observed custom event properties for a project environment, including frequency, event coverage, inferred JSON types, safe sample values, type conflicts, and similar property-name groups. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
     "/query/operations": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query operations rollup",
           "Read a single-window operations rollup for one project environment: monitor status counts, alert rule/event summaries, telemetry health, incident counts, recent monitors/alerts/incidents, detected anomalies, and a heuristic operational-risk prediction. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
         ),
@@ -4148,7 +4324,7 @@ export const openApiDocument = {
     },
     "/query/analytics/trends": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query an analytics trend",
           "Execute a saved insight with insight_id or an explicit trend definition. Use either insight_id or bucket plus metric."
         ),
@@ -4168,7 +4344,7 @@ export const openApiDocument = {
     },
     "/query/reports/dashboards/{id}": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Render a saved analytics dashboard",
           "Evaluate every dashboard widget for one project environment. Insight widget failures are isolated and returned on that widget instead of failing the full report."
         ),
@@ -4180,20 +4356,20 @@ export const openApiDocument = {
       }
     },
     "/query/events/funnel": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query event conversion funnel",
         "Analyze ordered event-step conversion for a project environment, aggregated entirely in SQL. Query with project_id, environment_id, window=24h|7d|30d, steps as a comma-separated list of 2-12 event names, and optional limit for sample actors. Optional conversion_window (e.g. 30m, 24h, 7d) bounds elapsed time from funnel entry to each step. Optional breakdown_property splits results into up to 20 series by an event property value. Optional tenant_id and segment_id further scope which actors are counted."
       )
     },
     "/query/experiments/{id}/results": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query experiment results",
         "Read A/B experiment conversion results by variant. Query with project_id, environment_id, window=24h|7d|30d, and optional limit. Results are derived from exposure and conversion events that include experiment_key and variant properties."
       )
     },
     "/query/surveys/{id}/results": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query survey results",
           "Read in-app survey response totals, per-question summaries, and recent responses. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
         ),
@@ -4218,7 +4394,7 @@ export const openApiDocument = {
     },
     "/query/surveys/{id}/nps": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query NPS results",
           "Read Net Promoter Score totals, daily trend, tenant/release/plan segments, and recent responses for a 0-10 survey question. Query with project_id, environment_id, window=24h|7d|30d, and optional question_id, tenant_id, release, plan, and limit."
         ),
@@ -4247,7 +4423,7 @@ export const openApiDocument = {
     },
     "/query/message-campaigns/{id}/results": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query message campaign results",
           "Read campaign delivery, engagement, conversion, recent event, and opt-out metrics. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
         ),
@@ -4272,7 +4448,7 @@ export const openApiDocument = {
     },
     "/query/feedback": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "List feedback submissions",
           "Read recent product feedback submissions for a project environment. Query with project_id, environment_id, optional status=open|reviewed|archived, tenant_id, user_id, and optional limit."
         ),
@@ -4317,27 +4493,27 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
-          "403": { $ref: "#/components/responses/Forbidden" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Feedback not found" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }
     },
     "/query/events/retention": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query event retention curves",
         "Analyze retention cohorts for a project environment. Cohorts are anchored on each actor's user_profiles.first_seen_at, not the minimum entry_event timestamp inside the queried window. Query with project_id, environment_id, window=24h|7d|30d, optional entry_event (cohort eligibility filter), optional return_event (absent means any event counts as retained), optional period=daily|weekly|monthly, optional intervals=2..12, and optional range_days=1..730 to override the window-derived range for long lookback queries. Ranges older than the configured raw event retention window are served from the event_actor_daily rollup, reported as source=raw|rollup in the response."
       )
     },
     "/query/events/click-map": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query event click maps",
         "Aggregate opt-in browser click samples by route, safe selector, and grid bucket. Query with project_id, environment_id, route, window=24h|7d|30d, optional selector, tenant_id, user_id, session_id, grid_size=10..100, and limit."
       )
     },
     "/query/events/paths": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query event paths",
           "Discover the most common event sequences leading to or from an anchor event for a project environment. At least one of start_event or end_event is required. Query with project_id, environment_id, and one or both of start_event/end_event, plus optional window=24h|7d|30d (default 7d), actor=auto|user|tenant|session|trace (default auto), max_depth=2..8 (default 5), from/to (from must be before to when both given), tenant_id, user_id, session_id, trace_id, segment_id, and limit."
         ),
@@ -4464,7 +4640,7 @@ export const openApiDocument = {
     },
     "/query/sessions/{sessionId}/timeline": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query session timeline",
           "Read one session's mixed, time-ordered timeline across breadcrumbs, events, errors, traces, and LLM calls for a project environment. Either from/to or center (with before/after) can be used to bound the range; center takes precedence when present. Query with project_id, environment_id, and optional tenant_id, user_id, from, to, center, before, after, types, and limit."
         ),
@@ -4586,20 +4762,20 @@ export const openApiDocument = {
       }
     },
     "/query/replays": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query session replay samples",
         "List privacy-safe replay samples for a project environment. Supports saved segment filtering with segment_id plus tenant_id, user_id, event_name, and limit. Results include user, tenant, route, timestamp, and linked event/error context for cohort replay investigation."
       )
     },
     "/query/replays/{replayId}": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query session replay detail",
         "Read one privacy-safe replay timeline and its linked product event markers. Query with project_id and environment_id; replayId is the path parameter from event or error detail."
       )
     },
     "/query/entities/tenants": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "List tenant activity",
           "List tenants observed in a project environment, ranked and keyset-paginated by an activity sort. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional search (matches tenant id/traits), optional limit=1..100 (default 50), optional sort, and optional cursor from a previous page's response. The cursor is an opaque base64url-encoded JSON object minted for a specific `sort`; reusing it with a different `sort` value is rejected."
         ),
@@ -4665,7 +4841,7 @@ export const openApiDocument = {
     },
     "/query/entities/tenants/{tenantKey}": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query tenant activity detail",
           "Read one tenant's activity summary, top users, and time-ordered signal timeline for a project environment. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional user_id, optional signal_type, optional limit=1..100 (default 50), and optional cursor from a previous page's response. `tenantKey` cannot be the reserved value `_unassigned`."
         ),
@@ -4760,7 +4936,7 @@ export const openApiDocument = {
     },
     "/query/users": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "List user activity",
           "List users observed in a project environment, ranked and keyset-paginated by an activity sort. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional search (matches user id/traits), optional tenant_id, optional limit=1..100 (default 50), optional sort, and optional cursor from a previous page's response. The cursor is an opaque base64url-encoded JSON object minted for a specific `sort`; reusing it with a different `sort` value is rejected."
         ),
@@ -4827,7 +5003,7 @@ export const openApiDocument = {
     },
     "/query/users/{userKey}": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query user activity detail",
           "Read one user's activity summary, recent sessions, and time-ordered signal timeline for a project environment. Query with project_id, environment_id, optional window=24h|7d|30d (default 7d), optional tenant_id, optional signal_type, optional limit=1..100 (default 50), and optional cursor from a previous page's response. `userKey` cannot be the reserved value `_anonymous`."
         ),
@@ -4923,11 +5099,11 @@ export const openApiDocument = {
       }
     },
     "/query/errors": {
-      get: sessionRoute("Query errors", "Read project/environment scoped raw error telemetry.")
+      get: queryReadRoute("Query errors", "Read project/environment scoped raw error telemetry.")
     },
     "/query/errors/{id}/source-map-resolution": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query error source-map resolution",
           "Resolve one error's stack frames against uploaded source maps for its release, using strict project/environment/release/minified-file matching. Query with project_id and environment_id. The console does not display original source content; this response returns resolved file/line/column locations only."
         ),
@@ -4998,7 +5174,7 @@ export const openApiDocument = {
     },
     "/query/incidents/error-groups/{id}": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query error-group incident detail",
           "Read the full incident workspace for one error group: the group record, primary occurrence, priority, source-map resolution status, strongly-related and nearby telemetry context, a linked privacy-safe replay when available, related actor/release ids, assignment, silence state, triage notes, deploy/code context, and linked external issues. Query with project_id, environment_id, and optional error_id to pin the primary occurrence to a specific error instead of the group's latest."
         ),
@@ -5156,6 +5332,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Error group not found" },
           "501": { description: "Triage note mutation is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -5189,6 +5366,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Error group not found" },
           "501": { description: "Silence mutation is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -5197,7 +5375,7 @@ export const openApiDocument = {
     },
     "/query/incidents/mttr": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query incident MTTR",
           "Read mean-time-to-resolution for error groups resolved within the window, plus the count of groups that resolution was computed from. Query with project_id, environment_id, and optional window=7d|30d (default 7d). Note this route's window enum is narrower than other query routes: only 7d and 30d are accepted, not 24h."
         ),
@@ -5273,6 +5451,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }
@@ -5310,17 +5489,18 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Code integration not found" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }
     },
     "/query/llm-calls": {
-      get: sessionRoute("Query LLM calls", "Read project/environment scoped LLM call telemetry.")
+      get: queryReadRoute("Query LLM calls", "Read project/environment scoped LLM call telemetry.")
     },
     "/query/llm/summary": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query LLM summary",
           "Read a single-window LLM rollup for a project environment: call count, failed-call count, total cost, average token count, average latency, and p95 latency. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
         ),
@@ -5364,7 +5544,7 @@ export const openApiDocument = {
     },
     "/query/llm/by-tenant": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query LLM usage by tenant",
           "Read per-tenant LLM rollups for a project environment: call count, failed-call count, cost, average token count, average latency, and p95 latency per tenant. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
         ),
@@ -5412,7 +5592,7 @@ export const openApiDocument = {
     },
     "/query/llm/by-prompt": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query LLM usage by prompt",
           "Read per-prompt LLM rollups for a project environment: model, call count, failed-call count, cost, average token count, average latency, and p95 latency per prompt_name/model pair. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
         ),
@@ -5461,7 +5641,7 @@ export const openApiDocument = {
     },
     "/query/llm/cost-by-model": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "Query LLM cost by model",
           "Read a time-bucketed LLM cost series broken down by model for a project environment. Query with project_id, environment_id, and optional window=24h|7d|30d (default 24h)."
         ),
@@ -5514,14 +5694,14 @@ export const openApiDocument = {
       }
     },
     "/query/traces": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query traces",
         "Read project/environment scoped trace telemetry. Supports trace drilldown filters such as trace_id, trace_name, status, tenant_id, user_id, session_id, from, to, limit, and cursor."
       )
     },
     "/query/traces/{id}/spans": {
       get: {
-        ...sessionRoute(
+        ...queryReadRoute(
           "List trace spans",
           "List spans for one trace using cursor pagination. `trace_id`, if given as a query parameter, must match the `id` path parameter or the request is rejected. Query with project_id, environment_id, and optional tenant_id, user_id, session_id, trace_id, from, to, limit=1..500 (default 50), and cursor from a previous page's response."
         ),
@@ -5616,25 +5796,25 @@ export const openApiDocument = {
       }
     },
     "/query/apm/endpoints": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query APM endpoints",
         "Read endpoint-level APM rollups for a project environment, including throughput, errors, error rate, p50/p95/p99 latency, average latency, Apdex, and last seen timestamp. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
     "/query/apm/service-map": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query APM service map",
         "Read span-derived service dependency edges for a project environment, including source, target, dependency type, span count, distinct trace count, errors, error rate, average latency, p95 latency, and last seen timestamp. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
     "/query/apm/web-vitals": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query APM Web Vitals",
         "Read browser Web Vital rollups for a project environment, including p75 by metric and route, sample counts, rating counts, latest release p75, previous release p75, and regression percent. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )
     },
     "/query/apm/profiles": {
-      get: sessionRoute(
+      get: queryReadRoute(
         "Query APM runtime profiles",
         "Read runtime CPU and memory profile rollups for a project environment, including profile counts, CPU/memory totals, recent profiles, and hot functions. Query with project_id, environment_id, window=24h|7d|30d, and optional limit."
       )

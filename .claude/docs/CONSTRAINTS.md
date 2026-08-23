@@ -16,6 +16,10 @@
 - Telemetry retries must remain idempotent across queue delivery and database persistence.
 - Telemetry retries must not persist into project/environment scopes that were archived after the job was queued.
 - Cached source-map stack resolutions must be database-bound to the same error scope, artifact scope, release, and minified file.
+- Source-map artifacts must store `minified_file` as the basename the stack-frame parser produces. A caller-supplied path (`assets/app.min.js`) is normalized on the way in, or it can never match the frame lookup.
+- An aggregate must apply every filter the list it summarises applies. A KPI that silently drops a filter reports a different population than the rows underneath it.
+- Aggregates count a signal as failed only when `status = 'error'`. `pending` means unfinished, and is the ingestion default for traces and spans — see the 2026-08-09 decision.
+- Alert rule evaluators must apply the rule's `routePattern` to the observed value, not only to the error group they attribute the event to. The route filter is an `exists` subquery against `traces`, never a join: one `trace_id` can have several trace rows, and a join multiplies a single error into as many rows as it matches.
 - Webhook notification targets must reject local, private, link-local, multicast, loopback, and metadata networks in every environment.
 - External operational calls must be bounded by explicit timeouts or have a documented reason. Retries are allowed only for transient transport, timeout, rate-limit, and server-side failures; deterministic validation, auth, unsafe target, and permanent client errors must fail fast.
 - Internal Postgres reads served by the API must also be bounded: the API's request-serving pool carries a `statement_timeout` (`DB_STATEMENT_TIMEOUT_MS`), separate from the timeout-free pool used for one-time migrations and from the worker's own pool (long-lived rollup/retention/backup jobs default to no timeout). Query shapes whose cost scales with scope (e.g. the event funnel chain) must also have an explicit, configurable cap on that scope, enforced by a cheap pre-check before the expensive query runs, and must fail with a named error rather than degrade Postgres silently.
@@ -35,3 +39,6 @@
 - The automated release smoke harness validates the Docker Compose install path; it does not introduce Kubernetes, Helm, systemd, hosted SaaS, or additional production deployment support.
 - GitHub Actions CI is a verification gate only; it does not publish images, create hosted environments, or expand the supported deployment surface beyond Docker Compose.
 - MicroERP is Diogo's personal validation target and should be treated as a real integration test target for SignalMonitor, not as part of the SignalMonitor product or repository.
+- Read tokens are read-only. Every mutation handler under `/query/*` must refuse a read-token principal explicitly; the refusal lives in the handler, never in a path allowlist.
+- A read token's project and environment override the requested scope. Query parameters are not validated against the token — they are replaced by it.
+- Read token secrets are shown once, on creation. No route may return one afterwards, and no console screen may hold one below the shell remount boundary.

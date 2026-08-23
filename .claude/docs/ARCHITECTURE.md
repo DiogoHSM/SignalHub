@@ -42,6 +42,13 @@ Browser ingestion CORS is limited to public `/v1/*` ingestion paths. The API all
 
 Production human sessions use `__Host-sigmon_session` with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`. The OAuth state cookie remains `sigmon_oauth_state` because it is intentionally scoped to `/auth/google/callback`, which is incompatible with the `__Host-` prefix.
 
+Non-human read access:
+
+1. `/query/*` routes accept a scoped, revocable read token (table `read_tokens`, `shread_`-prefixed secret hashed with the same `API_KEY_PEPPER`) as a third principal alongside the ingestion API key and the human session, for external tools that only need to query telemetry. `requireQueryPrincipal` checks the session cookie first, then falls back to `Authorization: Bearer shread_...`.
+2. Admins create, rename, and revoke read tokens from the console's Setup screen through `GET|POST /admin/read-tokens` and `PATCH|DELETE /admin/read-tokens/:id`; only the `201` from creation ever carries the secret.
+3. A read token is scoped to one project and one environment at creation and cannot be widened. On every read, its scope overrides the caller's `project_id`/`environment_id` query parameters rather than being validated against them, so the token's scope is a fact of the request, not a filter that can fail closed into an empty list.
+4. Every mutation under `/query/*` refuses a read-token principal with `403 read_token_is_read_only`, checked before params/body/dependency validation. The two fleet routes (`GET /query/fleet`, `GET /query/fleet/projects/:id/environments`) refuse a read-token principal with `403 read_token_scope_insufficient` instead, because they are install-wide views spanning every project and a single-project override is meaningless there.
+
 ## Storage
 
 Operational tables:

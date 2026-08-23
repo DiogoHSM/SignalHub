@@ -4610,3 +4610,281 @@ describe("query routes", () => {
     expect(assignCalls[0]).toMatchObject({ errorGroupId: "egrp_1", assignedToUserId: "usr_2", projectId: "prj_1", environmentId: "env_1" });
   });
 });
+
+describe("read token principal", () => {
+  it("serves a read route to a valid bearer token", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async (secret: string) =>
+        secret === "shread_good" ? { id: "rdtok_1", projectId: "prj_1", environmentId: "env_1" } : null,
+      query: {
+        listEvents: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("rejects an unknown bearer token", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => null,
+      query: {
+        listEvents: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1",
+      headers: { authorization: "Bearer shread_bad" }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error).toBe("unauthenticated");
+  });
+
+  it("overrides the requested scope with the token scope", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        listEvents: async (filters) => {
+          receivedFilters.push(filters);
+          return { data: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_someone_else&environment_id=env_someone_else",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_mine",
+        environmentId: "env_mine",
+        limit: 50
+      }
+    ]);
+  });
+
+  it("leaves cookie session behaviour untouched", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      verifyReadToken: async () => null,
+      query: {
+        listEvents: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("refuses a read token on the fleet overview route", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        getFleet: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/fleet",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "read_token_scope_insufficient" });
+  });
+
+  it("keeps the fleet overview route working for a session", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      verifyReadToken: async () => null,
+      query: {
+        getFleet: async () => ({ projects: [] } as never)
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/fleet"
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("refuses a read token on the fleet project environments route", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        getProjectFleetEnvironments: async () => {
+          throw new Error("should not run");
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/fleet/projects/prj_1/environments",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "read_token_scope_insufficient" });
+  });
+
+  it("overrides the requested scope for bare-variable filters (session replay detail)", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        getSessionReplayDetail: async (filters) => {
+          received.push(filters);
+          return {
+            id: "rpl_job_1",
+            replayId: filters.replayId,
+            route: "/checkout",
+            startedAt: new Date("2026-05-11T12:00:00.000Z"),
+            endedAt: null,
+            durationMs: 0,
+            eventCount: 0,
+            masked: true,
+            events: [],
+            productEvents: []
+          };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/replays/rpl_checkout?project_id=prj_someone_else&environment_id=env_someone_else",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(received).toEqual([
+      { projectId: "prj_mine", environmentId: "env_mine", replayId: "rpl_checkout" }
+    ]);
+  });
+
+  it("overrides the requested scope for scope-shaped filters (error group detail)", async () => {
+    const received: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        getErrorGroup: async (id, filters) => {
+          received.push({ id, filters });
+          return { id: "egrp_1", status: "open" };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/error-groups/egrp_1?project_id=prj_someone_else&environment_id=env_someone_else",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(received).toEqual([
+      {
+        id: "egrp_1",
+        filters: { projectId: "prj_mine", environmentId: "env_mine" }
+      }
+    ]);
+  });
+
+  it("overrides the requested scope for parsed-shaped filters (analytics trend)", async () => {
+    const calls: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        queryEventTrend: async (input) => {
+          calls.push(input);
+          return { buckets: [], series: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url:
+        "/query/analytics/trends?project_id=prj_someone_else&environment_id=env_someone_else&from=2026-07-29T00%3A00%3A00.000Z&to=2026-07-30T00%3A00%3A00.000Z&bucket=hour&metric=count",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(calls).toEqual([
+      {
+        projectId: "prj_mine",
+        environmentId: "env_mine",
+        from: new Date("2026-07-29T00:00:00.000Z"),
+        to: new Date("2026-07-30T00:00:00.000Z"),
+        bucket: "hour",
+        metric: "count"
+      }
+    ]);
+  });
+});
+
+describe("read tokens are refused on query mutations", () => {
+  const mutations = [
+    { method: "PATCH" as const, url: "/query/feedback/fb_1", payload: { status: "reviewed" } },
+    { method: "PATCH" as const, url: "/query/error-groups/grp_1", payload: { status: "resolved" } },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/notes", payload: { body: "x" } },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/external-issues", payload: {} },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/external-issues/draft", payload: {} },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/silence", payload: { minutes: 30 } }
+  ];
+
+  for (const mutation of mutations) {
+    it(`refuses ${mutation.method} ${mutation.url}`, async () => {
+      app = await buildApp({
+        readiness,
+        verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_1", environmentId: "env_1" })
+      });
+
+      const response = await app.inject({
+        method: mutation.method,
+        url: `${mutation.url}?project_id=prj_1&environment_id=env_1`,
+        headers: { authorization: "Bearer shread_good" },
+        payload: mutation.payload
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error).toBe("read_token_is_read_only");
+    });
+  }
+});

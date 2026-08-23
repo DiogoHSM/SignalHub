@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../api/client";
 import type { Environment, User } from "../api/types";
 import { CommandPalette, type CommandPaletteItem } from "../components/CommandPalette";
@@ -10,7 +10,7 @@ import { useConsoleProjects } from "./useConsoleProjects";
 import { useToasts } from "./useToasts";
 import { useFleet } from "./useFleet";
 import { renderIncidentDetail, renderSection, renderTenantDetail } from "./screens/registry";
-import type { ScreenCtx, DrillTarget, DrillParams, FilterableSection, NavPayload, SectionFilters } from "./screens/registry";
+import type { ScreenCtx, CreatedSecret, DrillTarget, DrillParams, FilterableSection, NavPayload, SecretKind, SectionFilters } from "./screens/registry";
 import type { NavSection } from "./nav";
 import type { BreadcrumbItem } from "./shell/TopBar";
 import { EmptyHint, Icon } from "../components/ui/v2";
@@ -38,6 +38,18 @@ type DesiredScope = {
   projectId?: string;
   environmentId?: string;
   environmentName?: string;
+};
+
+/**
+ * A one-time credential secret plus the project/environment pair it was
+ * minted for. The stamp is what makes the secret impossible to read outside
+ * its own scope: it is compared against the scope the shell is currently
+ * rendering, every render, rather than being cleared by whichever code path
+ * happened to move the scope.
+ */
+type MintedSecret = CreatedSecret & {
+  projectId: string | undefined;
+  environmentId: string | undefined;
 };
 
 type ConsoleHistoryState = {
@@ -244,6 +256,24 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     reload: reloadProjects,
   } = useConsoleProjects(client);
 
+  // One-time secrets (API keys, read tokens, ...) live here, not in the
+  // screen: the page container below is keyed on `seq`, and creating one
+  // calls ctx.reload, so a secret held in screen state was destroyed before
+  // the operator could copy it. `kind` tags which credential surface minted
+  // the secret, since the shell has only one slot but multiple credential
+  // surfaces can mount on the same screen. The secret is stamped with the
+  // scope it was minted for; `createdSecret` below derives what screens may
+  // read from it. See the derivation for why that, and not a set of clearing
+  // call sites, is what confines the secret to its own scope.
+  const [mintedSecret, setMintedSecret] = useState<MintedSecret | null>(null);
+  const activeProjectId = activeProject?.id;
+  const activeEnvironmentId = activeEnvironment?.id;
+  const handleSecretCreated = useCallback(
+    (secret: string | null, kind: SecretKind) =>
+      setMintedSecret(secret ? { value: secret, kind, projectId: activeProjectId, environmentId: activeEnvironmentId } : null),
+    [activeEnvironmentId, activeProjectId],
+  );
+
   const fleet = useFleet({
     fetchFleet: client.fetchFleet,
     fetchProjectEnvironments: client.fetchFleetProjectEnvironments,
@@ -304,6 +334,48 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     || (desiredScope.environmentId && activeEnvironment?.id !== desiredScope.environmentId)
     || (desiredScope.environmentName && activeEnvironment?.name !== desiredScope.environmentName)
   );
+
+  // ─── one-time secret confinement ──────────────────────────────────────────
+  //
+  // Screens only ever see a secret whose stamped scope is the scope being
+  // rendered right now. Confinement is therefore a property of the render,
+  // not an obligation on scope-changing code: every way the active scope can
+  // move — the top-bar project and environment pickers, the fleet tree, a
+  // screen's own onSelectEnvironment, an environment created through
+  // onCreateEnvironment, popstate/deep-link restore, archiving the active
+  // project or environment, or useConsoleProjects settling somewhere else on
+  // its own after a reload — breaks the match with no code of its own, and a
+  // future scope-changing path cannot forget to clear anything.
+  //
+  // Survival is the same rule read the other way: a same-scope reload settles
+  // back on the minting scope (the shell keeps steering there via
+  // desiredScope), so the secret becomes readable again once it does. That is
+  // why nothing here watches for id *changes*: useConsoleProjects transiently
+  // reports no environment, then the wrong one, on every ctx.reload(). A
+  // transient mismatch only withholds the secret for the renders it lasts —
+  // during which the shell is showing its restoring state anyway — instead of
+  // destroying it.
+  const createdSecret = useMemo<CreatedSecret | null>(
+    () => (
+      mintedSecret && mintedSecret.projectId === activeProjectId && mintedSecret.environmentId === activeEnvironmentId
+        ? { value: mintedSecret.value, kind: mintedSecret.kind }
+        : null
+    ),
+    [activeEnvironmentId, activeProjectId, mintedSecret],
+  );
+
+  // Backstop, not the invariant: once the shell has *settled* on a different
+  // scope, drop the value so returning to the minting scope cannot reveal it
+  // again and so it stops being held in memory. Deliberately ignores every
+  // unsettled render — mid-reload, or while the restore effects are still
+  // steering back to the requested scope — which is exactly where
+  // useConsoleProjects reports a scope the operator never chose.
+  useEffect(() => {
+    if (!mintedSecret || isLoadingProjects || isRestoringScope) return;
+    if (!activeProjectId || !activeEnvironmentId) return;
+    if (mintedSecret.projectId === activeProjectId && mintedSecret.environmentId === activeEnvironmentId) return;
+    setMintedSecret(null);
+  }, [activeEnvironmentId, activeProjectId, isLoadingProjects, isRestoringScope, mintedSecret]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -523,17 +595,6 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     },
     [client]
   );
-
-  // One-time API key secrets live here, not in the screen: the page container
-  // below is keyed on `seq`, and creating a key calls ctx.reload, so a secret
-  // held in screen state was destroyed before the operator could copy it.
-  const [createdSecret, setCreatedSecret] = useState<string | null>(null);
-  const handleSecretCreated = useCallback((secret: string | null) => setCreatedSecret(secret), []);
-
-  // A secret belongs to the scope it was minted in — never carry it across.
-  useEffect(() => {
-    setCreatedSecret(null);
-  }, [activeProject?.id, activeEnvironment?.id]);
 
   const handleSelectEnvironmentObj = useCallback(
     (env: Environment) => {

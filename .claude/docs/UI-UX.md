@@ -219,6 +219,8 @@ SignalMonitor includes an admin-only Integration Console.
 ## Project Settings UX
 
 - API key rows expose edit actions for renaming keys without rotating secrets; one-time key secrets remain visible only immediately after creation.
+- A one-time secret is owned by `ConsoleShellV2`, never by the screen that created it. Screens render inside `<div className="page" key={seq}>` and `ctx.reload` bumps `seq`, so anything held in screen state is destroyed by the reload that normally follows a mutation. Hand the value over with `ctx.onSecretCreated` and read it back from `ctx.createdSecret`. The shell stamps the minted secret with the project/environment it was created for, and derives `createdSecret` per render by comparing that stamp against the scope currently active — so confinement is a property of the render, not an obligation on every place the scope can move (top-bar pickers, the fleet tree, a screen's own scope change, environment creation, archiving, popstate/deep-link restore, or `useConsoleProjects` settling elsewhere after a reload). This replaced an earlier approach that cleared the secret from inside scope-change handlers, which kept missing paths and also wiped the secret on the transient environment-clear that happens on every reload — the stamp-and-compare approach survives a same-scope reload by construction and needs no per-call-site clearing. `useArtifacts.ts` still holds its own upload-token secret in hook state rather than going through this mechanism — a known divergence, not fixed here.
+- Setup snippets must run as pasted. Every snippet includes the endpoint the SDK requires, and no tab may advertise an SDK the project does not publish — the JavaScript SDK is the only one (see `CONSTRAINTS.md`), so other languages show plain HTTP against the ingestion endpoint.
 - Data Governance is a Project Settings section for the selected project/environment. It shows collected telemetry categories, per-category retention days, and sensitive property rules.
 - Data governance retention copy must explain that project/environment windows can shorten installation-level retention; installation-level retention remains the maximum retention boundary.
 - Sensitive property rules use dot paths and explicit actions: `mask` keeps the key with `[REDACTED]`; `block` removes the key before persistence. The UI should keep this distinction visible beside the rule list and add form.
@@ -248,3 +250,8 @@ SignalMonitor includes an admin-only Integration Console.
 - Upload controls should support single `.map` files and `.zip` bundles.
 - Operators must provide release metadata because resolution uses strict release matching and does not guess across releases.
 - Artifact rows should prioritize release, minified file, original filename, size, upload time, and a short delete action.
+
+## Read Tokens UX
+
+- Setup includes a Read tokens section beside Artifacts, for the active project/environment: create, edit (rename), and revoke a read-only credential for external tools that only need to query telemetry.
+- The one-time secret copy is fixed: shown once, unrecoverable, read-only, this project and environment only. Nothing else about the token is worth restating in the banner.

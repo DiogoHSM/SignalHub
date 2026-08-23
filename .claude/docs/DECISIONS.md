@@ -1,5 +1,21 @@
 # Decisions
 
+## 2026-08-23: Read tokens are a new credential type that overrides scope instead of validating it
+
+Decision: `/query/*` reads accept a new `shread_`-prefixed read token (table `read_tokens`, scoped to one project + environment, revocable) as an alternative to the human session cookie. When a read-token principal calls a read route, the token's stored project/environment **replaces** the caller's `project_id`/`environment_id` query parameters — it is never validated against them. The two fleet routes (`GET /query/fleet`, `GET /query/fleet/projects/:id/environments`) refuse a read-token principal with `403 read_token_scope_insufficient` rather than being scoped down, and every mutation under `/query/*` refuses one with `403 read_token_is_read_only`.
+
+Rejected: reusing the session cookie for external tools. The cookie is stateless for 7 days with no revocation (see PER-473); an external agent holding it for that long with no way to cut it off is a worse exposure than a purpose-built credential, and the only realistic way to hand a non-human caller the same access would have been to put an admin's password into a local agent's config file.
+
+Rejected: validating the token's scope against the request's `project_id`/`environment_id` instead of overriding them. Validation fails a mismatched request with an empty result, which a caller reads as "there is no data" — indistinguishable from an empty project. Overriding makes the scope a fact the caller cannot get wrong: a read token is *for* one project and environment, full stop, so there is nothing to validate.
+
+Rejected: scoping the fleet routes down to the token's single project instead of refusing them. Fleet views are install-wide by construction — they summarize every project's health in one response — so "the token's scope" has no meaning there; scoping the response would silently return a fleet of one project under a route whose contract is "all projects," which is a worse lie than refusing outright.
+
+## 2026-08-09: `pending` is a third state, not a failure
+
+Decision: aggregates count a signal as failed only when `status = 'error'`. The previous `status <> 'success'` test is gone from all 15 sites in `packages/db/src/repositories/telemetry-query.ts` (APM endpoint rollups, service map, release health, operations summaries, LLM summaries, and the recent-failure lists). The ingestion schemas keep `pending` as a legitimate third status and their defaults are unchanged.
+
+Rationale: `tracePayloadSchema` and `spanPayloadSchema` default `status` to `pending`, and the SDK's one-shot `trace()`/`span()` path sends that default (`packages/sdk/src/mapping.ts` uses `input.status ?? "pending"`). Reading "not success" as failure therefore counted every un-finalized trace as an error — anyone instrumenting with `signal.trace({ name, startedAt, durationMs })` saw their whole dashboard red. Only `startTrace().end()` escaped, because it defaults to `success`. Changing the schema defaults instead was rejected: a trace that never ended is not a success, and collapsing `pending` into either bucket loses the distinction the status field exists to carry. This lowers reported error rates on existing installs; that is the correction, not a regression.
+
 ## 2026-08-02: CI runs automatically; deploys stay manual
 
 Decision: `.github/workflows/ci.yml` runs on every pull request to `main` and every push to `main`, in addition to `workflow_dispatch`. The deploy half of the 2026-07-26 decision is unchanged and still binding: production rolls forward only through a manual Coolify webhook or the panel, and no deploy job may be added to a workflow. `scripts/ci-workflow.test.ts` enforces both halves — the automatic triggers and the absence of any deploy step. This amends the CI half of "Move hosting to Coolify with manual-only CI and manual deploys" (2026-07-26).

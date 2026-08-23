@@ -6,7 +6,7 @@ import type { ApiClient } from "../../api/client";
 import type { Environment, FeedbackItem, FeedbackWidgetSettings, Project } from "../../api/types";
 import type { NavSection } from "../nav";
 import { SetupScreen } from "./SetupScreen";
-import type { ScreenCtx } from "./registry";
+import type { CreatedSecret, ScreenCtx, SecretKind } from "./registry";
 
 afterEach(cleanup);
 
@@ -63,11 +63,11 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
 function renderInShell(client: ApiClient) {
   function Host() {
     const [seq, setSeq] = useState(0);
-    const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+    const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
     const ctx = makeCtx({
       client,
       createdSecret,
-      onSecretCreated: setCreatedSecret,
+      onSecretCreated: (secret: string | null, kind: SecretKind) => setCreatedSecret(secret ? { value: secret, kind } : null),
       reload: () => setSeq((s) => s + 1),
     });
     return <div key={seq}><SetupScreen ctx={ctx} /></div>;
@@ -163,6 +163,16 @@ describe("SetupScreen", () => {
 
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalledTimes(1));
     expect(screen.queryByDisplayValue("must_not_leak")).not.toBeInTheDocument();
+  });
+
+  it("ignores a secret minted by another credential surface (e.g. a freshly created read token)", async () => {
+    render(<SetupScreen ctx={makeCtx({ createdSecret: { value: "shread_visible_once", kind: "readToken" } })} />);
+    // The install snippets still need something in place of the key — that
+    // placeholder, not the read-only token, is what must appear.
+    await screen.findByText(/@sigmon\/sdk\/browser/);
+    expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
+    expect(screen.queryByText("shread_visible_once")).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("shread_visible_once");
   });
 
   it("creates a project from the inline input", async () => {

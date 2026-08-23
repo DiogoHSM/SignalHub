@@ -240,6 +240,14 @@ import {
   updateSourceMapUploadTokenLastUsed
 } from "../src/repositories/source-map-upload-tokens.js";
 import {
+  createReadTokenRecord,
+  findReadTokenByPrefix,
+  listReadTokens,
+  revokeReadToken,
+  updateReadToken,
+  updateReadTokenLastUsed
+} from "../src/repositories/read-tokens.js";
+import {
   identifyTenantProfile,
   identifyUserProfile,
   touchTenantProfileLastSeen,
@@ -14559,6 +14567,267 @@ describe("repositories", () => {
       // Only model-x in window for this project
       expect(result.series).toHaveLength(1);
       expect(result.series[0].model).toBe("model-x");
+    });
+  });
+
+  it("creates lists finds uses and revokes read tokens", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Read Token Lifecycle" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      const created = await createReadTokenRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "mcp",
+        prefix: "shread_lifecycle_a",
+        hash: "hash_lifecycle_a"
+      });
+
+      expect(created.id).toMatch(/^rdtok_/);
+      expect(created).toMatchObject({
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "mcp",
+        prefix: "shread_lifecycle_a",
+        hash: "hash_lifecycle_a",
+        lastUsedAt: null,
+        revokedAt: null
+      });
+      expect(created.createdAt).toBeInstanceOf(Date);
+
+      const listed = await listReadTokens(db, { projectId: project.id, environmentId: environment.id });
+      expect(listed.map((token) => token.id)).toEqual([created.id]);
+
+      const found = await findReadTokenByPrefix(db, "shread_lifecycle_a");
+      expect(found?.id).toBe(created.id);
+
+      const renamed = await updateReadToken(db, {
+        id: created.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "claude-desktop"
+      });
+      expect(renamed).toMatchObject({
+        id: created.id,
+        name: "claude-desktop",
+        prefix: created.prefix,
+        hash: created.hash
+      });
+
+      await updateReadTokenLastUsed(db, created.id);
+      const used = await findReadTokenByPrefix(db, "shread_lifecycle_a");
+      expect(used?.lastUsedAt).toBeInstanceOf(Date);
+      const usedAtBeforeRevoke = used?.lastUsedAt;
+
+      await revokeReadToken(db, { id: created.id, projectId: project.id, environmentId: environment.id });
+
+      await updateReadTokenLastUsed(db, created.id);
+      const afterRevoke = await findReadTokenByPrefix(db, "shread_lifecycle_a");
+      expect(afterRevoke).toBeUndefined();
+      const [revoked] = await listReadTokens(db, { projectId: project.id, environmentId: environment.id });
+      expect(revoked.lastUsedAt).toEqual(usedAtBeforeRevoke);
+    });
+  });
+
+  it("rejects read tokens for inactive missing or mismatched scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const activeProject = await createProject(db, { name: "Read Token Active Scope" });
+      const activeEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "production" });
+      const otherProject = await createProject(db, { name: "Read Token Other Scope" });
+      const otherEnvironment = await createEnvironment(db, { projectId: otherProject.id, name: "production" });
+      const archivedProject = await createProject(db, { name: "Read Token Archived Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      await archiveProject(db, archivedProject.id);
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Read Token Archived Environment"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      const invalidInputs = [
+        {
+          projectId: "prj_missing_read_token",
+          environmentId: activeEnvironment.id,
+          name: "Missing project",
+          prefix: "shread_missing_project",
+          hash: "hash_missing_project"
+        },
+        {
+          projectId: activeProject.id,
+          environmentId: "env_missing_read_token",
+          name: "Missing environment",
+          prefix: "shread_missing_environment",
+          hash: "hash_missing_environment"
+        },
+        {
+          projectId: activeProject.id,
+          environmentId: otherEnvironment.id,
+          name: "Mismatched environment",
+          prefix: "shread_mismatched_environment",
+          hash: "hash_mismatched_environment"
+        },
+        {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "Archived project",
+          prefix: "shread_archived_project",
+          hash: "hash_archived_project"
+        },
+        {
+          projectId: archivedEnvironmentProject.id,
+          environmentId: archivedEnvironment.id,
+          name: "Archived environment",
+          prefix: "shread_archived_environment",
+          hash: "hash_archived_environment"
+        }
+      ];
+
+      for (const input of invalidInputs) {
+        await expect(createReadTokenRecord(db, input)).rejects.toThrow("active_read_token_scope_not_found");
+      }
+    });
+  });
+
+  it("finds read tokens by prefix only for active non-revoked scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const activeProject = await createProject(db, { name: "Read Token Prefix Active" });
+      const activeEnvironment = await createEnvironment(db, { projectId: activeProject.id, name: "production" });
+      const activeToken = await createReadTokenRecord(db, {
+        projectId: activeProject.id,
+        environmentId: activeEnvironment.id,
+        name: "Active token",
+        prefix: "shread_prefix_active",
+        hash: "hash_prefix_active"
+      });
+      const revokedToken = await createReadTokenRecord(db, {
+        projectId: activeProject.id,
+        environmentId: activeEnvironment.id,
+        name: "Revoked token",
+        prefix: "shread_prefix_revoked",
+        hash: "hash_prefix_revoked"
+      });
+
+      const archivedProject = await createProject(db, { name: "Read Token Prefix Archived Project" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedProjectToken = await createReadTokenRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "Archived project token",
+        prefix: "shread_prefix_archived_project",
+        hash: "hash_prefix_archived_project"
+      });
+
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Read Token Prefix Archived Environment"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      const archivedEnvironmentToken = await createReadTokenRecord(db, {
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived environment token",
+        prefix: "shread_prefix_archived_environment",
+        hash: "hash_prefix_archived_environment"
+      });
+
+      await revokeReadToken(db, {
+        id: revokedToken.id,
+        projectId: activeProject.id,
+        environmentId: activeEnvironment.id
+      });
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      await expect(findReadTokenByPrefix(db, activeToken.prefix)).resolves.toMatchObject({
+        id: activeToken.id
+      });
+      await expect(findReadTokenByPrefix(db, revokedToken.prefix)).resolves.toBeUndefined();
+      await expect(findReadTokenByPrefix(db, archivedProjectToken.prefix)).resolves.toBeUndefined();
+      await expect(findReadTokenByPrefix(db, archivedEnvironmentToken.prefix)).resolves.toBeUndefined();
+    });
+  });
+
+  it("does not list update or revoke read tokens for archived scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const archivedProject = await createProject(db, { name: "Read Token Archived Operations" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedProjectToken = await createReadTokenRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "Archived project token",
+        prefix: "shread_archived_operations_project",
+        hash: "hash_archived_operations_project"
+      });
+
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Read Token Archived Environment Operations"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      const archivedEnvironmentToken = await createReadTokenRecord(db, {
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived environment token",
+        prefix: "shread_archived_operations_environment",
+        hash: "hash_archived_operations_environment"
+      });
+
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      await expect(
+        listReadTokens(db, {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        updateReadToken(db, {
+          id: archivedProjectToken.id,
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "Should not update"
+        })
+      ).resolves.toBeUndefined();
+
+      await revokeReadToken(db, {
+        id: archivedEnvironmentToken.id,
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id
+      });
+      const [archivedEnvironmentRow] = await db
+        .selectFrom("read_tokens")
+        .select(["name", "revoked_at"])
+        .where("id", "=", archivedEnvironmentToken.id)
+        .execute();
+      expect(archivedEnvironmentRow).toMatchObject({
+        name: "Archived environment token",
+        revoked_at: null
+      });
     });
   });
 
