@@ -3640,6 +3640,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token is scoped to project/environment reads and cannot access fleet routes (`read_token_scope_insufficient`)" },
           "501": { description: "Fleet query is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
@@ -3698,6 +3699,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token is scoped to project/environment reads and cannot access fleet routes (`read_token_scope_insufficient`)" },
           "404": { description: "Project not found" },
           "501": { description: "Fleet environment query is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -3808,6 +3810,7 @@ export const openApiDocument = {
             content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
           },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Error group not found" },
           "501": { description: "Triage mutation is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -4472,7 +4475,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
-          "403": { $ref: "#/components/responses/Forbidden" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Feedback not found" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
@@ -5311,6 +5314,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Error group not found" },
           "501": { description: "Triage note mutation is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -5344,6 +5348,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Error group not found" },
           "501": { description: "Silence mutation is not available" },
           "503": { $ref: "#/components/responses/Unavailable" }
@@ -5428,6 +5433,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }
       }
@@ -5465,6 +5471,7 @@ export const openApiDocument = {
           },
           "400": { $ref: "#/components/responses/BadRequest" },
           "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { description: "Read token cannot perform mutations (`read_token_is_read_only`)" },
           "404": { description: "Code integration not found" },
           "503": { $ref: "#/components/responses/Unavailable" }
         }

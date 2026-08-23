@@ -1731,6 +1731,15 @@ function applyPrincipalScope<T extends { projectId: string; environmentId: strin
   return { ...filters, projectId: principal.projectId, environmentId: principal.environmentId };
 }
 
+function refuseReadToken(reply: FastifyReply, principal: QueryPrincipal): boolean {
+  if (principal.kind !== "read-token") {
+    return false;
+  }
+
+  reply.status(403).send({ error: "read_token_is_read_only" });
+  return true;
+}
+
 function sendListResult(reply: FastifyReply, result: QueryListResult) {
   if (Array.isArray(result)) {
     return reply.send({ data: result });
@@ -2407,7 +2416,7 @@ async function handleFeedbackListRoute(request: FastifyRequest, reply: FastifyRe
 
 async function handleFeedbackStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const principal = await requireQueryPrincipal(request, reply, options);
-  if (!principal) {
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 
@@ -2817,7 +2826,7 @@ async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: Fas
 
 async function handleIncidentExternalIssueLinkRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const principal = await requireQueryPrincipal(request, reply, options);
-  if (!principal) return reply;
+  if (!principal || refuseReadToken(reply, principal)) return reply;
   if (!options.query?.linkIncidentExternalIssue) {
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
@@ -2844,7 +2853,7 @@ async function handleIncidentExternalIssueLinkRoute(request: FastifyRequest, rep
 
 async function handleIncidentExternalIssueDraftRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const principal = await requireQueryPrincipal(request, reply, options);
-  if (!principal) return reply;
+  if (!principal || refuseReadToken(reply, principal)) return reply;
   if (!options.query?.buildIncidentIssueDraft) {
     return reply.status(501).send({ error: "query_method_unavailable" });
   }
@@ -2934,7 +2943,7 @@ async function handleErrorSourceMapResolutionRoute(
 
 async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const principal = await requireQueryPrincipal(request, reply, options);
-  if (!principal) {
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 
@@ -3011,7 +3020,7 @@ async function handleErrorGroupStatusRoute(request: FastifyRequest, reply: Fasti
 
 async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const principal = await requireQueryPrincipal(request, reply, options);
-  if (!principal) {
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 
@@ -3026,13 +3035,15 @@ async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(400).send({ error: "invalid_query" });
   }
 
-  const user = principal.kind === "user" ? principal.user : undefined;
+  if (principal.kind !== "user") {
+    return reply;
+  }
 
   try {
     const result = await options.query.addTriageNote({
       errorGroupId: params.data.id,
-      authorUserId: user?.id ?? null,
-      authorEmail: user?.email ?? "",
+      authorUserId: principal.user.id,
+      authorEmail: principal.user.email,
       body: body.data.body,
       projectId: scope.projectId,
       environmentId: scope.environmentId
@@ -3048,7 +3059,7 @@ async function handleTriageNoteRoute(request: FastifyRequest, reply: FastifyRepl
 
 async function handleSilenceIncidentRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
   const principal = await requireQueryPrincipal(request, reply, options);
-  if (!principal) {
+  if (!principal || refuseReadToken(reply, principal)) {
     return reply;
   }
 

@@ -4858,3 +4858,33 @@ describe("read token principal", () => {
     ]);
   });
 });
+
+describe("read tokens are refused on query mutations", () => {
+  const mutations = [
+    { method: "PATCH" as const, url: "/query/feedback/fb_1", payload: { status: "reviewed" } },
+    { method: "PATCH" as const, url: "/query/error-groups/grp_1", payload: { status: "resolved" } },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/notes", payload: { body: "x" } },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/external-issues", payload: {} },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/external-issues/draft", payload: {} },
+    { method: "POST" as const, url: "/query/incidents/error-groups/grp_1/silence", payload: { minutes: 30 } }
+  ];
+
+  for (const mutation of mutations) {
+    it(`refuses ${mutation.method} ${mutation.url}`, async () => {
+      app = await buildApp({
+        readiness,
+        verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_1", environmentId: "env_1" })
+      });
+
+      const response = await app.inject({
+        method: mutation.method,
+        url: `${mutation.url}?project_id=prj_1&environment_id=env_1`,
+        headers: { authorization: "Bearer shread_good" },
+        payload: mutation.payload
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error).toBe("read_token_is_read_only");
+    });
+  }
+});
