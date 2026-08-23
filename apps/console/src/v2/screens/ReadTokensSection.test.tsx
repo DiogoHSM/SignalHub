@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type ApiClient } from "../../api/client";
 import type { Environment, Project, ReadToken } from "../../api/types";
@@ -191,6 +192,44 @@ describe("ReadTokensSection", () => {
     render(<ReadTokensSection ctx={makeCtx({ client })} />);
     expect(await screen.findByText(/could not load read tokens/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    consoleError.mockRestore();
+  });
+
+  it("keeps the secret panel visible when a list refetch fails right after a successful create", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let listCalls = 0;
+    const client = makeClient({
+      listReadTokens: vi.fn().mockImplementation(() => {
+        listCalls += 1;
+        return listCalls === 1
+          ? Promise.resolve({ tokens: [tokenRow] })
+          : Promise.reject(new Error("network blip"));
+      }),
+      createReadToken: vi.fn().mockResolvedValue({ token: { ...tokenRow, id: "rt_new", name: "new token", secret: "shread_secret_value" } }),
+    });
+
+    function Host() {
+      const [createdSecret, setCreatedSecret] = useState<{ value: string; kind: "apiKey" | "readToken" } | null>(null);
+      const ctx = makeCtx({
+        client,
+        createdSecret,
+        onSecretCreated: (secret: string | null, kind: "apiKey" | "readToken") =>
+          setCreatedSecret(secret ? { value: secret, kind } : null),
+      });
+      return <ReadTokensSection ctx={ctx} />;
+    }
+
+    render(<Host />);
+    fireEvent.click(await screen.findByRole("button", { name: "New token" }));
+    const input = screen.getByLabelText("New token name");
+    fireEvent.change(input, { target: { value: "new token" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // The refetch triggered by the successful create fails — the list card
+    // shows the retry state, but the secret the operator just minted must
+    // still be on screen; it lives above this hook's own status.
+    await waitFor(() => expect(screen.getByText(/could not load read tokens/i)).toBeInTheDocument());
+    expect(screen.getByText(/shown once/i)).toBeInTheDocument();
     consoleError.mockRestore();
   });
 

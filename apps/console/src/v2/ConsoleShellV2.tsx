@@ -537,8 +537,24 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
   );
 
   // A secret belongs to the scope it was minted in — never carry it across.
+  // useConsoleProjects clears activeEnvironment (and sometimes activeProject)
+  // to undefined for one render while any ctx.reload() refetches projects
+  // and environments, even when the operator never left the current scope.
+  // Treat that transient undefined as "still settling", not a scope change:
+  // only clear the secret once both ids have settled again and differ from
+  // the last settled scope, so a plain reload right after minting a secret
+  // (e.g. every mutation's own reload) can't wipe it out from under the
+  // operator before they can copy it.
+  const lastSettledScopeRef = useRef({ projectId: activeProject?.id, environmentId: activeEnvironment?.id });
   useEffect(() => {
-    setCreatedSecret(null);
+    const projectId = activeProject?.id;
+    const environmentId = activeEnvironment?.id;
+    if (projectId === undefined || environmentId === undefined) return;
+    const last = lastSettledScopeRef.current;
+    if (last.projectId !== projectId || last.environmentId !== environmentId) {
+      setCreatedSecret(null);
+    }
+    lastSettledScopeRef.current = { projectId, environmentId };
   }, [activeProject?.id, activeEnvironment?.id]);
 
   const handleSelectEnvironmentObj = useCallback(

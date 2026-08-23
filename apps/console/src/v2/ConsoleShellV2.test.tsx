@@ -224,6 +224,32 @@ describe("ConsoleShellV2", () => {
     expect(document.querySelector(".sh-v2")).toBeInTheDocument();
   });
 
+  it("mints an API key through the real shell wrapper and reveals the one-time secret (PER-467 regression)", async () => {
+    // Exercises ConsoleShellV2's real onSecretCreated/createdSecret wiring
+    // end to end, not a replica of it: a wrapper that drops `kind` fails
+    // tsc, but one that hardcodes the wrong kind still type-checks — only a
+    // test that mints a secret through the real shell can catch that.
+    const secret = "sh_live_shell_secret_value";
+    const user = userEvent.setup();
+    const client = makeClient({
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_ab", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+
+    await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalled());
+
+    await user.click(await screen.findByTitle("Reveal"));
+    expect(await screen.findByText(secret)).toBeInTheDocument();
+  });
+
   it("refreshes fleet core and every expanded project's environment health", async () => {
     const fetchFleet = vi.fn().mockResolvedValue({
       data: {
