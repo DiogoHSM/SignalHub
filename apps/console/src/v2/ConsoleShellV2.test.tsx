@@ -1,9 +1,11 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
 import type { User } from "../api/types";
 import { ConsoleShellV2 } from "./ConsoleShellV2";
+import * as registryModule from "./screens/registry";
+import type { ScreenCtx } from "./screens/registry";
 import * as useIncidentModule from "./screens/useIncident";
 import * as useErrorsModule from "./screens/useErrors";
 import * as useUsersModule from "./screens/useUsers";
@@ -319,6 +321,174 @@ describe("ConsoleShellV2", () => {
 
     await waitFor(() => expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument());
     expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
+  });
+
+  it("does not carry a minted secret across a popstate-driven scope change", async () => {
+    // Browser Back moves the active project and environment without touching
+    // any of the shell's selection handlers: handlePopState only writes
+    // desiredScope, and the restore effects steer the scope from there. The
+    // secret must be confined all the same.
+    const secret = "sh_live_shell_secret_value_4";
+    const user = userEvent.setup();
+    const client = makeClient({
+      listEnvironments: vi.fn((projectId: string) => Promise.resolve({
+        environments: projectId === "prj_2" ? [ENV_2] : [ENV_1],
+      })),
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_4", projectId: "prj_2", environmentId: "env_2", name: "console-staging", prefix: "sh_live_gh", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+    await waitFor(() => expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_1"));
+
+    // Leave a prj_1 history entry behind (nav is the shell's only pushState;
+    // scope switches replaceState), then switch project and mint there.
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+
+    await user.click(container.querySelectorAll(".sw-pill")[0]);
+    await user.click(Array.from(container.querySelectorAll(".sw-opt"))
+      .find((option) => option.textContent?.includes("Acme Staging")) as HTMLElement);
+    await waitFor(() => expect(window.location.search).toBe("?project_id=prj_2&environment_id=env_2"));
+
+    await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_2", { environmentId: "env_2", name: "console-staging" }));
+    await screen.findByTitle("Reveal");
+
+    window.history.back();
+
+    // The Operations heading only renders once the restore has settled the
+    // shell back on prj_1 (an unsettled scope renders the loading state).
+    await screen.findByRole("heading", { name: "Operations" });
+    await waitFor(() => expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_1"));
+
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+    expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument();
+    expect(screen.queryByText(secret)).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
+    expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_1");
+  });
+
+  it("does not carry a minted secret onto an environment created through ctx.onCreateEnvironment", async () => {
+    // handleCreateEnvironment selects the environment it just created — a
+    // genuine environment switch that goes through none of the four
+    // selection handlers. The created environment is already in the
+    // listEnvironments fixture so that selectEnvironment(created.id) lands
+    // (it only selects environments the hook has loaded).
+    const secret = "sh_live_shell_secret_value_5";
+    const user = userEvent.setup();
+    const client = makeClient({
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
+      createEnvironment: vi.fn().mockResolvedValue({ environment: ENV_1B }),
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_5", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_ij", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    // No screen calls ctx.onCreateEnvironment today, so reach it through the
+    // real ScreenCtx the shell hands the real screens.
+    const captured: { ctx: ScreenCtx | null } = { ctx: null };
+    const realRenderSection = registryModule.renderSection;
+    vi.spyOn(registryModule, "renderSection").mockImplementation((section, ctx) => {
+      captured.ctx = ctx;
+      return realRenderSection(section, ctx);
+    });
+
+    render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production" }));
+    await screen.findByTitle("Reveal");
+
+    await act(async () => { await captured.ctx?.onCreateEnvironment("canary"); });
+
+    await waitFor(() => expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument());
+    expect(screen.queryByText(secret)).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
+  });
+
+  it("does not carry a minted secret onto the scope the shell settles on after the active environment is archived", async () => {
+    // Archiving the active environment changes the scope through no handler
+    // at all: the screen's own mutation calls ctx.reload(), the environment
+    // list comes back without it, and useConsoleProjects settles on whatever
+    // is left. Confinement has to hold there too.
+    const secret = "sh_live_shell_secret_value_6";
+    const user = userEvent.setup();
+    let listed = [ENV_1, ENV_1B];
+    const client = makeClient({
+      listEnvironments: vi.fn(() => Promise.resolve({ environments: listed })),
+      archiveEnvironment: vi.fn(async () => { listed = [ENV_1]; }),
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_6", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_kl", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    await user.click(container.querySelectorAll(".sw-pill")[1]);
+    await user.click(container.querySelectorAll(".sw-opt")[1] as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("canary"));
+
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary" }));
+    await screen.findByTitle("Reveal");
+
+    await user.click(await screen.findByRole("button", { name: "Archive canary" }));
+    await user.click(await screen.findByRole("button", { name: "Confirm archive canary" }));
+    await waitFor(() => expect(client.archiveEnvironment).toHaveBeenCalledWith("env_1b"));
+
+    // Wait for the shell to settle on what is left before asserting: the
+    // reload unmounts the screen for a moment, so "no Reveal on screen" is
+    // true transiently no matter what the shell decides about the secret.
+    await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("production"));
+    await screen.findByRole("heading", { name: "Setup" });
+    expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
+    expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument();
+    expect(screen.queryByText(secret)).not.toBeInTheDocument();
+  });
+
+  it("does not make a minted secret readable again when the operator returns to the scope it was minted in", async () => {
+    // Moving away is a one-way door: the shell retires the value once it has
+    // settled somewhere else, so coming back cannot re-reveal it.
+    const secret = "sh_live_shell_secret_value_7";
+    const user = userEvent.setup();
+    const client = makeClient({
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_7", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_mn", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production" }));
+    await screen.findByTitle("Reveal");
+
+    await user.click(container.querySelectorAll(".sw-pill")[1]);
+    await user.click(container.querySelectorAll(".sw-opt")[1] as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("canary"));
+
+    await user.click(container.querySelectorAll(".sw-pill")[1]);
+    await user.click(container.querySelectorAll(".sw-opt")[0] as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("production"));
+
+    await screen.findByRole("heading", { name: "Setup" });
+    expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
+    expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument();
+    expect(screen.queryByText(secret)).not.toBeInTheDocument();
   });
 
   it("refreshes fleet core and every expanded project's environment health", async () => {
