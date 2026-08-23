@@ -55,7 +55,8 @@ const migrations = [
     name: "0045_notification_channel_slack_discord.sql",
     url: new URL("../migrations/0045_notification_channel_slack_discord.sql", import.meta.url)
   },
-  { name: "0046_analytics_insights.sql", url: new URL("../migrations/0046_analytics_insights.sql", import.meta.url) }
+  { name: "0046_analytics_insights.sql", url: new URL("../migrations/0046_analytics_insights.sql", import.meta.url) },
+  { name: "0047_read_tokens.sql", url: new URL("../migrations/0047_read_tokens.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {

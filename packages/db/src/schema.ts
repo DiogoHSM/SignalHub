@@ -500,6 +500,18 @@ export type SourceMapUploadTokensTable = {
   revoked_at: NullableTimestamp;
 };
 
+export type ReadTokensTable = {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  name: string;
+  prefix: string;
+  hash: string;
+  created_at: Timestamp;
+  last_used_at: NullableTimestamp;
+  revoked_at: NullableTimestamp;
+};
+
 export interface EventsTable {
   id: string;
   project_id: string;
@@ -1071,6 +1083,7 @@ export interface Database {
   event_rollup_hourly: EventRollupHourlyTable;
   api_keys: ApiKeysTable;
   source_map_upload_tokens: SourceMapUploadTokensTable;
+  read_tokens: ReadTokensTable;
   events: EventsTable;
   breadcrumbs: BreadcrumbsTable;
   error_groups: ErrorGroupsTable;
