@@ -34,6 +34,17 @@ jobs:
       - name: Build SDK
         run: pnpm --filter @sigmon/sdk build
 
+      - name: Ensure npm supports Trusted Publishing
+        run: |
+          npm install -g npm@latest
+          version="$(npm --version)"
+          echo "npm $version"
+          floor="11.5.1"
+          if [ "$(printf '%s\n' "$floor" "$version" | sort -V | head -n1)" != "$floor" ]; then
+            echo "npm $version does not support Trusted Publishing (OIDC); need >= $floor" >&2
+            exit 1
+          fi
+
       - name: Publish SDK to npm
         working-directory: packages/sdk
         run: npm publish --access public

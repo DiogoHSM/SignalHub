@@ -168,4 +168,26 @@ describe("GitHub Actions CI workflow", () => {
     expect(content).not.toContain("EASYPANEL");
     expect(content).not.toContain("NPM_TOKEN");
   });
+
+  // npm Trusted Publishing (OIDC) requires npm >= 11.5.1. The workflow only pins
+  // Node 24, not npm, so a runner image whose bundled npm predates that floor
+  // would either fail publish outright or fall back to a token-based flow that
+  // the registry now rejects for this package. Upgrading npm before publish,
+  // and failing fast with a readable message if that upgrade somehow lands
+  // below the floor, turns a cryptic OIDC error into a diagnosable one.
+  it("upgrades npm and verifies the Trusted Publishing floor before publishing", () => {
+    const content = publishSdkWorkflow();
+
+    expectIncludesAll(content, [
+      "Ensure npm supports Trusted Publishing",
+      "npm install -g npm@latest",
+      "11.5.1"
+    ]);
+
+    const upgradeStepIndex = content.indexOf("Ensure npm supports Trusted Publishing");
+    const publishStepIndex = content.indexOf("npm publish --access public");
+
+    expect(upgradeStepIndex).toBeGreaterThan(-1);
+    expect(upgradeStepIndex).toBeLessThan(publishStepIndex);
+  });
 });
