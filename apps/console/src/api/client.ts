@@ -96,6 +96,7 @@ import type {
   Project,
   QueryFilters,
   QueryListResponse,
+  ReadToken,
   RecentActivityQuery,
   RecentActivityResponse,
   ReleaseListQuery,
@@ -350,6 +351,15 @@ export type SourceMapApiClient = {
   ) => Promise<SourceMapResolution>;
 };
 
+export type ReadTokenScope = { projectId: string; environmentId: string };
+
+export type ReadTokenApiClient = {
+  listReadTokens: (query: ReadTokenScope) => Promise<{ tokens: ReadToken[] }>;
+  createReadToken: (input: ReadTokenScope & { name: string }) => Promise<{ token: ReadToken & { secret: string } }>;
+  renameReadToken: (id: string, query: ReadTokenScope, input: { name: string }) => Promise<{ token: ReadToken }>;
+  revokeReadToken: (id: string, query: ReadTokenScope) => Promise<void>;
+};
+
 export type SessionTimelineApiClient = {
   getSessionTimeline: (sessionId: string, query: SessionTimelineQuery) => Promise<AggregateResponse<SessionTimelineResponse>>;
   getSessionReplayDetail?: (
@@ -577,7 +587,8 @@ export type ApiClient = {
   Partial<MonitorApiClient> &
   Partial<SourceMapApiClient> &
   Partial<AlertSuggestionApiClient> &
-  Partial<DeadLetterApiClient>;
+  Partial<DeadLetterApiClient> &
+  Partial<ReadTokenApiClient>;
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -817,6 +828,22 @@ function sourceMapUploadTokensPath(query: Pick<SourceMapArtifactQuery, "projectI
 
 function sourceMapUploadTokenPath(id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): string {
   return `/admin/source-map-upload-tokens/${encodePathSegment(id)}?${sourceMapScopeParams(query).toString()}`;
+}
+
+function readTokenScopeParams(query: ReadTokenScope): URLSearchParams {
+  const params = new URLSearchParams();
+  params.set("project_id", query.projectId);
+  params.set("environment_id", query.environmentId);
+
+  return params;
+}
+
+function readTokensPath(query: ReadTokenScope): string {
+  return `/admin/read-tokens?${readTokenScopeParams(query).toString()}`;
+}
+
+function readTokenPath(id: string, query: ReadTokenScope): string {
+  return `/admin/read-tokens/${encodePathSegment(id)}?${readTokenScopeParams(query).toString()}`;
 }
 
 function errorSourceMapResolutionPath(id: string, query: Pick<SourceMapArtifactQuery, "projectId" | "environmentId">): string {
@@ -1450,7 +1477,7 @@ function deadLetterJobsPath(query?: DeadLetterJobListQuery): string {
 
 export function createApiClient(
   apiBasePath = defaultApiBasePath
-): ApiClient & SessionTimelineApiClient & SourceMapApiClient {
+): ApiClient & SessionTimelineApiClient & SourceMapApiClient & ReadTokenApiClient {
   return {
     getConsoleConfig: () => request<ConsoleConfig>("/console/config"),
     getMe: () => request<{ user: User }>(path(apiBasePath, "/auth/me")),
@@ -1742,6 +1769,20 @@ export function createApiClient(
       }),
     revokeSourceMapUploadToken: (id, query) =>
       request<void>(path(apiBasePath, sourceMapUploadTokenPath(id, query)), { method: "DELETE" }),
+    listReadTokens: (query) =>
+      request<{ tokens: ReadToken[] }>(path(apiBasePath, readTokensPath(query))),
+    createReadToken: (input) =>
+      request<{ token: ReadToken & { secret: string } }>(path(apiBasePath, "/admin/read-tokens"), {
+        method: "POST",
+        body: input
+      }),
+    renameReadToken: (id, query, input) =>
+      request<{ token: ReadToken }>(path(apiBasePath, readTokenPath(id, query)), {
+        method: "PATCH",
+        body: input
+      }),
+    revokeReadToken: (id, query) =>
+      request<void>(path(apiBasePath, readTokenPath(id, query)), { method: "DELETE" }),
     getErrorSourceMapResolution: async (id, query) => {
       const response = await request<AggregateResponse<SourceMapResolution>>(
         path(apiBasePath, errorSourceMapResolutionPath(id, query))

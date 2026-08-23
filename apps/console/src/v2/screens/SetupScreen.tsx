@@ -5,6 +5,7 @@ import type { ScreenCtx } from "./registry";
 import { useSetup } from "./useSetup";
 import { ArtifactsSection } from "./ArtifactsSection";
 import { FeedbackSection } from "./FeedbackSection";
+import { ReadTokensSection } from "./ReadTokensSection";
 import { ProjectSettingsSection } from "./settings/ProjectSettingsSection";
 
 const SNIPPET_TABS = ["Browser", "Node", "Python", "HTTP"] as const;
@@ -407,6 +408,7 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
 
       <ProjectSettingsSection ctx={ctx} />
       <ArtifactsSection ctx={ctx} />
+      <ReadTokensSection ctx={ctx} />
       <FeedbackSection ctx={ctx} />
     </>
   );
