@@ -17,6 +17,7 @@ const ADMIN_USER: User = { id: "usr_1", email: "jane.doe@example.com", isAdmin: 
 const PROJECT_1 = { id: "prj_1", name: "Acme Prod", createdAt: "", updatedAt: "", archivedAt: null };
 const PROJECT_2 = { id: "prj_2", name: "Acme Staging", createdAt: "", updatedAt: "", archivedAt: null };
 const ENV_1 = { id: "env_1", projectId: "prj_1", name: "production", createdAt: "", updatedAt: "", archivedAt: null };
+const ENV_1B = { id: "env_1b", projectId: "prj_1", name: "canary", createdAt: "", updatedAt: "", archivedAt: null };
 const ENV_2 = { id: "env_2", projectId: "prj_2", name: "staging", createdAt: "", updatedAt: "", archivedAt: null };
 
 function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
@@ -248,6 +249,76 @@ describe("ConsoleShellV2", () => {
 
     await user.click(await screen.findByTitle("Reveal"));
     expect(await screen.findByText(secret)).toBeInTheDocument();
+  });
+
+  it("keeps a minted secret alive across a same-scope reload when the active environment is not first in the list", async () => {
+    // useConsoleProjects settles the active environment on loaded[0] after
+    // every ctx.reload() (a real, separately-filed pre-existing bug — not
+    // fixed here). The secret's own lifetime must not depend on that: it
+    // must survive regardless of where the active environment sits in the
+    // list, or which id the reload happens to settle on afterward.
+    const secret = "sh_live_shell_secret_value_2";
+    const user = userEvent.setup();
+    const client = makeClient({
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_2", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_cd", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    // Explicitly switch to the second (non-first) environment before minting.
+    await user.click(container.querySelectorAll(".sw-pill")[1]);
+    await user.click(container.querySelectorAll(".sw-opt")[1] as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("canary"));
+
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+
+    await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary" }));
+
+    await user.click(await screen.findByTitle("Reveal"));
+    expect(await screen.findByText(secret)).toBeInTheDocument();
+  });
+
+  it("clears the secret on a genuine environment switch, even when the previous environment was not first in the list", async () => {
+    const secret = "sh_live_shell_secret_value_3";
+    const user = userEvent.setup();
+    const client = makeClient({
+      listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_3", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_ef", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Operations" });
+
+    await user.click(container.querySelectorAll(".sw-pill")[1]);
+    await user.click(container.querySelectorAll(".sw-opt")[1] as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("canary"));
+
+    await user.click(screen.getByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalled());
+    await screen.findByTitle("Reveal");
+
+    // Pick whichever environment isn't currently shown as active — a
+    // genuine operator-initiated switch regardless of which id the
+    // reload settled the shell on in the meantime.
+    await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toMatch(/production|canary/));
+    const currentlyActiveIndex = container.querySelectorAll(".sw-pill")[1]?.textContent?.includes("canary") ? 1 : 0;
+    const targetIndex = currentlyActiveIndex === 0 ? 1 : 0;
+
+    await user.click(container.querySelectorAll(".sw-pill")[1]);
+    await user.click(container.querySelectorAll(".sw-opt")[targetIndex] as HTMLElement);
+
+    await waitFor(() => expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument());
+    expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
   });
 
   it("refreshes fleet core and every expanded project's environment health", async () => {

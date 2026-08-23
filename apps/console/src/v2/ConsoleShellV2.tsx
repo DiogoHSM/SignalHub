@@ -244,6 +244,21 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     reload: reloadProjects,
   } = useConsoleProjects(client);
 
+  // One-time secrets (API keys, read tokens, ...) live here, not in the
+  // screen: the page container below is keyed on `seq`, and creating one
+  // calls ctx.reload, so a secret held in screen state was destroyed before
+  // the operator could copy it. `kind` tags which credential surface minted
+  // the secret, since the shell has only one slot but multiple credential
+  // surfaces can mount on the same screen. Cleared explicitly by the
+  // project/environment selection handlers below on a genuine scope change
+  // — never inferred from watching activeProject/activeEnvironment ids,
+  // since useConsoleProjects flaps those transiently on every reload.
+  const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
+  const handleSecretCreated = useCallback(
+    (secret: string | null, kind: SecretKind) => setCreatedSecret(secret ? { value: secret, kind } : null),
+    [],
+  );
+
   const fleet = useFleet({
     fetchFleet: client.fetchFleet,
     fetchProjectEnvironments: client.fetchFleetProjectEnvironments,
@@ -427,6 +442,7 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
   const handleSelectProject = useCallback(
     (id: string) => {
       setDetail(null);
+      if (id !== activeProject?.id) setCreatedSecret(null);
       setDesiredScope({ projectId: id });
       selectProject(id);
       saveState({ projectId: id, environmentId: undefined, env: undefined });
@@ -436,12 +452,13 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
         buildConsoleUrl(nav, null, { projectId: id }),
       );
     },
-    [nav, selectProject]
+    [activeProject?.id, nav, selectProject]
   );
 
   const handleSelectEnv = useCallback(
     (environmentId: string) => {
       setDetail(null);
+      if (environmentId !== activeEnvironment?.id) setCreatedSecret(null);
       setDesiredScope({ projectId: activeProject?.id, environmentId });
       selectEnvironment(environmentId);
       saveState({ environmentId, env: undefined });
@@ -451,7 +468,7 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
         buildConsoleUrl(nav, null, { projectId: activeProject?.id, environmentId }),
       );
     },
-    [activeProject?.id, nav, selectEnvironment]
+    [activeEnvironment?.id, activeProject?.id, nav, selectEnvironment]
   );
 
   const handleToggleExpand = useCallback((id: string) => {
@@ -468,6 +485,7 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
   const handleOpenEnv = useCallback(
     (projectId: string, envName: string) => {
       setDetail(null);
+      if (projectId !== activeProject?.id || envName !== activeEnvironment?.name) setCreatedSecret(null);
       const knownEnvironment = projectId === activeProject?.id
         ? environments.find((candidate) => candidate.name === envName)
         : undefined;
@@ -481,7 +499,7 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
       );
       if (railCollapsed) toggleRail();
     },
-    [activeProject?.id, environments, nav, railCollapsed, selectProjectEnvironmentByName, toggleRail]
+    [activeEnvironment?.name, activeProject?.id, environments, nav, railCollapsed, selectProjectEnvironmentByName, toggleRail]
   );
 
   const handleRefresh = useCallback(() => {
@@ -524,41 +542,17 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     [client]
   );
 
-  // One-time secrets (API keys, read tokens, ...) live here, not in the
-  // screen: the page container below is keyed on `seq`, and creating one
-  // calls ctx.reload, so a secret held in screen state was destroyed before
-  // the operator could copy it. `kind` tags which credential surface minted
-  // the secret, since the shell has only one slot but multiple credential
-  // surfaces can mount on the same screen.
-  const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
-  const handleSecretCreated = useCallback(
-    (secret: string | null, kind: SecretKind) => setCreatedSecret(secret ? { value: secret, kind } : null),
-    [],
-  );
-
-  // A secret belongs to the scope it was minted in — never carry it across.
-  // useConsoleProjects clears activeEnvironment (and sometimes activeProject)
-  // to undefined for one render while any ctx.reload() refetches projects
-  // and environments, even when the operator never left the current scope.
-  // Treat that transient undefined as "still settling", not a scope change:
-  // only clear the secret once both ids have settled again and differ from
-  // the last settled scope, so a plain reload right after minting a secret
-  // (e.g. every mutation's own reload) can't wipe it out from under the
-  // operator before they can copy it.
-  const lastSettledScopeRef = useRef({ projectId: activeProject?.id, environmentId: activeEnvironment?.id });
-  useEffect(() => {
-    const projectId = activeProject?.id;
-    const environmentId = activeEnvironment?.id;
-    if (projectId === undefined || environmentId === undefined) return;
-    const last = lastSettledScopeRef.current;
-    if (last.projectId !== projectId || last.environmentId !== environmentId) {
-      setCreatedSecret(null);
-    }
-    lastSettledScopeRef.current = { projectId, environmentId };
-  }, [activeProject?.id, activeEnvironment?.id]);
-
   const handleSelectEnvironmentObj = useCallback(
     (env: Environment) => {
+      // A secret belongs to the scope it was minted in — clear it on any
+      // *explicit* switch to a different project or environment, but not
+      // here for a same-scope call (e.g. a redundant reselect). Deliberately
+      // does not infer a scope change from watching activeProject/
+      // activeEnvironment ids: useConsoleProjects transiently clears
+      // activeEnvironment (and sometimes settles on the wrong one, e.g.
+      // loaded[0]) on every ctx.reload(), which would misread an ordinary
+      // reload right after minting a secret as a scope change.
+      if (env.id !== activeEnvironment?.id || env.projectId !== activeProject?.id) setCreatedSecret(null);
       setDesiredScope({ projectId: env.projectId, environmentId: env.id });
       selectEnvironment(env.id);
       saveState({ environmentId: env.id, env: undefined });
@@ -568,7 +562,7 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
         buildConsoleUrl(nav, detail, { projectId: env.projectId, environmentId: env.id }),
       );
     },
-    [detail, nav, selectEnvironment]
+    [activeEnvironment?.id, activeProject?.id, detail, nav, selectEnvironment]
   );
 
   const handleUpdateProject = useCallback(
