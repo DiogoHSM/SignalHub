@@ -106,7 +106,7 @@ Postgres and Redis are never redeployed from repository builds. They are statefu
 
 ## SDK Publishing
 
-The JavaScript/TypeScript SDK is published as the public npm package `@sigmon/sdk`. GitHub Actions workflow `Publish SDK` runs when a GitHub release is published, and can also be started manually with `workflow_dispatch`.
+The JavaScript/TypeScript SDK is published as the public npm package `@sigmon/sdk`. GitHub Actions workflow `Publish SDK` is manual-only (`workflow_dispatch`); it does not run on a GitHub release being published.
 
 The workflow installs dependencies with frozen pnpm, builds only `@sigmon/sdk`, and publishes from the SDK package directory:
 
@@ -114,7 +114,7 @@ The workflow installs dependencies with frozen pnpm, builds only `@sigmon/sdk`, 
 npm publish --access public
 ```
 
-Publishing uses npm Trusted Publishing through GitHub Actions OIDC. The workflow grants `id-token: write` and intentionally does not use an `NPM_TOKEN` secret.
+Publishing uses npm Trusted Publishing through GitHub Actions OIDC. The workflow grants `id-token: write` and intentionally does not use an `NPM_TOKEN` secret. Trusted Publishing requires npm >= 11.5.1; the workflow upgrades npm and fails fast with a readable message before the publish step if that floor isn't met, since a raw OIDC failure is hard to diagnose (PER-465).
 
 Before the first publish, create or claim the npm `@sigmon` organization/scope. If npm does not allow Trusted Publishing to be configured before the package exists, bootstrap `@sigmon/sdk` once from a locally authenticated npm session with `npm publish --access public`, then configure the package Trusted Publisher for GitHub Actions repository `DiogoHSM/sigmon` and workflow `publish-sdk.yml`.
 
