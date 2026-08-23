@@ -2,7 +2,7 @@
 
 > **Sempre carregado.** Este arquivo é o único contrato de *lazy loading* do projeto: diz a Claude quais docs ler antes de tocar em cada área. Docs não listados aqui só são lidos quando Claude os abrir explicitamente.
 
-**Última revisão**: 2026-08-02
+**Última revisão**: 2026-08-09
 
 ---
 
@@ -23,7 +23,10 @@ Use esta tabela como checklist. Antes de modificar um arquivo que se encaixe num
 | Mutação nova no console v2 (`apps/console/src/v2/**`) | `apps/console/src/v2/lib/run-mutation.ts` | toda mutação v2 deve reportar falha via `runMutation()` (toast); nunca `void fn()` sem tratamento — ver PER-454 |
 | Ingestão, filas, worker (`apps/api`, `apps/worker`, BullMQ/Redis) | `ARCHITECTURE.md`, `CONSTRAINTS.md` | handoff API→queue→worker; não quebrar contratos de ingestão |
 | **Rota nova em `apps/api/src/routes/**`** | `apps/api/src/openapi.ts` | toda rota registrada precisa de entrada no spec — `apps/api/test/openapi-coverage.test.ts` falha nomeando a rota. Derive params/respostas do handler, nunca do nome da rota: spec que mente é pior que rota não documentada. As 36 de `/admin/*` estão num baseline temporário (`PENDING_ADMIN_ROUTES`, PER-460) que encolhe, não é isenção |
-| Source maps (upload, storage, retenção, resolução) | `ARCHITECTURE.md`, `CONSTRAINTS.md`, `DECISIONS.md` | local-first, matching estrito, retenção worker-owned; console não exibe source original |
+| Source maps (upload, storage, retenção, resolução) | `ARCHITECTURE.md`, `CONSTRAINTS.md`, `DECISIONS.md` | local-first, matching estrito, retenção worker-owned; console não exibe source original. `minified_file` é gravado como basename — path composto nunca casa com o frame (PER-472) |
+| Agregados/KPIs em `telemetry-query.ts` | `CONSTRAINTS.md` | o agregado precisa aplicar **todos** os filtros da lista que ele resume, e só `status = 'error'` conta como falha — `pending` é o default de trace/span (ADR 2026-08-09) |
+| Avaliador de alerta novo em `repositories/alerts.ts` | `CONSTRAINTS.md` | honrar `routePattern` na contagem **e** no group atribuído; filtro de rota é `exists` contra `traces`, nunca join (fan-out) |
+| Teste que quer provar uso de índice | — | **não asserte a forma do plano** (`EXPLAIN`): a escolha é cost-based e vira com as estatísticas acumuladas da suíte. Verifique catálogo (opclass suporta o operador) + forma da expressão compilada + comportamento. Ver PER-475 |
 | Decisão arquitetural relevante | `DECISIONS.md` (ler + adicionar ADR) | rastreabilidade |
 | Escopo/objetivos do projeto | `PROJECT-SUMMARY.md` | fase atual: Phase 6G hardening |
 

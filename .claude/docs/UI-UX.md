@@ -219,6 +219,8 @@ SignalMonitor includes an admin-only Integration Console.
 ## Project Settings UX
 
 - API key rows expose edit actions for renaming keys without rotating secrets; one-time key secrets remain visible only immediately after creation.
+- A one-time secret is owned by `ConsoleShellV2`, never by the screen that created it. Screens render inside `<div className="page" key={seq}>` and `ctx.reload` bumps `seq`, so anything held in screen state is destroyed by the reload that normally follows a mutation. Hand the value over with `ctx.onSecretCreated` and read it back from `ctx.createdSecret`; the shell also clears it when the project or environment changes, because scoping it from inside the hook would either wipe it on every remount or leak it across a scope switch.
+- Setup snippets must run as pasted. Every snippet includes the endpoint the SDK requires, and no tab may advertise an SDK the project does not publish — the JavaScript SDK is the only one (see `CONSTRAINTS.md`), so other languages show plain HTTP against the ingestion endpoint.
 - Data Governance is a Project Settings section for the selected project/environment. It shows collected telemetry categories, per-category retention days, and sensitive property rules.
 - Data governance retention copy must explain that project/environment windows can shorten installation-level retention; installation-level retention remains the maximum retention boundary.
 - Sensitive property rules use dot paths and explicit actions: `mask` keeps the key with `[REDACTED]`; `block` removes the key before persistence. The UI should keep this distinction visible beside the rule list and add form.
