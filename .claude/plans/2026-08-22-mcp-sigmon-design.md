@@ -31,7 +31,7 @@ created_at, last_used_at, revoked_at
 
 Repositório em `packages/db/src/repositories/read-tokens.ts`, cópia estrutural de `source-map-upload-tokens.ts` — inclusive o `hasActiveReadTokenScope` que exclui projeto/environment arquivado, que é o comportamento que a PER-474 pede em toda leitura.
 
-ID prefixado `rdtok`. Segredo prefixado `smr_`, gerado pelo mesmo caminho de `createSourceMapUploadToken()` em `packages/telemetry/src/api-keys.ts`, com `hashApiKey`/`verifyApiKey` e o pepper existente. O segredo é one-time: nunca relido, nunca devolvido em GET.
+ID prefixado `rdtok`. Segredo prefixado `shread_`, gerado pelo mesmo caminho de `createSourceMapUploadToken()` em `packages/telemetry/src/api-keys.ts`, com `hashApiKey`/`verifyApiKey` e o pepper existente. O segredo é one-time: nunca relido, nunca devolvido em GET.
 
 ### Guard
 
@@ -43,7 +43,7 @@ type QueryPrincipal =
   | { kind: "read-token"; tokenId: string; projectId: string; environmentId: string };
 ```
 
-Ordem: cookie de sessão primeiro (comportamento atual intacto), `Authorization: Bearer smr_…` como fallback. O parser de bearer já existe em `source-map-uploads.ts:17` e sobe para um módulo compartilhado.
+Ordem: cookie de sessão primeiro (comportamento atual intacto), `Authorization: Bearer shread_…` como fallback. O parser de bearer já existe em `source-map-uploads.ts:17` e sobe para um módulo compartilhado.
 
 **Duas regras não-negociáveis:**
 
