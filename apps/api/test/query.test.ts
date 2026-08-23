@@ -4610,3 +4610,91 @@ describe("query routes", () => {
     expect(assignCalls[0]).toMatchObject({ errorGroupId: "egrp_1", assignedToUserId: "usr_2", projectId: "prj_1", environmentId: "env_1" });
   });
 });
+
+describe("read token principal", () => {
+  it("serves a read route to a valid bearer token", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async (secret: string) =>
+        secret === "shread_good" ? { id: "rdtok_1", projectId: "prj_1", environmentId: "env_1" } : null,
+      query: {
+        listEvents: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("rejects an unknown bearer token", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => null,
+      query: {
+        listEvents: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1",
+      headers: { authorization: "Bearer shread_bad" }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json().error).toBe("unauthenticated");
+  });
+
+  it("overrides the requested scope with the token scope", async () => {
+    const receivedFilters: unknown[] = [];
+
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        listEvents: async (filters) => {
+          receivedFilters.push(filters);
+          return { data: [] };
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_someone_else&environment_id=env_someone_else",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(receivedFilters).toEqual([
+      {
+        projectId: "prj_mine",
+        environmentId: "env_mine",
+        limit: 50
+      }
+    ]);
+  });
+
+  it("leaves cookie session behaviour untouched", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      verifyReadToken: async () => null,
+      query: {
+        listEvents: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+});
