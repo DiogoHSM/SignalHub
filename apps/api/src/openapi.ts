@@ -1528,6 +1528,74 @@ export const openApiDocument = {
           enabled: { type: "boolean", default: true }
         }
       },
+      CreateReadTokenPayload: {
+        type: "object",
+        required: ["projectId", "environmentId", "name"],
+        properties: {
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string", minLength: 1, maxLength: 256 }
+        }
+      },
+      UpdateReadTokenPayload: {
+        type: "object",
+        minProperties: 1,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 256 }
+        }
+      },
+      ReadToken: {
+        type: "object",
+        required: ["id", "projectId", "environmentId", "name", "prefix", "createdAt", "lastUsedAt", "revokedAt"],
+        properties: {
+          id: { type: "string", examples: ["rdtok_example"] },
+          projectId: { type: "string" },
+          environmentId: { type: "string" },
+          name: { type: "string" },
+          prefix: { type: "string", description: "First 16 characters of the secret, safe to display for identification." },
+          createdAt: { type: "string", format: "date-time" },
+          lastUsedAt: { type: ["string", "null"], format: "date-time" },
+          revokedAt: { type: ["string", "null"], format: "date-time" }
+        }
+      },
+      ReadTokenCreateResponse: {
+        type: "object",
+        required: ["token"],
+        properties: {
+          token: {
+            allOf: [
+              { $ref: "#/components/schemas/ReadToken" },
+              {
+                type: "object",
+                required: ["secret"],
+                properties: {
+                  secret: {
+                    type: "string",
+                    description: "Full read token secret, for example `shread_...`. Returned only on creation — store it now, it cannot be retrieved again."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      ReadTokenResponse: {
+        type: "object",
+        required: ["token"],
+        properties: {
+          token: { $ref: "#/components/schemas/ReadToken" }
+        }
+      },
+      ReadTokenListResponse: {
+        type: "object",
+        required: ["tokens"],
+        properties: {
+          tokens: {
+            type: "array",
+            items: { $ref: "#/components/schemas/ReadToken" }
+          }
+        }
+      },
       MonitorResponse: {
         type: "object",
         required: ["monitor"],
@@ -3194,6 +3262,93 @@ export const openApiDocument = {
     "/admin/source-map-upload-tokens": {
       get: sessionRoute("List source-map upload tokens", "Admin route for CI source-map upload tokens."),
       post: sessionRoute("Create a source-map upload token", "Admin route that returns a CI source-map upload token one time.")
+    },
+    "/admin/read-tokens": {
+      get: {
+        tags: ["Session authenticated"],
+        summary: "List read tokens",
+        description: "Admin route for listing scoped, revocable read-only credentials for one project/environment. Never includes the secret or the stored hash.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "200": {
+            description: "Read tokens for the requested scope",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/ReadTokenListResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      post: {
+        tags: ["Session authenticated"],
+        summary: "Create a read token",
+        description: "Admin route that generates a scoped, revocable read-only credential and returns the full secret exactly once, in this response. It cannot be retrieved again — only the redacted record (`prefix`, no `secret`, no `hash`) is returned by list, rename, or revoke.",
+        security: [{ sessionCookie: [] }],
+        requestBody: jsonBody("CreateReadTokenPayload", {
+          projectId: "prj_example",
+          environmentId: "env_example",
+          name: "claude-desktop"
+        }),
+        responses: {
+          "201": {
+            description: "Read token created; `token.secret` is shown only in this response",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/ReadTokenCreateResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Project/environment scope is archived or does not exist" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
+    },
+    "/admin/read-tokens/{id}": {
+      patch: {
+        tags: ["Session authenticated"],
+        summary: "Rename a read token",
+        description: "Admin route for renaming a read token within its project/environment scope. Never returns the secret or the stored hash.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        requestBody: jsonBody("UpdateReadTokenPayload", { name: "claude-desktop" }),
+        responses: {
+          "200": {
+            description: "Read token renamed",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/ReadTokenResponse" } } }
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { description: "Read token not found in the requested scope" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      },
+      delete: {
+        tags: ["Session authenticated"],
+        summary: "Revoke a read token",
+        description: "Admin route for revoking a read token within its project/environment scope.",
+        security: [{ sessionCookie: [] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+          { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+        ],
+        responses: {
+          "204": { description: "Read token revoked" },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "501": { $ref: "#/components/responses/Unavailable" }
+        }
+      }
     },
     "/admin/monitors": {
       get: sessionRoute("List monitors", "Admin route for listing HTTP and heartbeat monitors.")

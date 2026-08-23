@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   createApiKey,
+  createReadToken,
   createSourceMapUploadToken,
   hashApiKey as hashTelemetryApiKey
 } from "@sigmon/telemetry/api-keys";
@@ -528,6 +529,33 @@ export type SourceMapUploadTokenAdministrationDependencies = {
   revoke?: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
 };
 
+export type ReadTokenResponse = {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  name: string;
+  prefix: string;
+  hash: string;
+  createdAt: Date | string;
+  lastUsedAt: Date | string | null;
+  revokedAt: Date | string | null;
+};
+
+export type ReadTokenAdministrationDependencies = {
+  list?: (scope: { projectId: string; environmentId: string }) => Promise<ReadTokenResponse[]>;
+  create?: (input: {
+    projectId: string;
+    environmentId: string;
+    name: string;
+    prefix: string;
+    hash: string;
+  }) => Promise<ReadTokenResponse>;
+  update?: (
+    input: { id: string; projectId: string; environmentId: string } & UpdateReadTokenInput
+  ) => Promise<ReadTokenResponse | null | undefined>;
+  revoke?: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
+};
+
 export type AdminRouteOptions = {
   auth?: AuthDependencies;
   users?: UserAdministrationDependencies;
@@ -538,6 +566,8 @@ export type AdminRouteOptions = {
   sourceMaps?: SourceMapAdministrationDependencies;
   sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
+  readTokens?: ReadTokenAdministrationDependencies;
+  createReadToken?: () => { secret: string; prefix: string };
   createHeartbeatSecret?: () => string;
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
@@ -946,6 +976,23 @@ const createSourceMapUploadTokenSchema = z.object({
 });
 
 const updateSourceMapUploadTokenSchema = z
+  .object({
+    name: z.string().trim().min(1).max(256).optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
+
+const readTokenScopeQuerySchema = z.object({
+  project_id: z.string().trim().min(1),
+  environment_id: z.string().trim().min(1)
+});
+
+const createReadTokenSchema = z.object({
+  projectId: z.string().trim().min(1),
+  environmentId: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(256)
+});
+
+const updateReadTokenSchema = z
   .object({
     name: z.string().trim().min(1).max(256).optional()
   })
@@ -1451,6 +1498,7 @@ type MonitorListFilters = {
   kind?: MonitorKind;
 };
 type UpdateSourceMapUploadTokenInput = z.infer<typeof updateSourceMapUploadTokenSchema>;
+type UpdateReadTokenInput = z.infer<typeof updateReadTokenSchema>;
 type CreateEnvironmentInput = CreateEnvironmentBody & { projectId: string };
 type CreateApiKeyRecordInput = CreateApiKeyBody & { projectId: string; prefix: string; hash: string };
 type CreateBrowserOriginInput = CreateBrowserOriginBody & { projectId: string };
@@ -1487,6 +1535,19 @@ function redactApiKeyHash(apiKey: AdminApiKey): Omit<AdminApiKey, "hash"> {
 function redactSourceMapUploadToken(
   token: SourceMapUploadTokenResponse
 ): Omit<SourceMapUploadTokenResponse, "hash"> {
+  return {
+    id: token.id,
+    projectId: token.projectId,
+    environmentId: token.environmentId,
+    name: token.name,
+    prefix: token.prefix,
+    createdAt: token.createdAt,
+    lastUsedAt: token.lastUsedAt,
+    revokedAt: token.revokedAt
+  };
+}
+
+function redactReadToken(token: ReadTokenResponse): Omit<ReadTokenResponse, "hash"> {
   return {
     id: token.id,
     projectId: token.projectId,
@@ -3926,6 +3987,129 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     await options.sourceMapUploadTokens.revoke({
+      id: params.data.id,
+      projectId: query.data.project_id,
+      environmentId: query.data.environment_id
+    });
+
+    return reply.status(204).send();
+  });
+
+  app.get("/admin/read-tokens", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.readTokens?.list) {
+      return reply.status(501).send({ error: "read_tokens_repository_unavailable" });
+    }
+
+    const parsed = readTokenScopeQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_read_token_request" });
+    }
+
+    const tokens = await options.readTokens.list({
+      projectId: parsed.data.project_id,
+      environmentId: parsed.data.environment_id
+    });
+
+    return reply.send({ tokens: tokens.map(redactReadToken) });
+  });
+
+  app.post("/admin/read-tokens", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.readTokens?.create) {
+      return reply.status(501).send({ error: "read_tokens_repository_unavailable" });
+    }
+
+    const parsed = createReadTokenSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "invalid_read_token_request" });
+    }
+
+    const generatedToken = options.createReadToken?.() ?? createReadToken();
+    const hash = await hashAdminApiKeySecret(generatedToken.secret, options);
+    if (!hash) {
+      return reply.status(501).send({ error: "read_token_hashing_unavailable" });
+    }
+
+    let token: ReadTokenResponse;
+    try {
+      token = await options.readTokens.create({
+        projectId: parsed.data.projectId,
+        environmentId: parsed.data.environmentId,
+        name: parsed.data.name,
+        prefix: generatedToken.prefix,
+        hash
+      });
+    } catch (error) {
+      if (isKnownAdminResourceError(error, "active_read_token_scope_not_found")) {
+        return reply.status(404).send({ error: "read_token_scope_not_found" });
+      }
+      throw error;
+    }
+
+    return reply.status(201).send({
+      token: {
+        ...redactReadToken(token),
+        secret: generatedToken.secret
+      }
+    });
+  });
+
+  app.patch("/admin/read-tokens/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.readTokens?.update) {
+      return reply.status(501).send({ error: "read_tokens_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = readTokenScopeQuerySchema.safeParse(request.query);
+    const parsed = updateReadTokenSchema.safeParse(request.body);
+    if (!params.success || !query.success || !parsed.success) {
+      return reply.status(400).send({ error: "invalid_read_token_request" });
+    }
+
+    const token = await options.readTokens.update({
+      id: params.data.id,
+      projectId: query.data.project_id,
+      environmentId: query.data.environment_id,
+      ...parsed.data
+    });
+    if (!token) {
+      return reply.status(404).send({ error: "read_token_not_found" });
+    }
+
+    return reply.send({ token: redactReadToken(token) });
+  });
+
+  app.delete("/admin/read-tokens/:id", async (request, reply) => {
+    const admin = await requireAdmin(request, reply, options.auth);
+    if (!admin) {
+      return reply;
+    }
+
+    if (!options.readTokens?.revoke) {
+      return reply.status(501).send({ error: "read_tokens_repository_unavailable" });
+    }
+
+    const params = idParamsSchema.safeParse(request.params);
+    const query = readTokenScopeQuerySchema.safeParse(request.query);
+    if (!params.success || !query.success) {
+      return reply.status(400).send({ error: "invalid_read_token_request" });
+    }
+
+    await options.readTokens.revoke({
       id: params.data.id,
       projectId: query.data.project_id,
       environmentId: query.data.environment_id

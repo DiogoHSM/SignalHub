@@ -3687,3 +3687,169 @@ describe("admin routes", () => {
     }
   });
 });
+
+describe("read token administration", () => {
+  const anonymousAuth = {
+    login: async () => null,
+    findSessionUser: async () => null
+  };
+
+  function fakeReadTokenRepository() {
+    const tokens = [
+      {
+        id: "rdtok_1",
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "mcp",
+        prefix: "shread_testsec",
+        hash: "hash",
+        createdAt: new Date("2026-05-11T12:00:00.000Z"),
+        lastUsedAt: null as Date | null,
+        revokedAt: null as Date | null
+      }
+    ];
+
+    return {
+      list: async ({ projectId, environmentId }: { projectId: string; environmentId: string }) =>
+        tokens.filter((token) => token.projectId === projectId && token.environmentId === environmentId),
+      create: async (input: {
+        projectId: string;
+        environmentId: string;
+        name: string;
+        prefix: string;
+        hash: string;
+      }) => {
+        const token = {
+          id: `rdtok_${tokens.length + 1}`,
+          ...input,
+          createdAt: new Date("2026-05-11T12:00:00.000Z"),
+          lastUsedAt: null,
+          revokedAt: null
+        };
+        tokens.push(token);
+        return token;
+      },
+      update: async ({
+        id,
+        projectId,
+        environmentId,
+        name
+      }: {
+        id: string;
+        projectId: string;
+        environmentId: string;
+        name?: string;
+      }) => {
+        const token = tokens.find((t) => t.id === id && t.projectId === projectId && t.environmentId === environmentId);
+        if (!token) {
+          return null;
+        }
+        if (name !== undefined) {
+          token.name = name;
+        }
+        return token;
+      },
+      revoke: async ({
+        id,
+        projectId,
+        environmentId
+      }: {
+        id: string;
+        projectId: string;
+        environmentId: string;
+      }) => {
+        const token = tokens.find((t) => t.id === id && t.projectId === projectId && t.environmentId === environmentId);
+        if (token) {
+          token.revokedAt = new Date("2026-05-11T12:05:00.000Z");
+        }
+      }
+    };
+  }
+
+  it("returns the secret exactly once, on create", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      readTokens: fakeReadTokenRepository(),
+      createReadToken: () => ({ secret: "shread_testsecret", prefix: "shread_testsec" }),
+      apiKeyPepper: "pepper"
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/admin/read-tokens",
+      payload: { projectId: "prj_1", environmentId: "env_1", name: "mcp" }
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().token.secret).toBe("shread_testsecret");
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/admin/read-tokens?project_id=prj_1&environment_id=env_1"
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().tokens[0]).not.toHaveProperty("secret");
+    expect(listed.json().tokens[0]).not.toHaveProperty("hash");
+  });
+
+  it("rejects an anonymous caller", async () => {
+    app = await buildApp({
+      readiness,
+      auth: anonymousAuth,
+      readTokens: fakeReadTokenRepository()
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/admin/read-tokens?project_id=prj_1&environment_id=env_1"
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("answers 404 when the scope is archived or missing", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      readTokens: {
+        ...fakeReadTokenRepository(),
+        create: async () => {
+          throw new Error("active_read_token_scope_not_found");
+        }
+      },
+      createReadToken: () => ({ secret: "shread_testsecret", prefix: "shread_testsec" }),
+      apiKeyPepper: "pepper"
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/read-tokens",
+      payload: { projectId: "prj_gone", environmentId: "env_gone", name: "mcp" }
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error).toBe("read_token_scope_not_found");
+  });
+
+  it("renames and revokes within the scope", async () => {
+    const repository = fakeReadTokenRepository();
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      readTokens: repository,
+      apiKeyPepper: "pepper"
+    });
+
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: "/admin/read-tokens/rdtok_1?project_id=prj_1&environment_id=env_1",
+      payload: { name: "claude-desktop" }
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().token.name).toBe("claude-desktop");
+
+    const revoked = await app.inject({
+      method: "DELETE",
+      url: "/admin/read-tokens/rdtok_1?project_id=prj_1&environment_id=env_1"
+    });
+    expect(revoked.statusCode).toBe(204);
+  });
+});

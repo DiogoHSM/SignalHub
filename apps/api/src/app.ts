@@ -13,6 +13,7 @@ import {
   type AdminResourceDependencies,
   type DeadLetterAdministrationDependencies,
   type MonitorAdministrationDependencies,
+  type ReadTokenAdministrationDependencies,
   type SourceMapUploadTokenAdministrationDependencies,
   type SourceMapAdministrationDependencies,
   type UserAdministrationDependencies
@@ -41,6 +42,8 @@ export type BuildAppOptions = {
   sourceMapUploadTokens?: SourceMapUploadTokenAdministrationDependencies;
   sourceMapUploads?: SourceMapUploadRouteDependencies;
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
+  readTokens?: ReadTokenAdministrationDependencies;
+  createReadToken?: () => { secret: string; prefix: string };
   createHeartbeatSecret?: () => string;
   ingestion?: IngestionDependencies;
   identify?: IdentifyRouteDependencies;
@@ -223,6 +226,8 @@ export async function buildApp(options: BuildAppOptions) {
     sourceMaps: options.sourceMaps,
     sourceMapUploadTokens: options.sourceMapUploadTokens,
     createSourceMapUploadToken: options.createSourceMapUploadToken,
+    readTokens: options.readTokens,
+    createReadToken: options.createReadToken,
     createHeartbeatSecret: options.createHeartbeatSecret,
     apiKeyPepper: options.apiKeyPepper,
     hashApiKeySecret: options.hashApiKeySecret,
