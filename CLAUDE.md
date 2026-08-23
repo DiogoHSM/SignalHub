@@ -34,6 +34,7 @@ SignalMonitor is a self-hosted telemetry core for product analytics, errors, LLM
 - Do not assert the shape of a query plan in tests. Index selection is cost-based and flips with accumulated statistics; verify the catalog, the compiled expression, and the behaviour instead.
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
 - Feedback widget ingestion is browser-safe text/context only for now; do not add screenshot capture until masking and explicit consent controls are designed.
+- Read tokens are read-only against `/query/*` and scope-overriding: their project/environment replace the caller's query parameters rather than being validated against them.
 
 ## Verification
 

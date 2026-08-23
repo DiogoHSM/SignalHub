@@ -39,3 +39,6 @@
 - The automated release smoke harness validates the Docker Compose install path; it does not introduce Kubernetes, Helm, systemd, hosted SaaS, or additional production deployment support.
 - GitHub Actions CI is a verification gate only; it does not publish images, create hosted environments, or expand the supported deployment surface beyond Docker Compose.
 - MicroERP is Diogo's personal validation target and should be treated as a real integration test target for SignalMonitor, not as part of the SignalMonitor product or repository.
+- Read tokens are read-only. Every mutation handler under `/query/*` must refuse a read-token principal explicitly; the refusal lives in the handler, never in a path allowlist.
+- A read token's project and environment override the requested scope. Query parameters are not validated against the token — they are replaced by it.
+- Read token secrets are shown once, on creation. No route may return one afterwards, and no console screen may hold one below the shell remount boundary.

@@ -2,7 +2,7 @@
 
 > **Sempre carregado.** Este arquivo é o único contrato de *lazy loading* do projeto: diz a Claude quais docs ler antes de tocar em cada área. Docs não listados aqui só são lidos quando Claude os abrir explicitamente.
 
-**Última revisão**: 2026-08-09
+**Última revisão**: 2026-08-23
 
 ---
 
@@ -27,6 +27,8 @@ Use esta tabela como checklist. Antes de modificar um arquivo que se encaixe num
 | Agregados/KPIs em `telemetry-query.ts` | `CONSTRAINTS.md` | o agregado precisa aplicar **todos** os filtros da lista que ele resume, e só `status = 'error'` conta como falha — `pending` é o default de trace/span (ADR 2026-08-09) |
 | Avaliador de alerta novo em `repositories/alerts.ts` | `CONSTRAINTS.md` | honrar `routePattern` na contagem **e** no group atribuído; filtro de rota é `exists` contra `traces`, nunca join (fan-out) |
 | Teste que quer provar uso de índice | — | **não asserte a forma do plano** (`EXPLAIN`): a escolha é cost-based e vira com as estatísticas acumuladas da suíte. Verifique catálogo (opclass suporta o operador) + forma da expressão compilada + comportamento. Ver PER-475 |
+| Guard de `/query/*` (`requireQueryPrincipal`) | `CONSTRAINTS.md`, `DECISIONS.md` | principal de read token só passa em leitura; escopo do token sobrescreve o da query string, nunca é validado contra ela |
+| Mutação nova em `apps/api/src/routes/query.ts` | `CONSTRAINTS.md` | todo handler de mutação precisa recusar read token explicitamente — não existe allowlist de path que faça isso por você |
 | Decisão arquitetural relevante | `DECISIONS.md` (ler + adicionar ADR) | rastreabilidade |
 | Escopo/objetivos do projeto | `PROJECT-SUMMARY.md` | fase atual: Phase 6G hardening |
 
