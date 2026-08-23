@@ -393,6 +393,7 @@ type AnalyticsInsightQueryRecord = {
 export type QueryRouteOptions = {
   auth?: AuthDependencies;
   query?: QueryDependencies;
+  verifyReadToken?: (secret: string) => Promise<{ id: string; projectId: string; environmentId: string } | null | undefined>;
 };
 
 const activitySortSchema = z.enum(["impact", "usage", "errors", "llm_cost", "recent"]);

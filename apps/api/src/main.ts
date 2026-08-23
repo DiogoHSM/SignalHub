@@ -158,6 +158,14 @@ import {
   updateSourceMapUploadTokenLastUsed
 } from "@sigmon/db/repositories/source-map-upload-tokens.js";
 import {
+  createReadTokenRecord,
+  findReadTokenByPrefix,
+  listReadTokens,
+  revokeReadToken,
+  updateReadToken,
+  updateReadTokenLastUsed
+} from "@sigmon/db/repositories/read-tokens.js";
+import {
   getApmEndpoints,
   getRuntimeProfiles,
   getServiceMap,
@@ -1038,6 +1046,30 @@ const app = await buildApp({
     create: (input) => createSourceMapUploadTokenRecord(db, input),
     update: (input) => updateSourceMapUploadToken(db, input),
     revoke: (input) => revokeSourceMapUploadToken(db, input)
+  },
+  readTokens: {
+    list: (scope) => listReadTokens(db, scope),
+    create: (input) => createReadTokenRecord(db, input),
+    update: (input) => updateReadToken(db, input),
+    revoke: (input) => revokeReadToken(db, input)
+  },
+  verifyReadToken: async (secret) => {
+    const token = await findReadTokenByPrefix(db, secret.slice(0, 16));
+    if (!token) {
+      return null;
+    }
+
+    const valid = await verifyApiKey(token.hash, secret, config.apiKeyPepper);
+    if (!valid) {
+      return null;
+    }
+
+    await updateReadTokenLastUsed(db, token.id);
+    return {
+      id: token.id,
+      projectId: token.projectId,
+      environmentId: token.environmentId
+    };
   },
   apiKeyPepper: config.apiKeyPepper,
   googleOAuthEnabled: config.googleOAuth.enabled,

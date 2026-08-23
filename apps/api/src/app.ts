@@ -25,7 +25,7 @@ import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 import { registerIdentifyRoutes, type IdentifyRouteDependencies } from "./routes/identify.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
 import { registerMonitorRoutes, type MonitorRouteDependencies } from "./routes/monitors.js";
-import { registerQueryRoutes, type QueryDependencies } from "./routes/query.js";
+import { registerQueryRoutes, type QueryDependencies, type QueryRouteOptions } from "./routes/query.js";
 import { registerSdkDocsRoutes } from "./routes/sdk-docs.js";
 import { registerSourceMapUploadRoutes, type SourceMapUploadRouteDependencies } from "./routes/source-map-uploads.js";
 import { registerSystemRoutes, type SystemHealthDependencies } from "./routes/system.js";
@@ -44,6 +44,7 @@ export type BuildAppOptions = {
   createSourceMapUploadToken?: () => { secret: string; prefix: string };
   readTokens?: ReadTokenAdministrationDependencies;
   createReadToken?: () => { secret: string; prefix: string };
+  verifyReadToken?: QueryRouteOptions["verifyReadToken"];
   createHeartbeatSecret?: () => string;
   ingestion?: IngestionDependencies;
   identify?: IdentifyRouteDependencies;
@@ -244,7 +245,8 @@ export async function buildApp(options: BuildAppOptions) {
   registerIdentifyRoutes(app, options.identify);
   registerQueryRoutes(app, {
     auth: options.auth,
-    query: options.query
+    query: options.query,
+    verifyReadToken: options.verifyReadToken
   });
   registerSystemRoutes(app, {
     auth: options.auth,
