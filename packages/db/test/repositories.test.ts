@@ -14764,6 +14764,73 @@ describe("repositories", () => {
     });
   });
 
+  it("does not list update or revoke read tokens for archived scopes", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const archivedProject = await createProject(db, { name: "Read Token Archived Operations" });
+      const archivedProjectEnvironment = await createEnvironment(db, {
+        projectId: archivedProject.id,
+        name: "production"
+      });
+      const archivedProjectToken = await createReadTokenRecord(db, {
+        projectId: archivedProject.id,
+        environmentId: archivedProjectEnvironment.id,
+        name: "Archived project token",
+        prefix: "shread_archived_operations_project",
+        hash: "hash_archived_operations_project"
+      });
+
+      const archivedEnvironmentProject = await createProject(db, {
+        name: "Read Token Archived Environment Operations"
+      });
+      const archivedEnvironment = await createEnvironment(db, {
+        projectId: archivedEnvironmentProject.id,
+        name: "production"
+      });
+      const archivedEnvironmentToken = await createReadTokenRecord(db, {
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id,
+        name: "Archived environment token",
+        prefix: "shread_archived_operations_environment",
+        hash: "hash_archived_operations_environment"
+      });
+
+      await archiveProject(db, archivedProject.id);
+      await archiveEnvironment(db, archivedEnvironment.id);
+
+      await expect(
+        listReadTokens(db, {
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        updateReadToken(db, {
+          id: archivedProjectToken.id,
+          projectId: archivedProject.id,
+          environmentId: archivedProjectEnvironment.id,
+          name: "Should not update"
+        })
+      ).resolves.toBeUndefined();
+
+      await revokeReadToken(db, {
+        id: archivedEnvironmentToken.id,
+        projectId: archivedEnvironmentProject.id,
+        environmentId: archivedEnvironment.id
+      });
+      const [archivedEnvironmentRow] = await db
+        .selectFrom("read_tokens")
+        .select(["name", "revoked_at"])
+        .where("id", "=", archivedEnvironmentToken.id)
+        .execute();
+      expect(archivedEnvironmentRow).toMatchObject({
+        name: "Archived environment token",
+        revoked_at: null
+      });
+    });
+  });
+
   it("detects migration checksum mismatches", async () => {
     await withDb(async (db) => {
       await migrate(db);
