@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type ApiClient } from "../../api/client";
+import { ApiError, type ApiClient } from "../../api/client";
 import type { Environment, Project, ReadToken } from "../../api/types";
 import type { NavSection } from "../nav";
 import { ReadTokensSection } from "./ReadTokensSection";
@@ -74,11 +74,46 @@ describe("ReadTokensSection", () => {
     fireEvent.change(input, { target: { value: "new token" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(client.createReadToken).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1", name: "new token" }));
-    await waitFor(() => expect(ctx.onSecretCreated).toHaveBeenCalledWith("shread_secret_value"));
+    await waitFor(() => expect(ctx.onSecretCreated).toHaveBeenCalledWith("shread_secret_value", "readToken"));
+  });
+
+  it("reports a failed create through runMutation's toast contract", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client = makeClient({ createReadToken: vi.fn().mockRejectedValue(new Error("offline")) });
+    const ctx = makeCtx({ client });
+    render(<ReadTokensSection ctx={ctx} />);
+    fireEvent.click(await screen.findByRole("button", { name: "New token" }));
+    const input = screen.getByLabelText("New token name");
+    fireEvent.change(input, { target: { value: "new token" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not create read token"));
+    expect(ctx.onSecretCreated).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("reports a failed rename and revoke through runMutation's toast contract", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client = makeClient({
+      renameReadToken: vi.fn().mockRejectedValue(new Error("offline")),
+      revokeReadToken: vi.fn().mockRejectedValue(new Error("offline")),
+    });
+    const ctx = makeCtx({ client });
+    render(<ReadTokensSection ctx={ctx} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename mcp server" }));
+    const renameInput = screen.getByLabelText("Rename token");
+    fireEvent.change(renameInput, { target: { value: "renamed" } });
+    fireEvent.keyDown(renameInput, { key: "Enter" });
+    await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not rename read token"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke mcp server" }));
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/ }));
+    await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not revoke read token"));
+    consoleError.mockRestore();
   });
 
   it("shows the secret panel when ctx.createdSecret is set and hides it once cleared", async () => {
-    const ctx = makeCtx({ createdSecret: "shread_secret_value" });
+    const ctx = makeCtx({ createdSecret: { value: "shread_secret_value", kind: "readToken" } });
     const { rerender } = render(<ReadTokensSection ctx={ctx} />);
     expect(await screen.findByText(/shown once/i)).toBeInTheDocument();
     expect(screen.getByText(/read-only.*this project and environment only/i)).toBeInTheDocument();
@@ -87,11 +122,19 @@ describe("ReadTokensSection", () => {
     await waitFor(() => expect(screen.queryByText(/shown once/i)).not.toBeInTheDocument());
   });
 
-  it("dismissing the secret panel calls ctx.onSecretCreated(null)", async () => {
-    const ctx = makeCtx({ createdSecret: "shread_secret_value" });
+  it("ignores a secret created by another credential surface (e.g. the Setup API key)", async () => {
+    const ctx = makeCtx({ createdSecret: { value: "sh_live_browser_secret", kind: "apiKey" } });
+    render(<ReadTokensSection ctx={ctx} />);
+    await screen.findByText("mcp server");
+    expect(screen.queryByText(/shown once/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("sh_live_browser_secret")).not.toBeInTheDocument();
+  });
+
+  it("dismissing the secret panel calls ctx.onSecretCreated(null, \"readToken\")", async () => {
+    const ctx = makeCtx({ createdSecret: { value: "shread_secret_value", kind: "readToken" } });
     render(<ReadTokensSection ctx={ctx} />);
     fireEvent.click(await screen.findByRole("button", { name: /done/i }));
-    expect(ctx.onSecretCreated).toHaveBeenCalledWith(null);
+    expect(ctx.onSecretCreated).toHaveBeenCalledWith(null, "readToken");
   });
 
   it("renames a token from the inline editor", async () => {
@@ -132,6 +175,23 @@ describe("ReadTokensSection", () => {
   it("shows an unavailable hint when the read-token API is absent", async () => {
     render(<ReadTokensSection ctx={makeCtx({ client: {} as unknown as ApiClient })} />);
     expect(await screen.findByText(/unavailable/i)).toBeInTheDocument();
+  });
+
+  it("shows an unavailable hint, not a blank card, when the server 501s with read_tokens_repository_unavailable", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client = makeClient({ listReadTokens: vi.fn().mockRejectedValue(new ApiError(501, "read_tokens_repository_unavailable")) });
+    render(<ReadTokensSection ctx={makeCtx({ client })} />);
+    expect(await screen.findByText(/unavailable/i)).toBeInTheDocument();
+    consoleError.mockRestore();
+  });
+
+  it("shows an actionable retry hint, not a blank card, on a generic load failure", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client = makeClient({ listReadTokens: vi.fn().mockRejectedValue(new Error("network down")) });
+    render(<ReadTokensSection ctx={makeCtx({ client })} />);
+    expect(await screen.findByText(/could not load read tokens/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    consoleError.mockRestore();
   });
 
   it("shows an empty hint when there are no tokens", async () => {

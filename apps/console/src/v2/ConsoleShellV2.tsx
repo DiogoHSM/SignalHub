@@ -10,7 +10,7 @@ import { useConsoleProjects } from "./useConsoleProjects";
 import { useToasts } from "./useToasts";
 import { useFleet } from "./useFleet";
 import { renderIncidentDetail, renderSection, renderTenantDetail } from "./screens/registry";
-import type { ScreenCtx, DrillTarget, DrillParams, FilterableSection, NavPayload, SectionFilters } from "./screens/registry";
+import type { ScreenCtx, CreatedSecret, DrillTarget, DrillParams, FilterableSection, NavPayload, SecretKind, SectionFilters } from "./screens/registry";
 import type { NavSection } from "./nav";
 import type { BreadcrumbItem } from "./shell/TopBar";
 import { EmptyHint, Icon } from "../components/ui/v2";
@@ -524,11 +524,17 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
     [client]
   );
 
-  // One-time API key secrets live here, not in the screen: the page container
-  // below is keyed on `seq`, and creating a key calls ctx.reload, so a secret
-  // held in screen state was destroyed before the operator could copy it.
-  const [createdSecret, setCreatedSecret] = useState<string | null>(null);
-  const handleSecretCreated = useCallback((secret: string | null) => setCreatedSecret(secret), []);
+  // One-time secrets (API keys, read tokens, ...) live here, not in the
+  // screen: the page container below is keyed on `seq`, and creating one
+  // calls ctx.reload, so a secret held in screen state was destroyed before
+  // the operator could copy it. `kind` tags which credential surface minted
+  // the secret, since the shell has only one slot but multiple credential
+  // surfaces can mount on the same screen.
+  const [createdSecret, setCreatedSecret] = useState<CreatedSecret | null>(null);
+  const handleSecretCreated = useCallback(
+    (secret: string | null, kind: SecretKind) => setCreatedSecret(secret ? { value: secret, kind } : null),
+    [],
+  );
 
   // A secret belongs to the scope it was minted in — never carry it across.
   useEffect(() => {

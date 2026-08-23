@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApiClient } from "../../api/client";
+import { ApiError, type ApiClient } from "../../api/client";
 import type { ReadToken } from "../../api/types";
 import type { ScreenCtx } from "./registry";
 
@@ -101,7 +101,7 @@ export function useReadTokens({ client, ctx, projectId, environmentId }: UseRead
   scopeRef.current = scopeKey;
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
-  const clearSecret = useCallback(() => ctx.onSecretCreated(null), [ctx]);
+  const clearSecret = useCallback(() => ctx.onSecretCreated(null, "readToken"), [ctx]);
 
   useEffect(() => {
     if (!projectId || !environmentId) return;
@@ -127,7 +127,12 @@ export function useReadTokens({ client, ctx, projectId, environmentId }: UseRead
         if (gen !== genRef.current) return;
         console.error(err);
         setData(null);
-        setStatus("error");
+        // A server that hasn't wired the read-token repository answers 501
+        // read_tokens_repository_unavailable at request time, same as a
+        // client build that never had the method — both mean the operator
+        // is looking at a deployment without this feature, not a transient
+        // failure, so both land on the same "unavailable" status.
+        setStatus(err instanceof ApiError && err.status === 501 ? "unavailable" : "error");
       });
 
     return () => {
@@ -162,7 +167,7 @@ export function useReadTokens({ client, ctx, projectId, environmentId }: UseRead
         const operationScope = scopeKey;
         const { token } = await client.createReadToken({ projectId, environmentId, name });
         if (scopeRef.current !== operationScope) return;
-        ctx.onSecretCreated(token.secret);
+        ctx.onSecretCreated(token.secret, "readToken");
       }),
     [client, ctx, environmentId, projectId, run, scopeKey],
   );
@@ -188,7 +193,7 @@ export function useReadTokens({ client, ctx, projectId, environmentId }: UseRead
   return {
     data,
     status,
-    latestSecret: ctx.createdSecret ?? null,
+    latestSecret: ctx.createdSecret?.kind === "readToken" ? ctx.createdSecret.value : null,
     busy,
     reload,
     clearSecret,

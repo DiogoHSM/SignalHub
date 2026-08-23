@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ConfirmButton, EmptyHint, Icon, SecretField } from "../../components/ui/v2";
+import { runMutation } from "../lib/run-mutation";
 import type { ScreenCtx } from "./registry";
 import { useReadTokens, type ReadTokenRowVM } from "./useReadTokens";
 
@@ -29,26 +30,42 @@ export function ReadTokensSection({ ctx }: { ctx: ScreenCtx }) {
     );
   }
 
+  if (rt.status === "error") {
+    return (
+      <div className="sh-card">
+        <div className="sh-card__head">
+          <h2 className="sh-h2">Read tokens</h2>
+        </div>
+        <div className="sh-card__body">
+          <EmptyHint
+            icon="alert"
+            title="Could not load read tokens"
+            sub="Check your connection or session, then retry."
+            cta={<button className="sh-btn" type="button" onClick={() => rt.reload()}>Retry</button>}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const vm = rt.data;
 
   async function submitNewToken() {
     const name = newTokenName.trim();
     if (!name) return;
-    const ok = await rt.createToken(name);
-    if (!ok) { ctx.pushToast("Could not create read token"); return; }
+    const ok = await runMutation(() => rt.createToken(name), { pushToast: ctx.pushToast, message: "Could not create read token" });
+    if (!ok) return;
     setNewTokenName("");
     setCreatingToken(false);
   }
   async function submitRename(id: string) {
     const name = renameValue.trim();
     if (!name) { setRenamingId(null); return; }
-    const ok = await rt.renameToken(id, name);
-    if (!ok) ctx.pushToast("Could not rename read token");
+    await runMutation(() => rt.renameToken(id, name), { pushToast: ctx.pushToast, message: "Could not rename read token" });
     setRenamingId(null);
   }
   async function doRevoke(row: ReadTokenRowVM) {
-    const ok = await rt.revokeToken(row.id);
-    if (!ok) ctx.pushToast("Could not revoke read token");
+    await runMutation(() => rt.revokeToken(row.id), { pushToast: ctx.pushToast, message: "Could not revoke read token" });
   }
 
   return (

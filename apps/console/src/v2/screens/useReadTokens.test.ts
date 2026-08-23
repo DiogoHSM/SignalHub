@@ -99,10 +99,19 @@ describe("useReadTokens hook", () => {
       await result.current.createToken("mcp");
     });
 
-    expect(ctx.onSecretCreated).toHaveBeenCalledWith("shread_visible_once");
+    expect(ctx.onSecretCreated).toHaveBeenCalledWith("shread_visible_once", "readToken");
 
     result.current.clearSecret();
-    expect(ctx.onSecretCreated).toHaveBeenCalledWith(null);
+    expect(ctx.onSecretCreated).toHaveBeenCalledWith(null, "readToken");
+  });
+
+  it("ignores a secret created by another credential surface", async () => {
+    const client = fakeClient();
+    const ctx = fakeCtx({ client, createdSecret: { value: "sh_live_browser_secret", kind: "apiKey" } });
+    const { result } = renderHook(() => useReadTokens({ client, ctx, projectId: "prj_1", environmentId: "env_1" }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+
+    expect(result.current.latestSecret).toBeNull();
   });
 
   it("never reads a secret back from the list", async () => {
@@ -159,6 +168,16 @@ describe("useReadTokens hook", () => {
     const ctx = fakeCtx({ client });
     const { result } = renderHook(() => useReadTokens({ client, ctx, projectId: "prj_1", environmentId: "env_1" }));
     await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.data).toBeNull();
+    consoleError.mockRestore();
+  });
+
+  it("reports 'unavailable', not 'error', when the server 501s with read_tokens_repository_unavailable", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client = fakeClient({ listReadTokens: vi.fn().mockRejectedValue(new ApiError(501, "read_tokens_repository_unavailable")) });
+    const ctx = fakeCtx({ client });
+    const { result } = renderHook(() => useReadTokens({ client, ctx, projectId: "prj_1", environmentId: "env_1" }));
+    await waitFor(() => expect(result.current.status).toBe("unavailable"));
     expect(result.current.data).toBeNull();
     consoleError.mockRestore();
   });

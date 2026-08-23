@@ -11,6 +11,16 @@ export type DrillParams =
   | { groupId: string; errorId?: string }
   | { tenantId: string };
 
+// ─── One-time secret ─────────────────────────────────────────────────────────
+//
+// The shell holds exactly one one-time-secret slot above the remount
+// boundary (see `onSecretCreated`/`createdSecret` on `ScreenCtx` below).
+// `kind` tags which credential surface minted it so two surfaces mounted on
+// the same screen (e.g. Setup's API key and the read-tokens panel) never
+// misread each other's secret.
+export type SecretKind = "apiKey" | "readToken";
+export type CreatedSecret = { value: string; kind: SecretKind };
+
 // ─── Navigation filter payload ───────────────────────────────────────────────
 //
 // Sections that accept a filter seed via `navigate(section, filters)`. The
@@ -44,11 +54,15 @@ export type ScreenCtx = {
   /**
    * Hand a freshly created one-time secret to the shell. Screens live inside a
    * remount boundary (`key={seq}`), so a secret held in screen state is lost
-   * the moment anything calls `ctx.reload`. Pass `null` to clear it.
+   * the moment anything calls `ctx.reload`. Pass `null` to clear it. `kind`
+   * tags which credential surface minted the secret — the shell has exactly
+   * one slot, so each consumer must read only its own kind and ignore a
+   * secret tagged for a different one (e.g. the Setup API-key panel must
+   * never render a freshly minted read token, or vice versa).
    */
-  onSecretCreated: (secret: string | null) => void;
+  onSecretCreated: (secret: string | null, kind: SecretKind) => void;
   /** The secret last passed to `onSecretCreated`, held above the remount boundary. */
-  createdSecret?: string | null;
+  createdSecret?: CreatedSecret | null;
   onSelectEnvironment: (environment: Environment) => void;
   onUpdateProject: (projectId: string, input: { name?: string }) => Promise<void>;
   onUpdateEnvironment?: (environment: Environment, name: string) => Promise<void>;
