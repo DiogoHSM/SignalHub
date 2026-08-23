@@ -3160,6 +3160,9 @@ async function handleFleetRoute(request: FastifyRequest, reply: FastifyReply, op
   if (!principal) {
     return reply;
   }
+  if (principal.kind === "read-token") {
+    return reply.status(403).send({ error: "read_token_scope_insufficient" });
+  }
 
   if (!options.query?.getFleet) {
     return reply.status(501).send({ error: "query_method_unavailable" });
@@ -3182,6 +3185,9 @@ async function handleFleetProjectEnvironmentsRoute(request: FastifyRequest, repl
   const principal = await requireQueryPrincipal(request, reply, options);
   if (!principal) {
     return reply;
+  }
+  if (principal.kind === "read-token") {
+    return reply.status(403).send({ error: "read_token_scope_insufficient" });
   }
 
   if (!options.query?.getProjectFleetEnvironments) {
