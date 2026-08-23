@@ -13,7 +13,3 @@ CREATE TABLE IF NOT EXISTS read_tokens (
 
 CREATE INDEX IF NOT EXISTS read_tokens_scope_created_idx
   ON read_tokens(project_id, environment_id, created_at DESC, id DESC);
-
-CREATE INDEX IF NOT EXISTS read_tokens_active_prefix_idx
-  ON read_tokens(prefix)
-  WHERE revoked_at IS NULL;
