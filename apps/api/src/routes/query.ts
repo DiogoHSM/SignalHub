@@ -1740,6 +1740,24 @@ function refuseReadToken(reply: FastifyReply, principal: QueryPrincipal): boolea
   return true;
 }
 
+export type PrincipalScope =
+  | { kind: "user" }
+  | { kind: "read-token"; projectId: string; environmentId: string };
+
+async function handlePrincipalScopeRoute(request: FastifyRequest, reply: FastifyReply, options: QueryRouteOptions) {
+  const principal = await requireQueryPrincipal(request, reply, options);
+  if (!principal) {
+    return reply;
+  }
+
+  const data: PrincipalScope =
+    principal.kind === "read-token"
+      ? { kind: "read-token", projectId: principal.projectId, environmentId: principal.environmentId }
+      : { kind: "user" };
+
+  return reply.send({ data });
+}
+
 function sendListResult(reply: FastifyReply, result: QueryListResult) {
   if (Array.isArray(result)) {
     return reply.send({ data: result });
@@ -3227,6 +3245,7 @@ async function handleFleetProjectEnvironmentsRoute(request: FastifyRequest, repl
 }
 
 export function registerQueryRoutes(app: FastifyInstance, options: QueryRouteOptions): void {
+  app.get("/query/me", (request, reply) => handlePrincipalScopeRoute(request, reply, options));
   app.get("/query/fleet", (request, reply) => handleFleetRoute(request, reply, options));
   app.get("/query/fleet/projects/:id/environments", (request, reply) =>
     handleFleetProjectEnvironmentsRoute(request, reply, options)

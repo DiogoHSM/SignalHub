@@ -3618,6 +3618,48 @@ export const openApiDocument = {
         }
       }
     },
+    "/query/me": {
+      get: {
+        ...queryReadRoute(
+          "Introspect the calling principal",
+          "Return the authenticated caller's principal kind: a session user, or a read token together with its scoped project_id/environment_id (IDs only, no name lookup). Useful for a caller that needs to know which project/environment a read token is bound to before issuing further /query/* reads."
+        ),
+        responses: {
+          "200": {
+            description: "Authenticated principal",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      oneOf: [
+                        {
+                          type: "object",
+                          required: ["kind"],
+                          properties: { kind: { type: "string", enum: ["user"] } }
+                        },
+                        {
+                          type: "object",
+                          required: ["kind", "projectId", "environmentId"],
+                          properties: {
+                            kind: { type: "string", enum: ["read-token"] },
+                            projectId: { type: "string" },
+                            environmentId: { type: "string" }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { $ref: "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/query/fleet": {
       get: {
         ...sessionRoute(

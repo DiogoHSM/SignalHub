@@ -4859,6 +4859,58 @@ describe("read token principal", () => {
   });
 });
 
+describe("GET /query/me", () => {
+  it("returns the user principal for a session", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      verifyReadToken: async () => null
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/me"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: { kind: "user" } });
+  });
+
+  it("returns the read-token principal's scope for a valid bearer token", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async (secret: string) =>
+        secret === "shread_good" ? { id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" } : null
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/me",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      data: { kind: "read-token", projectId: "prj_mine", environmentId: "env_mine" }
+    });
+  });
+
+  it("rejects an unauthenticated caller", async () => {
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => null
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/me"
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "unauthenticated" });
+  });
+});
+
 describe("read tokens are refused on query mutations", () => {
   const mutations = [
     { method: "PATCH" as const, url: "/query/feedback/fb_1", payload: { status: "reviewed" } },

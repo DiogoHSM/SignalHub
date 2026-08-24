@@ -488,6 +488,8 @@ export interface LlmCostByModelResult {
   series: Array<{ model: string; costs: string[] }>;
 }
 
+export type PrincipalScope = { kind: "user" } | { kind: "read-token"; projectId: string; environmentId: string };
+
 /** Fetch a JSON body defensively; returns undefined for empty/non-JSON bodies. */
 async function safeJson(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -570,6 +572,14 @@ export class SigmonClient {
 
   private scoped(params: QueryParams = {}): QueryParams {
     return { project_id: SCOPE_PLACEHOLDER, environment_id: SCOPE_PLACEHOLDER, ...params };
+  }
+
+  // -- principal ----------------------------------------------------------
+
+  /** Introspect the calling principal: a session user, or a read token's own project/environment. */
+  async getPrincipalScope(): Promise<PrincipalScope> {
+    const result = await this.request<{ data: PrincipalScope }>("/query/me");
+    return result.data;
   }
 
   // -- events -----------------------------------------------------------
