@@ -48,6 +48,9 @@ Non-human read access:
 2. Admins create, rename, and revoke read tokens from the console's Setup screen through `GET|POST /admin/read-tokens` and `PATCH|DELETE /admin/read-tokens/:id`; only the `201` from creation ever carries the secret.
 3. A read token is scoped to one project and one environment at creation and cannot be widened. On every read, its scope overrides the caller's `project_id`/`environment_id` query parameters rather than being validated against them, so the token's scope is a fact of the request, not a filter that can fail closed into an empty list.
 4. Every mutation under `/query/*` refuses a read-token principal with `403 read_token_is_read_only`, checked before params/body/dependency validation. The two fleet routes (`GET /query/fleet`, `GET /query/fleet/projects/:id/environments`) refuse a read-token principal with `403 read_token_scope_insufficient` instead, because they are install-wide views spanning every project and a single-project override is meaningless there.
+5. `GET /query/me` returns the calling principal's own kind and, for a read-token principal, its `projectId`/`environmentId` — IDs only, no project/environment name lookup. `requireQueryPrincipal` already resolves this on every request; this route just hands it back to a caller that has no other way to learn its own scope (a read token can't call `/admin/*` to look itself up).
+
+`@sigmon/mcp` is a stdio Model Context Protocol server, one of `/query/*`'s non-human consumers alongside any other read-token holder. It authenticates with `SIGMON_READ_TOKEN` against `SIGMON_URL` and exposes nine investigation tools (`describe_scope`, `whats_broken`, `investigate_error`, `trace_request`, `slow_endpoints`, `user_journey`, `llm_costs`, `search_events`, `query`) that each compose a small set of `/query/*` routes into one agent-facing call. It carries no elevated trust over the read-token guard above — a coding agent connected to it sees exactly what the token's project/environment scope allows, read-only. Two things live in the MCP package itself rather than the API: response budgeting (list fields are capped and pruned by default, with a `truncated: { section, returned, total, how_to_get_more }` marker when they were, since an oversized tool response is the characteristic failure mode of a telemetry MCP) and error-message normalization (401/403/scope-mismatch surface as one readable sentence each, never a raw stack). `server.ts` is transport-agnostic; a later HTTP/OAuth transport (deferred, see `.claude/plans/2026-08-22-mcp-sigmon-design.md`) is a new file importing the same tool registry, not a rewrite of the nine tools.
 
 ## Storage
 
@@ -245,6 +248,7 @@ Query:
 - `GET /query/aggregates/errors`
 - `GET /query/aggregates/llm`
 - `GET /query/aggregates/traces`
+- `GET /query/me`
 
 Alerts:
 

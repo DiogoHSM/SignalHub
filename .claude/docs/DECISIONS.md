@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-08-24: `@sigmon/mcp` is its own package, stdio-first, with response budgeting owned outside the API
+
+Decision: MCP investigation tooling lives in a new private package, `packages/mcp`, not inside `apps/api` or the console. It ships nine read-only tools (`describe_scope`, `whats_broken`, `investigate_error`, `trace_request`, `slow_endpoints`, `user_journey`, `llm_costs`, `search_events`, `query`) over a stdio transport, authenticated with the read token from the 2026-08-23 decision below. `server.ts` registers tools independently of transport so a later HTTP/OAuth transport is a new file, not a rewrite. Response pruning and truncation (`budget.ts`) live in the MCP package, not the API — every list-shaped field is capped and has sensitive sub-fields (stack traces, raw event payloads, span bodies) dropped by default, with a `truncated` marker when a cap actually cut something, so a calling agent can tell a partial result from a complete one instead of inferring an empty environment from a truncated list.
+
+Rejected: one tool per `/query/*` route (54 at the time of design). A 1:1 mirror degrades model tool choice — investigating one error is one conceptual action for an agent, not six route calls it has to sequence itself. Task-shaped tools (compose `investigate_error` from six routes internally) keep the tool surface small enough for a model to reliably pick the right one.
+
+Rejected: reusing `apps/api`'s response shapes unpruned. A telemetry MCP's characteristic failure mode is a single tool call returning enough raw payload to blow an agent's context window before it can act on it — pruning has to be a contract every tool honors by construction, not something each tool author remembers to add, which is why it's a shared `budget.ts` module every tool routes list fields through rather than a per-tool convention.
+
+Follow-up gap found during implementation: no `/query/*` route exposed a read-token principal's own `projectId`/`environmentId` back to the caller, which `describe_scope` needs. Added `GET /query/me` (IDs only, no name lookup) rather than inventing a client-side workaround — the guard (`requireQueryPrincipal`) already computes this on every request, it just never returned it.
+
 ## 2026-08-23: Read tokens are a new credential type that overrides scope instead of validating it
 
 Decision: `/query/*` reads accept a new `shread_`-prefixed read token (table `read_tokens`, scoped to one project + environment, revocable) as an alternative to the human session cookie. When a read-token principal calls a read route, the token's stored project/environment **replaces** the caller's `project_id`/`environment_id` query parameters — it is never validated against them. The two fleet routes (`GET /query/fleet`, `GET /query/fleet/projects/:id/environments`) refuse a read-token principal with `403 read_token_scope_insufficient` rather than being scoped down, and every mutation under `/query/*` refuses one with `403 read_token_is_read_only`.
