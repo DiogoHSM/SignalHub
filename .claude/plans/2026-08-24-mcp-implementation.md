@@ -23,6 +23,22 @@ Foundation. Everything else depends on this — do it alone, first.
 
 Commit: `feat(mcp): scaffold package and typed query client (PER-479)`.
 
+## Task 1b — `GET /query/me` (principal scope introspection)
+
+Added after Task 1 surfaced a real gap: no `/query/*` route exposes a read-token principal's own `projectId`/`environmentId` back to the caller. `requireQueryPrincipal` (`apps/api/src/routes/query.ts:1693`) already resolves this internally on every request — it just never returns it. Without this, `describe_scope` (Task 3) has nothing to call for its "projeto/environment do token" cell.
+
+Add `GET /query/me`, guarded by the same `requireQueryPrincipal`, returning:
+
+```ts
+{ kind: "user" } | { kind: "read-token", projectId: string, environmentId: string }
+```
+
+IDs only — no project/environment name lookup (that data lives in the admin resources, out of `/query/*`'s reach by design; an ID is enough for the tool to be correct, a name is a nice-to-have that isn't worth reaching across the boundary for).
+
+Requirements: OpenAPI entry in `apps/api/src/openapi.ts` (the coverage test fails otherwise), a test in `apps/api/test/query.test.ts` covering both principal kinds, and one new method on `packages/mcp/src/client.ts` (`getPrincipalScope()` or similar) using it. This route is read-only and adds no new constraint beyond what PER-478 already established — no `CONSTRAINTS.md` change needed unless review finds otherwise.
+
+Commit: `feat(api): expose read-token principal scope via GET /query/me (PER-479)`.
+
 ## Task 2 — Response budget / truncation (`budget.ts`)
 
 Depends on Task 1 only for the package scaffold (tsconfig, test runner) — no dependency on `client.ts`'s content, can start once Task 1's scaffold exists.
