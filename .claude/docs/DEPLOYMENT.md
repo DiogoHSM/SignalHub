@@ -104,6 +104,17 @@ After triggering the three deploy webhooks, poll this until `version` matches th
 
 Postgres and Redis are never redeployed from repository builds. They are stateful Coolify database resources managed directly in the panel.
 
+## Rollback
+
+Rollback is safe only when the deploy being reverted was application code only. Migrations are forward-only (`packages/db/src/migrate.ts` has no down migrations) and run inside one transaction at API startup — rolling the API/worker/scheduler containers back to older code does not undo a schema change. If the deploy you're rolling back included a migration, redeploying older code against the already-migrated database is the wrong move; restore Postgres from a pre-migration backup instead (see Backups and Restore above), then redeploy the matching older code.
+
+For a code-only rollback:
+
+1. Identify the target commit — the last known-good `SOURCE_COMMIT` from `GET /health` history, or a specific commit SHA.
+2. Coolify keeps a build history per application. Redeploying a previous successful build from the panel is the fastest path when that build is still available and no migration sits between it and the current one.
+3. If that build has aged out of Coolify's history, roll back through git instead: `git revert` the offending commit(s) on `main` (never force-push or rewrite `main` to roll back — that rewrites shared history other work may already build on) and push, then trigger the three deploy webhooks as normal. This produces a new commit whose tree matches the target state, which Coolify then builds like any other deploy.
+4. Verify the same way as any deploy: poll `GET /health` on each of the three services until `version` matches the target commit SHA.
+
 ## SDK Publishing
 
 The JavaScript/TypeScript SDK is published as the public npm package `@sigmon/sdk`. GitHub Actions workflow `Publish SDK` is manual-only (`workflow_dispatch`); it does not run on a GitHub release being published.
