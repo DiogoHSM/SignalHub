@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import { createApiClient } from "./api/client";
 import { AuthGate } from "./components/AuthGate";
 import { ConsoleShellV2 } from "./v2/ConsoleShellV2";
+import { MobileStatusView } from "./v2/MobileStatusView";
+
+// The Fastify console route serves index.html for any /console/* path (see
+// apps/api/src/routes/console.ts), so this must live under that prefix to be
+// reachable at all — a path outside /console/* 404s at the server before this
+// component ever runs.
+const isMobileStatusPath = window.location.pathname === "/console/status";
 
 const bootstrapClient = createApiClient();
 
@@ -66,9 +73,13 @@ export function App() {
       client={runtime.client}
       googleOAuthEnabled={runtime.googleOAuthEnabled}
     >
-      {({ user, signOut }) => (
-        <ConsoleShellV2 client={runtime.client} apiEndpoint={runtime.apiEndpoint} user={user} onSignOut={signOut} />
-      )}
+      {({ user, signOut }) =>
+        isMobileStatusPath ? (
+          <MobileStatusView client={runtime.client} user={user} onSignOut={signOut} />
+        ) : (
+          <ConsoleShellV2 client={runtime.client} apiEndpoint={runtime.apiEndpoint} user={user} onSignOut={signOut} />
+        )
+      }
     </AuthGate>
   );
 }

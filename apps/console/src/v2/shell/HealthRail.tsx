@@ -96,7 +96,7 @@ export function ProjectCard({ p, selected, expanded, onSelect, onToggle, onOpenE
     p.errorRatePercent !== null ? `${p.errorRatePercent.toFixed(1)}%` : "—";
 
   return (
-    <div className={`hr-card ${selected ? "is-selected" : ""}`} data-status={p.status}>
+    <div className={`hr-card status-card ${selected ? "is-selected" : ""}`} data-status={p.status}>
       <div
         className="hr-card__main"
         role="button"
