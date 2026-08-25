@@ -153,6 +153,23 @@ pnpm run doctor -- --compose --api-url http://localhost:3000
 
 If you split queue and scheduler services outside Compose, stop and restart both service roles around migrations.
 
+## Rollback
+
+Rollback only undoes application code. Migrations are forward-only and run inside one transaction at API startup, so rolling code back does not undo a schema change. If the upgrade you're rolling back applied a migration, restore the backup you took before that upgrade (see Restore above) instead of just checking out older code against the already-migrated database.
+
+For a code-only rollback, go to a known-good commit and rebuild:
+
+```sh
+git checkout <previous-tag-or-commit>
+pnpm install
+docker compose build
+docker compose stop api worker
+docker compose up -d
+pnpm run doctor -- --compose --api-url http://localhost:3000
+```
+
+Return to `main` (`git checkout main`) once you've confirmed the rollback resolved the issue, so the next `git pull` in the Upgrade flow above works normally.
+
 ## Sizing Guidance
 
 Start small and scale from measured pressure:
