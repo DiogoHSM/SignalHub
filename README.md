@@ -777,3 +777,13 @@ pnpm build
 docker compose config --quiet
 pnpm run doctor
 ```
+
+## License
+
+SignalMonitor is source-available under the [Elastic License 2.0](LICENSE). In short:
+
+- Anyone can download, use, copy, modify, and self-host SignalMonitor free of charge, including for commercial products they monitor with it.
+- You may not provide SignalMonitor to third parties as a hosted or managed service (that is, resell it — modified or not — as a competing SaaS).
+- You may not remove or alter licensing or copyright notices.
+
+The `@sigmon/sdk` client package is licensed under [MIT](packages/sdk/LICENSE) so it can be embedded freely in any application that reports telemetry to a SignalMonitor install.

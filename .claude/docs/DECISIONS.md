@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-08-26: Core relicensed from MIT to Elastic License 2.0; `@sigmon/sdk` stays MIT
+
+Decision: the repository's root `LICENSE` is now the Elastic License 2.0 (verbatim SPDX text plus a copyright line). The `@sigmon/sdk` package keeps its own MIT license (`packages/sdk/LICENSE`, `"license": "MIT"` in its manifest) because it is embedded in customers' applications and must impose nothing on them.
+
+Rationale: the owner wants the project fully open to download, read, use, modify, and self-host — including commercially, for products people monitor with it — but does not want third parties reselling SignalMonitor itself. ELv2 encodes exactly that boundary for this product category (its only substantive limitation is offering the software to third parties as a hosted or managed service, plus notice preservation), is widely understood, and has no time-based conversion clause. Copies already distributed under MIT remain MIT; the change applies from this commit forward. If the owner later wants to also forbid selling modified self-hosted forks (not only hosted services), PolyForm Shield 1.0.0 is the stricter candidate.
+
+## 2026-08-26: `GET /` is a host-aware web entry point; app hosts skip `/console` typing
+
+Decision: the API registers `GET /`. Hosts in `LANDING_HOSTS` (default `sigmon.app,www.sigmon.app`) get the static marketing landing page (`apps/api/src/landing/index.html`, served by `apps/api/src/routes/landing.ts`); all other hosts 302-redirect to `/console` when the console is enabled, and get the landing page when it is disabled. Both public domains can therefore point at the same Coolify service. The console SPA stays served under the `/console/` base path — the redirect, not a base-path change, is what makes `my.sigmon.app` open the console directly.
+
+Rationale: serving the SPA at `/` would require changing the Vite base and router base while other work is in flight on the console; a redirect achieves the operator-visible goal (type `my.sigmon.app`, land in the console) with no console changes. Host-based branching keeps the landing page on the public domain without a second deployment or web server, and the landing route is exempted in `DOCS_INFRA_ROUTES` (like the docs UI) because it is web plumbing, not product API surface.
+
 ## 2026-08-25: Mobile gets its own status view instead of a responsive console shell
 
 Decision: `/console/status` renders a separate, single-column `MobileStatusView` component chosen at the `App.tsx` root, not a responsive breakpoint added to `ConsoleShellV2`. It reuses the existing `useFleet` data and shows only a fleet status banner and a tap-to-expand project/environment list — no navigation, no mutations.

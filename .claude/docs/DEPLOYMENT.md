@@ -8,7 +8,7 @@ The public self-hosting operator guide lives in `docs/SELF-HOSTING.md`. Keep it 
 
 | Surface | Status |
 | --- | --- |
-| MIT license and public source | Supported |
+| Elastic License 2.0 (source-available) and public source | Supported |
 | Docker Compose self-host install | Supported |
 | Node.js 22 / pnpm 9.15.x runtime | Supported |
 | Postgres 16 / Redis 7 backing services | Supported |
