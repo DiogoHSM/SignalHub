@@ -1082,6 +1082,9 @@ const app = await buildApp({
     apiEndpoint: config.console.publicEndpoint,
     assetsDir:
       config.console.enabled ? fileURLToPath(new URL("../../console/dist/", import.meta.url)) : undefined
+  },
+  landing: {
+    landingHosts: config.landing.hosts
   }
 });
 

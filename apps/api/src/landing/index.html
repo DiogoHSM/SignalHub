@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SignalMonitor — self-hosted telemetry for product analytics, errors, LLM calls, and traces</title>
+<meta name="description" content="SignalMonitor is a self-hosted telemetry core: product analytics, error tracking with source maps, LLM observability, traces, spans, uptime monitors, and alerts. One Docker Compose install. Your data stays on your infrastructure." />
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-raised: #11151f;
+    --bg-card: #141927;
+    --border: #232a3b;
+    --text: #e6e9f0;
+    --text-dim: #9aa3b5;
+    --text-faint: #6b7487;
+    --accent: #5eead4;
+    --accent-2: #818cf8;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    background: rgba(11, 14, 20, 0.9);
+  }
+  .nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; color: var(--text); }
+  .brand:hover { text-decoration: none; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .brand-mark svg { display: block; }
+  .nav-links { display: flex; gap: 22px; align-items: center; font-size: 0.92rem; }
+  .nav-links a { color: var(--text-dim); }
+  .nav-links a:hover { color: var(--text); text-decoration: none; }
+  .nav-cta {
+    color: #0b0e14 !important; background: var(--accent);
+    padding: 7px 14px; border-radius: 8px; font-weight: 600;
+  }
+  .nav-cta:hover { filter: brightness(1.08); }
+
+  .hero { padding: 84px 0 64px; text-align: center; }
+  .hero-badge {
+    display: inline-block; font-size: 0.8rem; color: var(--accent);
+    border: 1px solid rgba(94, 234, 212, 0.35); border-radius: 999px;
+    padding: 4px 14px; margin-bottom: 22px; letter-spacing: 0.02em;
+  }
+  h1 {
+    font-size: clamp(2rem, 5vw, 3.15rem); line-height: 1.15; font-weight: 800;
+    letter-spacing: -0.02em; max-width: 820px; margin: 0 auto;
+  }
+  h1 .grad {
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.sub {
+    max-width: 640px; margin: 20px auto 0; color: var(--text-dim); font-size: 1.08rem;
+  }
+  .hero-actions { margin-top: 34px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 600; font-size: 0.98rem;
+  }
+  .btn:hover { text-decoration: none; }
+  .btn-primary { background: var(--accent); color: #0b0e14; }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost { border: 1px solid var(--border); color: var(--text); background: var(--bg-raised); }
+  .btn-ghost:hover { border-color: var(--text-faint); }
+
+  .term {
+    max-width: 720px; margin: 56px auto 0; text-align: left;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 12px;
+    overflow: hidden; box-shadow: 0 24px 60px -32px rgba(94, 234, 212, 0.25);
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 6px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); background: var(--bg-card);
+  }
+  .term-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+  .term-title { margin-left: 8px; font-family: var(--mono); font-size: 0.75rem; color: var(--text-faint); }
+  .term pre {
+    padding: 18px 20px; font-family: var(--mono); font-size: 0.82rem; line-height: 1.75;
+    color: var(--text-dim); overflow-x: auto;
+  }
+  .term .c { color: var(--text-faint); }
+  .term .k { color: var(--accent-2); }
+  .term .s { color: var(--accent); }
+
+  section { padding: 72px 0; border-top: 1px solid var(--border); }
+  .kicker {
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 10px;
+  }
+  h2 { font-size: 1.7rem; letter-spacing: -0.01em; margin-bottom: 10px; }
+  .section-sub { color: var(--text-dim); max-width: 640px; }
+
+  .grid {
+    margin-top: 40px; display: grid; gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px;
+  }
+  .card h3 { font-size: 1.02rem; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
+  .card p { color: var(--text-dim); font-size: 0.92rem; }
+  .card-icon {
+    width: 30px; height: 30px; border-radius: 8px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(94, 234, 212, 0.12); color: var(--accent);
+  }
+
+  .split { margin-top: 40px; display: grid; gap: 28px; grid-template-columns: 1fr 1fr; align-items: center; }
+  @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+  .checks { list-style: none; margin-top: 18px; }
+  .checks li {
+    padding: 8px 0 8px 30px; color: var(--text-dim); position: relative; font-size: 0.95rem;
+  }
+  .checks li::before {
+    content: "✓"; position: absolute; left: 0; top: 8px;
+    color: var(--accent); font-weight: 700;
+  }
+
+  .license-box {
+    margin-top: 40px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 26px;
+  }
+  .license-box strong { color: var(--text); }
+  .license-box p { color: var(--text-dim); font-size: 0.95rem; }
+  .license-box p + p { margin-top: 10px; }
+
+  footer { border-top: 1px solid var(--border); padding: 36px 0 48px; }
+  .foot {
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+    color: var(--text-faint); font-size: 0.88rem;
+  }
+  .foot a { color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M1 9h3l2-5 3 8 2-5h4" stroke="#0b0e14" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      SignalMonitor
+    </a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#self-hosted">Self-hosted</a>
+      <a href="/sdk">SDK guide</a>
+      <a href="/docs">API docs</a>
+      <a href="https://github.com/DiogoHSM/sigmon">GitHub</a>
+      <a class="nav-cta" href="https://my.sigmon.app/console">Open console</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <span class="hero-badge">Open source-available · Self-hosted · One Docker Compose install</span>
+    <h1>Every signal from your product, <span class="grad">on your own infrastructure</span></h1>
+    <p class="sub">
+      SignalMonitor is a self-hosted telemetry core: product analytics, error tracking with source maps,
+      LLM observability, traces and spans, uptime monitors, and alerts — in one place, with your data
+      never leaving your servers.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://my.sigmon.app/console">Open the console</a>
+      <a class="btn btn-ghost" href="https://github.com/DiogoHSM/sigmon">Deploy your own</a>
+    </div>
+
+    <div class="term">
+      <div class="term-bar">
+        <span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span>
+        <span class="term-title">app/api/checkout.ts</span>
+      </div>
+      <pre><span class="k">import</span> { createSignalMonitorClient } <span class="k">from</span> <span class="s">"@sigmon/sdk/node"</span>;
+
+<span class="k">const</span> sigmon = createSignalMonitorClient({ endpoint, apiKey });
+
+<span class="c">// product analytics</span>
+sigmon.track(<span class="s">"checkout.started"</span>, { plan: <span class="s">"team"</span> });
+
+<span class="c">// errors with release + source-map resolution</span>
+sigmon.captureError(err, { release: process.env.SOURCE_COMMIT });
+
+<span class="c">// LLM calls with model, tokens, cost, and latency</span>
+sigmon.llm({ provider, model, inputTokens, outputTokens, costUsd });</pre>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="kicker">One telemetry core</div>
+      <h2>Everything your product emits, correlated</h2>
+      <p class="section-sub">
+        Events, errors, LLM calls, traces, and monitors share the same project, environment, release,
+        tenant, user, and session identity — so you can pivot from a spike to the exact session that caused it.
+      </p>
+      <div class="grid">
+        <div class="card">
+          <h3><span class="card-icon">◆</span>Product analytics</h3>
+          <p>Events, funnels, retention cohorts, user paths, click maps, segments, dashboards, and experiment results — queryable per project and environment.</p>
+        </div>
+        <div class="card">
+          <h3><span class="card-icon">✕</span>Error tracking</h3>
+          <p>Grouped errors with breadcrumbs, incident triage, and CI-uploaded source maps resolved strictly by project, environment, and release.</p>
+        </div>
+        <div class="card">
+          <h3><span class="card-icon">✳</span>LLM observability</h3>
+          <p>Every LLM call with tokens, latency, and cost — aggregated by model, prompt, and tenant, so you know exactly who and what is spending.</p>
+        </div>
+        <div class="card">
+          <h3><span class="card-icon">↝</span>Traces, spans &amp; APM</h3>
+          <p>Distributed traces with span timelines, endpoint performance, service maps, Web Vitals, and runtime profiles.</p>
+        </div>
+        <div class="card">
+          <h3><span class="card-icon">▣</span>Sessions &amp; feedback</h3>
+          <p>Privacy-safe session timelines and replays, NPS surveys, in-app message campaigns, and a browser feedback widget.</p>
+        </div>
+        <div class="card">
+          <h3><span class="card-icon">◉</span>Alerts &amp; uptime</h3>
+          <p>HTTP and heartbeat monitors, alert rules with webhook and email channels, and a system health view of your own install.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="self-hosted">
+    <div class="wrap">
+      <div class="kicker">Self-hosted</div>
+      <h2>Your telemetry is product data. Keep it.</h2>
+      <div class="split">
+        <div>
+          <p class="section-sub">
+            SignalMonitor runs on your own VPS with Docker Compose: a TypeScript API, a worker,
+            Postgres, and Redis. No usage-based pricing, no data leaving your infrastructure, no per-seat surprises.
+          </p>
+          <ul class="checks">
+            <li>Single Docker Compose install, smoke-tested on every release</li>
+            <li>Postgres as the source of truth — plain SQL, your backups</li>
+            <li>Worker-owned retention, backups, and warehouse exports</li>
+            <li>Project + environment scoped API keys, CI-only upload tokens</li>
+            <li>TypeScript SDK for Node.js, browser, and Next.js</li>
+          </ul>
+        </div>
+        <div class="term" style="margin: 0;">
+          <div class="term-bar">
+            <span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span>
+            <span class="term-title">bash</span>
+          </div>
+          <pre><span class="c"># deploy your own instance</span>
+git clone https://github.com/DiogoHSM/sigmon
+<span class="k">cd</span> sigmon
+cp .env.example .env   <span class="c"># set your secrets</span>
+docker compose up -d
+
+<span class="c"># API, worker, Postgres, and Redis are up</span>
+curl -s localhost:3000/health</pre>
+        </div>
+      </div>
+
+      <div class="license-box">
+        <p><strong>Free to use, source in the open.</strong> Download it, read it, self-host it for your
+        company or your side project — free of charge, forever.</p>
+        <p>The one thing the license does not allow is taking SignalMonitor and reselling it to third
+        parties as a hosted or managed service. See the <a href="https://github.com/DiogoHSM/sigmon/blob/main/LICENSE">license</a> for the exact terms.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span>© 2026 SignalMonitor · sigmon.app</span>
+    <span>
+      <a href="https://my.sigmon.app/console">Console</a> ·
+      <a href="/sdk">SDK guide</a> ·
+      <a href="/docs">API docs</a> ·
+      <a href="/openapi.json">OpenAPI</a> ·
+      <a href="https://github.com/DiogoHSM/sigmon">GitHub</a>
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>
