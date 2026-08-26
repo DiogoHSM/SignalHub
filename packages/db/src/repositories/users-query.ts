@@ -368,7 +368,7 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
     scoped_traces as (
       select user_id, tenant_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
         0::bigint as open_errors, 0::bigint as severe_errors, 1::bigint as traces,
-        case when status <> 'success' then 1 else 0 end::bigint as failed_traces,
+        case when status = 'error' then 1 else 0 end::bigint as failed_traces,
         0::bigint as llm_calls, 0::bigint as failed_llm_calls, 0::numeric as llm_cost_usd
       from traces
       where project_id = ${filters.projectId}
@@ -387,7 +387,7 @@ export async function listUsersActivity(db: Db, filters: UserListFilters): Promi
     scoped_llm_calls as (
       select user_id, tenant_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
         0::bigint as open_errors, 0::bigint as severe_errors, 0::bigint as traces, 0::bigint as failed_traces,
-        1::bigint as llm_calls, case when status <> 'success' then 1 else 0 end::bigint as failed_llm_calls,
+        1::bigint as llm_calls, case when status = 'error' then 1 else 0 end::bigint as failed_llm_calls,
         cost_usd as llm_cost_usd
       from llm_calls
       where project_id = ${filters.projectId}
@@ -622,7 +622,7 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
     scoped_traces as (
       select tenant_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
         0::bigint as open_errors, 0::bigint as severe_errors, 1::bigint as traces,
-        case when status <> 'success' then 1 else 0 end::bigint as failed_traces,
+        case when status = 'error' then 1 else 0 end::bigint as failed_traces,
         0::bigint as llm_calls, 0::bigint as failed_llm_calls, 0::numeric as llm_cost_usd
       from traces
       where project_id = ${filters.projectId}
@@ -635,7 +635,7 @@ async function getUserSummary(db: Db, userId: string, filters: UserDetailFilters
     scoped_llm_calls as (
       select tenant_id, session_id, timestamp, 0::bigint as events, 0::bigint as errors,
         0::bigint as open_errors, 0::bigint as severe_errors, 0::bigint as traces, 0::bigint as failed_traces,
-        1::bigint as llm_calls, case when status <> 'success' then 1 else 0 end::bigint as failed_llm_calls,
+        1::bigint as llm_calls, case when status = 'error' then 1 else 0 end::bigint as failed_llm_calls,
         cost_usd as llm_cost_usd
       from llm_calls
       where project_id = ${filters.projectId}
