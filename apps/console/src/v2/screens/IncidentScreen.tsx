@@ -892,6 +892,7 @@ export function IncidentScreen({
             flexDirection: "column",
             gap: 16,
             minHeight: 0,
+            overflow: "auto",
           }}
         >
           {/* Occurrences summary */}
