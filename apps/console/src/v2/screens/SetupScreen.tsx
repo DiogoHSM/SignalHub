@@ -272,9 +272,9 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16 }}>
         {/* Left column */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, minHeight: 0, overflow: "auto" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Projects */}
           <div className="sh-card">
             <div className="sh-card__head">
@@ -370,7 +370,7 @@ export function SetupScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
 
         {/* Right column — Install SDK */}
-        <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div className="sh-card" style={{ display: "flex", flexDirection: "column" }}>
           <div className="sh-card__head">
             <h2 className="sh-h2">Install SDK</h2>
             <Segmented options={[...SNIPPET_TABS]} value={tab} onChange={(v) => setTab(v as SnippetTab)} />
