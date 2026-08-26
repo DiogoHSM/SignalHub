@@ -4940,3 +4940,131 @@ describe("read tokens are refused on query mutations", () => {
     });
   }
 });
+
+describe("archived project/environment scope reads (PER-474)", () => {
+  it("returns 404 archived_scope for a list route when the project is archived", async () => {
+    const isScopeActive = vi.fn(async () => false);
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        isScopeActive,
+        listEvents: async () => ({ data: [{ id: "evt_1", name: "should.not.be.reached" }] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_archived&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "archived_scope" });
+    expect(isScopeActive).toHaveBeenCalledWith("prj_archived", "env_1");
+  });
+
+  it("returns 404 archived_scope for an aggregate route when the environment is archived", async () => {
+    const isScopeActive = vi.fn(async (_projectId: string, environmentId: string) => environmentId !== "env_archived");
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        isScopeActive,
+        getErrorAggregates: async () => ({ total: 1 })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/aggregates/errors?project_id=prj_1&environment_id=env_archived"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "archived_scope" });
+    expect(isScopeActive).toHaveBeenCalledWith("prj_1", "env_archived");
+  });
+
+  it("returns 404 archived_scope for the non-standard trace spans route", async () => {
+    const isScopeActive = vi.fn(async () => false);
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        isScopeActive,
+        listTraceSpans: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/traces/trc_1/spans?project_id=prj_archived&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "archived_scope" });
+  });
+
+  it("lets an active project/environment through unchanged", async () => {
+    const isScopeActive = vi.fn(async () => true);
+
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        isScopeActive,
+        listEvents: async () => ({ data: [{ id: "evt_1", name: "account.created" }] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ data: [{ id: "evt_1", name: "account.created" }] });
+    expect(isScopeActive).toHaveBeenCalledWith("prj_1", "env_1");
+  });
+
+  it("does not check archived scope for a read-token principal (already re-validated per request)", async () => {
+    const isScopeActive = vi.fn(async () => false);
+
+    app = await buildApp({
+      readiness,
+      verifyReadToken: async () => ({ id: "rdtok_1", projectId: "prj_mine", environmentId: "env_mine" }),
+      query: {
+        isScopeActive,
+        listEvents: async () => ({ data: [] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_mine&environment_id=env_mine",
+      headers: { authorization: "Bearer shread_good" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(isScopeActive).not.toHaveBeenCalled();
+  });
+
+  it("skips the archived-scope check when the dependency is not wired (no regression for callers that omit it)", async () => {
+    app = await buildApp({
+      readiness,
+      auth: humanAuth,
+      query: {
+        listEvents: async () => ({ data: [{ id: "evt_1", name: "account.created" }] })
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/query/events?project_id=prj_1&environment_id=env_1"
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+});

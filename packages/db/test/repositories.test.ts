@@ -27,6 +27,7 @@ import {
   createProjectBrowserOrigin,
   findApiKeyByPrefix,
   getProject,
+  isScopeActive,
   listApiKeys,
   listProjectBrowserOrigins,
   listEnvironments,
@@ -7007,6 +7008,11 @@ describe("repositories", () => {
       });
       await archiveEnvironment(db, archivedEnvironment.id);
       await expect(findApiKeyByPrefix(db, "sh_archenv12")).resolves.toBeUndefined();
+
+      await expect(isScopeActive(db, project.id, environment.id)).resolves.toBe(true);
+      await expect(isScopeActive(db, archivedProject.id, archivedProjectEnvironment.id)).resolves.toBe(false);
+      await expect(isScopeActive(db, project.id, archivedEnvironment.id)).resolves.toBe(false);
+      await expect(isScopeActive(db, "prj_missing", "env_missing")).resolves.toBe(false);
 
       await revokeApiKey(db, apiKey.id);
       await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toBeUndefined();
