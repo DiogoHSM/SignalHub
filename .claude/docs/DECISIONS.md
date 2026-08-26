@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-08-25: Mobile gets its own status view instead of a responsive console shell
+
+Decision: `/console/status` renders a separate, single-column `MobileStatusView` component chosen at the `App.tsx` root, not a responsive breakpoint added to `ConsoleShellV2`. It reuses the existing `useFleet` data and shows only a fleet status banner and a tap-to-expand project/environment list — no navigation, no mutations.
+
+Rationale: the console shell (`.sh-v2 .app`) is a fixed 3-column desktop grid, and screens like Overview lean on inline fixed `gridTemplateColumns` (a 6-column KPI row, a 1.45fr/1fr split) rather than CSS classes a media query could target — confirmed broken at a 390px viewport (overlapping cards, no usable content) before this change. Making that shell responsive would mean auditing and reworking every screen's inline layout to survive narrow viewports, for a need that turned out to be much narrower: "is everything ok," not full investigation, from a phone. A small purpose-built view answers that directly without risking the desktop shell or committing to responsive-izing screens nobody asked to use on a phone.
+
 ## 2026-08-24: `@sigmon/mcp` is its own package, stdio-first, with response budgeting owned outside the API
 
 Decision: MCP investigation tooling lives in a new private package, `packages/mcp`, not inside `apps/api` or the console. It ships nine read-only tools (`describe_scope`, `whats_broken`, `investigate_error`, `trace_request`, `slow_endpoints`, `user_journey`, `llm_costs`, `search_events`, `query`) over a stdio transport, authenticated with the read token from the 2026-08-23 decision below. `server.ts` registers tools independently of transport so a later HTTP/OAuth transport is a new file, not a rewrite. Response pruning and truncation (`budget.ts`) live in the MCP package, not the API — every list-shaped field is capped and has sensitive sub-fields (stack traces, raw event payloads, span bodies) dropped by default, with a `truncated` marker when a cap actually cut something, so a calling agent can tell a partial result from a complete one instead of inferring an empty environment from a truncated list.

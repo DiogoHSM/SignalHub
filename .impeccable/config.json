@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "apps/console/src/styles/v2/components.css"
+        ],
+        "createdAt": "2026-08-25T11:30:35.843Z",
+        "reason": "Matches the existing HealthRail hr-card status-accent border convention already shipped in shell.css; user confirmed intentional consolidation into one shared token"
+      }
+    ]
+  }
+}

@@ -37,6 +37,13 @@
 .sh-v2 .sh-card__body { padding: 16px; }
 .sh-v2 .sh-card__body.flush { padding: 0; }
 
+/* Shared status-accent left border for any card carrying a data-status attribute
+   (fleet/health cards in the rail, project rows in the mobile status view, etc.)
+   — one definition so every status-accented card stays visually consistent. */
+.sh-v2 .status-card[data-status="critical"] { border-left: 3px solid var(--sev-critical); }
+.sh-v2 .status-card[data-status="warning"] { border-left: 3px solid var(--sev-warning); }
+.sh-v2 .status-card[data-status="ok"] { border-left: 3px solid var(--accent); }
+
 /* ===== BADGES / PILLS ===== */
 .sh-v2 .sh-tag {
   display: inline-flex; align-items: center; gap: 6px;

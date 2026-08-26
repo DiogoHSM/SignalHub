@@ -255,3 +255,9 @@ SignalMonitor includes an admin-only Integration Console.
 
 - Setup includes a Read tokens section beside Artifacts, for the active project/environment: create, edit (rename), and revoke a read-only credential for external tools that only need to query telemetry.
 - The one-time secret copy is fixed: shown once, unrecoverable, read-only, this project and environment only. Nothing else about the token is worth restating in the banner.
+
+## Mobile Status View
+
+- The main console shell (`.sh-v2 .app`) is a fixed-width 3-column desktop grid with no mobile breakpoint by design, and its screens lean on inline fixed `gridTemplateColumns` layouts. Retrofitting it responsively would touch every screen's chrome for a need that's actually narrower: a quick "is everything ok" glance, not investigation, from a phone.
+- `MobileStatusView` (served at `/console/status`, chosen at the `App.tsx` root instead of `ConsoleShellV2`) is a deliberately separate, single-column, read-only fleet glance: overall status banner (ok/warning/critical counts, open incidents), a tap-to-expand project list showing per-environment status, and sign-out. It reuses the same `useFleet` data HealthRail already fetches — no new backend surface.
+- It has no navigation to other screens and no mutations. If an operator needs to act, they open the full console on a larger screen; this view only answers "should I be worried right now."

@@ -1,0 +1,42 @@
+/* Mobile status view — a lean, read-only fleet glance for narrow viewports.
+   Deliberately not responsive-shell CSS: this is its own single-column layout,
+   independent of .sh-v2 .app's fixed 3-column desktop grid. */
+
+.ms-root { min-height: 100vh; display: flex; flex-direction: column; }
+
+.ms-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); position: sticky; top: 0; background: var(--bg-base); z-index: 10; }
+.ms-head__logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--accent) 0%, oklch(0.70 0.18 165) 100%); display: grid; place-items: center; color: var(--accent-fg); font-weight: 700; flex-shrink: 0; }
+.ms-head__title { font-weight: 600; font-size: 14px; }
+.ms-head__spacer { flex: 1; }
+.ms-head__user { font-size: 12px; color: var(--fg-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-head__signout { font-size: 12px; color: var(--fg-muted); background: none; border: none; padding: 6px; }
+
+.ms-body { flex: 1; padding: 14px 14px 32px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+
+.ms-banner { border-radius: 14px; padding: 18px; border: 1px solid var(--border-subtle); background: var(--bg-surface); }
+.ms-banner[data-status="critical"] { border-color: var(--sev-critical-border); background: linear-gradient(180deg, var(--sev-critical-bg) -60%, var(--bg-surface) 70%); }
+.ms-banner[data-status="warning"] { border-color: var(--sev-warning-border); background: linear-gradient(180deg, var(--sev-warning-bg) -60%, var(--bg-surface) 70%); }
+.ms-banner__status { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 9px; }
+.ms-banner__legend { display: flex; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--fg-muted); }
+.ms-banner__legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ms-banner__legend i { width: 7px; height: 7px; border-radius: 2px; }
+.ms-banner__meta { display: flex; justify-content: space-between; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; color: var(--fg-muted); }
+.ms-refresh { background: none; border: none; color: var(--fg-muted); font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px; padding: 2px; }
+.ms-refresh:active { color: var(--fg); }
+
+.ms-projects { display: flex; flex-direction: column; gap: 10px; }
+.ms-card { border-radius: 12px; border: 1px solid var(--border-subtle); background: var(--bg-surface); overflow: hidden; }
+.ms-card__main { width: 100%; display: flex; align-items: center; gap: 10px; padding: 14px; background: none; border: none; text-align: left; color: var(--fg); min-height: 52px; }
+.ms-card__name { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-card__stat { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg-muted); white-space: nowrap; }
+.ms-card__stat--bad { color: var(--sev-critical); }
+.ms-card__chevron { color: var(--fg-faint); transition: transform .16s; flex-shrink: 0; }
+.ms-card[data-open="true"] .ms-card__chevron { transform: rotate(90deg); }
+
+.ms-envs { border-top: 1px solid var(--border-subtle); padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ms-env { display: flex; align-items: center; gap: 9px; padding: 8px 0; }
+.ms-env__name { font-size: 13px; color: var(--fg-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-env__stat { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-muted); }
+.ms-env__load { font-size: 12px; color: var(--fg-muted); padding: 8px 0; }
+
+.ms-empty { padding: 40px 20px; text-align: center; color: var(--fg-muted); font-size: 13px; }
