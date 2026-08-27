@@ -240,6 +240,7 @@ export type QueryListResult<T = unknown> =
     };
 
 export type QueryDependencies = {
+  isScopeActive?: (projectId: string, environmentId: string) => Promise<boolean>;
   listEvents?: (filters: QueryFilters) => Promise<QueryListResult>;
   listErrors?: (filters: QueryFilters) => Promise<QueryListResult>;
   listLlmCalls?: (filters: QueryFilters) => Promise<QueryListResult>;
@@ -1720,15 +1721,30 @@ async function requireQueryPrincipal(
   return undefined;
 }
 
-function applyPrincipalScope<T extends { projectId: string; environmentId: string }>(
+// Applies read-token scope overriding, then (for a `user` principal only — a read-token's scope is
+// already re-validated as active on every request by verifyReadToken) rejects a project/environment
+// scope that has since been archived. Returns undefined after already sending a 404 in that case;
+// callers must check for that and return the reply as-is.
+async function applyPrincipalScope<T extends { projectId: string; environmentId: string }>(
   filters: T,
-  principal: QueryPrincipal
-): T {
-  if (principal.kind !== "read-token") {
-    return filters;
+  principal: QueryPrincipal,
+  options: QueryRouteOptions,
+  reply: FastifyReply
+): Promise<T | undefined> {
+  const scoped =
+    principal.kind === "read-token"
+      ? { ...filters, projectId: principal.projectId, environmentId: principal.environmentId }
+      : filters;
+
+  if (principal.kind === "user" && options.query?.isScopeActive) {
+    const active = await options.query.isScopeActive(scoped.projectId, scoped.environmentId);
+    if (!active) {
+      reply.status(404).send({ error: "archived_scope" });
+      return undefined;
+    }
   }
 
-  return { ...filters, projectId: principal.projectId, environmentId: principal.environmentId };
+  return scoped;
 }
 
 function refuseReadToken(reply: FastifyReply, principal: QueryPrincipal): boolean {
@@ -1798,7 +1814,10 @@ async function handleListRoute(
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return sendListResult(reply, await run(filters));
@@ -1829,7 +1848,10 @@ async function handleTraceSpansRoute(request: FastifyRequest, reply: FastifyRepl
     return reply.status(400).send({ error: "invalid_query" });
   }
   filters.traceId = params.data.id;
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return sendListResult(reply, await options.query.listTraceSpans(params.data.id, filters));
@@ -1862,7 +1884,10 @@ async function handleAggregateRoute(
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await run(filters) });
@@ -1888,7 +1913,10 @@ async function handleOverviewRoute(request: FastifyRequest, reply: FastifyReply,
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getOverview(filters) });
@@ -1911,7 +1939,10 @@ async function handleRecentActivityRoute(request: FastifyRequest, reply: Fastify
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getRecentActivity(filters) });
@@ -1934,7 +1965,10 @@ async function handleReleaseListRoute(request: FastifyRequest, reply: FastifyRep
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.listReleases(filters) });
@@ -2004,7 +2038,10 @@ async function handleDashboardReportRoute(request: FastifyRequest, reply: Fastif
   if (!params.success || !filters) {
     return reply.status(400).send({ error: "invalid_dashboard_report_request" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     const dashboard = await options.query.getAnalyticsDashboard({
@@ -2111,7 +2148,10 @@ async function handleLlmAggregateRoute(
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await run(filters) });
@@ -2134,7 +2174,10 @@ async function handleOperationsRoute(request: FastifyRequest, reply: FastifyRepl
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getOperations(filters) });
@@ -2157,7 +2200,10 @@ async function handleApmEndpointsRoute(request: FastifyRequest, reply: FastifyRe
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getApmEndpoints(filters) });
@@ -2180,7 +2226,10 @@ async function handleEventPropertyCatalogRoute(request: FastifyRequest, reply: F
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getEventPropertyCatalog(filters) });
@@ -2203,7 +2252,10 @@ async function handleEventClickMapRoute(request: FastifyRequest, reply: FastifyR
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getEventClickMap(filters) });
@@ -2226,7 +2278,10 @@ async function handleEventFunnelRoute(request: FastifyRequest, reply: FastifyRep
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getEventFunnel(filters) });
@@ -2252,7 +2307,10 @@ async function handleExperimentResultsRoute(request: FastifyRequest, reply: Fast
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     const result = await options.query.getExperimentResults(filters);
@@ -2280,7 +2338,10 @@ async function handleAnalyticsTrendRoute(request: FastifyRequest, reply: Fastify
   if (!parsed) {
     return reply.status(400).send({ error: "invalid_analytics_trend_request" });
   }
-  parsed = applyPrincipalScope(parsed, principal);
+  parsed = await applyPrincipalScope(parsed, principal, options, reply);
+  if (!parsed) {
+    return reply;
+  }
 
   let definition = parsed.definition;
   if (parsed.insightId) {
@@ -2338,7 +2399,10 @@ async function handleSurveyResultsRoute(request: FastifyRequest, reply: FastifyR
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     const result = await options.query.getSurveyResults(filters);
@@ -2365,7 +2429,10 @@ async function handleMessageCampaignResultsRoute(request: FastifyRequest, reply:
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     const result = await options.query.getMessageCampaignResults(filters);
@@ -2392,7 +2459,10 @@ async function handleNpsResultsRoute(request: FastifyRequest, reply: FastifyRepl
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     const result = await options.query.getNpsResults(filters);
@@ -2423,7 +2493,10 @@ async function handleFeedbackListRoute(request: FastifyRequest, reply: FastifyRe
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ feedback: await options.query.listFeedbackItems(filters) });
@@ -2481,7 +2554,10 @@ async function handleEventPathsRoute(request: FastifyRequest, reply: FastifyRepl
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getEventPaths(filters) });
@@ -2504,7 +2580,10 @@ async function handleEventRetentionRoute(request: FastifyRequest, reply: Fastify
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getEventRetention(filters) });
@@ -2527,7 +2606,10 @@ async function handleServiceMapRoute(request: FastifyRequest, reply: FastifyRepl
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getServiceMap(filters) });
@@ -2550,7 +2632,10 @@ async function handleWebVitalsRoute(request: FastifyRequest, reply: FastifyReply
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getWebVitals(filters) });
@@ -2573,7 +2658,10 @@ async function handleRuntimeProfilesRoute(request: FastifyRequest, reply: Fastif
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getRuntimeProfiles(filters) });
@@ -2601,7 +2689,10 @@ async function handleSessionTimelineRoute(request: FastifyRequest, reply: Fastif
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getSessionTimeline(filters) });
@@ -2627,7 +2718,10 @@ async function handleSessionReplayRoute(request: FastifyRequest, reply: FastifyR
   if (!params.success || !projectId || !environmentId) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  const scope = applyPrincipalScope({ projectId, environmentId }, principal);
+  const scope = await applyPrincipalScope({ projectId, environmentId }, principal, options, reply);
+  if (!scope) {
+    return reply;
+  }
 
   try {
     const replay = await options.query.getSessionReplayDetail({
@@ -2655,7 +2749,10 @@ async function handleSessionReplayListRoute(request: FastifyRequest, reply: Fast
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send(await options.query.listSessionReplays(filters));
@@ -2678,7 +2775,10 @@ async function handleEntityTenantListRoute(request: FastifyRequest, reply: Fasti
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.listEntityTenants(filters) });
@@ -2702,7 +2802,10 @@ async function handleEntityTenantDetailRoute(request: FastifyRequest, reply: Fas
   if (!params.success || params.data.tenantKey === "_unassigned" || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getEntityTenantDetail(params.data.tenantKey, filters) });
@@ -2725,7 +2828,10 @@ async function handleUserListRoute(request: FastifyRequest, reply: FastifyReply,
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.listUsersActivity(filters) });
@@ -2749,7 +2855,10 @@ async function handleUserDetailRoute(request: FastifyRequest, reply: FastifyRepl
   if (!params.success || params.data.userKey === "_anonymous" || !filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return reply.send({ data: await options.query.getUserDetail(params.data.userKey, filters) });
@@ -2772,7 +2881,10 @@ async function handleErrorGroupListRoute(request: FastifyRequest, reply: Fastify
   if (!filters) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return sendListResult(reply, await options.query.listErrorGroups(filters));
@@ -2799,7 +2911,10 @@ async function handleErrorGroupDetailRoute(request: FastifyRequest, reply: Fasti
   if (!params.success || !scope) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  scope = applyPrincipalScope(scope, principal);
+  scope = await applyPrincipalScope(scope, principal, options, reply);
+  if (!scope) {
+    return reply;
+  }
 
   try {
     const group = await options.query.getErrorGroup(params.data.id, scope);
@@ -2824,7 +2939,10 @@ async function handleErrorGroupIncidentRoute(request: FastifyRequest, reply: Fas
   if (!params.success || !scope) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  scope = applyPrincipalScope(scope, principal);
+  scope = await applyPrincipalScope(scope, principal, options, reply);
+  if (!scope) {
+    return reply;
+  }
 
   try {
     const incident = await options.query.getErrorGroupIncident(params.data.id, scope);
@@ -2914,7 +3032,10 @@ async function handleErrorGroupOccurrencesRoute(request: FastifyRequest, reply: 
   if (filters.errorGroupId && filters.errorGroupId !== params.data.id) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  filters = applyPrincipalScope(filters, principal);
+  filters = await applyPrincipalScope(filters, principal, options, reply);
+  if (!filters) {
+    return reply;
+  }
 
   try {
     return sendListResult(reply, await options.query.listErrors({ ...filters, errorGroupId: params.data.id }));
@@ -2945,7 +3066,10 @@ async function handleErrorSourceMapResolutionRoute(
   if (!params.success || !scope) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  scope = applyPrincipalScope(scope, principal);
+  scope = await applyPrincipalScope(scope, principal, options, reply);
+  if (!scope) {
+    return reply;
+  }
 
   try {
     const resolution = await options.query.resolveErrorStack({
@@ -3132,7 +3256,10 @@ async function handleIncidentMttrRoute(request: FastifyRequest, reply: FastifyRe
   if (!projectId || !environmentId || windowDays === null) {
     return reply.status(400).send({ error: "invalid_query" });
   }
-  const scope = applyPrincipalScope({ projectId, environmentId }, principal);
+  const scope = await applyPrincipalScope({ projectId, environmentId }, principal, options, reply);
+  if (!scope) {
+    return reply;
+  }
 
   try {
     const result = await options.query.getIncidentMttr({ ...scope, windowDays });

@@ -294,6 +294,20 @@ export async function archiveEnvironment(db: Db, id: string): Promise<void> {
     .execute();
 }
 
+export async function isScopeActive(db: Db, projectId: string, environmentId: string): Promise<boolean> {
+  const activeScope = await db
+    .selectFrom("projects")
+    .innerJoin("environments", "environments.project_id", "projects.id")
+    .select("environments.id")
+    .where("projects.id", "=", projectId)
+    .where("environments.id", "=", environmentId)
+    .where("projects.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
+    .executeTakeFirst();
+
+  return Boolean(activeScope);
+}
+
 export async function createApiKeyRecord(
   db: Db,
   input: { projectId: string; environmentId: string; name: string; prefix: string; hash: string }
