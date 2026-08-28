@@ -8,7 +8,7 @@ The public self-hosting operator guide lives in `docs/SELF-HOSTING.md`. Keep it 
 
 | Surface | Status |
 | --- | --- |
-| MIT license and public source | Supported |
+| Elastic License 2.0 (source-available) and public source | Supported |
 | Docker Compose self-host install | Supported |
 | Node.js 22 / pnpm 9.15.x runtime | Supported |
 | Postgres 16 / Redis 7 backing services | Supported |
@@ -19,6 +19,8 @@ The public self-hosting operator guide lives in `docs/SELF-HOSTING.md`. Keep it 
 ## Deployment Identity
 
 SignalMonitor's intended public website and domain is `sigmon.app`. The deployed application host is `my.sigmon.app`.
+
+Both domains are served by the same API service. `GET /` is host-aware: `LANDING_HOSTS` hosts (default `sigmon.app,www.sigmon.app`) receive the public landing page, and any other host — `my.sigmon.app` included — is redirected from `/` straight to `/console`. To put the landing page live, add `sigmon.app` and `www.sigmon.app` as additional domains on the API service in Coolify and point their DNS at the same server; no separate site deployment exists.
 
 Coolify VPS deployment is the active production deployment for the hosted self-managed instance. Docker Compose remains the documented portable production-supported installation path for independent self-hosted installs.
 

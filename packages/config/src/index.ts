@@ -53,6 +53,24 @@ function requireProductionDatabasePasswordIsNotPlaceholder(databaseUrl: string, 
   }
 }
 
+function parseHostList(value: string | undefined, fallback: string[]): string[] {
+  if (!value) {
+    return fallback;
+  }
+
+  const hosts = value
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+  for (const host of hosts) {
+    if (host.includes("/") || host.includes(":")) {
+      throw new Error(`LANDING_HOSTS entries must be bare hostnames without scheme or port: ${host}`);
+    }
+  }
+
+  return hosts;
+}
+
 function parseOriginList(value: string | undefined): string[] {
   if (!value) {
     return [];
@@ -93,6 +111,7 @@ const rawConfigSchema = z.object({
     .optional()
     .transform((value) => (value === undefined ? undefined : value === "true")),
   SIGMON_PUBLIC_ENDPOINT: optionalEnvUrl,
+  LANDING_HOSTS: optionalEnvString,
   BROWSER_CORS_ORIGINS: optionalEnvString,
   RETENTION_ENABLED: z
     .enum(["true", "false"])
@@ -262,6 +281,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     console: {
       enabled: parsed.CONSOLE_ENABLED ?? (parsed.NODE_ENV === "production"),
       publicEndpoint: parsed.SIGMON_PUBLIC_ENDPOINT ?? ""
+    },
+    landing: {
+      hosts: parseHostList(parsed.LANDING_HOSTS, ["sigmon.app", "www.sigmon.app"])
     },
     browserCors: {
       origins: parseOriginList(parsed.BROWSER_CORS_ORIGINS)

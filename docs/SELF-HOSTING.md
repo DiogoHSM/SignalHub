@@ -6,7 +6,7 @@ SignalMonitor is self-hosted software. This release line supports Docker Compose
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| License | Supported | MIT license. See `LICENSE`. |
+| License | Supported | Elastic License 2.0 (source-available). Free to download, use, modify, and self-host; may not be offered to third parties as a hosted or managed service. The `@sigmon/sdk` package stays MIT so it can be embedded in any application. See `LICENSE`. |
 | Runtime | Supported | Node.js 22.x and pnpm 9.15.x. |
 | Install path | Supported | Docker Compose with Postgres 16, Redis 7, API, and worker/scheduler. |
 | Local development | Supported | Native Node.js API/worker with Compose Postgres and Redis. |
@@ -18,7 +18,7 @@ SignalMonitor is self-hosted software. This release line supports Docker Compose
 | Source-map object storage | Deferred | Source maps are local-volume backed in this release line. |
 | Kubernetes / Helm | Not supported | Can be built by operators, but is not maintained as an official path yet. |
 | Hosted SaaS / billing / per-project RBAC | Not supported | One self-hosted install with local admins and project/environment scopes. |
-| Enterprise SLA | Not provided | The MIT license ships software without warranty. Operators own uptime and incident response. |
+| Enterprise SLA | Not provided | The Elastic License 2.0 ships software without warranty. Operators own uptime and incident response. |
 
 ## Minimum Production Shape
 
@@ -210,5 +210,5 @@ Then open `System Health` in the console and confirm API, worker, scheduler, Pos
 - No per-project RBAC, billing, or invite workflow.
 - Source maps are stored on local volume storage.
 - Backups cover Postgres. Operators must also protect source-map volume data if source maps are business-critical.
-- The MIT license provides no warranty or managed SLA.
+- The Elastic License 2.0 provides no warranty or managed SLA.
 

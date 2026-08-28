@@ -266,6 +266,8 @@ ClickHouse, object storage, stored log telemetry, SaaS workspace scope, and bill
 
 The API exposes `GET /console/config` for non-secret browser configuration and serves built console assets from `/console` in production. The console uses existing session authentication, admin routes, and query routes.
 
+`GET /` is the web entry point and is host-aware: hosts listed in `LANDING_HOSTS` (default `sigmon.app,www.sigmon.app`) receive the static public landing page from `apps/api/src/landing/index.html`, while every other host (for example `my.sigmon.app`) is redirected with a 302 to `/console` so operators land directly in the console. When the console is disabled, `/` serves the landing page for every host instead of issuing a dead redirect. The landing page is CSP-compliant with the API's global policy: inline styles only, no scripts, no external assets.
+
 ## Operational Safety
 
 The background worker can run as a queue worker, scheduler, or combined process through `WORKER_ROLE`. Queue liveness is recorded in `system_heartbeats` as `worker`; scheduler liveness is recorded separately as `scheduler`, so split deployments can be diagnosed independently from the console `System` mode.
