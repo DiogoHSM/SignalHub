@@ -35,6 +35,7 @@ SignalMonitor is a self-hosted telemetry core for product analytics, errors, LLM
 - Keep root-level `SECRETS.md` and local `.env` files uncommitted.
 - Feedback widget ingestion is browser-safe text/context only for now; do not add screenshot capture until masking and explicit consent controls are designed.
 - Read tokens are read-only against `/query/*` and scope-overriding: their project/environment replace the caller's query parameters rather than being validated against them.
+- `packages/loadgen` (synthetic telemetry CLI, not part of the deployed product) sends only through `@sigmon/sdk`'s public `SignalMonitorClient` — never its internal `retry.ts`/`sendSignal`. Monitor-outage simulation only acts on incident windows in the live portion of a run; a window entirely in the backfilled past is skipped, never attempted.
 
 ## Verification
 

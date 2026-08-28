@@ -2,7 +2,7 @@
 
 > **Sempre carregado.** Este arquivo é o único contrato de *lazy loading* do projeto: diz a Claude quais docs ler antes de tocar em cada área. Docs não listados aqui só são lidos quando Claude os abrir explicitamente.
 
-**Última revisão**: 2026-08-24
+**Última revisão**: 2026-08-28
 
 ---
 
@@ -29,6 +29,7 @@ Use esta tabela como checklist. Antes de modificar um arquivo que se encaixe num
 | Teste que quer provar uso de índice | — | **não asserte a forma do plano** (`EXPLAIN`): a escolha é cost-based e vira com as estatísticas acumuladas da suíte. Verifique catálogo (opclass suporta o operador) + forma da expressão compilada + comportamento. Ver PER-475 |
 | Guard de `/query/*` (`requireQueryPrincipal`) | `CONSTRAINTS.md`, `DECISIONS.md` | principal de read token só passa em leitura; escopo do token sobrescreve o da query string, nunca é validado contra ela |
 | `packages/mcp/**` (tools do MCP) | `ARCHITECTURE.md` (seção "Non-human read access"), `.claude/plans/2026-08-22-mcp-sigmon-design.md` | toda tool compõe rotas de `/query/*` já existentes — ler a rota antes de mudar composição; campos em lista sempre passam por `budget.ts` (poda + `truncated`), nunca sem poda |
+| `packages/loadgen/**` (motor de telemetria sintética) | `DECISIONS.md` (ADR 2026-08-28), `docs/superpowers/specs/2026-08-28-loadgen-synthetic-telemetry-engine-design.md` | envia dado real pra projetos reais via `@sigmon/sdk` público — nunca `retry.ts`/`sendSignal` internos; queda de monitor simulada só age na janela ao vivo (`endMs > nowMs`); janela de incidente mais curta que a duração do incidente trava o processo (PER-499, não corrigido) |
 | Mutação nova em `apps/api/src/routes/query.ts` | `CONSTRAINTS.md` | todo handler de mutação precisa recusar read token explicitamente — não existe allowlist de path que faça isso por você |
 | Decisão arquitetural relevante | `DECISIONS.md` (ler + adicionar ADR) | rastreabilidade |
 | Escopo/objetivos do projeto | `PROJECT-SUMMARY.md` | fase atual: Phase 6G hardening |
