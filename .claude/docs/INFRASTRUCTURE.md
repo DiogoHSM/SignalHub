@@ -18,6 +18,14 @@ Do not redeploy Postgres or Redis from repository builds. They are stateful Cool
 
 Operator access details (Coolify panel URL, VPS address, SSH key access) are intentionally not committed; they live in the uncommitted root `SECRETS.md`.
 
+## Cloudflare Tunnel (sigmon.app, www.sigmon.app)
+
+`sigmon.app` and `www.sigmon.app` sit behind a Cloudflare Tunnel (`cloudflared` container on the VPS, token-based — ingress is managed remotely in the Cloudflare Zero Trust dashboard, not a local `config.yml`). `my.sigmon.app` is unaffected: it resolves with a direct A record straight to the VPS, no tunnel involved.
+
+Both tunnel routes point at the Coolify Traefik origin (`https://127.0.0.1:443` / `https://localhost:443`) with **Disable TLS certificate verification** on and **Origin Server Name** set to the route's own hostname. This is required because Traefik has no Let's Encrypt certificate for these hostnames when reached this way (the ACME HTTP-01 challenge can't complete through the tunnel), so it falls back to a self-signed cert that fails default TLS validation — cloudflared logs `x509: cannot validate certificate for 127.0.0.1 because it doesn't contain any IP SANs` when this is misconfigured.
+
+The api Coolify application must also have `sigmon.app` and `www.sigmon.app` listed (comma-separated, no stray punctuation) in its `Domains` field and be redeployed after any change there — Traefik's routing labels are baked in at container start, so a domain added to Coolify only takes effect after the next deploy of that application.
+
 ## Compose Defaults
 
 - Postgres image: `postgres:16-alpine`.
