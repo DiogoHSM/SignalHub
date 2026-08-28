@@ -107,6 +107,10 @@ async function main(): Promise<void> {
     driver.stop();
   }
 
+  for (const client of projectClients) {
+    await client.shutdown();
+  }
+
   console.log(`[loadgen] done — sent ${result.sent}, failed ${result.failed}, skipped ${result.skippedOutageWindows} backfilled outage window(s)`);
 }
 
