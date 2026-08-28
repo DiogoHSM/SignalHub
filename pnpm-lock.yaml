@@ -250,6 +250,18 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
 
+  packages/loadgen:
+    dependencies:
+      '@sigmon/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      fastify:
+        specifier: ^5.8.5
+        version: 5.8.5
+      zod:
+        specifier: ^4.4.2
+        version: 4.4.2
+
   packages/mcp:
     dependencies:
       '@modelcontextprotocol/sdk':

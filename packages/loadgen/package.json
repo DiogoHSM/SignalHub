@@ -1,0 +1,20 @@
+{
+  "name": "@sigmon/loadgen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "sigmon-loadgen": "./dist/run.js",
+    "sigmon-loadgen-fake-target": "./dist/fake-target-bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sigmon/sdk": "workspace:*",
+    "fastify": "^5.8.5",
+    "zod": "^4.4.2"
+  }
+}
