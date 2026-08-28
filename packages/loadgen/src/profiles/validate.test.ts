@@ -43,4 +43,11 @@ describe("validateProfile", () => {
       'user "user_orphan" references undeclared tenant "tenant_nonexistent"'
     ]);
   });
+
+  it("returns no problems for every built-in profile", async () => {
+    const { PROFILES } = await import("./index.js");
+    for (const profile of Object.values(PROFILES)) {
+      expect(validateProfile(profile)).toEqual([]);
+    }
+  });
 });
