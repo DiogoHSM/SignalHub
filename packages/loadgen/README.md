@@ -35,7 +35,8 @@ side effect while still producing their error-rate/LLM-cost effect.
 ## Usage
 
 ```sh
-# Backfill 7 days of history instantly, no live run
+# Backfill 7 days of history without waiting for real time to pass (delivery still takes real
+# wall-clock time proportional to signal count — see Limitations)
 sigmon-loadgen run --profile fintech --projects 2 --backfill 7d
 
 # Run live for 2 hours (soak / stress test)
@@ -67,3 +68,9 @@ outage window.
 Monitor-outage simulation (both HTTP and heartbeat) only takes effect for windows that fall in the
 run's live portion — Sigmon has no ingestion path for a historical monitor-check record, so a
 `--backfill`-only run cannot simulate a monitor outage in the past. See the design spec for why.
+
+Backfill delivery is not concurrent — `@sigmon/sdk` sends one signal per HTTP round-trip, so a
+large `--backfill` (many days, several projects) takes real wall-clock time proportional to the
+number of signals generated, not "instant." A few hours of a single project backfills quickly; a
+week across 2-3 projects can take a while. Concurrent/batched delivery is a reasonable future
+improvement, not implemented in this version.

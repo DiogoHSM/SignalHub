@@ -6,28 +6,54 @@ export function dispatchBeat(client: SignalMonitorClient, beat: Beat): void {
 
   switch (beat.kind) {
     case "event":
-      client.track(beat.name, beat.properties, { timestamp });
+      client.track(beat.name, beat.properties, {
+        timestamp,
+        source: beat.serviceName,
+        metadata: { service: beat.serviceName }
+      });
       return;
     case "error":
-      client.captureError(new Error(beat.message), { severity: beat.severity, traceId: beat.traceId, timestamp });
-      return;
-    case "trace":
-      client.trace({ name: beat.name, status: beat.status, durationMs: beat.durationMs, timestamp }, { traceId: beat.traceId });
-      return;
-    case "span":
-      client.span({ traceId: beat.traceId, name: beat.name, status: beat.status, durationMs: beat.durationMs, timestamp });
-      return;
-    case "llmCall":
-      client.llm({
-        provider: beat.provider,
-        model: beat.model,
-        inputTokens: beat.inputTokens,
-        outputTokens: beat.outputTokens,
-        costUsd: beat.costUsd,
-        latencyMs: beat.latencyMs,
-        status: beat.status,
-        timestamp
+      client.captureError(new Error(beat.message), {
+        severity: beat.severity,
+        traceId: beat.traceId,
+        timestamp,
+        source: beat.serviceName,
+        metadata: { service: beat.serviceName }
       });
+      return;
+    case "trace": {
+      const endedAt = new Date(beat.timestampMs + beat.durationMs);
+      client.trace(
+        { name: beat.name, status: beat.status, durationMs: beat.durationMs, timestamp, startedAt: timestamp, endedAt },
+        { traceId: beat.traceId, source: beat.serviceName, metadata: { service: beat.serviceName } }
+      );
+      return;
+    }
+    case "span": {
+      const endedAt = new Date(beat.timestampMs + beat.durationMs);
+      client.span(
+        { traceId: beat.traceId, name: beat.name, status: beat.status, durationMs: beat.durationMs, timestamp, startedAt: timestamp, endedAt },
+        {
+          source: beat.callerServiceName,
+          metadata: { service: beat.callerServiceName, target_service: beat.serviceName }
+        }
+      );
+      return;
+    }
+    case "llmCall":
+      client.llm(
+        {
+          provider: beat.provider,
+          model: beat.model,
+          inputTokens: beat.inputTokens,
+          outputTokens: beat.outputTokens,
+          costUsd: beat.costUsd,
+          latencyMs: beat.latencyMs,
+          status: beat.status,
+          timestamp
+        },
+        { source: beat.serviceName, metadata: { service: beat.serviceName } }
+      );
       return;
     case "identifyUser":
       client.identifyUser(beat.userId, beat.traits, { tenantId: beat.tenantId, timestamp });
@@ -36,7 +62,10 @@ export function dispatchBeat(client: SignalMonitorClient, beat: Beat): void {
       client.identifyTenant(beat.tenantId, beat.traits, { timestamp });
       return;
     case "breadcrumb":
-      client.breadcrumb({ type: "custom", message: beat.message, timestamp });
+      client.breadcrumb(
+        { type: "custom", message: beat.message, timestamp },
+        { source: beat.serviceName, metadata: { service: beat.serviceName } }
+      );
       return;
   }
 }
@@ -66,6 +95,7 @@ async function runBeatLoop(options: ExecutorOptions, sleepImpl: (ms: number) => 
   let sent = 0;
   let failed = 0;
   let sinceFlush = 0;
+  let dispatchedCount = 0;
   const total = options.timeline.beats.length;
 
   const flushAll = async () => {
@@ -81,6 +111,7 @@ async function runBeatLoop(options: ExecutorOptions, sleepImpl: (ms: number) => 
 
     if (beat.timestampMs < options.nowMs) {
       dispatchBeat(client, beat);
+      dispatchedCount += 1;
       sinceFlush += 1;
       if (sinceFlush >= backfillBatchSize) {
         await flushAll();
@@ -92,11 +123,12 @@ async function runBeatLoop(options: ExecutorOptions, sleepImpl: (ms: number) => 
         await sleepImpl(waitMs);
       }
       dispatchBeat(client, beat);
+      dispatchedCount += 1;
       await flushAll();
       sinceFlush = 0;
     }
 
-    options.onProgress?.(sent, total);
+    options.onProgress?.(dispatchedCount, total);
   }
 
   await flushAll();
@@ -105,32 +137,33 @@ async function runBeatLoop(options: ExecutorOptions, sleepImpl: (ms: number) => 
 }
 
 async function runOutageLoop(options: ExecutorOptions, sleepImpl: (ms: number) => Promise<void>, nowImpl: () => number) {
-  let skipped = 0;
+  const results = await Promise.all(
+    options.timeline.incidentWindows.map(async (window): Promise<"skipped" | "processed" | "no-monitor"> => {
+      if (!window.monitorKind) {
+        return "no-monitor";
+      }
 
-  for (const window of options.timeline.incidentWindows) {
-    if (!window.monitorKind) {
-      continue;
-    }
+      if (window.endMs <= options.nowMs) {
+        return "skipped";
+      }
 
-    if (window.endMs <= options.nowMs) {
-      skipped += 1;
-      continue;
-    }
+      const startWaitMs = window.startMs - nowImpl();
+      if (startWaitMs > 0) {
+        await sleepImpl(startWaitMs);
+      }
+      await options.onOutageStart?.(window);
 
-    const startWaitMs = window.startMs - nowImpl();
-    if (startWaitMs > 0) {
-      await sleepImpl(startWaitMs);
-    }
-    await options.onOutageStart?.(window);
+      const endWaitMs = window.endMs - nowImpl();
+      if (endWaitMs > 0) {
+        await sleepImpl(endWaitMs);
+      }
+      await options.onOutageEnd?.(window);
 
-    const endWaitMs = window.endMs - nowImpl();
-    if (endWaitMs > 0) {
-      await sleepImpl(endWaitMs);
-    }
-    await options.onOutageEnd?.(window);
-  }
+      return "processed";
+    })
+  );
 
-  return { skipped };
+  return { skipped: results.filter((result) => result === "skipped").length };
 }
 
 export async function runExecutor(options: ExecutorOptions): Promise<ExecutorResult> {

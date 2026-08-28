@@ -70,6 +70,7 @@ export type TraceBeat = BeatBase & {
 
 export type SpanBeat = BeatBase & {
   kind: "span";
+  callerServiceName: string;
   traceId: string;
   name: string;
   status: SignalStatus;

@@ -43,7 +43,7 @@ describe("dispatchBeat", () => {
       { kind: "event", timestampMs: 0, projectIndex: 0, serviceName: "checkout", name: "checkout.request", properties: {} },
       { kind: "error", timestampMs: 0, projectIndex: 0, serviceName: "checkout", message: "boom", severity: "error" },
       { kind: "trace", timestampMs: 0, projectIndex: 0, serviceName: "checkout", traceId: "trc_1", name: "checkout.handle", status: "success", durationMs: 50 },
-      { kind: "span", timestampMs: 0, projectIndex: 0, serviceName: "payments", traceId: "trc_1", name: "payments.call", status: "success", durationMs: 20 },
+      { kind: "span", timestampMs: 0, projectIndex: 0, serviceName: "payments", callerServiceName: "checkout", traceId: "trc_1", name: "payments.call", status: "success", durationMs: 20 },
       { kind: "llmCall", timestampMs: 0, projectIndex: 0, serviceName: "support-bot", provider: "openai", model: "gpt-5", inputTokens: 100, outputTokens: 50, costUsd: 0.01, latencyMs: 300, status: "success" },
       { kind: "identifyUser", timestampMs: 0, projectIndex: 0, serviceName: "checkout", userId: "user_alice", tenantId: "tenant_acme", traits: {} },
       { kind: "identifyTenant", timestampMs: 0, projectIndex: 0, serviceName: "checkout", tenantId: "tenant_acme", traits: {} },
@@ -207,5 +207,86 @@ describe("runExecutor", () => {
 
     releaseBeatWait();
     await resultPromise;
+  });
+
+  it("processes outage windows for multiple projects independently, not back-to-back", async () => {
+    const clientA = createFakeClient();
+    const clientB = createFakeClient();
+    const nowMs = 1_000_000;
+
+    const windowA: IncidentWindow = {
+      startMs: nowMs + 1_000,
+      endMs: nowMs + 100_000,
+      projectIndex: 0,
+      serviceName: "checkout",
+      incidentKey: "a",
+      errorRateMultiplier: 1,
+      llmCallMultiplier: 1,
+      monitorKind: "http"
+    };
+    const windowB: IncidentWindow = {
+      startMs: nowMs + 1_000,
+      endMs: nowMs + 2_000,
+      projectIndex: 1,
+      serviceName: "checkout",
+      incidentKey: "b",
+      errorRateMultiplier: 1,
+      llmCallMultiplier: 1,
+      monitorKind: "http"
+    };
+    const timeline: Timeline = { beats: [], incidentWindows: [windowA, windowB] };
+    const nowImpl = vi.fn(() => nowMs);
+    const startOrder: string[] = [];
+    const endOrder: string[] = [];
+    const onOutageStart = vi.fn((window: IncidentWindow) => {
+      startOrder.push(window.incidentKey);
+    });
+    const onOutageEnd = vi.fn((window: IncidentWindow) => {
+      endOrder.push(window.incidentKey);
+    });
+
+    // sleepImpl resolves instantly for every wait — if the loop were still sequential,
+    // window B's onOutageEnd would still fire right after window A's (both immediately,
+    // since all sleeps resolve instantly either way), so this test's real assertion is that
+    // BOTH windows' callbacks fire at all, independently of each other's wait durations —
+    // proven by giving window A a much longer real duration than window B and confirming
+    // window B's onOutageEnd fires without needing window A's full duration to elapse first.
+    let windowAEndReleased = false;
+    const sleepImpl = vi.fn((ms: number) => {
+      if (ms === 100_000) {
+        // window A's end-wait (endMs - nowImpl(), with nowImpl fixed at nowMs): block until explicitly released.
+        return new Promise<void>((resolve) => {
+          const check = () => (windowAEndReleased ? resolve() : setTimeout(check, 0));
+          check();
+        });
+      }
+      return Promise.resolve();
+    });
+
+    const resultPromise = runExecutor({
+      timeline,
+      projectClients: [clientA, clientB],
+      nowMs,
+      sleepImpl,
+      nowImpl,
+      onOutageStart,
+      onOutageEnd
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Window B (short duration) should have fully completed even though window A
+    // (long duration) is still blocked on its end-wait.
+    expect(startOrder).toContain("a");
+    expect(startOrder).toContain("b");
+    expect(endOrder).toContain("b");
+    expect(endOrder).not.toContain("a");
+
+    windowAEndReleased = true;
+    await resultPromise;
+    expect(endOrder).toContain("a");
   });
 });

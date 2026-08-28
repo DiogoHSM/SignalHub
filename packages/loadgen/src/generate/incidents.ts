@@ -4,9 +4,11 @@ export function placeIncidentWindows(
   profile: Profile,
   projectCount: number,
   windowStartMs: number,
-  windowEndMs: number
+  windowEndMs: number,
+  nowMs: number
 ): IncidentWindow[] {
-  const midpointMs = windowStartMs + Math.floor((windowEndMs - windowStartMs) / 2);
+  const liveStartMs = Math.max(windowStartMs, nowMs);
+  const midpointMs = liveStartMs + Math.floor((windowEndMs - liveStartMs) / 2);
   const windows: IncidentWindow[] = [];
 
   for (let projectIndex = 0; projectIndex < projectCount; projectIndex += 1) {

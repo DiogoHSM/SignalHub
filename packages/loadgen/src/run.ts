@@ -32,13 +32,18 @@ async function main(): Promise<void> {
   });
 
   const projectClients = config.projects.slice(0, args.projects).map((project) =>
-    createSignalMonitorClient({ endpoint: config.endpoint, apiKey: project.apiKey, flushIntervalMs: 2_000 })
+    createSignalMonitorClient({
+      endpoint: config.endpoint,
+      apiKey: project.apiKey,
+      flushIntervalMs: 2_000,
+      onError: (error) => {
+        const statusSuffix = error.status !== undefined ? ` (status ${error.status})` : "";
+        console.warn(`[loadgen] delivery issue for project "${project.name}": ${error.code} — ${error.message}${statusSuffix}`);
+      }
+    })
   );
 
   const activeHeartbeatDrivers: { stop: () => void }[] = [];
-  const outageState = new Map<string, boolean>();
-
-  const windowKey = (window: IncidentWindow) => `${window.projectIndex}:${window.serviceName}:${window.incidentKey}`;
 
   for (const heartbeatMonitor of config.monitors.heartbeat) {
     const relevantWindows = timeline.incidentWindows.filter(
@@ -55,7 +60,6 @@ async function main(): Promise<void> {
   }
 
   const onOutageStart = async (window: IncidentWindow): Promise<void> => {
-    outageState.set(windowKey(window), true);
     console.log(`[loadgen] incident "${window.incidentKey}" started on ${window.serviceName} (project ${window.projectIndex})`);
 
     if (window.monitorKind === "http") {
@@ -73,7 +77,6 @@ async function main(): Promise<void> {
   };
 
   const onOutageEnd = async (window: IncidentWindow): Promise<void> => {
-    outageState.set(windowKey(window), false);
     console.log(`[loadgen] incident "${window.incidentKey}" ended on ${window.serviceName} (project ${window.projectIndex})`);
 
     if (window.monitorKind === "http") {

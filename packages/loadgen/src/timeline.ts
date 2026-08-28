@@ -22,7 +22,7 @@ export function generateTimeline(options: GenerateTimelineOptions): Timeline {
   const windowStartMs = nowMs - backfillMs;
   const windowEndMs = nowMs + liveMs;
   const rng = createRng(seed);
-  const incidentWindows = placeIncidentWindows(profile, projectCount, windowStartMs, windowEndMs);
+  const incidentWindows = placeIncidentWindows(profile, projectCount, windowStartMs, windowEndMs, nowMs);
 
   const beats: Beat[] = [];
 

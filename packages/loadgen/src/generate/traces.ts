@@ -40,6 +40,7 @@ export function generateTraceBeats(
         timestampMs: Math.min(windowEndMs - 1, timestampMs + 1),
         projectIndex,
         serviceName: calleeName,
+        callerServiceName: service.name,
         traceId,
         name: `${calleeName}.call`,
         status: "success",

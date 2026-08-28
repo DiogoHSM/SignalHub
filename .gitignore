@@ -7,5 +7,6 @@ coverage/
 .env.*
 !.env.example
 /SECRETS.md
+/.loadgen.json
 .claude/work/
 .claude/memory/

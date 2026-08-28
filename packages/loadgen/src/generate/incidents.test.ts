@@ -5,7 +5,7 @@ import { SAAS_B2B_PROFILE } from "../profiles/saas-b2b.js";
 
 describe("placeIncidentWindows", () => {
   it("places one window per incident template per project, at the midpoint of the span", () => {
-    const windows = placeIncidentWindows(ECOMMERCE_PROFILE, 2, 0, 3_600_000);
+    const windows = placeIncidentWindows(ECOMMERCE_PROFILE, 2, 0, 3_600_000, 0);
     expect(windows).toHaveLength(ECOMMERCE_PROFILE.incidents.length * 2);
 
     const projectZeroWindow = windows.find((window) => window.projectIndex === 0);
@@ -21,8 +21,24 @@ describe("placeIncidentWindows", () => {
   });
 
   it("carries llmCallMultiplier for an incident with no monitorKind", () => {
-    const windows = placeIncidentWindows(SAAS_B2B_PROFILE, 1, 0, 3_600_000);
+    const windows = placeIncidentWindows(SAAS_B2B_PROFILE, 1, 0, 3_600_000, 0);
     expect(windows).toHaveLength(1);
     expect(windows[0]).toMatchObject({ incidentKey: "llm_cost_spike", llmCallMultiplier: 8, monitorKind: undefined });
+  });
+
+  it("places the window inside the live portion, not the whole span, when most of the span is backfilled", () => {
+    // 3 days backfilled (windowStartMs = -3d), 1 hour live (windowEndMs = +1h), "now" = 0.
+    const backfillMs = 3 * 86_400_000;
+    const liveMs = 3_600_000;
+    const nowMs = 0;
+    const windowStartMs = nowMs - backfillMs;
+    const windowEndMs = nowMs + liveMs;
+
+    const windows = placeIncidentWindows(ECOMMERCE_PROFILE, 1, windowStartMs, windowEndMs, nowMs);
+    const window = windows[0];
+
+    // Must land within the live portion [nowMs, windowEndMs), never in the backfilled past.
+    expect(window.startMs).toBeGreaterThanOrEqual(nowMs);
+    expect(window.startMs).toBeLessThan(windowEndMs);
   });
 });
