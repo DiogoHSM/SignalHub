@@ -27,6 +27,7 @@ import {
   createProjectBrowserOrigin,
   findApiKeyByPrefix,
   getProject,
+  isScopeActive,
   listApiKeys,
   listProjectBrowserOrigins,
   listEnvironments,
@@ -7008,6 +7009,11 @@ describe("repositories", () => {
       await archiveEnvironment(db, archivedEnvironment.id);
       await expect(findApiKeyByPrefix(db, "sh_archenv12")).resolves.toBeUndefined();
 
+      await expect(isScopeActive(db, project.id, environment.id)).resolves.toBe(true);
+      await expect(isScopeActive(db, archivedProject.id, archivedProjectEnvironment.id)).resolves.toBe(false);
+      await expect(isScopeActive(db, project.id, archivedEnvironment.id)).resolves.toBe(false);
+      await expect(isScopeActive(db, "prj_missing", "env_missing")).resolves.toBe(false);
+
       await revokeApiKey(db, apiKey.id);
       await expect(findApiKeyByPrefix(db, "sh_runtime12")).resolves.toBeUndefined();
 
@@ -8488,6 +8494,43 @@ describe("repositories", () => {
     });
   });
 
+  it("does not count a pending trace as failed in operations telemetry or top latency (PER-494)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Operations Pending" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-25T12:00:00.000Z");
+      const inWindow = new Date("2026-05-25T11:50:00.000Z");
+      const receivedAt = new Date("2026-05-25T11:50:01.000Z");
+
+      await insertTrace(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        id: "trc_operations_pending",
+        traceId: "trace_operations_pending",
+        name: "checkout",
+        status: "pending",
+        timestamp: inWindow,
+        receivedAt,
+        startedAt: inWindow,
+        durationMs: 900
+      });
+
+      const operations = await getOperations(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "24h",
+        now
+      });
+
+      expect(operations.summary.telemetry).toMatchObject({ traces: 1, failedTraces: 0 });
+      expect(operations.topLatency).toEqual([
+        { name: "checkout", p95TraceDurationMs: 900, traces: 1, failedTraces: 0 }
+      ]);
+    });
+  });
+
   it("detects explainable operations anomalies against the previous window baseline", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -8735,6 +8778,63 @@ describe("repositories", () => {
       });
       expect(result.tenants[0].impactScore).toBe(39.125);
       expect(result.tenants[1]).toMatchObject({ tenantId: null, label: "Unassigned", isUnassigned: true, events: 1 });
+    });
+  });
+
+  it("does not count pending traces or LLM calls as failed in tenant aggregates (PER-494)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Entities Pending" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api",
+        tenantId: "tenant_pending"
+      };
+
+      await insertTrace(db, {
+        ...base,
+        id: "trc_entity_pending",
+        timestamp: new Date("2026-05-05T11:57:00.000Z"),
+        name: "checkout",
+        status: "pending",
+        startedAt: new Date("2026-05-05T11:57:00.000Z"),
+        traceId: "trace_pending"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_entity_pending",
+        timestamp: new Date("2026-05-05T11:58:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "summarize_checkout",
+        inputTokens: 1000,
+        outputTokens: 500,
+        costUsd: "1.000000",
+        latencyMs: 800,
+        status: "pending",
+        traceId: "trace_pending"
+      });
+
+      const result = await listEntityTenants(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+
+      expect(result.tenants[0]).toMatchObject({
+        tenantId: "tenant_pending",
+        traces: 1,
+        failedTraces: 0,
+        llmCalls: 1,
+        failedLlmCalls: 0
+      });
     });
   });
 
@@ -9294,6 +9394,63 @@ describe("repositories", () => {
       });
       expect(result.users[0].impactScore).toBe(39.125);
       expect(result.users[1]).toMatchObject({ userId: null, label: "Anonymous / Unassigned", isAnonymous: true, events: 1 });
+    });
+  });
+
+  it("does not count pending traces or LLM calls as failed in user aggregates (PER-494)", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Users Pending" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const now = new Date("2026-05-05T12:00:00.000Z");
+      const base = {
+        projectId: project.id,
+        environmentId: environment.id,
+        receivedAt: new Date("2026-05-05T12:00:01.000Z"),
+        source: "api",
+        userId: "user_pending"
+      };
+
+      await insertTrace(db, {
+        ...base,
+        id: "trc_user_pending",
+        timestamp: new Date("2026-05-05T11:57:00.000Z"),
+        name: "checkout",
+        status: "pending",
+        startedAt: new Date("2026-05-05T11:57:00.000Z"),
+        traceId: "trace_user_pending"
+      });
+      await insertLlmCall(db, {
+        ...base,
+        id: "llm_user_pending",
+        timestamp: new Date("2026-05-05T11:58:00.000Z"),
+        provider: "openai",
+        model: "gpt-5",
+        promptName: "summarize_checkout",
+        inputTokens: 1000,
+        outputTokens: 500,
+        costUsd: "1.000000",
+        latencyMs: 800,
+        status: "pending",
+        traceId: "trace_user_pending"
+      });
+
+      const result = await listUsersActivity(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        window: "7d",
+        limit: 50,
+        now
+      });
+
+      expect(result.users[0]).toMatchObject({
+        userId: "user_pending",
+        traces: 1,
+        failedTraces: 0,
+        llmCalls: 1,
+        failedLlmCalls: 0
+      });
     });
   });
 

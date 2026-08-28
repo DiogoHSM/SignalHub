@@ -710,7 +710,7 @@ async function getRiskSignalSnapshot(db: Db, filters: OperationsFilters, range: 
       (select count(*) from scoped_events) as events,
       (select count(*) from scoped_errors) as errors,
       (select count(*) from scoped_traces) as traces,
-      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
+      (select count(*) from scoped_traces where status = 'error') as failed_traces,
       (select count(*) from scoped_alerts) as alert_events,
       (select count(*) from scoped_alerts where severity = 'critical') as critical_alert_events,
       (select count(*) from scoped_alerts where severity = 'warning') as warning_alert_events,
@@ -1071,7 +1071,7 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
       (select count(*) from scoped_events) as events,
       (select count(*) from scoped_errors) as errors,
       (select count(*) from scoped_traces) as traces,
-      (select count(*) from scoped_traces where status <> 'success') as failed_traces,
+      (select count(*) from scoped_traces where status = 'error') as failed_traces,
       (select max(timestamp) from scoped_events) as last_event_at,
       (select max(timestamp) from scoped_errors) as last_error_at,
       (select max(timestamp) from scoped_traces) as last_trace_at,
@@ -1119,7 +1119,7 @@ export async function getOperations(db: Db, filters: OperationsFilters): Promise
     select name,
       percentile_cont(0.95) within group (order by duration_ms) as p95_trace_duration_ms,
       count(*) as traces,
-      count(*) filter (where status <> 'success') as failed_traces
+      count(*) filter (where status = 'error') as failed_traces
     from traces
     where project_id = ${filters.projectId}
       and environment_id = ${filters.environmentId}

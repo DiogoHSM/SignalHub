@@ -12,6 +12,7 @@ import {
   findApiKeyByPrefix,
   getProject,
   isBrowserOriginAllowed,
+  isScopeActive,
   listApiKeys,
   listEnvironments,
   listProjectBrowserOrigins,
@@ -847,6 +848,7 @@ const app = await buildApp({
     }
   },
   query: {
+    isScopeActive: (projectId, environmentId) => isScopeActive(db, projectId, environmentId),
     listEvents: (filters) => listEvents(db, filters),
     listErrors: (filters) => listErrors(db, filters),
     listErrorGroups: (filters) => listErrorGroupsPage(db, filters),
