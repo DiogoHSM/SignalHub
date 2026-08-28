@@ -7,7 +7,7 @@ export function placeIncidentWindows(
   windowEndMs: number,
   nowMs: number
 ): IncidentWindow[] {
-  const liveStartMs = Math.max(windowStartMs, nowMs);
+  const liveStartMs = windowEndMs > nowMs ? Math.max(windowStartMs, nowMs) : windowStartMs;
   const midpointMs = liveStartMs + Math.floor((windowEndMs - liveStartMs) / 2);
   const windows: IncidentWindow[] = [];
 

@@ -41,4 +41,20 @@ describe("placeIncidentWindows", () => {
     expect(window.startMs).toBeGreaterThanOrEqual(nowMs);
     expect(window.startMs).toBeLessThan(windowEndMs);
   });
+
+  it("keeps the window in the backfilled past (not the future) when there is no live portion at all", () => {
+    // 7 days backfilled, no live portion: windowEndMs === nowMs.
+    const backfillMs = 7 * 86_400_000;
+    const nowMs = backfillMs;
+    const windowStartMs = nowMs - backfillMs;
+    const windowEndMs = nowMs;
+
+    const windows = placeIncidentWindows(ECOMMERCE_PROFILE, 1, windowStartMs, windowEndMs, nowMs);
+    const window = windows[0];
+
+    // The window (and its end) must stay at or before nowMs — never drift into the future,
+    // which would make a documented "no live run" command block on a live outage it never asked for.
+    expect(window.startMs).toBeLessThanOrEqual(nowMs);
+    expect(window.endMs).toBeLessThanOrEqual(nowMs);
+  });
 });
