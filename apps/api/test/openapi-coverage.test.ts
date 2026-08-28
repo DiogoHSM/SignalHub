@@ -117,6 +117,7 @@ function routeKey(method: string, path: string): string {
 // `paths`, so they are exempted here instead of being "fixed" by adding
 // docs-about-docs entries to the spec.
 const DOCS_INFRA_ROUTES = new Set<string>([
+  "GET /", // web entry point: serves the sigmon.app landing page or redirects app hosts to /console
   "GET /docs",
   "GET /docs/",
   "GET /docs/js/scalar.js",

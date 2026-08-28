@@ -24,6 +24,7 @@ import { registerDocsRoutes } from "./routes/docs.js";
 import { registerHealthRoutes, type ReadinessCheck } from "./routes/health.js";
 import { registerIdentifyRoutes, type IdentifyRouteDependencies } from "./routes/identify.js";
 import { registerIngestionRoutes, type IngestionDependencies } from "./routes/ingestion.js";
+import { registerLandingRoutes, type LandingRouteOptions } from "./routes/landing.js";
 import { registerMonitorRoutes, type MonitorRouteDependencies } from "./routes/monitors.js";
 import { registerQueryRoutes, type QueryDependencies, type QueryRouteOptions } from "./routes/query.js";
 import { registerSdkDocsRoutes } from "./routes/sdk-docs.js";
@@ -56,6 +57,7 @@ export type BuildAppOptions = {
   googleOAuthEnabled?: boolean;
   nodeEnv?: string;
   console?: Omit<ConsoleRouteOptions, "browserCorsOrigins" | "googleOAuthEnabled">;
+  landing?: Omit<LandingRouteOptions, "consoleEnabled">;
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
   isBrowserCorsOriginAllowed?: (origin: string) => Promise<boolean>;
@@ -216,6 +218,10 @@ export async function buildApp(options: BuildAppOptions) {
     assetsDir: options.console?.assetsDir,
     browserCorsOrigins: options.browserCorsOrigins ?? [],
     googleOAuthEnabled: options.googleOAuthEnabled ?? false
+  });
+  registerLandingRoutes(app, {
+    landingHosts: options.landing?.landingHosts ?? [],
+    consoleEnabled: options.console?.enabled ?? false
   });
   registerAdminRoutes(app, {
     auth: options.auth,

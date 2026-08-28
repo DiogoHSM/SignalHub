@@ -2,7 +2,7 @@
 
 SignalMonitor is a self-hosted telemetry core for product analytics, error tracking, LLM observability, traces, and spans. One installation can monitor multiple projects and environments. Clients ingest telemetry with project-environment API keys, the API validates and queues each signal in Redis/BullMQ, and the worker sanitizes and persists typed records in Postgres.
 
-The intended public website and domain is `sigmon.app`; the default deployed app host is `my.sigmon.app`.
+The intended public website and domain is `sigmon.app`; the default deployed app host is `my.sigmon.app`. Both are served by the same API: `GET /` shows the public landing page on `LANDING_HOSTS` (default `sigmon.app,www.sigmon.app`) and redirects every other host straight to `/console`.
 
 ## Current Capabilities
 
@@ -777,3 +777,13 @@ pnpm build
 docker compose config --quiet
 pnpm run doctor
 ```
+
+## License
+
+SignalMonitor is source-available under the [Elastic License 2.0](LICENSE). In short:
+
+- Anyone can download, use, copy, modify, and self-host SignalMonitor free of charge, including for commercial products they monitor with it.
+- You may not provide SignalMonitor to third parties as a hosted or managed service (that is, resell it — modified or not — as a competing SaaS).
+- You may not remove or alter licensing or copyright notices.
+
+The `@sigmon/sdk` client package is licensed under [MIT](packages/sdk/LICENSE) so it can be embedded freely in any application that reports telemetry to a SignalMonitor install.
