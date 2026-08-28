@@ -44,6 +44,7 @@
 - `packages/db`: Kysely client, schema, migrations, repositories.
 - `packages/queues`: BullMQ queue creation and enqueue helpers.
 - `packages/telemetry`: ingestion schemas, auth helpers, API key helpers, ids, sanitization.
+- `packages/loadgen`: synthetic telemetry generator CLI for demo data and ingestion stress-testing; not part of the deployed product.
 
 ## CI
 
