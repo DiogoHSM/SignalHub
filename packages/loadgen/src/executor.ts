@@ -93,6 +93,7 @@ async function runBeatLoop(options: ExecutorOptions, sleepImpl: (ms: number) => 
       }
       dispatchBeat(client, beat);
       await flushAll();
+      sinceFlush = 0;
     }
 
     options.onProgress?.(sent, total);

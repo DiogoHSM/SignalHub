@@ -151,4 +151,61 @@ describe("runExecutor", () => {
     // 5 beats, batch size 2: mid-loop flush after beat 2 and after beat 4, plus 1 final flush = 3 calls
     expect(client.flush).toHaveBeenCalledTimes(3);
   });
+
+  it("runs the beat loop and outage loop concurrently, not sequentially", async () => {
+    const client = createFakeClient();
+    const nowMs = 1_000_000;
+    let releaseBeatWait: () => void = () => {};
+    const beatWaitGate = new Promise<void>((resolve) => {
+      releaseBeatWait = resolve;
+    });
+
+    const timeline: Timeline = {
+      beats: [
+        { kind: "event", timestampMs: nowMs + 999_999, projectIndex: 0, serviceName: "checkout", name: "checkout.request", properties: {} }
+      ],
+      incidentWindows: [
+        {
+          startMs: nowMs + 10,
+          endMs: nowMs + 20,
+          projectIndex: 0,
+          serviceName: "checkout",
+          incidentKey: "quick",
+          errorRateMultiplier: 1,
+          llmCallMultiplier: 1,
+          monitorKind: "http"
+        }
+      ]
+    };
+
+    const onOutageStart = vi.fn();
+    const onOutageEnd = vi.fn();
+    const sleepImpl = vi.fn((ms: number) => {
+      if (ms === 999_999) {
+        return beatWaitGate;
+      }
+      return Promise.resolve();
+    });
+
+    const resultPromise = runExecutor({
+      timeline,
+      projectClients: [client],
+      nowMs,
+      sleepImpl,
+      nowImpl: () => nowMs,
+      onOutageStart,
+      onOutageEnd
+    });
+
+    // Let pending microtasks run without ever resolving the beat loop's gate.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onOutageStart).toHaveBeenCalled();
+    expect(onOutageEnd).toHaveBeenCalled();
+
+    releaseBeatWait();
+    await resultPromise;
+  });
 });
