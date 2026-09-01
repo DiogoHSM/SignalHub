@@ -274,6 +274,20 @@ describe("ProjectSettingsSection", () => {
     }));
   });
 
+  it("resets API key creation fields when cancelled and reopened", async () => {
+    const client = makeClient();
+    render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New API key" }));
+    fireEvent.change(screen.getByLabelText("API key name"), { target: { value: "backend-identify" } });
+    fireEvent.change(screen.getByLabelText("API key capability"), { target: { value: "server" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "New API key" }));
+    expect(screen.getByLabelText("API key name")).toHaveValue("");
+    expect(screen.getByLabelText("API key capability")).toHaveValue("browser");
+  });
+
   it("adds and archives browser origins with explicit project scope", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const client = makeClient();

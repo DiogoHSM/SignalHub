@@ -16,9 +16,10 @@ export type DrillParams =
 // The shell holds exactly one one-time-secret slot above the remount
 // boundary (see `onSecretCreated`/`createdSecret` on `ScreenCtx` below).
 // `kind` tags which credential surface minted it so two surfaces mounted on
-// the same screen (e.g. Setup's API key and the read-tokens panel) never
+// the same screen (e.g. Setup's browser API key, Settings' server API key,
+// and the read-tokens panel) never
 // misread each other's secret.
-export type SecretKind = "apiKey" | "readToken";
+export type SecretKind = "browserApiKey" | "serverApiKey" | "readToken";
 export type CreatedSecret = { value: string; kind: SecretKind };
 
 // ─── Navigation filter payload ───────────────────────────────────────────────
@@ -57,8 +58,8 @@ export type ScreenCtx = {
    * the moment anything calls `ctx.reload`. Pass `null` to clear it. `kind`
    * tags which credential surface minted the secret — the shell has exactly
    * one slot, so each consumer must read only its own kind and ignore a
-   * secret tagged for a different one (e.g. the Setup API-key panel must
-   * never render a freshly minted read token, or vice versa).
+   * secret tagged for a different one (e.g. the Setup browser-key panel must
+   * never render a freshly minted server key or read token).
    */
   onSecretCreated: (secret: string | null, kind: SecretKind) => void;
   /** The secret last passed to `onSecretCreated`, held above the remount boundary. */

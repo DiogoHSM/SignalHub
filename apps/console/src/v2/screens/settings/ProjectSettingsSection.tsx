@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { EmptyHint, Icon, Segmented, StatusDot } from "../../../components/ui/v2";
+import { EmptyHint, Icon, SecretField, Segmented, StatusDot } from "../../../components/ui/v2";
 import type {
   ApiKey,
   DataGovernancePolicy,
@@ -56,12 +56,28 @@ const DATASETS: Array<{ key: WarehouseDataset; label: string }> = [
 
 type SettingsModel = ReturnType<typeof useProjectSettings>;
 
-function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environmentId: string }) {
+function ApiKeysPanel({
+  model,
+  environmentId,
+  serverSecret,
+  onClearServerSecret,
+}: {
+  model: SettingsModel;
+  environmentId: string;
+  serverSecret: string | null;
+  onClearServerSecret: () => void;
+}) {
   const [editing, setEditing] = useState<ApiKey | null>(null);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [capability, setCapability] = useState<ApiKey["capability"]>("browser");
   const keys = model.apiKeys.filter((key) => key.environmentId === environmentId && key.revokedAt == null);
+
+  function resetCreateForm() {
+    setCreating(false);
+    setName("");
+    setCapability("browser");
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -78,9 +94,7 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
     const cleanName = name.trim();
     if (!cleanName) return;
     if (await model.createApiKey({ name: cleanName, capability })) {
-      setCreating(false);
-      setName("");
-      setCapability("browser");
+      resetCreateForm();
     }
   }
 
@@ -93,13 +107,24 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span className="sh-tag">{keys.length} active</span>
-          <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={() => setCreating((value) => !value)}>
+          <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={() => {
+            if (creating) resetCreateForm();
+            else setCreating(true);
+          }}>
             New API key
           </button>
         </div>
       </div>
       {!model.capabilities.renameApiKeys ? <div className="sh-alert warning">Key rename is unavailable in this deployment. Revocation remains available.</div> : null}
       {model.errors.apiKeys ? <div className="sh-alert bad" role="alert">{model.errors.apiKeys}</div> : null}
+      {serverSecret ? (
+        <div className="sh-alert warning" style={{ display: "grid", gap: 8 }}>
+          <strong>Server API key created</strong>
+          <span>Copy this key now and store it only in server-side secret storage. It is required for identify requests.</span>
+          <SecretField value={serverSecret} />
+          <button className="sh-btn ghost" type="button" onClick={onClearServerSecret}>Dismiss server key</button>
+        </div>
+      ) : null}
       {keys.length === 0 ? (
         <EmptyHint icon="key" title="No active keys" sub="Generate the first key in the SDK installation panel above." />
       ) : (
@@ -158,7 +183,7 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
           </p>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="sh-btn primary" type="submit" disabled={model.busy || !name.trim()}>Create API key</button>
-            <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={() => setCreating(false)}>Cancel</button>
+            <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={resetCreateForm}>Cancel</button>
           </div>
         </form>
       ) : null}
@@ -735,7 +760,13 @@ export function ProjectSettingsSection({ ctx }: { ctx: ScreenCtx }) {
       {model.loading ? (
         <div className="sh-card__body"><EmptyHint icon="activity" title="Loading settings…" sub="Reading the selected project and environment configuration." /></div>
       ) : tab === "API keys" ? (
-        <ApiKeysPanel key={model.scopeKey} model={model} environmentId={ctx.environment.id} />
+        <ApiKeysPanel
+          key={model.scopeKey}
+          model={model}
+          environmentId={ctx.environment.id}
+          serverSecret={ctx.createdSecret?.kind === "serverApiKey" ? ctx.createdSecret.value : null}
+          onClearServerSecret={() => ctx.onSecretCreated(null, "serverApiKey")}
+        />
       ) : tab === "Browser origins" ? (
         <BrowserOriginsPanel key={model.scopeKey} model={model} />
       ) : tab === "Releases & code" ? (

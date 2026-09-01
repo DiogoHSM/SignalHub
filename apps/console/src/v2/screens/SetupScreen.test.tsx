@@ -175,6 +175,15 @@ describe("SetupScreen", () => {
     expect(document.body.textContent).not.toContain("shread_visible_once");
   });
 
+  it("never interpolates a settings-created server key into the browser snippet", async () => {
+    const serverSecret = "sh_live_server_secret_must_not_reach_browser";
+    render(<SetupScreen ctx={makeCtx({ createdSecret: { value: serverSecret, kind: "serverApiKey" } })} />);
+
+    await screen.findByText(/@sigmon\/sdk\/browser/);
+    expect(screen.queryByDisplayValue(serverSecret)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(serverSecret);
+  });
+
   it("creates a project from the inline input", async () => {
     const client = makeClient();
     render(<SetupScreen ctx={makeCtx({ client })} />);

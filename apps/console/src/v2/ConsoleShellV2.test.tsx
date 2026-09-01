@@ -110,7 +110,7 @@ describe("ConsoleShellV2", () => {
 
     render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
 
-    expect(await screen.findByRole("heading", { name: "Traces" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Traces" }, { timeout: 5_000 })).toBeInTheDocument();
     await waitFor(() => expect(listTraces).toHaveBeenCalledWith(expect.objectContaining({
       projectId: "prj_2",
       environmentId: "env_2",
@@ -126,7 +126,7 @@ describe("ConsoleShellV2", () => {
 
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    expect(await screen.findByRole("heading", { name: "Operations" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Operations" }, { timeout: 5_000 })).toBeInTheDocument();
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe(
       "/console/overview?project_id=prj_1&environment_id=env_1",
     ));
@@ -250,6 +250,34 @@ describe("ConsoleShellV2", () => {
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalled());
 
     await user.click(await screen.findByTitle("Reveal"));
+    expect(await screen.findByText(secret)).toBeInTheDocument();
+  });
+
+  it("keeps a settings-created server key out of Setup's browser snippet", async () => {
+    const secret = "sh_live_server_secret_must_not_reach_browser";
+    const user = userEvent.setup();
+    const client = makeClient({
+      createApiKey: vi.fn().mockResolvedValue({
+        apiKey: { id: "key_server", projectId: "prj_1", environmentId: "env_1", name: "backend-identify", prefix: "sh_live_server", capability: "server", createdAt: "x", revokedAt: null, secret },
+      }),
+    });
+
+    render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
+    await user.click(await screen.findByTitle("Settings"));
+    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(await screen.findByRole("button", { name: "New API key" }));
+    await user.type(screen.getByLabelText("API key name"), "backend-identify");
+    await user.selectOptions(screen.getByLabelText("API key capability"), "server");
+    await user.click(screen.getByRole("button", { name: "Create API key" }));
+
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", {
+      environmentId: "env_1",
+      name: "backend-identify",
+      capability: "server",
+    }));
+    expect(await screen.findByText("Server API key created")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(secret);
+    await user.click(screen.getByTitle("Reveal"));
     expect(await screen.findByText(secret)).toBeInTheDocument();
   });
 

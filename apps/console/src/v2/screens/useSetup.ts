@@ -293,7 +293,7 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
         capability: "browser",
       });
       if (scopeRef.current !== operationScope) return;
-      ctx.onSecretCreated(apiKey.secret, "apiKey");
+      ctx.onSecretCreated(apiKey.secret, "browserApiKey");
       ctx.pushToast("API key created — copy it now, it is shown only once");
     }, "Could not create API key"),
     [client, ctx, environment?.id, environment?.name, project?.id, run, scopeKey],
@@ -302,7 +302,7 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
   return {
     data,
     status,
-    latestSecret: ctx.createdSecret?.kind === "apiKey" ? ctx.createdSecret.value : null,
+    latestSecret: ctx.createdSecret?.kind === "browserApiKey" ? ctx.createdSecret.value : null,
     busy,
     reload,
     createProject,
