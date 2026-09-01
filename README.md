@@ -7,9 +7,9 @@ The intended public website and domain is `sigmon.app`; the default deployed app
 ## Current Capabilities
 
 - Local admin login with a bootstrap admin seed.
-- Admin management for users, projects, environments, and scoped ingestion API keys.
+- Admin management for users, projects, environments, and browser/server-scoped ingestion API keys.
 - API-key ingestion for events, errors, breadcrumbs, LLM calls, traces, and spans.
-- API-key identify endpoints for project/environment-scoped user and tenant profile traits.
+- Server-key identify endpoints for project/environment-scoped user and tenant profile traits.
 - Browser-origin allowlists for direct browser telemetry and CORS preflight handling.
 - Zod payload validation and recursive sanitization before persistence.
 - Redis-backed ingestion queue with worker processing.
@@ -419,11 +419,11 @@ Create an ingestion API key:
 ```sh
 curl -b cookies.txt \
   -H "Content-Type: application/json" \
-  -d '{"environmentId":"env_YOUR_ENVIRONMENT_ID","name":"Production ingest"}' \
+  -d '{"environmentId":"env_YOUR_ENVIRONMENT_ID","name":"Production browser ingest","capability":"browser"}' \
   http://localhost:3000/admin/projects/prj_YOUR_PROJECT_ID/api-keys
 ```
 
-Copy the one-time `apiKey.secret` from the response. The stored record keeps only a prefix and hash, so the full secret is not shown again.
+Copy the one-time `apiKey.secret` from the response. The stored record keeps only a prefix and hash, so the full secret is not shown again. Browser keys are safe to embed in browser clients; use `"capability":"server"` for a secret server integration, including all `identifyUser` and `identifyTenant` calls. Upgraded keys are browser-capability keys, so create or rotate a server key before upgrading an existing identify integration.
 
 ## Public Documentation
 
@@ -458,7 +458,20 @@ signalMonitor.track("checkout.started", {
 });
 ```
 
-Identify persistent user and tenant profiles when you know stable IDs. `identifyUser` and `identifyTenant` use the same project/environment ingestion API key as telemetry, sanitize traits before storage, and write to profile rows used by the Users and Entities investigation views.
+Identify persistent user and tenant profiles from server-side code only. Browser keys can send telemetry with `userId` or `tenantId`, updating the matching profile `last_seen` timestamp, but cannot overwrite stored traits. The older SDK `identify(context)` method only updates the client's in-memory default context for later telemetry calls. Identify payload `metadata` is accepted for envelope compatibility, but this MVP persists profile `traits`, timestamps, and identifiers only.
+
+Server-side code should import the node entrypoint. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
+
+```ts
+import { createSignalMonitorClient } from "@sigmon/sdk/node";
+
+const signalMonitor = createSignalMonitorClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://sigmon.example.com",
+  apiKey: process.env.SIGMON_SERVER_INGESTION_KEY ?? ""
+});
+```
+
+Use this server client with a server-capability key for durable identity traits:
 
 ```ts
 signalMonitor.identifyUser("user_123", {
@@ -476,19 +489,6 @@ signalMonitor.identifyTenant("tenant_123", {
 });
 
 await signalMonitor.flush();
-```
-
-Telemetry that includes `userId` or `tenantId` updates the matching profile `last_seen` timestamp, but it does not overwrite stored traits. The older SDK `identify(context)` method only updates the client's in-memory default context for later telemetry calls; use `identifyUser` or `identifyTenant` when profile traits should persist. Identify payload `metadata` is accepted for envelope compatibility, but this MVP persists profile `traits`, timestamps, and identifiers only.
-
-Server-side code should import the node entrypoint. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
-
-```ts
-import { createSignalMonitorClient } from "@sigmon/sdk/node";
-
-const signalMonitor = createSignalMonitorClient({
-  endpoint: process.env.SIGMON_ENDPOINT ?? "https://sigmon.example.com",
-  apiKey: process.env.SIGMON_SERVER_INGESTION_KEY ?? ""
-});
 ```
 
 #### Experiments and A/B Tests

@@ -46,6 +46,9 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
     if (!scope || !identify) {
       return reply;
     }
+    if (scope.capability !== "server") {
+      return reply.status(403).send({ error: "api_key_capability_forbidden" });
+    }
 
     const parsed = userIdentifyPayloadSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -75,6 +78,9 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
     const scope = await requireApiKeyScope(request, reply, identify?.verifyApiKey);
     if (!scope || !identify) {
       return reply;
+    }
+    if (scope.capability !== "server") {
+      return reply.status(403).send({ error: "api_key_capability_forbidden" });
     }
 
     const parsed = tenantIdentifyPayloadSchema.safeParse(request.body);

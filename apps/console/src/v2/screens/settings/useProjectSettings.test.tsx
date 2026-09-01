@@ -52,6 +52,7 @@ function key(id: string): ApiKey {
     environmentId: `env_${id}`,
     name: `Key ${id}`,
     prefix: `sh_${id}`,
+    capability: "browser",
     createdAt: "2026-01-01T00:00:00.000Z",
     revokedAt: null,
   };

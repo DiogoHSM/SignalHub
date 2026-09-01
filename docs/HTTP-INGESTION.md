@@ -8,12 +8,18 @@ Use this guide for non-TypeScript clients, smoke tests, and code agents that nee
 
 | Credential | Used by | Keep secret? | Notes |
 | --- | --- | --- | --- |
-| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/surveys/responses`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
+| Ingestion API key | Telemetry endpoints and, for server keys only, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
 | Heartbeat secret | `/v1/heartbeats/{id}` | Yes | Generated per heartbeat monitor. Use from cron, workers, and schedulers. |
 | Source-map upload token | `/v1/source-maps` | Yes | CI-only token created from the Artifacts console. |
 | Session cookie | `/admin/*`, `/query/*`, `/system/*` | Browser session only | Used by logged-in human operators and the console. |
 
 Archived projects and environments are inactive scopes. Their ingestion keys, heartbeat secrets, and source-map upload tokens are rejected for new writes.
+
+## API Key Capabilities
+
+Browser keys are public by design and can send normal telemetry. They cannot mutate durable user or tenant profiles: `POST /v1/identify/user` and `POST /v1/identify/tenant` return `403 api_key_capability_forbidden` for a browser key. Keep server keys in server-side secret storage; they can send telemetry and are required for identify.
+
+Upgraded installations treat existing ingestion keys as browser-safe. Before deploying an existing server identify integration, create or rotate a server-capability key and replace the integration's secret.
 
 ## Base Request
 
@@ -53,8 +59,8 @@ Content-Type: application/json
 | Runtime profiles | `POST /v1/profiles` | Ingestion API key |
 | Traces | `POST /v1/traces` | Ingestion API key |
 | Spans | `POST /v1/spans` | Ingestion API key |
-| Identify user | `POST /v1/identify/user` | Ingestion API key |
-| Identify tenant | `POST /v1/identify/tenant` | Ingestion API key |
+| Identify user | `POST /v1/identify/user` | Server ingestion API key |
+| Identify tenant | `POST /v1/identify/tenant` | Server ingestion API key |
 | Heartbeat check-in | `POST /v1/heartbeats/{id}` | Heartbeat secret |
 | Source-map upload | `POST /v1/source-maps` | Source-map upload token |
 
@@ -702,7 +708,7 @@ curl -i https://sigmon.example.com/v1/spans \
 
 ## Identify
 
-Identify calls upsert durable project/environment-scoped profile traits. New `traits` shallow-merge into the existing stored traits for that project/environment, so a later identify call can update one key without resending the whole profile. Normal telemetry with matching `user_id` or `tenant_id` updates last-seen timestamps, but only identify calls update stored traits.
+Identify calls require a server ingestion API key and upsert durable project/environment-scoped profile traits. New `traits` shallow-merge into the existing stored traits for that project/environment, so a later identify call can update one key without resending the whole profile. Normal telemetry with matching `user_id` or `tenant_id` updates last-seen timestamps, but only identify calls update stored traits.
 
 ```bash
 curl -i https://sigmon.example.com/v1/identify/user \

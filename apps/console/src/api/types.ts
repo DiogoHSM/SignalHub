@@ -27,6 +27,7 @@ export type ApiKey = {
   environmentId: string;
   name: string;
   prefix: string;
+  capability: "browser" | "server";
   createdAt: string;
   revokedAt: string | null;
 };

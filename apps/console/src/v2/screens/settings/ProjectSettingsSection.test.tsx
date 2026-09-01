@@ -45,6 +45,7 @@ const apiKey: ApiKey = {
   environmentId: environment.id,
   name: "browser-production",
   prefix: "sh_live_ab",
+  capability: "browser",
   createdAt: "2026-01-02T00:00:00.000Z",
   revokedAt: null,
 };
@@ -134,6 +135,7 @@ const run: WarehouseExportRun = {
 function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
     listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [apiKey] }),
+    createApiKey: vi.fn().mockResolvedValue({ apiKey: { ...apiKey, id: "key_2", secret: "sh_live_new" } }),
     updateApiKey: vi.fn().mockResolvedValue({ apiKey: { ...apiKey, name: "renamed-key" } }),
     revokeApiKey: vi.fn().mockResolvedValue(undefined),
     listBrowserOrigins: vi.fn().mockResolvedValue({ origins: [browserOrigin] }),
@@ -251,6 +253,25 @@ describe("ProjectSettingsSection", () => {
     await waitFor(() => expect(client.updateApiKey).toHaveBeenCalledWith("key_1", { name: "renamed-key" }));
     fireEvent.click(screen.getByRole("button", { name: "Revoke renamed-key" }));
     await waitFor(() => expect(client.revokeApiKey).toHaveBeenCalledWith("key_1"));
+  });
+
+  it("creates an API key with an explicit browser or server capability", async () => {
+    const client = makeClient();
+    render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New API key" }));
+    expect(screen.getByLabelText("API key capability")).toHaveValue("browser");
+    expect(screen.getByText(/Browser keys are public by design/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("API key name"), { target: { value: "backend-identify" } });
+    fireEvent.change(screen.getByLabelText("API key capability"), { target: { value: "server" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create API key" }));
+
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith(project.id, {
+      environmentId: environment.id,
+      name: "backend-identify",
+      capability: "server",
+    }));
   });
 
   it("adds and archives browser origins with explicit project scope", async () => {

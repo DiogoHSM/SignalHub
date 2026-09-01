@@ -12,6 +12,54 @@ afterEach(async () => {
 });
 
 describe("identify routes", () => {
+  it("forbids a valid browser key from mutating a user profile", async () => {
+    const identifyUser = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      identify: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
+        identifyUser,
+        identifyTenant: async () => undefined
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/identify/user",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: { user_id: "usr_ana", traits: { name: "Ana" } }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "api_key_capability_forbidden" });
+    expect(identifyUser).not.toHaveBeenCalled();
+  });
+
+  it("forbids a valid browser key from mutating a tenant profile", async () => {
+    const identifyTenant = vi.fn(async () => undefined);
+
+    app = await buildApp({
+      readiness,
+      identify: {
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
+        identifyUser: async () => undefined,
+        identifyTenant
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/identify/tenant",
+      headers: { authorization: "Bearer sh_valid" },
+      payload: { tenant_id: "tenant_acme", traits: { plan: "pro" } }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "api_key_capability_forbidden" });
+    expect(identifyTenant).not.toHaveBeenCalled();
+  });
+
   it("accepts a user identify payload and writes it within the API key scope", async () => {
     const identifyUser = vi.fn(async () => undefined);
 

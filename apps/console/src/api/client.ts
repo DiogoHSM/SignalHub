@@ -497,7 +497,7 @@ export type ApiClient = {
     query: Pick<CreateBetaProgramInput, "projectId" | "environmentId"> & { window?: "24h" | "7d" | "30d" }
   ) => Promise<{ adoption: BetaProgramAdoption }>;
   listApiKeys: (projectId: string) => Promise<{ apiKeys: ApiKey[] }>;
-  createApiKey: (projectId: string, input: { environmentId: string; name: string }) => Promise<{ apiKey: CreatedApiKey }>;
+  createApiKey: (projectId: string, input: { environmentId: string; name: string; capability: "browser" | "server" }) => Promise<{ apiKey: CreatedApiKey }>;
   updateApiKey?: (id: string, input: { name?: string }) => Promise<{ apiKey: ApiKey }>;
   revokeApiKey: (id: string) => Promise<void>;
   listBrowserOrigins?: (projectId: string) => Promise<{ origins: BrowserOrigin[] }>;

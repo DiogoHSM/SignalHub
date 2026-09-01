@@ -59,6 +59,8 @@ type SettingsModel = ReturnType<typeof useProjectSettings>;
 function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environmentId: string }) {
   const [editing, setEditing] = useState<ApiKey | null>(null);
   const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [capability, setCapability] = useState<ApiKey["capability"]>("browser");
   const keys = model.apiKeys.filter((key) => key.environmentId === environmentId && key.revokedAt == null);
 
   async function save(event: FormEvent) {
@@ -71,6 +73,17 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
     }
   }
 
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    const cleanName = name.trim();
+    if (!cleanName) return;
+    if (await model.createApiKey({ name: cleanName, capability })) {
+      setCreating(false);
+      setName("");
+      setCapability("browser");
+    }
+  }
+
   return (
     <div className="sh-card__body" style={{ display: "grid", gap: 12 }}>
       <div className="sh-settings-intro">
@@ -78,7 +91,12 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
           <h3 className="sh-h2">Ingest API keys</h3>
           <p className="sh-muted">Keys are scoped to this project and environment. Renaming does not rotate the secret.</p>
         </div>
-        <span className="sh-tag">{keys.length} active</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="sh-tag">{keys.length} active</span>
+          <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={() => setCreating((value) => !value)}>
+            New API key
+          </button>
+        </div>
       </div>
       {!model.capabilities.renameApiKeys ? <div className="sh-alert warning">Key rename is unavailable in this deployment. Revocation remains available.</div> : null}
       {model.errors.apiKeys ? <div className="sh-alert bad" role="alert">{model.errors.apiKeys}</div> : null}
@@ -92,6 +110,7 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
                 <strong style={{ fontSize: 12.5 }}>{key.name}</strong>
                 <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
                   {key.prefix} · created {new Date(key.createdAt).toLocaleDateString()}
+                  {" · "}{key.capability}
                 </div>
               </div>
               <button
@@ -121,6 +140,28 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
           ))}
         </div>
       )}
+      {creating ? (
+        <form onSubmit={(event) => void create(event)} style={{ display: "grid", gap: 8 }}>
+          <label className="sh-settings-field">
+            <span>API key name</span>
+            <input className="sh-input" value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label className="sh-settings-field">
+            <span>API key capability</span>
+            <select className="sh-input" value={capability} onChange={(event) => setCapability(event.target.value as ApiKey["capability"])}>
+              <option value="browser">Browser</option>
+              <option value="server">Server</option>
+            </select>
+          </label>
+          <p className="sh-muted" style={{ margin: 0 }}>
+            Browser keys are public by design for client-side telemetry. Server keys must remain secret and are required for identify requests.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="sh-btn primary" type="submit" disabled={model.busy || !name.trim()}>Create API key</button>
+            <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={() => setCreating(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : null}
       {editing ? (
         <form onSubmit={(event) => void save(event)} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8 }}>
           <label className="sh-settings-field">

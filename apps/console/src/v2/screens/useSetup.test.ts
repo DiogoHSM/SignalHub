@@ -12,7 +12,7 @@ function env(over: Partial<Environment> = {}): Environment {
   return { id: "env_1", projectId: "prj_1", name: "production", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", archivedAt: null, ...over };
 }
 function key(over: Partial<ApiKey> = {}): ApiKey {
-  return { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "k", prefix: "sh_live_ab", createdAt: "2026-01-01T00:00:00.000Z", revokedAt: null, ...over };
+  return { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "k", prefix: "sh_live_ab", capability: "browser", createdAt: "2026-01-01T00:00:00.000Z", revokedAt: null, ...over };
 }
 function ops(lastEventAt: string | null, events = 184): OperationsResponse {
   return {

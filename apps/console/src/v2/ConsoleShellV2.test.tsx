@@ -236,7 +236,7 @@ describe("ConsoleShellV2", () => {
     const user = userEvent.setup();
     const client = makeClient({
       createApiKey: vi.fn().mockResolvedValue({
-        apiKey: { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_ab", createdAt: "x", revokedAt: null, secret },
+        apiKey: { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_ab", capability: "browser", createdAt: "x", revokedAt: null, secret },
       }),
     });
 
@@ -264,7 +264,7 @@ describe("ConsoleShellV2", () => {
     const client = makeClient({
       listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
       createApiKey: vi.fn().mockResolvedValue({
-        apiKey: { id: "key_2", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_cd", createdAt: "x", revokedAt: null, secret },
+        apiKey: { id: "key_2", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_cd", capability: "browser", createdAt: "x", revokedAt: null, secret },
       }),
     });
 
@@ -280,7 +280,7 @@ describe("ConsoleShellV2", () => {
     await screen.findByRole("heading", { name: "Setup" });
 
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
-    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary" }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary", capability: "browser" }));
 
     await user.click(await screen.findByTitle("Reveal"));
     expect(await screen.findByText(secret)).toBeInTheDocument();
@@ -292,7 +292,7 @@ describe("ConsoleShellV2", () => {
     const client = makeClient({
       listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
       createApiKey: vi.fn().mockResolvedValue({
-        apiKey: { id: "key_3", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_ef", createdAt: "x", revokedAt: null, secret },
+        apiKey: { id: "key_3", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_ef", capability: "browser", createdAt: "x", revokedAt: null, secret },
       }),
     });
 
@@ -335,7 +335,7 @@ describe("ConsoleShellV2", () => {
         environments: projectId === "prj_2" ? [ENV_2] : [ENV_1],
       })),
       createApiKey: vi.fn().mockResolvedValue({
-        apiKey: { id: "key_4", projectId: "prj_2", environmentId: "env_2", name: "console-staging", prefix: "sh_live_gh", createdAt: "x", revokedAt: null, secret },
+        apiKey: { id: "key_4", projectId: "prj_2", environmentId: "env_2", name: "console-staging", prefix: "sh_live_gh", capability: "browser", createdAt: "x", revokedAt: null, secret },
       }),
     });
 
@@ -354,7 +354,7 @@ describe("ConsoleShellV2", () => {
     await waitFor(() => expect(window.location.search).toBe("?project_id=prj_2&environment_id=env_2"));
 
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
-    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_2", { environmentId: "env_2", name: "console-staging" }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_2", { environmentId: "env_2", name: "console-staging", capability: "browser" }));
     await screen.findByTitle("Reveal");
 
     window.history.back();
@@ -384,7 +384,7 @@ describe("ConsoleShellV2", () => {
       listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
       createEnvironment: vi.fn().mockResolvedValue({ environment: ENV_1B }),
       createApiKey: vi.fn().mockResolvedValue({
-        apiKey: { id: "key_5", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_ij", createdAt: "x", revokedAt: null, secret },
+        apiKey: { id: "key_5", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_ij", capability: "browser", createdAt: "x", revokedAt: null, secret },
       }),
     });
 
@@ -403,7 +403,7 @@ describe("ConsoleShellV2", () => {
     await user.click(screen.getByTitle("Settings"));
     await screen.findByRole("heading", { name: "Setup" });
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
-    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production" }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production", capability: "browser" }));
     await screen.findByTitle("Reveal");
 
     await act(async () => { await captured.ctx?.onCreateEnvironment("canary"); });
@@ -425,7 +425,7 @@ describe("ConsoleShellV2", () => {
       listEnvironments: vi.fn(() => Promise.resolve({ environments: listed })),
       archiveEnvironment: vi.fn(async () => { listed = [ENV_1]; }),
       createApiKey: vi.fn().mockResolvedValue({
-        apiKey: { id: "key_6", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_kl", createdAt: "x", revokedAt: null, secret },
+        apiKey: { id: "key_6", projectId: "prj_1", environmentId: "env_1b", name: "console-canary", prefix: "sh_live_kl", capability: "browser", createdAt: "x", revokedAt: null, secret },
       }),
     });
 
@@ -439,7 +439,7 @@ describe("ConsoleShellV2", () => {
     await user.click(screen.getByTitle("Settings"));
     await screen.findByRole("heading", { name: "Setup" });
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
-    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary" }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary", capability: "browser" }));
     await screen.findByTitle("Reveal");
 
     await user.click(await screen.findByRole("button", { name: "Archive canary" }));
@@ -464,7 +464,7 @@ describe("ConsoleShellV2", () => {
     const client = makeClient({
       listEnvironments: vi.fn().mockResolvedValue({ environments: [ENV_1, ENV_1B] }),
       createApiKey: vi.fn().mockResolvedValue({
-        apiKey: { id: "key_7", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_mn", createdAt: "x", revokedAt: null, secret },
+        apiKey: { id: "key_7", projectId: "prj_1", environmentId: "env_1", name: "console-production", prefix: "sh_live_mn", capability: "browser", createdAt: "x", revokedAt: null, secret },
       }),
     });
 
@@ -474,7 +474,7 @@ describe("ConsoleShellV2", () => {
     await user.click(screen.getByTitle("Settings"));
     await screen.findByRole("heading", { name: "Setup" });
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
-    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production" }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production", capability: "browser" }));
     await screen.findByTitle("Reveal");
 
     await user.click(container.querySelectorAll(".sw-pill")[1]);

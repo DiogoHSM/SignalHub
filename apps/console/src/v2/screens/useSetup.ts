@@ -290,6 +290,7 @@ export function useSetup({ ctx }: { ctx: ScreenCtx }): UseSetupResult {
       const { apiKey } = await client.createApiKey(project.id, {
         environmentId: environment.id,
         name: `console-${environment.name}`,
+        capability: "browser",
       });
       if (scopeRef.current !== operationScope) return;
       ctx.onSecretCreated(apiKey.secret, "apiKey");
