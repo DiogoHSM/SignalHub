@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { EmptyHint, Icon, SecretField, Segmented, StatusDot } from "../../../components/ui/v2";
 import type {
   ApiKey,
@@ -396,20 +396,6 @@ function GovernancePanel({ model }: { model: SettingsModel }) {
     ) as DataGovernancePolicy["retentionPolicy"],
     [model.policy?.retentionPolicy],
   );
-  const persistedRetentionSignature = JSON.stringify(persistedRetention);
-
-  useEffect(() => {
-    setRetention(
-      Object.fromEntries(
-        RETENTION_CATEGORIES.map((category) => [
-          category.key,
-          String(persistedRetention[category.key] ?? category.fallback),
-        ]),
-      ),
-    );
-    setValidationError(null);
-  }, [model.scopeKey, persistedRetentionSignature]);
-
   function parseRetention(): DataGovernancePolicy["retentionPolicy"] | null {
     const entries: Array<[DataGovernanceRetentionCategory, number]> = [];
     for (const category of RETENTION_CATEGORIES) {

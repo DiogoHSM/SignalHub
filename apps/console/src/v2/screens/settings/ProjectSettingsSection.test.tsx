@@ -415,6 +415,28 @@ describe("ProjectSettingsSection", () => {
     );
   });
 
+  it("preserves a retention edit made as the governance panel becomes interactive", async () => {
+    const client = makeClient();
+    let edited = false;
+    const observer = new MutationObserver(() => {
+      const events = screen.queryByLabelText("Events retention days");
+      if (!(events instanceof HTMLInputElement) || edited) return;
+      edited = true;
+      fireEvent.change(events, { target: { value: "60" } });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    try {
+      render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+      fireEvent.click(screen.getByRole("button", { name: "Data governance" }));
+
+      await waitFor(() => expect(edited).toBe(true));
+      expect(screen.getByLabelText("Events retention days")).toHaveValue(60);
+    } finally {
+      observer.disconnect();
+    }
+  });
+
   it("does not remove a governance rule when confirmation is declined", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     const client = makeClient();
