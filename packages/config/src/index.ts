@@ -110,6 +110,10 @@ const rawConfigSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((value) => (value === undefined ? undefined : value === "true")),
+  MCP_ALLOW_RAW_DETAIL: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   SIGMON_PUBLIC_ENDPOINT: optionalEnvUrl,
   LANDING_HOSTS: optionalEnvString,
   BROWSER_CORS_ORIGINS: optionalEnvString,
@@ -281,6 +285,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     console: {
       enabled: parsed.CONSOLE_ENABLED ?? (parsed.NODE_ENV === "production"),
       publicEndpoint: parsed.SIGMON_PUBLIC_ENDPOINT ?? ""
+    },
+    mcp: {
+      allowRawDetail: parsed.MCP_ALLOW_RAW_DETAIL
     },
     landing: {
       hosts: parseHostList(parsed.LANDING_HOSTS, ["sigmon.app", "www.sigmon.app"])

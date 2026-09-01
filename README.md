@@ -52,6 +52,7 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
 | `CONSOLE_ENABLED` | No | Enables the built Integration Console from the API. Compose sets this to `true`. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://sigmon.example.com`. |
+| `MCP_ALLOW_RAW_DETAIL` | No | Defaults to `false`. Set to `true` only to authorize per-call MCP raw detail; that detail may be disclosed to an external AI provider. |
 | `BROWSER_CORS_ORIGINS` | No | Comma-separated browser app origins allowed to post SDK telemetry directly to `/v1/*`, for example `https://app.example.com`. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | Local directory for uploaded source-map artifacts. Defaults to `/var/lib/sigmon/source-maps`. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | Maximum source-map upload size in MiB. Defaults to `50`. |
@@ -67,6 +68,10 @@ Google OAuth is optional. It is not open signup: Google sign-in only succeeds fo
 To enable it, create a Google Cloud OAuth 2.0 **Web application** client and register the exact authorized redirect URI for each deployment. Configure `GOOGLE_OAUTH_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` on the **API service only**; the worker and scheduler do not own OAuth callbacks. The production redirect must match `https://my.sigmon.app/auth/google/callback` exactly, including scheme and path.
 
 Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operator notes. The committed `.claude/docs/SECRETS.md` contains sanitized variable names and safe examples only.
+
+## MCP Raw Detail
+
+MCP tools prune stacks, payloads, span bodies, and comparable raw detail by default. Returning that detail requires both `MCP_ALLOW_RAW_DETAIL=true` in the MCP process and `includeRawDetail: true` on the individual tool call. Enabling the process flag can disclose telemetry to an external AI provider; use it only with a trusted client. Even then, secret-shaped keys and URL query values are redacted and response sections remain capped.
 
 ## Operational Config
 

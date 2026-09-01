@@ -14,7 +14,7 @@
  */
 
 import type { EntitySort, SessionTimelineParams, SigmonClient, Window } from "../client.js";
-import { DEFAULT_SENSITIVE_FIELDS, pruneSection, type TruncatedInfo } from "../budget.js";
+import { DEFAULT_SENSITIVE_FIELDS, isRawDetailEnabled, pruneSection, type RawDetailOptions, type TruncatedInfo } from "../budget.js";
 
 export interface McpToolSchema {
   name: string;
@@ -85,16 +85,20 @@ export const userJourneyTool: McpToolSchema = {
       sessionLimit: { type: "integer", minimum: 1 },
       includeRawDetail: {
         type: "boolean",
-        description: "Keep fields the response budget would otherwise prune. Defaults to false."
+        description: "Requires MCP_ALLOW_RAW_DETAIL=true; keep fields the response budget would otherwise prune. Defaults to false."
       }
     },
     additionalProperties: false
   }
 };
 
-export async function handleUserJourney(client: SigmonClient, input: UserJourneyInput = {}): Promise<Record<string, unknown>> {
+export async function handleUserJourney(
+  client: SigmonClient,
+  input: UserJourneyInput = {},
+  rawDetailOptions: RawDetailOptions = {}
+): Promise<Record<string, unknown>> {
   const subjectType = input.subjectType ?? "user";
-  const fieldOptions = { includeRawDetail: input.includeRawDetail };
+  const fieldOptions = { includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail };
   const truncated: TruncatedInfo[] = [];
 
   const result: Record<string, unknown> = { subjectType };
@@ -156,6 +160,9 @@ export async function handleUserJourney(client: SigmonClient, input: UserJourney
 
   if (truncated.length > 0) {
     result.truncated = truncated;
+  }
+  if (isRawDetailEnabled(fieldOptions)) {
+    result.rawDetailIncluded = true;
   }
 
   return result;

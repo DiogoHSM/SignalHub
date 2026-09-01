@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 import type { SigmonClient } from "../client.js";
-import { pruneSection, type TruncatedInfo } from "../budget.js";
+import { isRawDetailEnabled, pruneSection, type RawDetailOptions, type TruncatedInfo } from "../budget.js";
 
 const inputSchema = {
   errorGroupId: z.string().describe("The error group id to investigate (from whats_broken or search_events)."),
@@ -22,7 +22,7 @@ const inputSchema = {
   includeRawDetail: z
     .boolean()
     .optional()
-    .describe("Include full stack traces and raw event payloads on occurrences instead of the pruned default.")
+    .describe("Requires MCP_ALLOW_RAW_DETAIL=true; include full stack traces and raw event payloads on occurrences instead of the pruned default.")
 };
 
 const inputObject = z.object(inputSchema);
@@ -52,7 +52,8 @@ export interface InvestigateErrorResult {
 
 export async function investigateErrorHandler(
   client: SigmonClient,
-  input: InvestigateErrorInput
+  input: InvestigateErrorInput,
+  rawDetailOptions: RawDetailOptions = {}
 ): Promise<InvestigateErrorResult> {
   const incident = await client.getErrorGroupIncident(input.errorGroupId, { errorId: input.errorId });
 
@@ -69,7 +70,7 @@ export async function investigateErrorHandler(
     })
   ]);
 
-  const fieldOptions = { includeRawDetail: input.includeRawDetail };
+  const fieldOptions = { includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail };
 
   const prunedOccurrences = pruneSection(
     occurrences.data as unknown as Record<string, unknown>[],
@@ -129,6 +130,7 @@ export async function investigateErrorHandler(
     sourceMapResolution: sourceMapOut,
     occurrences: { items: prunedOccurrences.items, cursor: occurrences.cursor },
     mttr,
+    ...(isRawDetailEnabled(fieldOptions) ? { rawDetailIncluded: true as const } : {}),
     ...(truncated.length > 0 ? { truncated } : {})
   };
 }

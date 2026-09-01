@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import type { SigmonClient } from "../client.js";
-import { pruneSection, type TruncatedInfo } from "../budget.js";
+import { isRawDetailEnabled, pruneSection, type RawDetailOptions, type TruncatedInfo } from "../budget.js";
 
 const inputSchema = {
   traceId: z.string().optional().describe("Fetch spans for this specific trace. Omit to search for traces instead."),
@@ -21,7 +21,7 @@ const inputSchema = {
   cursor: z.string().optional().describe("Cursor to page through trace search results."),
   spanLimit: z.number().int().positive().max(500).optional().describe("Max spans requested before this tool's own budget cap."),
   spanCursor: z.string().optional().describe("Cursor to page through spans."),
-  includeRawDetail: z.boolean().optional().describe("Include full span bodies instead of the pruned default.")
+  includeRawDetail: z.boolean().optional().describe("Requires MCP_ALLOW_RAW_DETAIL=true; include full span bodies instead of the pruned default.")
 };
 
 const inputObject = z.object(inputSchema);
@@ -34,7 +34,11 @@ export interface TraceRequestResult {
   truncated?: TruncatedInfo[];
 }
 
-export async function traceRequestHandler(client: SigmonClient, input: TraceRequestInput = {}): Promise<TraceRequestResult> {
+export async function traceRequestHandler(
+  client: SigmonClient,
+  input: TraceRequestInput = {},
+  rawDetailOptions: RawDetailOptions = {}
+): Promise<TraceRequestResult> {
   if (input.traceId) {
     const [traces, spans] = await Promise.all([
       client.listTraces({ traceId: input.traceId, limit: 1 }),
@@ -42,13 +46,15 @@ export async function traceRequestHandler(client: SigmonClient, input: TraceRequ
     ]);
 
     const prunedTrace = pruneSection(traces.data, "trace_request.trace");
-    const prunedSpans = pruneSection(spans.data, "trace_request.spans", { includeRawDetail: input.includeRawDetail });
+    const fieldOptions = { includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail };
+    const prunedSpans = pruneSection(spans.data, "trace_request.spans", fieldOptions);
 
     const truncated = [prunedTrace.truncated, prunedSpans.truncated].filter((entry): entry is TruncatedInfo => Boolean(entry));
 
     return {
       trace: prunedTrace.items[0] ?? null,
       spans: { items: prunedSpans.items, cursor: spans.cursor },
+      ...(isRawDetailEnabled(fieldOptions) ? { rawDetailIncluded: true as const } : {}),
       ...(truncated.length > 0 ? { truncated } : {})
     };
   }
@@ -69,6 +75,9 @@ export async function traceRequestHandler(client: SigmonClient, input: TraceRequ
 
   return {
     traces: { items: prunedTraces.items, cursor: traces.cursor },
+    ...(isRawDetailEnabled({ includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail })
+      ? { rawDetailIncluded: true as const }
+      : {}),
     ...(prunedTraces.truncated ? { truncated: [prunedTraces.truncated] } : {})
   };
 }

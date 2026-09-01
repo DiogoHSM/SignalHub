@@ -25,8 +25,8 @@ function makeSigmonClient(fetchImpl: typeof fetch): SigmonClient {
   return new SigmonClient({ baseUrl: "https://sigmon.example.test", readToken: "shread_test_token", fetch: fetchImpl });
 }
 
-async function connectedClient(sigmonClient: SigmonClient): Promise<Client> {
-  const server = createSigmonMcpServer(sigmonClient);
+async function connectedClient(sigmonClient: SigmonClient, options?: { allowRawDetail?: boolean }): Promise<Client> {
+  const server = createSigmonMcpServer(sigmonClient, options);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
   const client = new Client({ name: "test-client", version: "0.0.0" });
@@ -100,5 +100,39 @@ describe("createSigmonMcpServer", () => {
     expect(result.content).toEqual([{ type: "text", text: "unknown tool: not_a_real_tool" }]);
 
     await client.close();
+  });
+
+  it("requires server authorization in addition to a raw-detail tool argument", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(input.toString()).pathname;
+      if (path === "/query/traces") {
+        return jsonResponse(200, { data: [{ id: "trace_1" }], cursor: null });
+      }
+      if (path === "/query/traces/trace_1/spans") {
+        return jsonResponse(200, {
+          data: [{ id: "span_1", body: "trace body", pageUrl: "https://app.test/?token=secret", context: { apiToken: "secret" } }],
+          cursor: null
+        });
+      }
+      return jsonResponse(404, { error: "not_found" });
+    });
+
+    const perCallOnly = await connectedClient(makeSigmonClient(fetchMock as unknown as typeof fetch));
+    const perCallResponse = await perCallOnly.callTool({ name: "trace_request", arguments: { traceId: "trace_1", includeRawDetail: true } });
+    const perCallPayload = JSON.parse((perCallResponse.content as Array<{ text: string }>)[0]!.text);
+    expect(perCallPayload.spans.items[0]).not.toHaveProperty("body");
+    expect(perCallPayload.rawDetailIncluded).toBeUndefined();
+    await perCallOnly.close();
+
+    const authorized = await connectedClient(makeSigmonClient(fetchMock as unknown as typeof fetch), { allowRawDetail: true });
+    const authorizedResponse = await authorized.callTool({ name: "trace_request", arguments: { traceId: "trace_1", includeRawDetail: true } });
+    const authorizedPayload = JSON.parse((authorizedResponse.content as Array<{ text: string }>)[0]!.text);
+    expect(authorizedPayload).toMatchObject({
+      rawDetailIncluded: true,
+      spans: {
+        items: [{ body: "trace body", pageUrl: "https://app.test/?token=%5BREDACTED%5D", context: { apiToken: "[REDACTED]" } }]
+      }
+    });
+    await authorized.close();
   });
 });

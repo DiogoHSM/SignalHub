@@ -13,7 +13,9 @@ function endpointRow(index: number) {
     p99DurationMs: 200,
     averageDurationMs: 50,
     apdex: 0.9,
-    lastSeenAt: "2026-08-20T00:00:00.000Z"
+    lastSeenAt: "2026-08-20T00:00:00.000Z",
+    stack: "endpoint stack",
+    pageUrl: "/api?token=secret"
   };
 }
 
@@ -82,6 +84,23 @@ describe("handleSlowEndpoints", () => {
 
     expect(client.getApmServiceMap).not.toHaveBeenCalled();
     expect(result.serviceMap).toBeUndefined();
+  });
+
+  it("requires both gates to return sanitized endpoint raw detail", async () => {
+    const client = makeFakeClient();
+
+    const defaultResult = await handleSlowEndpoints(client);
+    expect((defaultResult.endpoints as Array<Record<string, unknown>>)[0]).not.toHaveProperty("stack");
+
+    const perCallOnly = await handleSlowEndpoints(client, { includeRawDetail: true });
+    expect((perCallOnly.endpoints as Array<Record<string, unknown>>)[0]).not.toHaveProperty("stack");
+
+    const authorized = await handleSlowEndpoints(client, { includeRawDetail: true }, { allowRawDetail: true });
+    expect((authorized.endpoints as Array<Record<string, unknown>>)[0]).toMatchObject({
+      stack: "endpoint stack",
+      pageUrl: "/api?token=%5BREDACTED%5D"
+    });
+    expect(authorized).toMatchObject({ rawDetailIncluded: true });
   });
 
   it("marks truncated when the endpoints section exceeds the response budget cap", async () => {

@@ -57,11 +57,24 @@ describe("pruneSection", () => {
     expect(result.items[0]).toMatchObject({ id: 1 });
   });
 
-  it("keeps stack traces, raw payloads, and span bodies when includeRawDetail opts in", () => {
+  it("prunes raw fields when only the tool call opts in", () => {
+    expect(pruneSensitiveFields({ stack: "secret" }, { includeRawDetail: true, allowRawDetail: false })).toEqual({});
+  });
+
+  it("keeps redacted, budgeted raw fields when both gates opt in", () => {
+    const value = pruneSensitiveFields(
+      { pageUrl: "https://x.test/?token=abc", stack: "trace" },
+      { includeRawDetail: true, allowRawDetail: true }
+    );
+
+    expect(value).toEqual({ pageUrl: "https://x.test/?token=%5BREDACTED%5D", stack: "trace" });
+  });
+
+  it("keeps stack traces, raw payloads, and span bodies when both gates opt in", () => {
     const input = [
       { id: 1, stack: "Error: boom\n  at foo", payload: { raw: true }, spanBody: { big: "data" } }
     ];
-    const result = pruneSection(input, "errors", { includeRawDetail: true });
+    const result = pruneSection(input, "errors", { includeRawDetail: true, allowRawDetail: true });
 
     expect(result.items[0]).toMatchObject({
       id: 1,
@@ -80,9 +93,9 @@ describe("pruneSensitiveFields", () => {
     expect(pruned).toEqual({ id: 1 });
   });
 
-  it("leaves sensitive fields intact when includeRawDetail is true", () => {
+  it("leaves sensitive fields intact only when both gates opt in", () => {
     const record = { id: 1, stack: "trace", rawPayload: { a: 1 }, body: "full span body" };
-    const pruned = pruneSensitiveFields(record, { includeRawDetail: true });
+    const pruned = pruneSensitiveFields(record, { includeRawDetail: true, allowRawDetail: true });
 
     expect(pruned).toEqual(record);
   });

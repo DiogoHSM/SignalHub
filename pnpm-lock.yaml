@@ -267,6 +267,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.4.2)
+      '@sigmon/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
       zod:
         specifier: ^4.4.2
         version: 4.4.2

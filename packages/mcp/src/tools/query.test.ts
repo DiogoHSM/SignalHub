@@ -3,7 +3,7 @@ import type { SigmonClient } from "../client.js";
 import { handleQuery, QueryToolInputError, queryTool } from "./query.js";
 
 function trendSeries(index: number) {
-  return { key: `series-${index}`, label: `Series ${index}`, values: [1, 2, 3] };
+  return { key: `series-${index}`, label: `Series ${index}`, values: [1, 2, 3], payload: { apiToken: "secret", pageUrl: "/trends?token=secret" } };
 }
 
 function makeFakeClient(overrides: Partial<SigmonClient> = {}): SigmonClient {
@@ -115,7 +115,7 @@ describe("handleQuery", () => {
     expect(client.getAnalyticsTrend).toHaveBeenCalledWith({ from: "2026-08-01", to: "2026-08-20", insightId: "insight-1" });
     expect(result).toEqual({
       metric: "trends",
-      result: { buckets: ["2026-08-19", "2026-08-20"], series: [trendSeries(1)] }
+      result: { buckets: ["2026-08-19", "2026-08-20"], series: [{ key: "series-1", label: "Series 1", values: [1, 2, 3] }] }
     });
   });
 
@@ -168,5 +168,22 @@ describe("handleQuery", () => {
     const payload = result.result as { series: unknown[] };
     expect(payload.series).toHaveLength(20);
     expect(result.truncated).toEqual([expect.objectContaining({ section: "trends.series", returned: 20, total: 25 })]);
+  });
+
+  it("requires both gates to return sanitized trend raw detail", async () => {
+    const client = makeFakeClient();
+    const input = { metric: "trends" as const, from: "2026-08-01", to: "2026-08-20", insightId: "insight-1", includeRawDetail: true };
+
+    const defaultResult = await handleQuery(client, { ...input, includeRawDetail: undefined });
+    expect(((defaultResult.result as { series: Array<Record<string, unknown>> }).series[0])).not.toHaveProperty("payload");
+
+    const perCallOnly = await handleQuery(client, input);
+    expect(((perCallOnly.result as { series: Array<Record<string, unknown>> }).series[0])).not.toHaveProperty("payload");
+
+    const authorized = await handleQuery(client, input, { allowRawDetail: true });
+    expect(((authorized.result as { series: Array<Record<string, unknown>> }).series[0])).toMatchObject({
+      payload: { apiToken: "[REDACTED]", pageUrl: "/trends?token=%5BREDACTED%5D" }
+    });
+    expect(authorized).toMatchObject({ rawDetailIncluded: true });
   });
 });

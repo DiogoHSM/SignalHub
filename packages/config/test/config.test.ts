@@ -38,6 +38,11 @@ describe("loadConfig", () => {
     expect(config.port).toBe(4000);
     expect(config.googleOAuth.enabled).toBe(false);
     expect(config.worker.role).toBe("all");
+    expect(config.mcp.allowRawDetail).toBe(false);
+  });
+
+  it("requires an explicit true value to authorize MCP raw detail", () => {
+    expect(loadConfig({ ...validEnv, MCP_ALLOW_RAW_DETAIL: "true" }).mcp.allowRawDetail).toBe(true);
   });
 
   it.each(["all", "queue", "scheduler"] as const)("loads worker role %s", (role) => {

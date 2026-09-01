@@ -11,7 +11,7 @@
  */
 
 import type { SigmonClient, Window } from "../client.js";
-import { pruneSection, type TruncatedInfo } from "../budget.js";
+import { isRawDetailEnabled, pruneSection, type RawDetailOptions, type TruncatedInfo } from "../budget.js";
 
 export interface McpToolSchema {
   name: string;
@@ -41,15 +41,19 @@ export const llmCostsTool: McpToolSchema = {
       window: { type: "string", enum: ["24h", "7d", "30d"], description: "Lookback window. Defaults to 24h." },
       includeRawDetail: {
         type: "boolean",
-        description: "Keep fields the response budget would otherwise prune. Defaults to false."
+        description: "Requires MCP_ALLOW_RAW_DETAIL=true; keep fields the response budget would otherwise prune. Defaults to false."
       }
     },
     additionalProperties: false
   }
 };
 
-export async function handleLlmCosts(client: SigmonClient, input: LlmCostsInput = {}): Promise<Record<string, unknown>> {
-  const fieldOptions = { includeRawDetail: input.includeRawDetail };
+export async function handleLlmCosts(
+  client: SigmonClient,
+  input: LlmCostsInput = {},
+  rawDetailOptions: RawDetailOptions = {}
+): Promise<Record<string, unknown>> {
+  const fieldOptions = { includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail };
   const window = { window: input.window };
 
   const [summary, byTenant, byPrompt, costByModel] = await Promise.all([
@@ -80,6 +84,9 @@ export async function handleLlmCosts(client: SigmonClient, input: LlmCostsInput 
 
   if (truncated.length > 0) {
     result.truncated = truncated;
+  }
+  if (isRawDetailEnabled(fieldOptions)) {
+    result.rawDetailIncluded = true;
   }
 
   return result;

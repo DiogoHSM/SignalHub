@@ -21,7 +21,10 @@ function fakeClient(overrides: Partial<Record<keyof SigmonClient, unknown>> = {}
       codeContext: {},
       externalIssues: []
     })),
-    getErrorGroupOccurrences: vi.fn(async () => ({ data: [{ id: "err_1", stack: "at foo" }], cursor: null })),
+    getErrorGroupOccurrences: vi.fn(async () => ({
+      data: [{ id: "err_1", stack: "at foo", pageUrl: "https://app.test/?token=secret", context: { apiToken: "secret" } }],
+      cursor: null
+    })),
     getErrorSourceMapResolution: vi.fn(async () => ({
       errorId: "err_1",
       release: "v1.0.0",
@@ -63,14 +66,25 @@ describe("investigateErrorHandler", () => {
     expect(client.getErrorSourceMapResolution).toHaveBeenCalledWith("err_9");
   });
 
-  it("drops the stack field on occurrences by default and keeps it when includeRawDetail opts in", async () => {
+  it("prunes occurrence raw detail when the process does not authorize it", async () => {
     const client = fakeClient();
 
     const pruned = await investigateErrorHandler(client, { errorGroupId: "grp_1" });
     expect(pruned.occurrences.items[0]).not.toHaveProperty("stack");
 
-    const raw = await investigateErrorHandler(client, { errorGroupId: "grp_1", includeRawDetail: true });
-    expect(raw.occurrences.items[0]).toMatchObject({ stack: "at foo" });
+    const perCallOnly = await investigateErrorHandler(client, { errorGroupId: "grp_1", includeRawDetail: true });
+    expect(perCallOnly.occurrences.items[0]).not.toHaveProperty("stack");
+  });
+
+  it("returns sanitized occurrence raw detail only after both gates opt in", async () => {
+    const result = await investigateErrorHandler(fakeClient(), { errorGroupId: "grp_1", includeRawDetail: true }, { allowRawDetail: true });
+
+    expect(result.occurrences.items[0]).toMatchObject({
+      stack: "at foo",
+      pageUrl: "https://app.test/?token=%5BREDACTED%5D",
+      context: { apiToken: "[REDACTED]" }
+    });
+    expect(result).toMatchObject({ rawDetailIncluded: true });
   });
 
   it("marks the occurrences section as truncated when the list is oversized", async () => {

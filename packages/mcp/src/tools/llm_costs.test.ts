@@ -3,7 +3,16 @@ import type { SigmonClient } from "../client.js";
 import { handleLlmCosts, llmCostsTool } from "./llm_costs.js";
 
 function tenantRollup(index: number) {
-  return { tenantId: `tenant-${index}`, calls: index, failedCalls: 0, costUsd: "1.00", avgTokens: 100, avgLatencyMs: 200, p95LatencyMs: 400 };
+  return {
+    tenantId: `tenant-${index}`,
+    calls: index,
+    failedCalls: 0,
+    costUsd: "1.00",
+    avgTokens: 100,
+    avgLatencyMs: 200,
+    p95LatencyMs: 400,
+    payload: { apiToken: "secret", pageUrl: "/costs?token=secret" }
+  };
 }
 
 function promptRollup(index: number) {
@@ -62,5 +71,21 @@ describe("handleLlmCosts", () => {
 
     expect(result.byTenant).toHaveLength(20);
     expect(result.truncated).toEqual([expect.objectContaining({ section: "byTenant", returned: 20, total: 21 })]);
+  });
+
+  it("requires both gates to return sanitized tenant raw detail", async () => {
+    const client = makeFakeClient();
+
+    const defaultResult = await handleLlmCosts(client);
+    expect((defaultResult.byTenant as Array<Record<string, unknown>>)[0]).not.toHaveProperty("payload");
+
+    const perCallOnly = await handleLlmCosts(client, { includeRawDetail: true });
+    expect((perCallOnly.byTenant as Array<Record<string, unknown>>)[0]).not.toHaveProperty("payload");
+
+    const authorized = await handleLlmCosts(client, { includeRawDetail: true }, { allowRawDetail: true });
+    expect((authorized.byTenant as Array<Record<string, unknown>>)[0]).toMatchObject({
+      payload: { apiToken: "[REDACTED]", pageUrl: "/costs?token=%5BREDACTED%5D" }
+    });
+    expect(authorized).toMatchObject({ rawDetailIncluded: true });
   });
 });
