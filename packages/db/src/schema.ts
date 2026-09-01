@@ -22,6 +22,16 @@ export interface UsersTable {
   archived_at: NullableTimestamp;
 }
 
+export interface AuthSessionsTable {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  created_at: Timestamp;
+  expires_at: Timestamp;
+  revoked_at: NullableTimestamp;
+  last_seen_at: Timestamp;
+}
+
 export interface ProjectsTable {
   id: string;
   name: string;
@@ -1052,6 +1062,7 @@ export interface MigrationsTable {
 
 export interface Database {
   users: UsersTable;
+  auth_sessions: AuthSessionsTable;
   projects: ProjectsTable;
   project_browser_origins: ProjectBrowserOriginsTable;
   project_code_integrations: ProjectCodeIntegrationsTable;

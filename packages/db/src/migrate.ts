@@ -57,7 +57,8 @@ const migrations = [
   },
   { name: "0046_analytics_insights.sql", url: new URL("../migrations/0046_analytics_insights.sql", import.meta.url) },
   { name: "0047_read_tokens.sql", url: new URL("../migrations/0047_read_tokens.sql", import.meta.url) },
-  { name: "0048_api_key_capabilities.sql", url: new URL("../migrations/0048_api_key_capabilities.sql", import.meta.url) }
+  { name: "0048_api_key_capabilities.sql", url: new URL("../migrations/0048_api_key_capabilities.sql", import.meta.url) },
+  { name: "0049_auth_sessions.sql", url: new URL("../migrations/0049_auth_sessions.sql", import.meta.url) }
 ];
 
 export async function migrate(db: Db): Promise<void> {
