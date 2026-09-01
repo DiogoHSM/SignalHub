@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SecretBox } from "../src/index.js";
+import { SecretBox, type SecretBoxContext } from "../src/index.js";
 
 const CURRENT_KEY = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 const PREVIOUS_KEY = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
@@ -28,6 +28,26 @@ function thrownMessage(operation: () => unknown): string {
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
+}
+
+function singleReadContext(): { context: SecretBoxContext; reads: Record<keyof SecretBoxContext, number> } {
+  const reads = { table: 0, rowId: 0, field: 0 };
+  const context = {} as SecretBoxContext;
+
+  for (const name of ["table", "rowId", "field"] as const) {
+    Object.defineProperty(context, name, {
+      enumerable: true,
+      get() {
+        reads[name] += 1;
+        if (reads[name] > 1) {
+          throw new Error(`context_${name}_read_more_than_once`);
+        }
+        return CONTEXT[name];
+      }
+    });
+  }
+
+  return { context, reads };
 }
 
 describe("SecretBox", () => {
@@ -93,6 +113,67 @@ describe("SecretBox", () => {
     expect(() => box.encrypt("postgres://secret", { ...CONTEXT, [name]: `${CONTEXT[name]}\0suffix` })).toThrow(
       "secret_context_invalid"
     );
+  });
+
+  it.each([
+    ["high", "table", "\uD800"],
+    ["low", "table", "\uDC00"],
+    ["high", "rowId", "\uD801"],
+    ["low", "rowId", "\uDC01"],
+    ["high", "field", "\uDBFF"],
+    ["low", "field", "\uDFFF"]
+  ] as const)("rejects a lone %s surrogate in the %s context during encryption", (_kind, name, value) => {
+    const box = new SecretBox({ currentKey: CURRENT_KEY });
+
+    expect(thrownMessage(() => box.encrypt("postgres://secret", { ...CONTEXT, [name]: value }))).toBe(
+      "secret_context_invalid"
+    );
+  });
+
+  it.each([
+    ["high", "table", "\uD800"],
+    ["low", "table", "\uDC00"],
+    ["high", "rowId", "\uD801"],
+    ["low", "rowId", "\uDC01"],
+    ["high", "field", "\uDBFF"],
+    ["low", "field", "\uDFFF"]
+  ] as const)("rejects a lone %s surrogate in the %s context during decryption", (_kind, name, value) => {
+    const box = new SecretBox({ currentKey: CURRENT_KEY });
+    const envelope = box.encrypt("postgres://secret", CONTEXT);
+
+    expect(thrownMessage(() => box.decrypt(envelope, { ...CONTEXT, [name]: value }))).toBe(
+      "secret_context_invalid"
+    );
+  });
+
+  it.each([
+    ["high", "\uD800"],
+    ["distinct high", "\uD801"],
+    ["low", "\uDC00"],
+    ["distinct low", "\uDC01"]
+  ])("rejects plaintext containing a lone %s surrogate", (_kind, value) => {
+    const box = new SecretBox({ currentKey: CURRENT_KEY });
+
+    expect(thrownMessage(() => box.encrypt(`prefix-${value}-suffix`, CONTEXT))).toBe("secret_plaintext_invalid");
+  });
+
+  it("captures validated context components once during encryption", () => {
+    const box = new SecretBox({ currentKey: CURRENT_KEY });
+    const { context, reads } = singleReadContext();
+
+    const envelope = box.encrypt("postgres://secret", context);
+
+    expect(reads).toEqual({ table: 1, rowId: 1, field: 1 });
+    expect(box.decrypt(envelope, CONTEXT)).toBe("postgres://secret");
+  });
+
+  it("captures validated context components once during decryption", () => {
+    const box = new SecretBox({ currentKey: CURRENT_KEY });
+    const envelope = box.encrypt("postgres://secret", CONTEXT);
+    const { context, reads } = singleReadContext();
+
+    expect(box.decrypt(envelope, context)).toBe("postgres://secret");
+    expect(reads).toEqual({ table: 1, rowId: 1, field: 1 });
   });
 
   it("rejects unsupported versions without exposing envelope details", () => {

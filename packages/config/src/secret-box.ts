@@ -84,12 +84,36 @@ function parseEnvelope(envelope: string): ParsedEnvelope {
   return { keyId, nonce, tag, ciphertext };
 }
 
+function isWellFormedUtf16(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      if (index + 1 >= value.length || nextCodeUnit < 0xdc00 || nextCodeUnit > 0xdfff) {
+        return false;
+      }
+      index += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function associatedData(context: SecretBoxContext): Buffer {
-  const components = [context.table, context.rowId, context.field];
-  if (components.some((component) => typeof component !== "string" || component.includes("\0"))) {
+  const table = context.table;
+  const rowId = context.rowId;
+  const field = context.field;
+  const components = [table, rowId, field];
+  if (
+    components.some(
+      (component) =>
+        typeof component !== "string" || component.includes("\0") || !isWellFormedUtf16(component)
+    )
+  ) {
     throw new Error("secret_context_invalid");
   }
-  return Buffer.from(`${context.table}\0${context.rowId}\0${context.field}`, "utf8");
+  return Buffer.from(`${table}\0${rowId}\0${field}`, "utf8");
 }
 
 export class SecretBox {
@@ -117,9 +141,13 @@ export class SecretBox {
   }
 
   encrypt(plaintext: string, context: SecretBoxContext): string {
+    if (typeof plaintext !== "string" || !isWellFormedUtf16(plaintext)) {
+      throw new Error("secret_plaintext_invalid");
+    }
+    const aad = associatedData(context);
     const nonce = randomBytes(NONCE_BYTES);
     const cipher = createCipheriv("aes-256-gcm", this.#current.bytes, nonce, { authTagLength: TAG_BYTES });
-    cipher.setAAD(associatedData(context));
+    cipher.setAAD(aad);
     const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
     const tag = cipher.getAuthTag();
 
@@ -138,10 +166,11 @@ export class SecretBox {
     if (!key) {
       throw new Error("secret_key_unknown");
     }
+    const aad = associatedData(context);
 
     try {
       const decipher = createDecipheriv("aes-256-gcm", key.bytes, parsed.nonce, { authTagLength: TAG_BYTES });
-      decipher.setAAD(associatedData(context));
+      decipher.setAAD(aad);
       decipher.setAuthTag(parsed.tag);
       return Buffer.concat([decipher.update(parsed.ciphertext), decipher.final()]).toString("utf8");
     } catch {
