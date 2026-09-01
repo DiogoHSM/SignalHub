@@ -21,6 +21,14 @@ Browser keys are public by design and can send normal telemetry. They cannot mut
 
 Upgraded installations treat existing ingestion keys as browser-safe. Before deploying an existing server identify integration, create or rotate a server-capability key and replace the integration's secret.
 
+### Upgrade, migration, and rollback
+
+Before upgrading, inventory server-side calls to `/v1/identify/user` and `/v1/identify/tenant`. Create a server-capability key for each server integration, store it only in that integration's secret manager, and deploy the integration with the replacement key. Verify the server identify call receives `202`; a browser key must receive `403 api_key_capability_forbidden` for the same endpoint, while ordinary browser telemetry continues to receive `202`.
+
+Existing ingestion keys deliberately become browser-capability keys: they remain compatible with normal telemetry and must not be promoted to server capability, because an existing key may have been exposed in browser configuration. If a server identify integration needs a rapid rollback, restore the previous secret reference only when it already targets a server-capability key. For an application-version rollback, retain the new server key in the server integration and roll back the application release; do not reclassify a browser or legacy key to recover identify access.
+
+After deployment, run `pnpm privacy:redact-feedback-urls` once against the production database and retain its `scanned`/`updated` result with the release record. New and queued feedback is redacted server-side, and reads sanitize legacy values while the backfill catches up. Redaction removes URL query values irreversibly; rollback never restores them. MCP tools redact URL-like fields and suppress raw detail by default on the server. If raw-detail access must be withdrawn, set `MCP_ALLOW_RAW_DETAIL=false` and restart the MCP process; the caller's `includeRawDetail` flag alone cannot bypass that process boundary.
+
 ## Base Request
 
 ```http
