@@ -44,6 +44,7 @@ cp .env.example .env
 Edit `.env` before first start:
 
 - Replace `POSTGRES_PASSWORD`, `SESSION_SECRET`, `API_KEY_PEPPER`, and `BOOTSTRAP_ADMIN_PASSWORD`.
+- Provision `DATA_ENCRYPTION_KEY` as the canonical base64 encoding of exactly 32 random bytes. Create and store it directly in the deployment secret manager; do not print it into a terminal, log, or committed file.
 - Set `BOOTSTRAP_ADMIN_EMAIL`.
 - Set `SIGMON_PUBLIC_ENDPOINT` to the public HTTPS origin, for example `https://my-sigmon.example.com`.
 - If `POSTGRES_PASSWORD` has URL-reserved characters, set `POSTGRES_PASSWORD_URLENCODED`.
@@ -92,6 +93,35 @@ Docker Compose defines these persistent volumes:
 
 Do not delete these volumes unless you intentionally want to wipe the install.
 
+## Human Sessions And Login Controls
+
+Human login creates a seven-day opaque session. The browser receives a random token; Postgres stores only its SHA-256 hash. An active lookup rejects expired or revoked sessions and sessions belonging to archived users. Logout revokes the current row before clearing the cookie. An administrator password change or user archival revokes every session for that user in the same database transaction, so a copied cookie stops working immediately. `last_seen_at` is touched at most once per fifteen minutes. Expired rows are inert even before storage maintenance calls the repository pruning operation, which removes rows at `expires_at <= now`.
+
+The opaque token format intentionally has no compatibility path for the former signed `payload.signature` cookie. The first upgrade that creates `auth_sessions` invalidates every existing human session; tell operators and users to expect one fresh password or Google OAuth login. Changing a password or archiving a user has the same intentional session-invalidation effect.
+
+Password login applies these controls before it creates a session:
+
+| Variable | Default | Effect |
+| --- | ---: | --- |
+| `LOGIN_SOURCE_MAX_ATTEMPTS` | `10` | Maximum attempts in the source-IP window. |
+| `LOGIN_SOURCE_WINDOW_MS` | `60000` | Source-IP quota window in milliseconds. |
+| `LOGIN_ACCOUNT_MAX_ATTEMPTS` | `8` | Maximum attempts in the normalized-account window. |
+| `LOGIN_ACCOUNT_WINDOW_MS` | `900000` | Shared account quota window in milliseconds. |
+| `LOGIN_ARGON2_CONCURRENCY` | `4` | Maximum concurrent password Argon2 verifications in each API process. |
+| `LOGIN_PROGRESSIVE_DELAY_MAX_MS` | `2000` | Cap for the exponential delay applied to failed credentials. |
+
+The source quota uses Fastify's trusted `request.ip`. Until trusted proxy CIDRs are explicitly configured, an untrusted proxy can collapse clients into one conservative bucket but cannot create extra source identities. The account quota is shared through Redis and keyed by an HMAC of the trimmed, lower-cased email rather than the email itself. Its increment and first expiry are atomic. The dedicated quota client has bounded connection, command, socket, and retry behavior; if a source or account check cannot be trusted, login returns `503 auth_unavailable` instead of bypassing the guard. Existing database sessions continue to use Postgres, although a wider Redis outage can independently affect queued ingestion.
+
+Every accepted-size credential attempt performs exactly one Argon2 verification. Missing, archived, and OAuth-only accounts use a valid dummy Argon2id hash; password-backed accounts use their stored Argon2id hash. All credential failures return the same `401 invalid_credentials` contract. Passwords over 1,024 UTF-8 bytes are rejected before Argon2. Keep password storage on Argon2id; the peppered SHA-256 decision applies only to high-entropy generated ingestion API keys.
+
+## Integration Credential Encryption
+
+Production API, worker, scheduler, and migration processes require `DATA_ENCRYPTION_KEY`, the canonical base64 encoding of exactly 32 random bytes. Provision the same current key to every service through the deployment secret manager. During rotation only, also provision `DATA_ENCRYPTION_KEY_PREVIOUS` with the old key; the values must differ. Keep an access-controlled, tested escrow copy outside the database and its backups. Never paste either key into commands, issue trackers, logs, or committed configuration. `.claude/docs/SECRETS.md` records the format and custody rules without real values.
+
+Warehouse connection URLs and notification secret-header values use AES-256-GCM envelopes with a random 12-byte nonce and 16-byte authentication tag. Associated data binds the ciphertext to its table, row id, and field name, so copying an envelope to another row or field fails authentication. New writes always use the current key. Ordinary admin list responses expose only redacted metadata; plaintext is decrypted only at the privileged execution boundary.
+
+Migration `0050_encrypted_integration_secrets.sql` is intentionally additive. It adds encrypted columns and a non-secret warehouse URL preview, makes the old warehouse plaintext column nullable, and retains the old plaintext columns for this staged release. `pnpm secrets:migrate` processes bounded, stable ID batches. Each row is locked and freshly classified in its own transaction, then encrypted or rewrapped, decrypt-verified, persisted, and cleared of plaintext atomically. The command reports only `migrated` and `rotated` counts.
+
 ## Backups
 
 Enable backups with:
@@ -138,7 +168,9 @@ Practice restore in a disposable environment before relying on it during an inci
 
 ## Upgrade
 
-Create a backup before every upgrade:
+For the release that introduces opaque sessions and encrypted integration credentials, use this order. It deliberately stops every writer before schema and data migration. If queue and scheduler roles are separate applications, stop both as well as the API.
+
+Before these commands, provision `DATA_ENCRYPTION_KEY` directly in the secret manager for the API, worker, scheduler, and one-off migration container. Do not generate it with a command that prints it. Preserve the pre-upgrade backup and the matching encryption-key escrow separately.
 
 ```sh
 docker compose run --rm worker pnpm backup:create
@@ -147,15 +179,50 @@ pnpm install
 docker compose build
 docker compose stop api worker
 docker compose run --rm api pnpm db:migrate
+docker compose run --rm api pnpm secrets:migrate --kind all --batch-size 100
+docker compose run --rm api pnpm secrets:migrate --kind all --batch-size 100
 docker compose up -d
 pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
-If you split queue and scheduler services outside Compose, stop and restart both service roles around migrations.
+The first migration command may report non-zero `migrated` or `rotated` counts. The confirmation run must report `{"migrated":0,"rotated":0}` before the release is considered migrated. Then verify a fresh password login, Google OAuth if enabled, one webhook delivery, one warehouse export, and a backup. Existing signed human cookies are expected to fail; users must log in again.
+
+Migration `0049_auth_sessions.sql` creates the empty session store, which is why old signed cookies cannot survive. Migration `0050_encrypted_integration_secrets.sql` adds the staged encrypted columns without dropping the plaintext columns. Do not treat their continued schema presence as permission to write or read plaintext: new writes clear plaintext, and privileged work refuses legacy plaintext until the data migration succeeds.
+
+The migration is restartable. If it is interrupted, keep all services stopped and run the same command again; committed rows are recognized as current, and an interrupted row's transaction is rolled back. Do not manually clear plaintext or edit envelopes.
+
+### Encryption-key rotation
+
+1. Create the new 32-byte key directly in the approved secret manager.
+2. Configure the new key as `DATA_ENCRYPTION_KEY` and the old key as `DATA_ENCRYPTION_KEY_PREVIOUS` on every API, worker, scheduler, and migration process.
+3. Restart the processes so they share the same keyring, then run the migration and its confirmation pass:
+
+   ```sh
+   docker compose run --rm api pnpm secrets:migrate --kind all --batch-size 100
+   docker compose run --rm api pnpm secrets:migrate --kind all --batch-size 100
+   ```
+
+4. Require the second run to report `{"migrated":0,"rotated":0}`. Exercise webhook and warehouse controls before removing the previous key.
+5. Remove `DATA_ENCRYPTION_KEY_PREVIOUS` from every service and restart. Retain the old key according to the backup-retention policy for backups created while it was current.
+
+Never remove the previous key after only a non-zero rotation run. A crash after its last reported row or a service that missed the new keyring could otherwise leave unreadable ciphertext.
+
+### Failure and recovery
+
+| Symptom | Safe behavior | Recovery |
+| --- | --- | --- |
+| Redis unavailable during login | Login fails closed with `503 auth_unavailable`; the account guard is not bypassed. | Restore Redis, confirm it is reachable, then retry. Do not disable the quota to regain login. Existing Postgres-backed sessions remain valid unless another dependency is unavailable. |
+| Current encryption key absent or malformed | Production configuration refuses startup. | Restore the exact current key from the deployment secret manager or tested key escrow. |
+| Key id unknown after a key change | Privileged integration work refuses to decrypt. | Restore the matching current/previous keyring. Do not create a replacement key and expect it to decrypt existing rows. |
+| Ciphertext or associated data tampered | AES-GCM authentication fails and the value is not used. | Restore the row from a trusted backup or replace the credential through the normal admin control plane, then investigate database access. |
+| Legacy plaintext remains | Privileged webhook or warehouse reads fail with `legacy_plaintext_secret_present`; there is no plaintext fallback. | Stop writers and rerun `pnpm secrets:migrate --kind all --batch-size 100` until the confirmation pass is zero. |
+| Migration interrupted or a row fails verification | The row transaction rolls back; already committed rows remain safe. | Correct the reported safe error, preserve the same keyring, and rerun the command. It resumes without re-encrypting current rows. |
+| Old or copied session cookie rejected | Legacy, malformed, expired, revoked, logged-out, password-invalidated, and archived-user cookies do not authenticate. | Use a fresh password or Google OAuth login. Do not restore the legacy signed-cookie path. |
+| Encryption key lost | Ciphertext cannot be recovered from the database or backup alone. | Restore both a database backup and its matching escrowed key. If neither matching key exists, replace affected external credentials and save them again through the admin control plane. |
 
 ## Rollback
 
-Rollback only undoes application code. Migrations are forward-only and run inside one transaction at API startup, so rolling code back does not undo a schema change. If the upgrade you're rolling back applied a migration, restore the backup you took before that upgrade (see Restore above) instead of just checking out older code against the already-migrated database.
+Rollback only undoes application code. Migrations are forward-only and run inside one transaction at API startup, so rolling code back does not undo a schema change. After the secret migration clears plaintext, an older plaintext-only application is not a safe rollback target even though migration 0050 left additive columns in place. Restore the pre-upgrade backup and its matching configuration, or perform an explicitly reviewed reverse data migration while the correct encryption key is still available; never point old code at ciphertext-only rows and never drop the keyring first.
 
 For a code-only rollback, go to a known-good commit and rebuild:
 
@@ -211,4 +278,3 @@ Then open `System Health` in the console and confirm API, worker, scheduler, Pos
 - Source maps are stored on local volume storage.
 - Backups cover Postgres. Operators must also protect source-map volume data if source maps are business-critical.
 - The Elastic License 2.0 provides no warranty or managed SLA.
-

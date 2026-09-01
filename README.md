@@ -7,6 +7,7 @@ The intended public website and domain is `sigmon.app`; the default deployed app
 ## Current Capabilities
 
 - Local admin login with a bootstrap admin seed.
+- Revocable opaque database sessions and bounded, enumeration-resistant password login.
 - Admin management for users, projects, environments, and browser/server-scoped ingestion API keys.
 - API-key ingestion for events, errors, breadcrumbs, LLM calls, traces, and spans.
 - Server-key identify endpoints for project/environment-scoped user and tenant profile traits.
@@ -23,6 +24,7 @@ The intended public website and domain is `sigmon.app`; the default deployed app
 - Integration Console for setup, operations overview, investigation, alerts, monitors, experiments, artifacts, and system health.
 - Worker-owned retention, HTTP uptime checks, heartbeat monitors, and operational health reporting.
 - Worker-owned simple alerts with internal history and optional email or webhook delivery.
+- AES-256-GCM encrypted warehouse and webhook credentials with restartable migration and one-step key rotation.
 - Dead-letter job inspection, filtering, replay, delete, and audit history for permanently failed telemetry jobs.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 - Read-only operator doctor checks for local and Docker Compose installs.
@@ -48,7 +50,9 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `REDIS_URL` | Yes | Redis URL used by local Node processes. |
 | `POSTGRES_PASSWORD` | Yes for Compose | Password for the Compose Postgres user. Set before first database start. |
 | `POSTGRES_PASSWORD_URLENCODED` | Sometimes | URL-encoded copy of `POSTGRES_PASSWORD` when it contains URL-reserved characters. |
-| `SESSION_SECRET` | Yes | At least 32 characters outside tests. Signs human session cookies. |
+| `SESSION_SECRET` | Yes | At least 32 characters outside tests. HMAC key for normalized-account login quota identifiers; human session cookies are opaque random tokens. |
+| `DATA_ENCRYPTION_KEY` | Production | Canonical base64 encoding of exactly 32 random bytes. Current AES-256-GCM key for privileged integration credentials. |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | During rotation only | Previous 32-byte encryption key, retained until a confirmation migration reports zero rotations. |
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
 | `CONSOLE_ENABLED` | No | Enables the built Integration Console from the API. Compose sets this to `true`. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://sigmon.example.com`. |
@@ -75,7 +79,7 @@ MCP tools prune stacks, payloads, span bodies, and comparable raw detail by defa
 
 ## Operational Config
 
-Retention, alert scheduler, backup scheduler, source-map storage, and source-map retention settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
+Retention, alert scheduler, backup scheduler, source-map storage, source-map retention, and login-admission settings are non-secret operational config. S3-compatible backup credentials and the data-encryption keyring are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`; the exact session, migration, rotation, and recovery runbooks are in `docs/SELF-HOSTING.md`.
 
 ## Runtime Hardening
 
@@ -88,6 +92,10 @@ The API and worker use structured logs with redaction for secret-bearing fields.
 Docker images run as the non-root `sigmon` user under `tini`, and Docker Compose defines healthchecks for Postgres, Redis, API, and worker services. Production doctor checks reject local-only password placeholders.
 
 HTTP security headers are set on API responses. In production, the human session cookie uses the `__Host-sigmon_session` name with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`.
+
+Human cookies carry only random opaque tokens, while Postgres stores only token hashes. Logout, password changes, and user archival revoke sessions; the upgrade from signed cookies intentionally requires one fresh login. Password login uses source and normalized-account quotas, bounded fail-closed Redis calls, progressive delay, one Argon2 verification for every credential case, and an in-process Argon2 concurrency limit.
+
+Warehouse connection URLs and webhook secret-header values are encrypted at rest with record-bound AES-256-GCM. Operators must retain the matching keyring separately from database backups. See `docs/SELF-HOSTING.md` before upgrading or rotating a key.
 
 ## Operational Safety
 
@@ -234,7 +242,7 @@ SignalMonitor includes an error-first Incident view for grouped errors and raw o
    cp .env.example .env
    ```
 
-2. Edit `.env`. Replace `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` with strong values.
+2. Edit `.env`. Replace `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` with strong values. Provision `DATA_ENCRYPTION_KEY` through secret storage before using production mode or privileged integrations; do not print or commit it.
 
 3. Install dependencies:
 
@@ -352,18 +360,7 @@ curl -s https://my.sigmon.app/health
 
 ## Upgrade Flow
 
-Create a backup before upgrading, stop writers during migration, then verify the upgraded stack:
-
-```sh
-docker compose run --rm worker pnpm backup:create
-git pull
-pnpm install
-docker compose build
-docker compose stop api worker
-docker compose run --rm api pnpm db:migrate
-docker compose up -d
-pnpm run doctor -- --compose --api-url http://localhost:3000
-```
+Create a backup before upgrading and stop every API, queue-worker, and scheduler writer during schema or secret migration. Releases that introduce or rotate `DATA_ENCRYPTION_KEY` require a restartable data migration and a zero-change confirmation pass; they also invalidate legacy signed human cookies. Follow the exact safe order, rollback constraints, and recovery table in `docs/SELF-HOSTING.md` rather than improvising from this overview.
 
 ## Restore Drill
 
