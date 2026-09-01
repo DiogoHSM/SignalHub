@@ -1,6 +1,7 @@
 import { createStructuredLogger, loadConfig } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
+import type { ApiKeyScope } from "./routes/api-key-auth.js";
 import {
   archiveProjectBrowserOrigin,
   archiveEnvironment,
@@ -471,7 +472,7 @@ async function completeGoogleOAuth(code: string, _state: string, { reply }: Auth
   return toAuthUser(linkedUser);
 }
 
-async function verifyIngestionApiKey(secret: string): Promise<{ projectId: string; environmentId: string } | null> {
+async function verifyIngestionApiKey(secret: string): Promise<ApiKeyScope | null> {
   const apiKey = await findApiKeyByPrefix(db, secret.slice(0, 12));
   if (!apiKey) {
     return null;
@@ -481,7 +482,8 @@ async function verifyIngestionApiKey(secret: string): Promise<{ projectId: strin
   return valid
     ? {
         projectId: apiKey.projectId,
-        environmentId: apiKey.environmentId
+        environmentId: apiKey.environmentId,
+        capability: apiKey.capability
       }
     : null;
 }

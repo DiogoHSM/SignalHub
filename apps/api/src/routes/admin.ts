@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { ApiKeyCapability } from "@sigmon/db/repositories/admin.js";
 import {
   createApiKey,
   createReadToken,
@@ -145,6 +146,7 @@ export interface AdminApiKey {
   name: string;
   prefix: string;
   hash: string;
+  capability: ApiKeyCapability;
   createdAt: Date;
   revokedAt: Date | null;
 }
@@ -633,7 +635,8 @@ const updateEnvironmentSchema = z
 
 const createApiKeySchema = z.object({
   environmentId: z.string().min(1),
-  name: z.string().trim().min(1).max(256)
+  name: z.string().trim().min(1).max(256),
+  capability: z.enum(["browser", "server"])
 });
 
 const updateApiKeySchema = z
@@ -3808,7 +3811,8 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         environmentId: parsed.data.environmentId,
         name: parsed.data.name,
         prefix: generatedApiKey.prefix,
-        hash
+        hash,
+        capability: parsed.data.capability
       });
     } catch (error) {
       if (isKnownAdminResourceError(error, "active_api_key_scope_not_found")) {

@@ -25,7 +25,7 @@ describe("ingestion routes", () => {
       readiness,
       rateLimit: { max: 1, timeWindow: "1 minute" },
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -52,7 +52,7 @@ describe("ingestion routes", () => {
       readiness,
       browserCorsOrigins: ["https://app.controledaempresa.com"],
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -79,7 +79,7 @@ describe("ingestion routes", () => {
       readiness,
       browserCorsOrigins: ["https://app.controledaempresa.com"],
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -106,7 +106,7 @@ describe("ingestion routes", () => {
       readiness,
       browserCorsOrigins: ["https://app.controledaempresa.com"],
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -135,7 +135,7 @@ describe("ingestion routes", () => {
       readiness,
       isBrowserCorsOriginAllowed,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -160,7 +160,7 @@ describe("ingestion routes", () => {
       readiness,
       browserCorsOrigins: ["https://app.controledaempresa.com"],
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -185,7 +185,7 @@ describe("ingestion routes", () => {
       readiness,
       browserCorsOrigins: ["https://app.controledaempresa.com"],
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -210,7 +210,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async (job) => {
           enqueued.push(job);
         }
@@ -250,7 +250,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async (job) => {
           enqueued.push(job);
         }
@@ -296,7 +296,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async (job) => {
           enqueued.push(job);
         }
@@ -346,7 +346,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async (job) => {
           enqueued.push(job);
         }
@@ -388,7 +388,7 @@ describe("ingestion routes", () => {
       readiness,
       browserCorsOrigins: ["https://app.example.com"],
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async (job) => {
           enqueued.push(job);
         }
@@ -432,7 +432,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async (job) => {
           enqueued.push(job);
         }
@@ -470,7 +470,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue
       }
     });
@@ -506,7 +506,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue
       }
     });
@@ -552,7 +552,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue
       }
     });
@@ -598,7 +598,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue
       }
     });
@@ -631,7 +631,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => {
           throw new Error("queue down");
         }
@@ -696,7 +696,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async () => undefined
       }
     });
@@ -726,7 +726,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue
       }
     });
@@ -790,7 +790,7 @@ describe("ingestion routes", () => {
     app = await buildApp({
       readiness,
       ingestion: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "browser" }),
         enqueue: async (job) => {
           enqueued.push(job);
         }

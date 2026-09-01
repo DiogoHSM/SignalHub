@@ -18,7 +18,7 @@ describe("identify routes", () => {
     app = await buildApp({
       readiness,
       identify: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "server" }),
         identifyUser,
         identifyTenant: async () => undefined
       }
@@ -55,7 +55,7 @@ describe("identify routes", () => {
     app = await buildApp({
       readiness,
       identify: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "server" }),
         identifyUser: async () => undefined,
         identifyTenant
       }
@@ -124,7 +124,7 @@ describe("identify routes", () => {
     app = await buildApp({
       readiness,
       identify: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "server" }),
         identifyUser: async () => undefined,
         identifyTenant: async () => undefined
       }
@@ -152,7 +152,7 @@ describe("identify routes", () => {
     app = await buildApp({
       readiness,
       identify: {
-        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1" }),
+        verifyApiKey: async () => ({ projectId: "prj_1", environmentId: "env_1", capability: "server" }),
         identifyUser: async () => {
           throw new Error("database down");
         },

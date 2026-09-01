@@ -1,8 +1,10 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
+import type { ApiKeyCapability } from "@sigmon/db/repositories/admin.js";
 
 export type ApiKeyScope = {
   projectId: string;
   environmentId: string;
+  capability: ApiKeyCapability;
 };
 
 export type ApiKeyVerifier = (secret: string) => Promise<ApiKeyScope | null | undefined>;

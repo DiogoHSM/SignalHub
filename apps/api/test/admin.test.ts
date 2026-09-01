@@ -2718,7 +2718,7 @@ describe("admin routes", () => {
     expect(response.json()).toEqual({ error: "project_not_found" });
   });
 
-  it("returns a one-time API key secret and stores only prefix and hash", async () => {
+  it("returns a one-time API key secret with its capability and stores only prefix and hash", async () => {
     const storedApiKeys: unknown[] = [];
 
     app = await buildApp({
@@ -2737,6 +2737,7 @@ describe("admin routes", () => {
               name: input.name,
               prefix: input.prefix,
               hash: input.hash,
+              capability: input.capability,
               createdAt: new Date("2026-01-01T00:00:00.000Z"),
               revokedAt: null
             };
@@ -2749,7 +2750,7 @@ describe("admin routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/admin/projects/prj_1/api-keys",
-      payload: { environmentId: "env_1", name: "Production ingest" }
+      payload: { environmentId: "env_1", name: "Production ingest", capability: "server" }
     });
 
     expect(response.statusCode).toBe(201);
@@ -2760,11 +2761,38 @@ describe("admin routes", () => {
       projectId: "prj_1",
       environmentId: "env_1",
       name: "Production ingest",
-      prefix: response.json().apiKey.prefix
+      prefix: response.json().apiKey.prefix,
+      capability: "server"
     });
     expect(storedApiKeys[0]).not.toHaveProperty("secret");
     expect(storedApiKeys[0]).toHaveProperty("hash");
     expect(response.json().apiKey.hash).toBeUndefined();
+    expect(response.json().apiKey.capability).toBe("server");
+  });
+
+  it("requires capability when creating an API key", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      apiKeyPepper: "test-pepper",
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("not used");
+          },
+          revoke: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/api-keys",
+      payload: { environmentId: "env_1", name: "missing" }
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it("renames an API key without exposing its hash", async () => {
@@ -2788,6 +2816,7 @@ describe("admin routes", () => {
               name: input.name ?? "Production ingest",
               prefix: "sh_live_1234",
               hash: "stored-hash",
+              capability: "browser",
               createdAt: new Date("2026-01-01T00:00:00.000Z"),
               revokedAt: null
             };
@@ -2828,7 +2857,7 @@ describe("admin routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/admin/projects/prj_archived/api-keys",
-      payload: { environmentId: "env_archived", name: "Production ingest" }
+      payload: { environmentId: "env_archived", name: "Production ingest", capability: "browser" }
     });
 
     expect(response.statusCode).toBe(404);

@@ -55,8 +55,7 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
 
     try {
       await identify.identifyUser({
-        projectId: scope.projectId,
-        environmentId: scope.environmentId,
+        ...scope,
         userId: parsed.data.user_id,
         tenantId: parsed.data.tenant_id,
         traits: parsed.data.traits,
@@ -85,8 +84,7 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
 
     try {
       await identify.identifyTenant({
-        projectId: scope.projectId,
-        environmentId: scope.environmentId,
+        ...scope,
         tenantId: parsed.data.tenant_id,
         traits: parsed.data.traits,
         timestamp: payloadTimestamp(parsed.data)

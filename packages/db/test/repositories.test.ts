@@ -6465,7 +6465,8 @@ describe("repositories", () => {
         environmentId: environment.id,
         name: "prod key",
         prefix: "sh_abc123456",
-        hash: "hash"
+        hash: "hash",
+        capability: "browser"
       });
 
       expect(apiKey.revokedAt).toBeNull();
@@ -6921,6 +6922,43 @@ describe("repositories", () => {
     });
   });
 
+  it("migrates and creates keys with explicit capabilities", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Capability Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await db
+        .insertInto("api_keys")
+        .values({
+          id: "key_legacy",
+          project_id: project.id,
+          environment_id: environment.id,
+          name: "legacy browser key",
+          prefix: "sh_legacy001",
+          hash: "legacy-hash"
+        })
+        .execute();
+
+      const created = await createApiKeyRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "backend",
+        prefix: "sh_live_ab",
+        hash: "hash",
+        capability: "server"
+      });
+
+      expect(created.capability).toBe("server");
+      await expect(listApiKeys(db, project.id)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "key_legacy", capability: "browser" }),
+          expect.objectContaining({ id: created.id, capability: "server" })
+        ])
+      );
+    });
+  });
+
   it("supports runtime admin resource and user management helpers", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -6960,9 +6998,12 @@ describe("repositories", () => {
         environmentId: environment.id,
         name: "runtime key",
         prefix: "sh_runtime12",
-        hash: "runtime-hash"
+        hash: "runtime-hash",
+        capability: "server"
       });
-      await expect(listApiKeys(db, project.id)).resolves.toEqual([expect.objectContaining({ id: apiKey.id })]);
+      await expect(listApiKeys(db, project.id)).resolves.toEqual([
+        expect.objectContaining({ id: apiKey.id, capability: "server" })
+      ]);
       await expect(updateApiKeyRecord(db, apiKey.id, { name: "runtime key renamed" })).resolves.toMatchObject({
         id: apiKey.id,
         name: "runtime key renamed"
@@ -6993,7 +7034,8 @@ describe("repositories", () => {
         environmentId: archivedProjectEnvironment.id,
         name: "archived project key",
         prefix: "sh_archproj1",
-        hash: "archived-project-hash"
+        hash: "archived-project-hash",
+        capability: "browser"
       });
       await archiveProject(db, archivedProject.id);
       await expect(findApiKeyByPrefix(db, "sh_archproj1")).resolves.toBeUndefined();
@@ -7004,7 +7046,8 @@ describe("repositories", () => {
         environmentId: archivedEnvironment.id,
         name: "archived environment key",
         prefix: "sh_archenv12",
-        hash: "archived-environment-hash"
+        hash: "archived-environment-hash",
+        capability: "browser"
       });
       await archiveEnvironment(db, archivedEnvironment.id);
       await expect(findApiKeyByPrefix(db, "sh_archenv12")).resolves.toBeUndefined();
@@ -7115,7 +7158,8 @@ describe("repositories", () => {
           environmentId: archivedProjectEnvironment.id,
           name: "archived project key",
           prefix: "sh_rejectp1",
-          hash: "hash"
+          hash: "hash",
+          capability: "browser"
         })
       ).rejects.toThrow("active_api_key_scope_not_found");
 
@@ -7127,7 +7171,8 @@ describe("repositories", () => {
           environmentId: archivedEnvironment.id,
           name: "archived environment key",
           prefix: "sh_rejecte1",
-          hash: "hash"
+          hash: "hash",
+          capability: "browser"
         })
       ).rejects.toThrow("active_api_key_scope_not_found");
 
@@ -7137,7 +7182,8 @@ describe("repositories", () => {
           environmentId: environment.id,
           name: "cross project key",
           prefix: "sh_rejectx1",
-          hash: "hash"
+          hash: "hash",
+          capability: "browser"
         })
       ).rejects.toThrow("active_api_key_scope_not_found");
     });
@@ -13279,7 +13325,8 @@ describe("repositories", () => {
         environmentId: environment.id,
         name: "first key",
         prefix: "sh_duplicate",
-        hash: "hash-1"
+        hash: "hash-1",
+        capability: "browser"
       });
 
       await expect(
@@ -13288,7 +13335,8 @@ describe("repositories", () => {
           environmentId: environment.id,
           name: "second key",
           prefix: "sh_duplicate",
-          hash: "hash-2"
+          hash: "hash-2",
+          capability: "browser"
         })
       ).rejects.toThrow();
     });

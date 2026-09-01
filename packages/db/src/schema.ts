@@ -484,6 +484,7 @@ export interface ApiKeysTable {
   name: string;
   prefix: string;
   hash: string;
+  capability: ColumnType<"browser" | "server", "browser" | "server" | undefined, "browser" | "server">;
   created_at: Timestamp;
   revoked_at: NullableTimestamp;
 }
