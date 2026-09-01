@@ -96,6 +96,7 @@ export function sanitizeValue(value: unknown): SanitizedValue {
 
     if (Array.isArray(source)) {
       const arrayOutput = output as SanitizedValue[];
+      arrayOutput.length = source.length;
       for (let index = 0; index < source.length; index += 1) {
         if (!(index in source)) continue;
         const nestedValue = source[index];

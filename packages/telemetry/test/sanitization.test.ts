@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { sanitizePreviewText, sanitizeValue } from "../src/sanitization.js";
 
+function valueWithContainerDepth(containerLevels: number): Record<string, unknown> {
+  let value: Record<string, unknown> = { leaf: true };
+  for (let depth = 1; depth < containerLevels; depth += 1) value = { child: value };
+  return value;
+}
+
+function valueWithNodeCount(firstArrayLength: number): Record<string, unknown> {
+  return {
+    values: Array.from({ length: 512 }, (_, index) => {
+      if (index === 0) return Array(firstArrayLength).fill(1);
+      if (index < 511) return Array(3).fill(1);
+      return [];
+    })
+  };
+}
+
 describe("sanitizeValue", () => {
   it("recursively masks sensitive object keys", () => {
     const sanitized = sanitizeValue({
@@ -32,6 +48,19 @@ describe("sanitizeValue", () => {
     expect(sanitized).toEqual({ token: "[REDACTED]" });
   });
 
+  it("preserves sparse array length and holes in a fresh clone", () => {
+    const original: unknown[] = new Array(3);
+    original[1] = { password: "secret" };
+
+    const sanitized = sanitizeValue(original) as unknown[];
+
+    expect(sanitized).not.toBe(original);
+    expect(sanitized).toHaveLength(3);
+    expect(0 in sanitized).toBe(false);
+    expect(sanitized[1]).toEqual({ password: "[REDACTED]" });
+    expect(2 in sanitized).toBe(false);
+  });
+
   it("rejects a 20,000-level input without overflowing the call stack", () => {
     let value: Record<string, unknown> = { leaf: true };
     for (let depth = 0; depth < 20_000; depth += 1) value = { child: value };
@@ -44,6 +73,24 @@ describe("sanitizeValue", () => {
     value.self = value;
 
     expect(() => sanitizeValue(value)).toThrow("unsafe_recursive_value:cycle");
+  });
+
+  it("rejects a ninth container level", () => {
+    expect(() => sanitizeValue(valueWithContainerDepth(9))).toThrow("unsafe_recursive_value:depth");
+  });
+
+  it("rejects 2,049 nodes", () => {
+    expect(() => sanitizeValue(valueWithNodeCount(5))).toThrow("unsafe_recursive_value:nodes");
+  });
+
+  it("rejects 513 object keys", () => {
+    expect(() => sanitizeValue(Object.fromEntries(Array.from({ length: 513 }, (_, index) => [`key_${index}`, index])))).toThrow(
+      "unsafe_recursive_value:keys"
+    );
+  });
+
+  it("rejects arrays with 513 items", () => {
+    expect(() => sanitizeValue({ values: Array(513).fill(1) })).toThrow("unsafe_recursive_value:array_length");
   });
 
   it("masks sensitive nested keys in ordinary arrays and objects", () => {
