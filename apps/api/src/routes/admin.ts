@@ -635,7 +635,7 @@ const updateEnvironmentSchema = z
 
 const createApiKeySchema = z.object({
   environmentId: z.string().min(1),
-  name: z.string().trim().min(1).max(256),
+  name: z.string().trim().min(1).max(120),
   capability: z.enum(["browser", "server"])
 });
 

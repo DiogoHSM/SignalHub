@@ -7,14 +7,16 @@ import {
 import type { FastifyInstance } from "fastify";
 import { requireApiKeyScope, type ApiKeyVerifier, type ApiKeyScope } from "./api-key-auth.js";
 
-type IdentifyUserInput = ApiKeyScope & {
+type IdentifyScope = Pick<ApiKeyScope, "projectId" | "environmentId">;
+
+type IdentifyUserInput = IdentifyScope & {
   userId: string;
   tenantId?: string | null;
   traits: Record<string, unknown>;
   timestamp: Date;
 };
 
-type IdentifyTenantInput = ApiKeyScope & {
+type IdentifyTenantInput = IdentifyScope & {
   tenantId: string;
   traits: Record<string, unknown>;
   timestamp: Date;
@@ -55,7 +57,8 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
 
     try {
       await identify.identifyUser({
-        ...scope,
+        projectId: scope.projectId,
+        environmentId: scope.environmentId,
         userId: parsed.data.user_id,
         tenantId: parsed.data.tenant_id,
         traits: parsed.data.traits,
@@ -84,7 +87,8 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
 
     try {
       await identify.identifyTenant({
-        ...scope,
+        projectId: scope.projectId,
+        environmentId: scope.environmentId,
         tenantId: parsed.data.tenant_id,
         traits: parsed.data.traits,
         timestamp: payloadTimestamp(parsed.data)

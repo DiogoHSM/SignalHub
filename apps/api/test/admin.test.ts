@@ -2795,6 +2795,45 @@ describe("admin routes", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("accepts a 120-character API key name and rejects 121 characters", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      apiKeyPepper: "test-pepper",
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async (input) => ({
+            id: "key_1",
+            projectId: input.projectId,
+            environmentId: input.environmentId,
+            name: input.name,
+            prefix: input.prefix,
+            hash: input.hash,
+            capability: input.capability,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            revokedAt: null
+          }),
+          revoke: async () => undefined
+        }
+      }
+    });
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/api-keys",
+      payload: { environmentId: "env_1", name: "a".repeat(120), capability: "server" }
+    });
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/api-keys",
+      payload: { environmentId: "env_1", name: "a".repeat(121), capability: "server" }
+    });
+
+    expect(accepted.statusCode).toBe(201);
+    expect(rejected.statusCode).toBe(400);
+  });
+
   it("renames an API key without exposing its hash", async () => {
     const updates: unknown[] = [];
 
