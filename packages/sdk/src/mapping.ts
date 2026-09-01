@@ -17,7 +17,7 @@ import type {
   TraceInput,
   WebVitalInput
 } from "./types.js";
-import { sanitizeTelemetryUrl } from "@sigmon/telemetry/sanitization";
+import { sanitizeTelemetryUrl } from "./url-sanitization.js";
 
 const UNSERIALIZABLE_THROWN_VALUE_MESSAGE = "[Unserializable thrown value]";
 

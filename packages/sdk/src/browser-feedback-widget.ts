@@ -1,5 +1,5 @@
 import type { FeedbackInput, SignalContext, SignalMetadata, SignalMonitorClient } from "./types.js";
-import { sanitizeTelemetryUrl } from "@sigmon/telemetry/sanitization";
+import { sanitizeTelemetryUrl } from "./url-sanitization.js";
 
 export type FeedbackWidgetPosition = "bottom-right" | "bottom-left";
 

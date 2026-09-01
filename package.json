@@ -22,7 +22,8 @@
     "seed:admin": "tsx scripts/seed-admin.ts",
     "doctor": "tsx scripts/doctor.ts",
     "privacy:redact-feedback-urls": "tsx scripts/redact-feedback-urls.ts",
-    "smoke:compose": "tsx scripts/smoke-compose.ts"
+    "smoke:compose": "tsx scripts/smoke-compose.ts",
+    "smoke:sdk-packed": "pnpm --filter @sigmon/sdk smoke:packed"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -237,6 +237,39 @@ describe("useProjectSettings", () => {
     await act(async () => first);
   });
 
+  it("keeps a created server secret out of list state before and after one-time presentation dismissal", async () => {
+    const createdServerKey = {
+      ...key("server"),
+      projectId: "prj_a",
+      environmentId: "env_a",
+      capability: "server" as const,
+      secret: "sh_live_server_secret",
+    };
+    const api = client({
+      createApiKey: vi.fn().mockResolvedValue({ apiKey: createdServerKey }),
+    });
+    let presentedSecret: string | null = null;
+    const onSecretCreated = vi.fn((secret: string | null) => {
+      presentedSecret = secret;
+    });
+    const screenCtx = ctx("a", api);
+    screenCtx.onSecretCreated = onSecretCreated;
+    const { result } = renderHook(() => useProjectSettings(screenCtx));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.createApiKey({ name: "Backend", capability: "server" });
+    });
+
+    expect(onSecretCreated).toHaveBeenCalledWith("sh_live_server_secret", "serverApiKey");
+    expect(presentedSecret).toBe("sh_live_server_secret");
+    expect(result.current.apiKeys[0]).not.toHaveProperty("secret");
+
+    act(() => screenCtx.onSecretCreated(null, "serverApiKey"));
+    expect(presentedSecret).toBeNull();
+    expect(result.current.apiKeys[0]).not.toHaveProperty("secret");
+  });
+
   it("loads capabilities independently and maps only the 501 panel to unavailable", async () => {
     const api = client({
       listBrowserOrigins: vi.fn().mockRejectedValue(new ApiError(501, "not_implemented")),

@@ -356,10 +356,11 @@ export function useProjectSettings(ctx: ScreenCtx) {
     return perform(
       () => client.createApiKey(projectId, { environmentId, ...input }),
       (response) => {
-        updateData((current) => ({ ...current, apiKeys: [response.apiKey, ...current.apiKeys] }));
+        const { secret, ...apiKey } = response.apiKey;
+        updateData((current) => ({ ...current, apiKeys: [apiKey, ...current.apiKeys] }));
         ctx.onSecretCreated(
-          response.apiKey.secret,
-          response.apiKey.capability === "server" ? "serverApiKey" : "browserApiKey",
+          secret,
+          apiKey.capability === "server" ? "serverApiKey" : "browserApiKey",
         );
         ctx.pushToast("API key created — copy it now, it is shown only once");
       },
