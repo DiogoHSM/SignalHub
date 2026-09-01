@@ -395,6 +395,7 @@ export interface WarehouseDestinationsTable {
   destination_type: WarehouseDestinationType;
   connection_url: string | null;
   connection_url_encrypted: string | null;
+  connection_url_preview: string | null;
   datasets: JsonColumn;
   cursor: JsonColumn;
   batch_size: DefaultedInteger;

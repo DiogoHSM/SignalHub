@@ -2666,12 +2666,29 @@ describe("admin routes", () => {
   });
 
   it("manages warehouse export destinations and manual runs for admins", async () => {
-    const listDestinations = vi.fn(async () => [warehouseDestination()]);
+    const repositoryDestination = () => ({
+      ...warehouseDestination(),
+      connectionUrl: "postgres://synthetic-private.invalid/db",
+      connectionUrlEncrypted: "v1.synthetic-envelope",
+      connection_url: "postgres://synthetic-legacy.invalid/db",
+      connection_url_encrypted: "v1.synthetic-legacy-envelope"
+    });
+    const listDestinations = vi.fn(async () => [repositoryDestination()]);
     const createDestination = vi.fn(async (input) =>
-      warehouseDestination({ name: input.name, datasets: input.datasets, batchSize: input.batchSize })
+      ({
+        ...repositoryDestination(),
+        name: input.name,
+        datasets: input.datasets,
+        batchSize: input.batchSize
+      })
     );
     const updateDestination = vi.fn(async (input) =>
-      warehouseDestination({ id: input.id, name: input.name ?? "Warehouse", enabled: input.enabled ?? true })
+      ({
+        ...repositoryDestination(),
+        id: input.id,
+        name: input.name ?? "Warehouse",
+        enabled: input.enabled ?? true
+      })
     );
     const archiveDestination = vi.fn(async () => undefined);
     const listRuns = vi.fn(async () => [warehouseExportRun()]);
@@ -2698,7 +2715,10 @@ describe("admin routes", () => {
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json()).toEqual({ destinations: [warehouseDestinationResponse()] });
-    expect(listResponse.body).not.toContain("secret");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connectionUrl");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connectionUrlEncrypted");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connection_url");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connection_url_encrypted");
     expect(listDestinations).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
 
     const createResponse = await app.inject({
@@ -2727,6 +2747,10 @@ describe("admin routes", () => {
       enabled: true
     });
     expect(createResponse.body).not.toContain("secret");
+    expect(createResponse.json().destination).not.toHaveProperty("connectionUrl");
+    expect(createResponse.json().destination).not.toHaveProperty("connectionUrlEncrypted");
+    expect(createResponse.json().destination).not.toHaveProperty("connection_url");
+    expect(createResponse.json().destination).not.toHaveProperty("connection_url_encrypted");
 
     const invalidDatasetResponse = await app.inject({
       method: "POST",
@@ -2753,6 +2777,10 @@ describe("admin routes", () => {
       }
     });
     expect(patchResponse.statusCode).toBe(200);
+    expect(patchResponse.json().destination).not.toHaveProperty("connectionUrl");
+    expect(patchResponse.json().destination).not.toHaveProperty("connectionUrlEncrypted");
+    expect(patchResponse.json().destination).not.toHaveProperty("connection_url");
+    expect(patchResponse.json().destination).not.toHaveProperty("connection_url_encrypted");
     expect(updateDestination).toHaveBeenCalledWith({
       id: "whdst_1",
       projectId: "prj_1",

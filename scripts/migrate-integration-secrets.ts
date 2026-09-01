@@ -1,15 +1,19 @@
 import { pathToFileURL } from "node:url";
+import { loadConfig, SecretBox } from "@sigmon/config";
 import { sql } from "kysely";
-import { loadConfig, SecretBox } from "../packages/config/src/index.js";
 import { createDb, type Db } from "../packages/db/src/client.js";
 import { migrate } from "../packages/db/src/migrate.js";
+import { redactWarehouseConnectionUrl } from "../packages/db/src/repositories/warehouse-exports.js";
 
 export type IntegrationSecretKind = "warehouse" | "notification";
+export type MigrationCandidate = { id: string };
+export type MigrationRowResult = "migrated" | "rotated" | "current" | "empty" | "missing";
 
-export type LegacySecretRow = {
+type LockedSecretRow = {
   id: string;
   plaintext: string | null;
   ciphertext: string | null;
+  preview: string | null;
 };
 
 type MigrationResult = { migrated: number; rotated: number };
@@ -20,7 +24,7 @@ function secretContext(kind: IntegrationSecretKind, rowId: string) {
     : { table: "notification_channels", rowId, field: "secret_header_value" };
 }
 
-function assertOrderedBatch(rows: LegacySecretRow[], afterId: string | null, batchSize: number): void {
+function assertOrderedBatch(rows: MigrationCandidate[], afterId: string | null, batchSize: number): void {
   if (rows.length > batchSize) throw new Error("secret_migration_batch_size_invalid");
   let previousId = afterId;
   for (const row of rows) {
@@ -32,11 +36,9 @@ function assertOrderedBatch(rows: LegacySecretRow[], afterId: string | null, bat
 }
 
 export async function migrateIntegrationSecrets(input: {
-  kind: IntegrationSecretKind;
   batchSize: number;
-  loadBatch: (afterId: string | null, limit: number) => Promise<LegacySecretRow[]>;
-  persistEncrypted: (row: LegacySecretRow, ciphertext: string) => Promise<void>;
-  box: SecretBox;
+  loadBatch: (afterId: string | null, limit: number) => Promise<MigrationCandidate[]>;
+  processRow: (row: MigrationCandidate) => Promise<MigrationRowResult>;
 }): Promise<MigrationResult> {
   if (!Number.isInteger(input.batchSize) || input.batchSize < 1 || input.batchSize > 1_000) {
     throw new Error("secret_migration_batch_size_invalid");
@@ -52,27 +54,9 @@ export async function migrateIntegrationSecrets(input: {
     if (rows.length === 0) break;
 
     for (const row of rows) {
-      const context = secretContext(input.kind, row.id);
-      if (row.plaintext !== null) {
-        const ciphertext = input.box.encrypt(row.plaintext, context);
-        if (input.box.decrypt(ciphertext, context) !== row.plaintext) {
-          throw new Error("secret_migration_verification_failed");
-        }
-        await input.persistEncrypted(row, ciphertext);
-        migrated += 1;
-      } else if (row.ciphertext !== null) {
-        const plaintext = input.box.decrypt(row.ciphertext, context);
-        if (input.box.needsRotation(row.ciphertext)) {
-          const ciphertext = input.box.encrypt(plaintext, context);
-          if (input.box.decrypt(ciphertext, context) !== plaintext) {
-            throw new Error("secret_migration_verification_failed");
-          }
-          await input.persistEncrypted(row, ciphertext);
-          rotated += 1;
-        }
-      } else if (input.kind === "warehouse") {
-        throw new Error("warehouse_connection_secret_missing");
-      }
+      const result = await input.processRow(row);
+      if (result === "migrated") migrated += 1;
+      if (result === "rotated") rotated += 1;
       afterId = row.id;
     }
 
@@ -87,66 +71,111 @@ async function loadDatabaseBatch(
   kind: IntegrationSecretKind,
   afterId: string | null,
   limit: number
-): Promise<LegacySecretRow[]> {
-  if (kind === "warehouse") {
-    const result = await sql<LegacySecretRow>`
-      select id, connection_url as plaintext, connection_url_encrypted as ciphertext
-      from warehouse_destinations
-      where (${afterId}::text is null or id > ${afterId})
-      order by id asc
-      limit ${limit}
-    `.execute(db);
-    return result.rows;
-  }
-
-  const result = await sql<LegacySecretRow>`
-    select id, secret_header_value as plaintext, secret_header_value_encrypted as ciphertext
-    from notification_channels
-    where (${afterId}::text is null or id > ${afterId})
-    order by id asc
-    limit ${limit}
-  `.execute(db);
+): Promise<MigrationCandidate[]> {
+  const result = kind === "warehouse"
+    ? await sql<MigrationCandidate>`
+        select id
+        from warehouse_destinations
+        where (${afterId}::text is null or id > ${afterId})
+        order by id asc
+        limit ${limit}
+      `.execute(db)
+    : await sql<MigrationCandidate>`
+        select id
+        from notification_channels
+        where (${afterId}::text is null or id > ${afterId})
+        order by id asc
+        limit ${limit}
+      `.execute(db);
   return result.rows;
 }
 
-async function persistDatabaseRow(
-  db: Db,
-  kind: IntegrationSecretKind,
-  row: LegacySecretRow,
-  ciphertext: string
-): Promise<void> {
-  await db.transaction().execute(async (trx) => {
-    const current = kind === "warehouse"
-      ? (await sql<LegacySecretRow>`
-          select id, connection_url as plaintext, connection_url_encrypted as ciphertext
+function verifiedCiphertext(box: SecretBox, plaintext: string, context: ReturnType<typeof secretContext>): string {
+  const ciphertext = box.encrypt(plaintext, context);
+  if (box.decrypt(ciphertext, context) !== plaintext) {
+    throw new Error("secret_migration_verification_failed");
+  }
+  return ciphertext;
+}
+
+export async function processDatabaseIntegrationSecretRow(input: {
+  db: Db;
+  kind: IntegrationSecretKind;
+  rowId: string;
+  box: SecretBox;
+}): Promise<MigrationRowResult> {
+  return input.db.transaction().execute(async (trx) => {
+    const locked = input.kind === "warehouse"
+      ? (await sql<LockedSecretRow>`
+          select id, connection_url as plaintext, connection_url_encrypted as ciphertext,
+            connection_url_preview as preview
           from warehouse_destinations
-          where id = ${row.id}
+          where id = ${input.rowId}
           for update
         `.execute(trx)).rows[0]
-      : (await sql<LegacySecretRow>`
-          select id, secret_header_value as plaintext, secret_header_value_encrypted as ciphertext
+      : (await sql<LockedSecretRow>`
+          select id, secret_header_value as plaintext, secret_header_value_encrypted as ciphertext,
+            null::text as preview
           from notification_channels
-          where id = ${row.id}
+          where id = ${input.rowId}
           for update
         `.execute(trx)).rows[0];
 
-    if (!current || current.plaintext !== row.plaintext || current.ciphertext !== row.ciphertext) {
-      throw new Error("secret_migration_row_changed");
+    if (!locked) return "missing";
+    const context = secretContext(input.kind, locked.id);
+
+    if (locked.plaintext !== null) {
+      const ciphertext = verifiedCiphertext(input.box, locked.plaintext, context);
+      if (input.kind === "warehouse") {
+        await sql`
+          update warehouse_destinations
+          set connection_url_encrypted = ${ciphertext}, connection_url = null,
+            connection_url_preview = ${redactWarehouseConnectionUrl(locked.plaintext)}
+          where id = ${locked.id}
+        `.execute(trx);
+      } else {
+        await sql`
+          update notification_channels
+          set secret_header_value_encrypted = ${ciphertext}, secret_header_value = null
+          where id = ${locked.id}
+        `.execute(trx);
+      }
+      return "migrated";
     }
 
-    if (kind === "warehouse") {
-      await sql`
-        update warehouse_destinations
-        set connection_url_encrypted = ${ciphertext}, connection_url = null
-        where id = ${row.id}
-      `.execute(trx);
-    } else {
-      await sql`
-        update notification_channels
-        set secret_header_value_encrypted = ${ciphertext}, secret_header_value = null
-        where id = ${row.id}
-      `.execute(trx);
+    if (locked.ciphertext !== null) {
+      const plaintext = input.box.decrypt(locked.ciphertext, context);
+      if (input.box.needsRotation(locked.ciphertext)) {
+        const ciphertext = verifiedCiphertext(input.box, plaintext, context);
+        if (input.kind === "warehouse") {
+          await sql`
+            update warehouse_destinations
+            set connection_url_encrypted = ${ciphertext}, connection_url = null,
+              connection_url_preview = ${redactWarehouseConnectionUrl(plaintext)}
+            where id = ${locked.id}
+          `.execute(trx);
+        } else {
+          await sql`
+            update notification_channels
+            set secret_header_value_encrypted = ${ciphertext}, secret_header_value = null
+            where id = ${locked.id}
+          `.execute(trx);
+        }
+        return "rotated";
+      }
+
+      if (input.kind === "warehouse" && locked.preview === null) {
+        await sql`
+          update warehouse_destinations
+          set connection_url_preview = ${redactWarehouseConnectionUrl(plaintext)}
+          where id = ${locked.id}
+        `.execute(trx);
+      }
+      return "current";
     }
+
+    if (input.kind === "warehouse") throw new Error("warehouse_connection_secret_missing");
+    return "empty";
   });
 }
 
@@ -155,13 +184,17 @@ export async function migrateDatabaseIntegrationSecrets(input: {
   kind: IntegrationSecretKind;
   batchSize: number;
   box: SecretBox;
+  loadBatch?: (afterId: string | null, limit: number) => Promise<MigrationCandidate[]>;
 }): Promise<MigrationResult> {
   return migrateIntegrationSecrets({
-    kind: input.kind,
     batchSize: input.batchSize,
-    loadBatch: (afterId, limit) => loadDatabaseBatch(input.db, input.kind, afterId, limit),
-    persistEncrypted: (row, ciphertext) => persistDatabaseRow(input.db, input.kind, row, ciphertext),
-    box: input.box
+    loadBatch: input.loadBatch ?? ((afterId, limit) => loadDatabaseBatch(input.db, input.kind, afterId, limit)),
+    processRow: ({ id }) => processDatabaseIntegrationSecretRow({
+      db: input.db,
+      kind: input.kind,
+      rowId: id,
+      box: input.box
+    })
   });
 }
 
@@ -204,7 +237,6 @@ const safeMigrationErrorCodes = new Set([
   "secret_migration_batch_order_invalid",
   "secret_migration_batch_size_invalid",
   "secret_migration_kind_invalid",
-  "secret_migration_row_changed",
   "secret_migration_verification_failed",
   "secret_plaintext_invalid",
   "secret_version_unsupported",

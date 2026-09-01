@@ -1,7 +1,7 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { SecretBox } from "@sigmon/config";
 import { sql } from "kysely";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
@@ -47,6 +47,87 @@ async function createScope() {
 }
 
 describe("warehouse export repositories", () => {
+  it("keeps ordinary control-plane paths usable without decrypting stored credentials", async () => {
+    const { project, environment } = await createScope();
+    const decrypt = vi.spyOn(box, "decrypt").mockImplementation(() => {
+      throw new Error("ordinary_path_must_not_decrypt");
+    });
+    let destinationId: string | undefined;
+
+    try {
+      const created = await createWarehouseDestination(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Control plane warehouse",
+        destinationType: "postgres",
+        connectionUrl: "postgres://synthetic-control@warehouse.invalid/db?token=synthetic-token",
+        datasets: ["events"]
+      }, box);
+      destinationId = created.id;
+      expect(created.connectionUrlPreview).toBe(
+        "postgres://synthetic-control@warehouse.invalid/db?token=***"
+      );
+      expect(created).not.toHaveProperty("connectionUrl");
+      expect(created).not.toHaveProperty("connectionUrlEncrypted");
+
+      const stored = await db
+        .selectFrom("warehouse_destinations")
+        .selectAll()
+        .where("id", "=", created.id)
+        .executeTakeFirstOrThrow() as { connection_url_encrypted: string | null };
+      const unknownKeyBox = new SecretBox({ currentKey: Buffer.alloc(32, 31).toString("base64") });
+      const unknownKeyCiphertext = unknownKeyBox.encrypt("synthetic-unreadable", {
+        table: "warehouse_destinations",
+        rowId: created.id,
+        field: "connection_url"
+      });
+      expect(stored.connection_url_encrypted).not.toBeNull();
+      await sql`
+        update warehouse_destinations
+        set connection_url_encrypted = ${unknownKeyCiphertext}
+        where id = ${created.id}
+      `.execute(db);
+
+      const listed = await listWarehouseDestinations(db, {
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(listed).toEqual([
+        expect.objectContaining({
+          id: created.id,
+          connectionUrlPreview: "postgres://synthetic-control@warehouse.invalid/db?token=***"
+        })
+      ]);
+      expect(listed[0]).not.toHaveProperty("connectionUrl");
+      expect(listed[0]).not.toHaveProperty("connectionUrlEncrypted");
+
+      await sql`
+        update warehouse_destinations
+        set connection_url_encrypted = ${"v1.synthetic-tampered-envelope"}
+        where id = ${created.id}
+      `.execute(db);
+
+      const updated = await updateWarehouseDestination(db, {
+        id: created.id,
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "Control plane renamed"
+      });
+      expect(updated).toEqual(expect.objectContaining({
+        name: "Control plane renamed",
+        connectionUrlPreview: "postgres://synthetic-control@warehouse.invalid/db?token=***"
+      }));
+      expect(updated).not.toHaveProperty("connectionUrl");
+      expect(updated).not.toHaveProperty("connectionUrlEncrypted");
+      expect(decrypt).not.toHaveBeenCalled();
+    } finally {
+      decrypt.mockRestore();
+      if (destinationId) {
+        await db.deleteFrom("warehouse_destinations").where("id", "=", destinationId).execute();
+      }
+    }
+  });
+
   it("creates destinations, redacts connection urls, updates config, and archives them", async () => {
     const { project, environment } = await createScope();
 
@@ -82,8 +163,7 @@ describe("warehouse export repositories", () => {
 
     const listed = await listWarehouseDestinations(db, {
       projectId: project.id,
-      environmentId: environment.id,
-      secretBox: box
+      environmentId: environment.id
     });
     expect(listed).toHaveLength(1);
     expect(listed[0]?.connectionUrlPreview).toBe(destination.connectionUrlPreview);
@@ -142,8 +222,7 @@ describe("warehouse export repositories", () => {
     });
     await expect(listWarehouseDestinations(db, {
       projectId: project.id,
-      environmentId: environment.id,
-      secretBox: box
+      environmentId: environment.id
     })).resolves.toEqual([]);
   });
 
@@ -223,8 +302,7 @@ describe("warehouse export repositories", () => {
 
     const nextDestination = (await listWarehouseDestinations(db, {
       projectId: project.id,
-      environmentId: environment.id,
-      secretBox: box
+      environmentId: environment.id
     }))[0];
     const emptyBatch = await selectWarehouseExportBatch(db, nextDestination!, { now: new Date("2026-01-01T02:00:00.000Z") });
     expect(emptyBatch.rowCount).toBe(0);

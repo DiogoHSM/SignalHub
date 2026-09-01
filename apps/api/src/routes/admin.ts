@@ -1597,6 +1597,23 @@ function redactNotificationChannel(channel: NotificationChannelRecord): Redacted
   return { ...safeChannel, url };
 }
 
+type RedactedWarehouseDestination = Omit<WarehouseDestinationRecord, "connectionUrl">;
+
+function redactWarehouseDestination(destination: WarehouseDestinationRecord): RedactedWarehouseDestination {
+  const {
+    connectionUrl: _connectionUrl,
+    connectionUrlEncrypted: _connectionUrlEncrypted,
+    connection_url: _legacyConnectionUrl,
+    connection_url_encrypted: _legacyConnectionUrlEncrypted,
+    ...safeDestination
+  } = destination as WarehouseDestinationRecord & {
+    connectionUrlEncrypted?: unknown;
+    connection_url?: unknown;
+    connection_url_encrypted?: unknown;
+  };
+  return safeDestination;
+}
+
 function redactMonitor(monitor: MonitorRecord): Omit<MonitorRecord, "secretHash"> {
   const { secretHash: _secretHash, ...safeMonitor } = monitor;
   return safeMonitor;
@@ -3521,7 +3538,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         projectId: query.data.project_id,
         environmentId: query.data.environment_id
       });
-      return reply.send({ destinations });
+      return reply.send({ destinations: destinations.map(redactWarehouseDestination) });
     } catch {
       return reply.status(503).send({ error: "warehouse_exports_unavailable" });
     }
@@ -3542,7 +3559,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     try {
       const input = parsed.data as WarehouseDestinationCreateBody;
       const destination = await options.adminResources.warehouseExports.createDestination(input);
-      return reply.status(201).send({ destination });
+      return reply.status(201).send({ destination: redactWarehouseDestination(destination) });
     } catch {
       return reply.status(503).send({ error: "warehouse_exports_unavailable" });
     }
@@ -3574,7 +3591,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         enabled: input.enabled
       });
       if (!destination) return reply.status(404).send({ error: "warehouse_destination_not_found" });
-      return reply.send({ destination });
+      return reply.send({ destination: redactWarehouseDestination(destination) });
     } catch {
       return reply.status(503).send({ error: "warehouse_exports_unavailable" });
     }

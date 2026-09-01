@@ -758,8 +758,7 @@ const app = await buildApp({
     warehouseExports: {
       listDestinations: (input) => listWarehouseDestinations(db, {
         ...input,
-        includeDisabled: true,
-        secretBox
+        includeDisabled: true
       }),
       createDestination: (input) => createWarehouseDestination(db, input, secretBox!),
       updateDestination: (input) => updateWarehouseDestination(db, input, secretBox),
