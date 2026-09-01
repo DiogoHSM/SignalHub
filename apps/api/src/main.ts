@@ -289,6 +289,7 @@ import {
   type OpaqueSessionServiceDependencies
 } from "./auth/session-service.js";
 import { Argon2Semaphore, LoginGuard, createGuardedLogin } from "./auth/login-guard.js";
+import { createAuthQuotaRedis } from "./auth/login-redis.js";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
@@ -326,6 +327,9 @@ const db = createDb(config.databaseUrl, { statementTimeoutMs: config.db.statemen
 const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null
 });
+const authQuotaRedis = createAuthQuotaRedis(config.redisUrl, {
+  onError: (error) => logger.warn({ err: error }, "Auth quota Redis unavailable")
+});
 const telemetryQueue = createTelemetryQueue(config.redisUrl);
 const retentionPolicy = {
   eventsDays: config.retention.eventsDays,
@@ -355,10 +359,7 @@ const loginGuard = new LoginGuard({
   accountLimit: config.auth.login.accountMaxAttempts,
   accountWindowMs: config.auth.login.accountWindowMs,
   progressiveDelayMaxMs: config.auth.login.progressiveDelayMaxMs,
-  redis: {
-    eval: (script, numberOfKeys, key, ttlMs) => redis.eval(script, numberOfKeys, key, ttlMs),
-    del: (key) => redis.del(key)
-  },
+  redis: authQuotaRedis,
   recordTelemetry: (outcome) => {
     logger.info(createAuthLoginTelemetry(outcome), "Authentication attempt");
   }
@@ -1057,6 +1058,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     [
       { name: "app.close", run: () => app.close() },
       { name: "telemetryQueue.close", run: () => telemetryQueue.close() },
+      { name: "authQuotaRedis.close", run: () => authQuotaRedis.close() },
       { name: "redis.quit", run: () => redis.quit() },
       { name: "db.destroy", run: () => db.destroy() }
     ],
