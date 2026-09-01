@@ -1,4 +1,5 @@
 import type { FeedbackInput, SignalContext, SignalMetadata, SignalMonitorClient } from "./types.js";
+import { sanitizeTelemetryUrl } from "@sigmon/telemetry/sanitization";
 
 export type FeedbackWidgetPosition = "bottom-right" | "bottom-left";
 
@@ -100,8 +101,8 @@ export function installFeedbackWidget(
     const input: FeedbackInput = {
       message,
       category: options.category,
-      pageUrl: globalThis.location?.href,
-      path: `${globalThis.location?.pathname ?? ""}${globalThis.location?.search ?? ""}`,
+      pageUrl: sanitizeTelemetryUrl(globalThis.location?.href),
+      path: sanitizeTelemetryUrl(`${globalThis.location?.pathname ?? ""}${globalThis.location?.search ?? ""}`),
       userAgent: globalThis.navigator?.userAgent,
       metadata: resolveValue(options.metadata)
     };

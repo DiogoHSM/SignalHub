@@ -45,6 +45,8 @@ const PREVIEW_CREDENTIAL_PATTERNS: Array<[RegExp, string]> = [
   [/\b(api[_-]?key)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1: [REDACTED]"],
   [/\b(secret)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1=[REDACTED]"]
 ];
+const URL_SANITIZER_BASE = "https://sigmon.invalid";
+const ABSOLUTE_URL_SCHEME = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
 
 function normalizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
@@ -151,4 +153,28 @@ export function sanitizePreviewText(value: string | undefined): string | undefin
     (sanitized, [pattern, replacement]) => sanitized.replace(pattern, replacement),
     value
   );
+}
+
+export function sanitizeTelemetryUrl(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(value, URL_SANITIZER_BASE);
+    for (const key of new Set(url.searchParams.keys())) {
+      url.searchParams.set(key, "[REDACTED]");
+    }
+    url.hash = "";
+
+    if (ABSOLUTE_URL_SCHEME.test(value)) {
+      return url.toString();
+    }
+
+    const delimiterIndex = value.search(/[?#]/);
+    const prefix = delimiterIndex === -1 ? value : value.slice(0, delimiterIndex);
+    return `${prefix}${url.search}`;
+  } catch {
+    return value.split(/[?#]/, 1)[0];
+  }
 }

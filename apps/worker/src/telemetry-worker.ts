@@ -13,7 +13,7 @@ import {
   tracePayloadSchema,
   webVitalPayloadSchema
 } from "@sigmon/telemetry/ingestion-schemas";
-import { sanitizePreviewText, sanitizeValue } from "@sigmon/telemetry/sanitization";
+import { sanitizePreviewText, sanitizeTelemetryUrl, sanitizeValue } from "@sigmon/telemetry/sanitization";
 import type { InsertDeadLetterJobInput } from "@sigmon/db/repositories/dead-letter.js";
 import type {
   InsertBreadcrumbInput,
@@ -376,8 +376,8 @@ export async function processTelemetryJob(job: TelemetryJobPayload, writer: Tele
         receivedAt: base.receivedAt,
         message: sanitizePreviewText(payload.message) ?? "Feedback",
         category: payload.category,
-        pageUrl: payload.page_url,
-        path: payload.path,
+        pageUrl: sanitizeTelemetryUrl(payload.page_url),
+        path: sanitizeTelemetryUrl(payload.path),
         userAgent: sanitizePreviewText(payload.user_agent)
       });
       return;

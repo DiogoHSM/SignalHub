@@ -48,6 +48,7 @@ function createWriter(): TelemetryWriter {
     insertSessionReplay: vi.fn(async () => undefined),
     insertProfile: vi.fn(async () => undefined),
     insertSurveyResponse: vi.fn(async () => undefined),
+    insertFeedbackItem: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
@@ -62,6 +63,31 @@ function createDeferred() {
 }
 
 describe("processTelemetryJob", () => {
+  it("redacts feedback URLs from a raw queued payload created by an old SDK", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "feedback",
+      id: "fbk_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        message: "Export wording is unclear",
+        page_url: "https://app.test/reports?tab=exports#details",
+        path: "/reports?tab=exports#details"
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertFeedbackItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "fbk_1",
+        pageUrl: "https://app.test/reports?tab=%5BREDACTED%5D",
+        path: "/reports?tab=%5BREDACTED%5D"
+      })
+    );
+  });
+
   it("sanitizes and persists event jobs", async () => {
     const writer = createWriter();
     const job: TelemetryJobPayload = {

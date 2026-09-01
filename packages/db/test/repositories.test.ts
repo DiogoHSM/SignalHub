@@ -12844,6 +12844,48 @@ describe("repositories", () => {
     });
   });
 
+  it("redacts legacy feedback URL values when feedback items are read", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Feedback Legacy URL Reads" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const item = await recordFeedbackItem(db, {
+        id: "fbk_legacy_url_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Legacy feedback"
+      });
+      await db
+        .updateTable("feedback_items")
+        .set({
+          page_url: "https://app.test/reports?tab=exports#details",
+          path: "/reports?tab=exports#details"
+        })
+        .where("id", "=", item.id)
+        .execute();
+
+      await expect(listFeedbackItems(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({
+          id: item.id,
+          pageUrl: "https://app.test/reports?tab=%5BREDACTED%5D",
+          path: "/reports?tab=%5BREDACTED%5D"
+        })
+      ]);
+      await expect(
+        updateFeedbackItemStatus(db, {
+          id: item.id,
+          projectId: project.id,
+          environmentId: environment.id,
+          status: "reviewed"
+        })
+      ).resolves.toMatchObject({
+        pageUrl: "https://app.test/reports?tab=%5BREDACTED%5D",
+        path: "/reports?tab=%5BREDACTED%5D"
+      });
+    });
+  });
+
   it("manages feature flags with audit history and safe evaluation fallback", async () => {
     await withDb(async (db) => {
       await migrate(db);

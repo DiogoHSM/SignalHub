@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizePreviewText, sanitizeValue } from "../src/sanitization.js";
+import { sanitizePreviewText, sanitizeTelemetryUrl, sanitizeValue } from "../src/sanitization.js";
 
 function valueWithContainerDepth(containerLevels: number): Record<string, unknown> {
   let value: Record<string, unknown> = { leaf: true };
@@ -200,5 +200,33 @@ describe("sanitizePreviewText", () => {
     expect(sanitizePreviewText("Summarize dashboard metrics for paid users")).toBe(
       "Summarize dashboard metrics for paid users"
     );
+  });
+});
+
+describe("sanitizeTelemetryUrl", () => {
+  it("redacts every absolute URL query value and removes its fragment", () => {
+    expect(sanitizeTelemetryUrl("https://app.test/reset?token=abc&next=%2Fhome#done")).toBe(
+      "https://app.test/reset?token=%5BREDACTED%5D&next=%5BREDACTED%5D"
+    );
+  });
+
+  it("redacts every relative URL query value and removes its fragment", () => {
+    expect(sanitizeTelemetryUrl("/callback?code=secret#fragment")).toBe("/callback?code=%5BREDACTED%5D");
+  });
+
+  it("redacts duplicate keys and blank values", () => {
+    expect(sanitizeTelemetryUrl("/search?tag=one&tag=&page=2")).toBe(
+      "/search?tag=%5BREDACTED%5D&page=%5BREDACTED%5D"
+    );
+  });
+
+  it("removes delimiter suffixes when an absolute URL is malformed", () => {
+    expect(sanitizeTelemetryUrl("http://[invalid?token=secret#fragment")).toBe("http://[invalid");
+  });
+
+  it("preserves URLs without a query or fragment", () => {
+    expect(sanitizeTelemetryUrl("https://app.test/reports")).toBe("https://app.test/reports");
+    expect(sanitizeTelemetryUrl("/reports")).toBe("/reports");
+    expect(sanitizeTelemetryUrl(undefined)).toBeUndefined();
   });
 });

@@ -10,7 +10,7 @@ describe("installFeedbackWidget", () => {
   });
 
   it("submits feedback with browser context and flushes when requested", () => {
-    history.replaceState({}, "", "/reports?tab=exports");
+    history.replaceState({}, "", "/reports?tab=exports#details");
     const feedback = vi.fn();
     const flush = vi.fn(async () => ({ sent: 1, failed: 0, retained: 0, dropped: 0 }));
     const stop = installFeedbackWidget(
@@ -35,7 +35,8 @@ describe("installFeedbackWidget", () => {
       expect.objectContaining({
         message: "Export wording is unclear",
         category: "ux",
-        path: "/reports?tab=exports",
+        pageUrl: "http://localhost/reports?tab=%5BREDACTED%5D",
+        path: "/reports?tab=%5BREDACTED%5D",
         metadata: { surface: "reports" }
       }),
       { tenantId: "tenant_1" }
