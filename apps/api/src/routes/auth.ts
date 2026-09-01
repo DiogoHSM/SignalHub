@@ -1,3 +1,5 @@
+// Keep the augmentation local so transitive type consumers do not depend on app.ts loading the plugin.
+import type {} from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
