@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/index.js";
 
 describe("loadConfig", () => {
+  const currentDataEncryptionKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+  const previousDataEncryptionKey = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
+
   it("loads login abuse-control defaults", () => {
     expect(loadConfig(baseEnv()).auth.login).toEqual({
       sourceMaxAttempts: 10,
@@ -52,6 +55,7 @@ describe("loadConfig", () => {
     REDIS_URL: "redis://localhost:6379",
     SESSION_SECRET: "a-secure-session-secret-with-enough-length",
     API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
+    DATA_ENCRYPTION_KEY: currentDataEncryptionKey,
     BOOTSTRAP_ADMIN_EMAIL: "admin@example.com",
     BOOTSTRAP_ADMIN_PASSWORD: "correct-horse-battery-staple-long-enough",
     GOOGLE_OAUTH_ENABLED: "false"
@@ -64,6 +68,71 @@ describe("loadConfig", () => {
     GOOGLE_REDIRECT_URI: "http://localhost:3000/auth/google/callback"
   };
   const baseEnv = () => ({ ...validEnv });
+
+  it("loads the current and previous data-encryption keys", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      DATA_ENCRYPTION_KEY_PREVIOUS: previousDataEncryptionKey
+    });
+
+    expect(config.dataEncryption).toEqual({
+      currentKey: currentDataEncryptionKey,
+      previousKey: previousDataEncryptionKey
+    });
+  });
+
+  it("allows data-encryption keys to be omitted outside production", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      NODE_ENV: "test",
+      DATA_ENCRYPTION_KEY: undefined
+    });
+
+    expect(config.dataEncryption).toEqual({ currentKey: undefined, previousKey: undefined });
+  });
+
+  it("requires the current data-encryption key in production", () => {
+    expect(() => loadConfig({ ...baseEnv(), DATA_ENCRYPTION_KEY: undefined })).toThrow(
+      "DATA_ENCRYPTION_KEY is required in production"
+    );
+  });
+
+  it.each([
+    ["invalid base64", "not-base64!"],
+    ["noncanonical base64", "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"],
+    ["short", Buffer.alloc(31, 1).toString("base64")],
+    ["long", Buffer.alloc(33, 1).toString("base64")]
+  ])("rejects an %s current data-encryption key", (_label, value) => {
+    expect(() => loadConfig({ ...baseEnv(), DATA_ENCRYPTION_KEY: value })).toThrow(
+      "DATA_ENCRYPTION_KEY_invalid"
+    );
+  });
+
+  it("rejects an invalid previous data-encryption key", () => {
+    expect(() => loadConfig({ ...baseEnv(), DATA_ENCRYPTION_KEY_PREVIOUS: "not-base64!" })).toThrow(
+      "DATA_ENCRYPTION_KEY_PREVIOUS_invalid"
+    );
+  });
+
+  it("rejects a previous data-encryption key without a current key", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "test",
+        DATA_ENCRYPTION_KEY: undefined,
+        DATA_ENCRYPTION_KEY_PREVIOUS: previousDataEncryptionKey
+      })
+    ).toThrow("DATA_ENCRYPTION_KEY is required when DATA_ENCRYPTION_KEY_PREVIOUS is set");
+  });
+
+  it("rejects equal current and previous data-encryption key material", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        DATA_ENCRYPTION_KEY_PREVIOUS: currentDataEncryptionKey
+      })
+    ).toThrow("DATA_ENCRYPTION_KEY_PREVIOUS_must_differ");
+  });
 
   it("parses required runtime configuration", () => {
     const config = loadConfig({

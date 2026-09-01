@@ -16,6 +16,8 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `POSTGRES_PORT` | No | `5432` | Host port for Compose Postgres binding. |
 | `REDIS_PORT` | No | `6379` | Host port for Compose Redis binding. |
 | `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used to sign human session cookies. |
+| `DATA_ENCRYPTION_KEY` | Production | `base64-encoded 32-byte secret (redacted)` | Current AES-256-GCM key for privileged integration credentials. Store it only in the deployment secret manager. New writes always use this key. |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | During rotation only | `base64-encoded previous 32-byte secret (redacted)` | Previous AES-256-GCM key accepted for reads during one-step rotation. It must differ from the current key and should be removed only after all old-key values are rewrapped. |
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets and, when set, in the alert email's "View in Sigmon" deep link. Defaults to the browser origin when blank; the alert email link is omitted when unset. |
@@ -77,7 +79,8 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 
 Operational rules:
 
-- Generate new values for `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` outside disposable local use.
+- Generate new values for `SESSION_SECRET`, `DATA_ENCRYPTION_KEY`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` outside disposable local use. Create encryption keys directly in an approved secret manager; do not use commands or logs that print them.
+- `DATA_ENCRYPTION_KEY` and `DATA_ENCRYPTION_KEY_PREVIOUS` must each be canonical base64 encoding of exactly 32 random bytes. Production requires the current key. During rotation, deploy the new key as current and the old key as previous; keep both until the migration reports no previous-key values.
 - Do not commit `.env`.
 - Do not commit root-level `SECRETS.md`.
 - S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.

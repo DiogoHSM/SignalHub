@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { SecretBox } from "./secret-box.js";
 
 export * from "./logger.js";
 export * from "./network-security.js";
+export * from "./secret-box.js";
 
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
 const optionalEnvString = z.preprocess(emptyStringToUndefined, z.string().optional());
@@ -97,6 +99,8 @@ const rawConfigSchema = z.object({
   REDIS_URL: z.string().url(),
   SESSION_SECRET: z.string(),
   API_KEY_PEPPER: z.string(),
+  DATA_ENCRYPTION_KEY: optionalEnvString,
+  DATA_ENCRYPTION_KEY_PREVIOUS: optionalEnvString,
   BOOTSTRAP_ADMIN_EMAIL: z.string().email(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string(),
   GOOGLE_OAUTH_ENABLED: z
@@ -236,6 +240,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   requireNoProductionPlaceholder("BOOTSTRAP_ADMIN_PASSWORD", parsed.BOOTSTRAP_ADMIN_PASSWORD, parsed.NODE_ENV);
   requireProductionDatabasePasswordIsNotPlaceholder(parsed.DATABASE_URL, parsed.NODE_ENV);
 
+  if (parsed.NODE_ENV === "production" && !parsed.DATA_ENCRYPTION_KEY) {
+    throw new Error("DATA_ENCRYPTION_KEY is required in production");
+  }
+  if (parsed.DATA_ENCRYPTION_KEY_PREVIOUS && !parsed.DATA_ENCRYPTION_KEY) {
+    throw new Error("DATA_ENCRYPTION_KEY is required when DATA_ENCRYPTION_KEY_PREVIOUS is set");
+  }
+  if (parsed.DATA_ENCRYPTION_KEY) {
+    new SecretBox({
+      currentKey: parsed.DATA_ENCRYPTION_KEY,
+      previousKey: parsed.DATA_ENCRYPTION_KEY_PREVIOUS
+    });
+  }
+
   if (parsed.GOOGLE_OAUTH_ENABLED) {
     if (!parsed.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID is required when Google OAuth is enabled");
     if (!parsed.GOOGLE_CLIENT_SECRET) throw new Error("GOOGLE_CLIENT_SECRET is required when Google OAuth is enabled");
@@ -278,6 +295,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     redisUrl: parsed.REDIS_URL,
     sessionSecret: parsed.SESSION_SECRET,
     apiKeyPepper: parsed.API_KEY_PEPPER,
+    dataEncryption: {
+      currentKey: parsed.DATA_ENCRYPTION_KEY,
+      previousKey: parsed.DATA_ENCRYPTION_KEY_PREVIOUS
+    },
     bootstrapAdmin: {
       email: parsed.BOOTSTRAP_ADMIN_EMAIL,
       password: parsed.BOOTSTRAP_ADMIN_PASSWORD
