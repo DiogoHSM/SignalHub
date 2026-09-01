@@ -32,6 +32,29 @@ describe("sanitizeValue", () => {
     expect(sanitized).toEqual({ token: "[REDACTED]" });
   });
 
+  it("rejects a 20,000-level input without overflowing the call stack", () => {
+    let value: Record<string, unknown> = { leaf: true };
+    for (let depth = 0; depth < 20_000; depth += 1) value = { child: value };
+
+    expect(() => sanitizeValue(value)).toThrow("unsafe_recursive_value:depth");
+  });
+
+  it("rejects cyclic input", () => {
+    const value: Record<string, unknown> = {};
+    value.self = value;
+
+    expect(() => sanitizeValue(value)).toThrow("unsafe_recursive_value:cycle");
+  });
+
+  it("masks sensitive nested keys in ordinary arrays and objects", () => {
+    expect(
+      sanitizeValue({ nested: { password: "secret" }, values: [{ token: "secret" }, { visible: true }] })
+    ).toEqual({
+      nested: { password: "[REDACTED]" },
+      values: [{ token: "[REDACTED]" }, { visible: true }]
+    });
+  });
+
   it("masks common credential key variants conservatively", () => {
     const sanitized = sanitizeValue({
       access_token: "secret",

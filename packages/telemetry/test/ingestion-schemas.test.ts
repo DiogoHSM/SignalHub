@@ -167,6 +167,21 @@ describe("ingestion schemas", () => {
     ).toThrow();
   });
 
+  it("rejects metadata before Zod traverses more than eight containers", () => {
+    let value: Record<string, unknown> = { leaf: true };
+    for (let depth = 0; depth < 9; depth += 1) value = { child: value };
+    const result = eventPayloadSchema.safeParse({ name: "deep", metadata: value });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain("8 container levels");
+    }
+  });
+
+  it("rejects arrays wider than 512 items", () => {
+    const result = eventPayloadSchema.safeParse({ name: "wide", metadata: { values: Array(513).fill(1) } });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects negative numeric metrics", () => {
     expect(() =>
       llmCallPayloadSchema.parse({
