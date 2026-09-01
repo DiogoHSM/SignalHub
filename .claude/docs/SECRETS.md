@@ -15,10 +15,16 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `POSTGRES_PASSWORD_URLENCODED` | Sometimes | `example-local-password-change-me` | URL-encoded password for Compose internal `DATABASE_URL` when the raw password has URL-reserved characters. |
 | `POSTGRES_PORT` | No | `5432` | Host port for Compose Postgres binding. |
 | `REDIS_PORT` | No | `6379` | Host port for Compose Redis binding. |
-| `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used to sign human session cookies. |
+| `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. HMAC key for normalized-account login quota identifiers. Human session cookies contain opaque random tokens and are not signed payloads. |
 | `DATA_ENCRYPTION_KEY` | Production | `base64-encoded 32-byte secret (redacted)` | Current AES-256-GCM key for privileged integration credentials. Store it only in the deployment secret manager. New writes always use this key. |
 | `DATA_ENCRYPTION_KEY_PREVIOUS` | During rotation only | `base64-encoded previous 32-byte secret (redacted)` | Previous AES-256-GCM key accepted for reads during one-step rotation. It must differ from the current key and should be removed only after all old-key values are rewrapped. |
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
+| `LOGIN_SOURCE_MAX_ATTEMPTS` | No | `10` | Non-secret. Maximum password-login attempts admitted from one trusted `request.ip` during the source window. |
+| `LOGIN_SOURCE_WINDOW_MS` | No | `60000` | Non-secret. Source-IP password-login quota window in milliseconds. |
+| `LOGIN_ACCOUNT_MAX_ATTEMPTS` | No | `8` | Non-secret. Maximum password-login attempts admitted for one normalized-account HMAC during the shared Redis window. |
+| `LOGIN_ACCOUNT_WINDOW_MS` | No | `900000` | Non-secret. Shared normalized-account quota window in milliseconds. |
+| `LOGIN_ARGON2_CONCURRENCY` | No | `4` | Non-secret. Maximum concurrent password Argon2 verifications in each API process. |
+| `LOGIN_PROGRESSIVE_DELAY_MAX_MS` | No | `2000` | Non-secret. Maximum progressive delay in milliseconds after a quota-admitted invalid credential. |
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets and, when set, in the alert email's "View in Sigmon" deep link. Defaults to the browser origin when blank; the alert email link is omitted when unset. |
 | `LANDING_HOSTS` | No | `sigmon.app,www.sigmon.app` | Non-secret. Comma-separated bare hostnames (no scheme or port) that receive the public landing page at `GET /`. Every other host is redirected from `/` to `/console` when the console is enabled. Defaults to `sigmon.app,www.sigmon.app`. |

@@ -93,7 +93,7 @@ Docker images run as the non-root `sigmon` user under `tini`, and Docker Compose
 
 HTTP security headers are set on API responses. In production, the human session cookie uses the `__Host-sigmon_session` name with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`.
 
-Human cookies carry only random opaque tokens, while Postgres stores only token hashes. Logout, password changes, and user archival revoke sessions; the upgrade from signed cookies intentionally requires one fresh login. Password login uses source and normalized-account quotas, bounded fail-closed Redis calls, progressive delay, one Argon2 verification for every credential case, and an in-process Argon2 concurrency limit.
+Human cookies carry only random opaque tokens, while Postgres stores only token hashes. Logout, password changes, and user archival revoke sessions; the upgrade from signed cookies intentionally requires one fresh login. Password login applies schema/byte validation and source/account admission before Argon2: invalid input returns `400`, quota rejection returns `429`, and unavailable quota state returns `503`. Each schema-valid, quota-admitted credential check performs exactly one real or dummy Argon2 verification; missing, archived, OAuth-only, and wrong-password accounts then share the same delayed `401 invalid_credentials` contract. An in-process semaphore bounds Argon2 concurrency.
 
 Warehouse connection URLs and webhook secret-header values are encrypted at rest with record-bound AES-256-GCM. Operators must retain the matching keyring separately from database backups. See `docs/SELF-HOSTING.md` before upgrading or rotating a key.
 
